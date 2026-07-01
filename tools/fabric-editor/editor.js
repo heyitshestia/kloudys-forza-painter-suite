@@ -2214,6 +2214,16 @@ function vinylObjectAtCanvasPoint(x, y) {
 
 function pickShapeColorFromEvent(opt) {
   const pointer = canvas.getPointer(opt.e);
+  if (overlayLayerMode === "above") {
+    const overlayColor = overlayColorAtCanvasPoint(pointer.x, pointer.y);
+    if (overlayColor) {
+      restoreDropperSelection();
+      applyEditorColor(overlayColor, "source eyedropper");
+      restoreDropperSelection();
+      setStatus(`Picked source overlay color ${colorToHex(overlayColor).toUpperCase()}.`);
+      return;
+    }
+  }
   const target = (opt.target?.kloudy ? opt.target : null) || vinylObjectAtCanvasPoint(pointer.x, pointer.y);
   restoreDropperSelection();
   if (target) {

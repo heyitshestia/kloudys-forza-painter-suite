@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.28
+- Fixed the editor eyedropper so source overlays placed above vinyl layers are sampled before the layers beneath them.
+
 ## 3.0.27
 - Changed the shipped KFPS executable into a small launcher for the loose QML app files.
 - Hardened updater replacement with SHA256 verification so old and new `KFPS.exe` files cannot be confused.
