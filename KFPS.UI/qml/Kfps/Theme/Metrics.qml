@@ -2,19 +2,19 @@ pragma Singleton
 import QtQuick 6.7
 
 QtObject {
-    // Window contract. These stay in physical window pixels; Theme.px() is used
-    // for every child control so user scaling remains internally consistent.
-    readonly property int launchWidth: 1548
-    readonly property int launchHeight: 970
-    readonly property int minWidth: 1140
-    readonly property int minHeight: 720
+    // Larger creator-first launch size. The main workflow is designed to show
+    // all primary options without page scrolling at this size.
+    readonly property int launchWidth: 1760
+    readonly property int launchHeight: 1040
+    readonly property int minWidth: 1360
+    readonly property int minHeight: 820
 
     // Shell dimensions in design units.
     readonly property real titleHeight: 30
     readonly property real wideSidebar: 205
     readonly property real compactSidebar: 104
-    readonly property real headerHeight: 116
-    readonly property real compactHeaderHeight: 86
+    readonly property real headerHeight: 96
+    readonly property real compactHeaderHeight: 78
     readonly property real consoleHeight: 178
     readonly property real compactConsoleHeight: 144
     readonly property real consoleCollapsedHeight: 50

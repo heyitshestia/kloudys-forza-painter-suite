@@ -6,288 +6,225 @@ import "../components"
 
 Item {
     id: root
-
     anchors.fill: parent
-    property bool wide: Theme.logical(width) >= 980
+    clip: true
 
-    Loader {
+    property bool wide: Theme.logical(width) >= 1120
+    property bool compactHeight: Theme.logical(height) < 720
+
+    GridLayout {
         anchors.fill: parent
-        sourceComponent: root.wide ? wideComponent : compactComponent
-    }
+        columns: root.wide ? 3 : 1
+        columnSpacing: Theme.px(12)
+        rowSpacing: Theme.px(12)
 
-    Component {
-        id: launchPanel
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(330) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(300) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
+            strong: true
 
-        ColumnLayout {
-            spacing: Theme.px(10)
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 8 : 10)
 
-            SectionHeading {
-                Layout.fillWidth: true
-                title: "Launch and projects"
-                subtitle: "The Fabric editor remains the existing local browser app."
-            }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.px(10)
 
-            PrimaryButton {
-                Layout.fillWidth: true
-                text: "Open Editor"
-                iconName: "editor"
-                onClicked: editorService.launch()
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                text: "Refresh project browser"
-                iconName: "refresh"
-                onClicked: editorService.refresh()
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                text: "Projects folder"
-                iconName: "folder"
-                onClicked: editorService.openProjects()
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                text: "Editor app folder"
-                onClicked: editorService.openEditorFolder()
-            }
-
-            GlassPanel {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.px(130)
-                soft: true
-
-                Column {
-                    anchors.fill: parent
-                    anchors.margins: Theme.px(12)
-                    spacing: Theme.px(7)
-
-                    Text {
-                        text: "Project files vs exports"
-                        color: Theme.primaryBright
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(13)
-                        font.weight: Font.DemiBold
+                    Icon {
+                        name: "editor"
+                        iconSize: Theme.px(31)
+                        glow: true
+                        Layout.alignment: Qt.AlignVCenter
                     }
 
-                    Text {
-                        width: parent.width
-                        text: "Projects preserve editor state and overlays. Exported JSONs are the files intended for the JSON import workflow."
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(11)
-                        wrapMode: Text.Wrap
-                        lineHeight: 1.28
+                    SectionHeading {
+                        Layout.fillWidth: true
+                        title: "1. Editor actions"
+                        subtitle: "Open the editor or refresh projects."
                     }
                 }
-            }
 
-            Item {
-                Layout.fillHeight: true
-            }
-        }
-    }
-
-    Component {
-        id: projectBrowserPanel
-
-        ColumnLayout {
-            spacing: Theme.px(8)
-
-            Text {
-                text: "Project browser"
-                color: Theme.primaryBright
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.px(14)
-                font.weight: Font.DemiBold
-            }
-
-            ListView {
-                id: projects
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: editorService.projectModel
-                spacing: Theme.px(5)
-
-                delegate: GhostButton {
-                    required property string name
-                    required property string modifiedLabel
-                    required property int index
-                    width: projects.width
-                    minimumWidth: 0
-                    text: name + "  •  " + modifiedLabel
-                    onClicked: editorService.select(index)
-                }
-            }
-        }
-    }
-
-    Component {
-        id: previewPanel
-
-        ColumnLayout {
-            id: previewRoot
-            spacing: Theme.px(10)
-            property bool compactActions: Theme.logical(width) < 520
-
-            SectionHeading {
-                Layout.fillWidth: true
-                title: editorService.selectedName === "—" ? "Project preview" : editorService.selectedName
-                subtitle: editorService.selectedPath || "Select a project from the browser."
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumHeight: Theme.px(180)
-                radius: Theme.px(10)
-                color: "#b408050b"
-                border.width: Math.max(1, Theme.px(1))
-                border.color: Theme.border
-
-                Image {
-                    anchors.fill: parent
-                    anchors.margins: Theme.px(10)
-                    source: editorService.previewUrl
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                }
-
-                EmptyState {
-                    visible: !editorService.previewUrl
-                    anchors.centerIn: parent
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "Launch Empty Editor"
                     iconName: "editor"
-                    title: "Select a project"
-                    message: "A rendered preview will appear here."
+                    onClicked: editorService.launch()
                 }
+
+                GhostButton {
+                    Layout.fillWidth: true
+                    text: "Refresh Project List"
+                    iconName: "refresh"
+                    onClicked: editorService.refresh()
+                }
+
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 130 : 152)
+                    soft: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(12)
+                        spacing: Theme.px(6)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Project files vs exports"
+                            color: Theme.primaryBright
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(13)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: "Projects preserve editor state and overlays. Export JSONs from the editor, then use Outputs to import them into the game template. Folder shortcuts live in Settings."
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(10.5)
+                            wrapMode: Text.Wrap
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
             }
+        }
+
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(430) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(340) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
 
             ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.px(6)
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 7 : 9)
 
-                Text {
+                SectionHeading {
                     Layout.fillWidth: true
-                    text: "Shapes: " + editorService.selectedShapes
-                    color: Theme.muted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(11)
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
+                    title: "2. Project browser"
+                    subtitle: "Select exactly one saved editor project."
                 }
 
-                GridLayout {
+                ListView {
+                    id: projects
                     Layout.fillWidth: true
-                    columns: previewRoot.compactActions ? 1 : 2
-                    columnSpacing: Theme.px(8)
-                    rowSpacing: Theme.px(6)
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.px(360)
+                    clip: true
+                    model: editorService.projectModel
+                    spacing: Theme.px(5)
 
-                    PrimaryButton {
-                        Layout.fillWidth: true
+                    delegate: GhostButton {
+                        required property string name
+                        required property string modifiedLabel
+                        required property int index
+                        width: projects.width
                         minimumWidth: 0
-                        text: "Use selected project in editor"
-                        maximumTextWidth: Theme.px(220)
-                        enabled: editorService.selectedPath.length > 0
-                        onClicked: editorService.launchSelected()
+                        maximumTextWidth: Math.max(Theme.px(160), width - Theme.px(40))
+                        text: name + "  •  " + modifiedLabel
+                        dense: root.compactHeight
+                        onClicked: editorService.select(index)
                     }
 
-                    GhostButton {
-                        Layout.fillWidth: true
-                        minimumWidth: 0
-                        text: "Open projects folder"
-                        maximumTextWidth: Theme.px(170)
-                        onClicked: editorService.openProjects()
-                    }
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 }
             }
         }
-    }
 
-    Component {
-        id: wideComponent
-
-        GridLayout {
-            columns: 3
-            columnSpacing: Theme.px(10)
-
-            HoverCard {
-                Layout.preferredWidth: Theme.px(270)
-                Layout.minimumWidth: Theme.px(240)
-                Layout.fillHeight: true
-                padding: Theme.px(16)
-                Loader {
-                    anchors.fill: parent
-                    sourceComponent: launchPanel
-                }
-            }
-
-            HoverCard {
-                Layout.preferredWidth: Theme.px(320)
-                Layout.minimumWidth: Theme.px(260)
-                Layout.fillHeight: true
-                padding: Theme.px(14)
-                Loader {
-                    anchors.fill: parent
-                    sourceComponent: projectBrowserPanel
-                }
-            }
-
-            HoverCard {
-                Layout.fillWidth: true
-                Layout.minimumWidth: Theme.px(350)
-                Layout.fillHeight: true
-                padding: Theme.px(16)
-                Loader {
-                    anchors.fill: parent
-                    sourceComponent: previewPanel
-                }
-            }
-        }
-    }
-
-    Component {
-        id: compactComponent
-
-        ScrollView {
-            id: compactScroll
-            clip: true
-            contentWidth: availableWidth
-            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(620) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(430) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
+            strong: true
 
             ColumnLayout {
-                width: compactScroll.availableWidth
-                spacing: Theme.px(10)
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 7 : 9)
 
-                HoverCard {
+                SectionHeading {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(390)
-                    padding: Theme.px(16)
-                    Loader {
+                    title: editorService.selectedName === "—" ? "3. Selected project" : "3. " + editorService.selectedName
+                    subtitle: editorService.selectedPath || "Select a project from the browser."
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.px(330)
+                    radius: Theme.px(18)
+                    color: "#d908050b"
+                    border.width: Math.max(1, Theme.px(1))
+                    border.color: Theme.borderStrong
+                    clip: true
+
+                    Rectangle {
                         anchors.fill: parent
-                        sourceComponent: launchPanel
+                        anchors.margins: Theme.px(1)
+                        radius: parent.radius - Theme.px(1)
+                        color: "transparent"
+                        border.width: Math.max(1, Theme.px(1))
+                        border.color: Theme.innerHighlight
+                        opacity: 0.92
+                    }
+
+                    Image {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(14)
+                        source: editorService.previewUrl
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        smooth: true
+                        mipmap: true
+                    }
+
+                    EmptyState {
+                        visible: !editorService.previewUrl
+                        anchors.centerIn: parent
+                        iconName: "editor"
+                        title: "Select a project"
+                        message: "A rendered project preview will appear here."
                     }
                 }
 
-                HoverCard {
+                GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(320)
-                    padding: Theme.px(14)
-                    Loader {
-                        anchors.fill: parent
-                        sourceComponent: projectBrowserPanel
-                    }
-                }
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 84 : 96)
+                    soft: true
 
-                HoverCard {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(500)
-                    padding: Theme.px(16)
-                    Loader {
+                    RowLayout {
                         anchors.fill: parent
-                        sourceComponent: previewPanel
+                        anchors.margins: Theme.px(11)
+                        spacing: Theme.px(10)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Shapes: " + editorService.selectedShapes
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(10.8)
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        PrimaryButton {
+                            minimumWidth: Theme.px(170)
+                            text: "Open Selected"
+                            enabled: editorService.selectedPath.length > 0
+                            onClicked: editorService.launchSelected()
+                        }
                     }
                 }
             }

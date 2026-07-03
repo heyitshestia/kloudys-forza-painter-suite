@@ -10,10 +10,10 @@ UI_ROOT = Path(__file__).resolve().parent
 SRC = UI_ROOT / "src"
 ROOT = UI_ROOT.parent
 for item in (str(SRC), str(ROOT)):
-    if item not in sys.path: sys.path.insert(0, item)
+    if item not in sys.path:
+        sys.path.insert(0, item)
 
 from PySide6.QtCore import QCoreApplication, QPointF, QTimer, QUrl
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -44,9 +44,9 @@ def parse_args():
     parser.add_argument("--layout-report")
     parser.add_argument("--layout-report-dir")
     parser.add_argument("--screenshot-dir")
-    parser.add_argument("--page", default="dashboard")
-    parser.add_argument("--width", type=int, default=1548)
-    parser.add_argument("--height", type=int, default=970)
+    parser.add_argument("--page", default="create")
+    parser.add_argument("--width", type=int, default=1760)
+    parser.add_argument("--height", type=int, default=1040)
     parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--allow-unsupported-python", action="store_true")
@@ -54,36 +54,79 @@ def parse_args():
 
 
 def main():
-    args=parse_args()
-    if sys.version_info[:2] != (3,12) and not args.allow_unsupported_python:
+    args = parse_args()
+    if sys.version_info[:2] != (3, 12) and not args.allow_unsupported_python:
         raise SystemExit("KFPS requires 64-bit Python 3.12. Use the bundled runtime.")
     if not os.environ.get("KFPS_QML_GRAPHICS"):
-        # Avoid the default Windows D3D scene graph, which can crash on focus
-        # return on some systems, without losing Qt Quick effects/glass visuals.
         QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
         os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
-    QCoreApplication.setOrganizationName("Kloudy");QCoreApplication.setApplicationName("KFPS")
+    QCoreApplication.setOrganizationName("Kloudy")
+    QCoreApplication.setApplicationName("KFPS")
     QQuickStyle.setStyle("Basic")
-    app=QApplication(sys.argv[:1]);app.setApplicationDisplayName("KFPS")
-    paths=AppPaths.discover();settings=SettingsService(paths.settings_file)
+    app = QApplication(sys.argv[:1])
+    app.setApplicationDisplayName("KFPS")
+
+    paths = AppPaths.discover()
+    settings = SettingsService(paths.settings_file)
     if args.ui_scale is not None:
-        # Screenshot/QA override only. Do not persist temporary test scales.
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
-    logs=LogService();desktop=DesktopService(paths,logs);version=VersionService(paths.app_root/"VERSION",demo=args.demo);runtime=RuntimeService(demo=args.demo);preview=PreviewService(paths);source=SourceImageService(paths,desktop,logs);jsons=JsonService(paths,preview,desktop,logs,demo=args.demo);generation=GenerationService(paths,logs);transfer=TransferService(paths,logs,jsons);editor=EditorService(paths,preview,desktop,logs);help_service=HelpService();reports=ReportService(paths,logs,version);updates=UpdateService(paths,logs);controller=AppController();changelog=ChangelogService(paths.app_root/"CHANGELOG.md")
-    engine=QQmlApplicationEngine();ctx=engine.rootContext()
-    objects={"appController":controller,"settings":settings,"logs":logs,"versionService":version,"runtimeService":runtime,"desktop":desktop,"sourceService":source,"jsonService":jsons,"generationService":generation,"transferService":transfer,"editorService":editor,"helpService":help_service,"reportService":reports,"updateService":updates,"changelogService":changelog}
-    for name,obj in objects.items():ctx.setContextProperty(name,obj)
-    ctx.setContextProperty("assetRoot",QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
-    ctx.setContextProperty("screenshotMode",bool(args.screenshot or args.screenshot_dir));ctx.setContextProperty("demoMode",args.demo)
-    qml=paths.qml_root/"Main.qml";engine.addImportPath(str(paths.qml_root));engine.load(QUrl.fromLocalFile(str(qml)))
-    if not engine.rootObjects():return 2
-    window=engine.rootObjects()[0]
+
+    logs = LogService()
+    desktop = DesktopService(paths, logs)
+    version = VersionService(paths.app_root / "VERSION", demo=args.demo)
+    runtime = RuntimeService(demo=args.demo)
+    preview = PreviewService(paths)
+    source = SourceImageService(paths, desktop, logs)
+    jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
+    generation = GenerationService(paths, logs)
+    transfer = TransferService(paths, logs, jsons)
+    editor = EditorService(paths, preview, desktop, logs)
+    help_service = HelpService()
+    reports = ReportService(paths, logs, version)
+    updates = UpdateService(paths, logs)
+    controller = AppController()
+    changelog = ChangelogService(paths.app_root / "CHANGELOG.md")
+
+    engine = QQmlApplicationEngine()
+    ctx = engine.rootContext()
+    objects = {
+        "appController": controller,
+        "settings": settings,
+        "logs": logs,
+        "versionService": version,
+        "runtimeService": runtime,
+        "desktop": desktop,
+        "sourceService": source,
+        "jsonService": jsons,
+        "generationService": generation,
+        "transferService": transfer,
+        "editorService": editor,
+        "helpService": help_service,
+        "reportService": reports,
+        "updateService": updates,
+        "changelogService": changelog,
+    }
+    for name, obj in objects.items():
+        ctx.setContextProperty(name, obj)
+    ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
+    ctx.setContextProperty("screenshotMode", bool(args.screenshot or args.screenshot_dir))
+    ctx.setContextProperty("demoMode", args.demo)
+
+    qml = paths.qml_root / "Main.qml"
+    engine.addImportPath(str(paths.qml_root))
+    engine.load(QUrl.fromLocalFile(str(qml)))
+    if not engine.rootObjects():
+        return 2
+    window = engine.rootObjects()[0]
     try:
         window.setPersistentGraphics(False)
         window.setPersistentSceneGraph(False)
     except Exception:
         pass
-    window.setWidth(args.width);window.setHeight(args.height);controller.navigate(args.page)
+    window.setWidth(args.width)
+    window.setHeight(args.height)
+    controller.navigate(args.page)
+
     def write_layout_report(target_path: str) -> None:
         target = Path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -98,12 +141,17 @@ def main():
             if not name.startswith(prefixes) or not obj.isVisible() or obj.opacity() <= 0.01:
                 continue
             point = obj.mapToScene(QPointF(0, 0))
-            width = float(obj.width()); height = float(obj.height())
-            x = float(point.x()); y = float(point.y())
+            width = float(obj.width())
+            height = float(obj.height())
+            x = float(point.x())
+            y = float(point.y())
             controls.append({
-                "name": name, "class": obj.metaObject().className(),
-                "x": round(x, 2), "y": round(y, 2),
-                "width": round(width, 2), "height": round(height, 2),
+                "name": name,
+                "class": obj.metaObject().className(),
+                "x": round(x, 2),
+                "y": round(y, 2),
+                "width": round(width, 2),
+                "height": round(height, 2),
                 "enabled": bool(obj.isEnabled()),
                 "intersectsWindow": bool(x + width > 0 and y + height > 0 and x < window.width() and y < window.height()),
                 "fullyInsideWindow": bool(x >= -0.5 and y >= -0.5 and x + width <= window.width() + 0.5 and y + height <= window.height() + 0.5),
@@ -126,8 +174,8 @@ def main():
         if screenshot_dir:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         audit_pages = [
-            "dashboard", "generate", "json", "editor", "images",
-            "tools", "help", "reports", "update", "settings",
+            "create", "outputs", "editor", "help", "settings",
+            "tools", "images", "reports", "update",
         ]
         audit_index = 0
 
@@ -156,6 +204,7 @@ def main():
         screenshot_target = Path(args.screenshot) if args.screenshot else None
         if screenshot_target:
             screenshot_target.parent.mkdir(parents=True, exist_ok=True)
+
         def capture_and_report():
             try:
                 if screenshot_target:
@@ -165,8 +214,10 @@ def main():
                     write_layout_report(args.layout_report)
             finally:
                 QTimer.singleShot(50, app.quit)
+
         QTimer.singleShot(1700 if screenshot_target else 650, capture_and_report)
     return app.exec()
 
 
-if __name__=="__main__":raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())

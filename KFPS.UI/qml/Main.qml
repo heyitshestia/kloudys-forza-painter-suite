@@ -17,8 +17,6 @@ ApplicationWindow {
     title: appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    // Continuous uniform fit. Fonts, controls, gaps, radii and shell dimensions
-    // all share this factor; fill layouts absorb surplus space on wide monitors.
     readonly property real viewportFitScale: Theme.clamp(
                                                 Math.min(width / Metrics.launchWidth,
                                                          height / Metrics.launchHeight),
@@ -96,7 +94,7 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
-                    x: (window.width - width) / 2 - workspace.x
+                    x: Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
                     z: 20
                 }
 
@@ -118,13 +116,17 @@ ApplicationWindow {
                         Layout.minimumHeight: Theme.px(100)
                         clip: true
                         source: "pages/" + ({
-                            dashboard: "DashboardPage",
-                            generate: "GeneratePage",
+                            create: "CreatePage",
+                            dashboard: "CreatePage",
+                            outputs: "JsonPage",
+                            library: "JsonPage",
                             json: "JsonPage",
+                            generate: "GeneratePage",
                             editor: "EditorPage",
                             images: "ImagesPage",
                             tools: "ToolsPage",
                             help: "HelpPage",
+                            learn: "HelpPage",
                             reports: "ReportsPage",
                             update: "UpdatePage",
                             settings: "SettingsPage"

@@ -11,65 +11,33 @@ Item {
     property real railWidth: Theme.px(compact ? Metrics.compactSidebar : Metrics.wideSidebar)
     property bool denseNavigation: Theme.logical(height) < 760
     readonly property var navItems: [
-        {
-            page: "dashboard",
-            label: "Home",
-            icon: "home"
-        },
-        {
-            page: "generate",
-            label: "Generate",
-            icon: "generate"
-        },
-        {
-            page: "json",
-            label: "JSON",
-            icon: "json"
-        },
-        {
-            page: "editor",
-            label: "Editor",
-            icon: "editor"
-        },
-        {
-            page: "images",
-            label: "Images",
-            icon: "images"
-        },
-        {
-            page: "tools",
-            label: "Tools",
-            icon: "tools"
-        },
-        {
-            page: "help",
-            label: "Help",
-            icon: "help"
-        },
-        {
-            page: "reports",
-            label: "Reports",
-            icon: "reports"
-        },
-        {
-            page: "update",
-            label: "Update",
-            icon: "update"
-        },
-        {
-            page: "settings",
-            label: "Settings",
-            icon: "settings"
-        }
+        { page: "create", label: "Create", icon: "generate" },
+        { page: "outputs", label: "Outputs", icon: "json" },
+        { page: "editor", label: "Editor", icon: "editor" },
+        { page: "help", label: "Help", icon: "help" },
+        { page: "settings", label: "Settings", icon: "settings" }
     ]
     signal route(string page)
 
+    function primaryPage(page) {
+        if (page === "outputs" || page === "json" || page === "library")
+            return "outputs"
+        if (page === "editor")
+            return "editor"
+        if (page === "help" || page === "learn")
+            return "help"
+        if (page === "settings" || page === "reports" || page === "update")
+            return "settings"
+        return "create"
+    }
+
     function pageIndex(page) {
+        var primary = primaryPage(page)
         for (let index = 0; index < navItems.length; ++index) {
-            if (navItems[index].page === page)
-                return index;
+            if (navItems[index].page === primary)
+                return index
         }
-        return 0;
+        return 0
     }
 
     width: railWidth
@@ -101,7 +69,7 @@ Item {
         anchors.leftMargin: -width * 0.28
         anchors.bottomMargin: Theme.px(28)
         fillMode: Image.PreserveAspectFit
-        opacity: root.compact ? 0.38 : 0.48
+        opacity: root.compact ? 0.30 : 0.40
         smooth: true
         mipmap: true
     }
@@ -156,7 +124,7 @@ Item {
                     }
 
                     Text {
-                        text: "Kloudy's Forza"
+                        text: "Create-first"
                         color: Theme.muted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(root.denseNavigation ? 8.8 : 9.5)
@@ -231,7 +199,7 @@ Item {
                 iconName: modelData.icon
                 compact: root.compact
                 dense: root.denseNavigation
-                active: appController.currentPage === modelData.page
+                active: root.primaryPage(appController.currentPage) === modelData.page
                 onClicked: root.route(modelData.page)
             }
 
@@ -241,22 +209,47 @@ Item {
 
             onCurrentIndexChanged: Qt.callLater(function () {
                 if (currentIndex >= 0)
-                    positionViewAtIndex(currentIndex, ListView.Contain);
+                    positionViewAtIndex(currentIndex, ListView.Contain)
             })
 
             Component.onCompleted: Qt.callLater(function () {
                 if (currentIndex >= 0)
-                    positionViewAtIndex(currentIndex, ListView.Contain);
+                    positionViewAtIndex(currentIndex, ListView.Contain)
             })
         }
 
-        NavButton {
+        GlassPanel {
+            visible: !root.compact
             Layout.fillWidth: true
-            text: "Open root"
-            iconName: "folder"
-            compact: root.compact
-            dense: root.denseNavigation
-            onClicked: desktop.openRoot()
+            Layout.preferredHeight: Theme.px(root.denseNavigation ? 58 : 68)
+            soft: true
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: Theme.px(9)
+                spacing: Theme.px(2)
+
+                Text {
+                    width: parent.width
+                    text: "Single path per task"
+                    color: Theme.primaryBright
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(10.2)
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    width: parent.width
+                    text: "Folders and maintenance are in Settings."
+                    color: Theme.subtle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(8.7)
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+            }
         }
     }
 }

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.29
+- Reworked the native QML app around a creator-first, no-scroll workflow layout.
+- Added the new Create page and consolidated output browsing into the Outputs workflow.
+- Kept legacy navigation routes working for existing shortcuts and update flows.
+
 ## 3.0.28
 - Fixed the editor eyedropper so source overlays placed above vinyl layers are sampled before the layers beneath them.
 

@@ -7,168 +7,265 @@ import "../components"
 Item {
     id: root
     anchors.fill: parent
+    clip: true
 
-    ScrollView {
-        id: scroll
+    property bool wide: Theme.logical(width) >= 1120
+    property bool compactHeight: Theme.logical(height) < 720
+
+    GridLayout {
         anchors.fill: parent
-        contentWidth: availableWidth
-        clip: true
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        columns: root.wide ? 3 : 1
+        columnSpacing: Theme.px(12)
+        rowSpacing: Theme.px(12)
 
-        ColumnLayout {
-            width: scroll.availableWidth
-            spacing: Theme.px(12)
-
-            SectionHeading {
-                Layout.fillWidth: true
-                title: "Checks and preferences"
-                subtitle: "Adjust the native QML interface and app preferences."
-            }
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(390) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(330) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
+            strong: true
 
             ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.px(12)
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 7 : 10)
 
-                HoverCard {
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(380)
-                    padding: Theme.px(18)
+                    spacing: Theme.px(10)
+
+                    Icon {
+                        name: "settings"
+                        iconSize: Theme.px(31)
+                        glow: true
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    SectionHeading {
+                        Layout.fillWidth: true
+                        title: "Interface"
+                        subtitle: "Appearance and behavior preferences."
+                    }
+                }
+
+                Label { text: "Theme preset" }
+                KfpsComboBox {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    model: ["Night Blossom"]
+                    currentIndex: 0
+                    enabled: false
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "Night Blossom is active. Supporter themes can be added here once the final material direction is chosen."
+                    color: Theme.subtle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(10.2)
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                }
+
+                Label { text: "UI scale  •  " + Math.round(settings.uiScale * 100) + "%" }
+                KfpsSlider {
+                    Layout.fillWidth: true
+                    from: 0.8
+                    to: 1.35
+                    stepSize: 0.05
+                    value: settings.uiScale
+                    onMoved: settings.uiScale = value
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(1, Theme.px(1))
+                    color: Theme.divider
+                    opacity: 0.68
+                }
+
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    text: "Manual generator overrides"
+                    checked: settings.manualOverrides
+                    onToggled: settings.manualOverrides = checked
+                }
+
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    text: "Reduce nonessential motion"
+                    checked: settings.reducedMotion
+                    onToggled: settings.reducedMotion = checked
+                }
+
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    text: "Ambient branch and petals"
+                    checked: settings.ambientMotion
+                    enabled: !settings.reducedMotion
+                    onToggled: settings.ambientMotion = checked
+                }
+
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    text: "Glass shadows and effects"
+                    checked: settings.glassEffects
+                    onToggled: settings.glassEffects = checked
+                }
+
+                Item { Layout.fillHeight: true }
+            }
+        }
+
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(520) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(420) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 5 : 7)
+
+                SectionHeading {
+                    Layout.fillWidth: true
+                    title: "Folders"
+                    subtitle: "Each filesystem location appears once here."
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "folder"
+                    title: "Application root"
+                    subtitle: desktop.appRoot
+                    onClicked: desktop.openRoot()
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "images"
+                    title: "Source images"
+                    subtitle: desktop.sourceImagesFolder
+                    onClicked: desktop.openSourceImages()
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "json"
+                    title: "Generated outputs"
+                    subtitle: desktop.generatedFolder
+                    onClicked: desktop.openGenerated()
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "transfer"
+                    title: "Exported JSONs"
+                    subtitle: desktop.exportedFolder
+                    onClicked: desktop.openExported()
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "editor"
+                    title: "Editor projects"
+                    subtitle: desktop.editorProjectsFolder
+                    onClicked: desktop.openProjects()
+                }
+
+                QuickActionRow {
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    iconName: "reports"
+                    title: "Saved reports"
+                    subtitle: desktop.reportsFolder
+                    onClicked: desktop.openReports()
+                }
+
+                Item { Layout.fillHeight: true }
+            }
+        }
+
+        HoverCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: root.wide ? Theme.px(390) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(330) : 0
+            padding: Theme.px(root.compactHeight ? 14 : 16)
+            strong: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Theme.px(root.compactHeight ? 8 : 10)
+
+                SectionHeading {
+                    Layout.fillWidth: true
+                    title: "Maintenance"
+                    subtitle: "Updates, reports, and logs stay out of the creation flow."
+                }
+
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "Check Updates"
+                    iconName: "update"
+                    onClicked: appController.navigate("update")
+                }
+
+                GhostButton {
+                    Layout.fillWidth: true
+                    text: "Create Diagnostic Report"
+                    iconName: "reports"
+                    onClicked: appController.navigate("reports")
+                }
+
+                GhostButton {
+                    Layout.fillWidth: true
+                    text: "Open Runtime Logs"
+                    iconName: "folder"
+                    onClicked: desktop.openRuntime()
+                }
+
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 150 : 178)
+                    soft: true
 
                     ColumnLayout {
                         anchors.fill: parent
-                        spacing: Theme.px(12)
+                        anchors.margins: Theme.px(12)
+                        spacing: Theme.px(6)
 
                         Text {
-                            text: "Interface"
+                            Layout.fillWidth: true
+                            text: "Layout rule"
                             color: Theme.primaryBright
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(16)
+                            font.pixelSize: Theme.px(13)
                             font.weight: Font.DemiBold
+                            elide: Text.ElideRight
                         }
 
-                        Label {
-                            text: "Theme preset"
-                        }
-
-                        KfpsComboBox {
+                        Text {
                             Layout.fillWidth: true
-                            model: ["Night Blossom"]
-                            currentIndex: 0
-                            enabled: true
-                        }
-
-                        Label {
-                            text: "UI scale  •  " + Math.round(settings.uiScale * 100) + "%"
-                        }
-
-                        KfpsSlider {
-                            Layout.fillWidth: true
-                            from: 0.8
-                            to: 1.35
-                            stepSize: 0.05
-                            value: settings.uiScale
-                            onMoved: settings.uiScale = value
-                        }
-
-                        KfpsSwitch {
-                            Layout.fillWidth: true
-                            text: "Enable manual generator overrides"
-                            checked: settings.manualOverrides
-                            onToggled: settings.manualOverrides = checked
-                        }
-
-                        KfpsSwitch {
-                            Layout.fillWidth: true
-                            text: "Reduce nonessential motion"
-                            checked: settings.reducedMotion
-                            onToggled: settings.reducedMotion = checked
-                        }
-
-                        KfpsSwitch {
-                            Layout.fillWidth: true
-                            text: "Ambient branch and petals"
-                            checked: settings.ambientMotion
-                            enabled: !settings.reducedMotion
-                            onToggled: settings.ambientMotion = checked
-                        }
-
-                        KfpsSwitch {
-                            Layout.fillWidth: true
-                            text: "Glass shadows and effects"
-                            checked: settings.glassEffects
-                            onToggled: settings.glassEffects = checked
+                            Layout.fillHeight: true
+                            text: "Primary creation screens do not duplicate folder shortcuts or maintenance paths. Use Settings for locations, Create for generation, Outputs for import/export, and Editor for project work."
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(10.5)
+                            wrapMode: Text.Wrap
+                            elide: Text.ElideRight
                         }
                     }
                 }
-            }
 
-            HoverCard {
-                id: rootCard
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.px(185)
-                padding: Theme.px(18)
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: Theme.px(10)
-
-                    RowLayout {
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: "Current app root"
-                            color: Theme.primaryBright
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(15)
-                            font.weight: Font.DemiBold
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    GridLayout {
-                        Layout.fillWidth: true
-                        columns: Theme.logical(rootCard.width) > 650 ? 3 : 1
-                        columnSpacing: Theme.px(8)
-                        rowSpacing: Theme.px(8)
-
-                        GhostButton {
-                            Layout.fillWidth: true
-                            text: "Open root"
-                            iconName: "folder"
-                            onClicked: desktop.openRoot()
-                        }
-
-                        GhostButton {
-                            Layout.fillWidth: true
-                            text: "JSON folders"
-                            onClicked: desktop.openJsonFolders()
-                        }
-
-                        GhostButton {
-                            Layout.fillWidth: true
-                            text: "Generated"
-                            onClicked: desktop.openGenerated()
-                        }
-                    }
-
-                    KfpsTextField {
-                        Layout.fillWidth: true
-                        text: "The current KFPS application root is shown in runtime logs at startup."
-                        readOnly: true
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: "Theme infrastructure is ready for future presets, but Night Blossom is the only selectable theme in this release."
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(11)
-                        wrapMode: Text.Wrap
-                    }
-                }
+                Item { Layout.fillHeight: true }
             }
         }
     }
