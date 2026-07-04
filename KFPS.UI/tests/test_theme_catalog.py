@@ -29,6 +29,7 @@ class ThemeCatalogTests(unittest.TestCase):
             self.assertNotIn(name, locked)
             self.assertIn(name, unlocked)
             self.assertTrue(is_supporter_theme(name))
+        self.assertFalse(is_supporter_theme("Unused Theme"))
 
 
 if __name__ == "__main__":

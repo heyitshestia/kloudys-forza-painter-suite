@@ -130,7 +130,6 @@ def main() -> int:
         "supporter_name": args.supporter.strip(),
         "supporter_hash": args.email_hash.strip(),
         "entitlements": ["supporter_theme"],
-        "themes": ["Ko-fi Cherry"],
         "issued_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     payload_bytes = canonical(payload)

@@ -20,7 +20,6 @@ class ThemePreset:
 
 THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(DEFAULT_THEME),
-    ThemePreset("Ko-fi Cherry", supporter_only=True),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

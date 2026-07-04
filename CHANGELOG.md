@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.32
+- Removed stale development docs and unused theme references.
+
 ## 3.0.31
 - Improved native theme handling and UI polish.
 - Improved output selection and scrolling behavior.

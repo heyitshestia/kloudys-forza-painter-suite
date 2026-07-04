@@ -15,12 +15,11 @@ QtObject {
     property bool supporterUnlocked: false
 
     readonly property QtObject nightBlossom: PaletteNightBlossom {}
-    readonly property QtObject koFiCherry: PaletteKofiCherry {}
 
     readonly property string defaultThemeName: nightBlossom.name
-    readonly property string activeThemeName: (themeName === koFiCherry.name && supporterUnlocked) ? koFiCherry.name : nightBlossom.name
-    readonly property bool supporterTheme: activeThemeName === koFiCherry.name
-    readonly property var palette: supporterTheme ? koFiCherry : nightBlossom
+    readonly property string activeThemeName: nightBlossom.name
+    readonly property bool supporterTheme: false
+    readonly property var palette: nightBlossom
 
     // Core color contract retained for existing pages/components.
     readonly property color backgroundA: palette.backgroundA
