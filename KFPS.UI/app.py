@@ -33,6 +33,7 @@ from kfps_ui.report_service import ReportService
 from kfps_ui.runtime_service import RuntimeService
 from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_image_service import SourceImageService
+from kfps_ui.supporter_service import SupporterService
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
 from kfps_ui.version_service import VersionService
@@ -84,6 +85,9 @@ def main():
     help_service = HelpService()
     reports = ReportService(paths, logs, version)
     updates = UpdateService(paths, logs)
+    supporter = SupporterService(paths.runtime_root)
+    if not supporter.unlocked and settings.theme != "Night Blossom":
+        settings.theme = "Night Blossom"
     controller = AppController()
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md")
 
@@ -104,6 +108,7 @@ def main():
         "helpService": help_service,
         "reportService": reports,
         "updateService": updates,
+        "supporterService": supporter,
         "changelogService": changelog,
     }
     for name, obj in objects.items():

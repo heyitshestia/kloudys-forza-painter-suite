@@ -17,6 +17,19 @@ ApplicationWindow {
     title: appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    onActiveChanged: {
+        if (active) {
+            supporterService.refresh()
+        }
+    }
+
+    Timer {
+        interval: 2500
+        repeat: true
+        running: true
+        onTriggered: supporterService.refresh()
+    }
+
     readonly property real viewportFitScale: Theme.clamp(
                                                 Math.min(width / Metrics.launchWidth,
                                                          height / Metrics.launchHeight),
@@ -37,6 +50,8 @@ ApplicationWindow {
     Binding { target: Theme; property: "reducedMotion"; value: settings.reducedMotion }
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
+    Binding { target: Theme; property: "themeName"; value: settings.theme }
+    Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked }
 
     BlossomBackdrop { anchors.fill: parent }
 
@@ -91,10 +106,25 @@ ApplicationWindow {
                 }
 
                 VersionPill {
+                    id: versionPill
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
                     x: Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
+                    z: 20
+                }
+
+                SupporterPill {
+                    compact: window.compactHeader
+                    anchors.top: parent.top
+                    anchors.topMargin: Theme.px(window.shortWindow ? 12 : 18)
+                    x: Math.max(
+                           Theme.px(14),
+                           Math.min(
+                               versionPill.x - width - Theme.px(14),
+                               Math.max(Theme.px(14), (versionPill.x - width) / 2)
+                           )
+                       )
                     z: 20
                 }
 

@@ -24,6 +24,10 @@ projects/
 *.exe.bak-*
 BUILD_COMMIT
 
+# Local-only supporter signing material. The app ships only a public verifier.
+*.pem
+*.kfpskey
+
 # Large/volatile FH6 diagnostics
 *count-*.json
 *memory-count-*.jsonl

@@ -52,14 +52,17 @@ Item {
                 KfpsComboBox {
                     Layout.fillWidth: true
                     dense: root.compactHeight
-                    model: ["Night Blossom"]
-                    currentIndex: 0
-                    enabled: false
+                    model: supporterService.availableThemes
+                    currentIndex: Math.max(0, supporterService.availableThemes.indexOf(settings.theme))
+                    enabled: supporterService.unlocked
+                    onActivated: settings.theme = currentText
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Night Blossom is active. Supporter themes can be added here once the final material direction is chosen."
+                    text: supporterService.unlocked
+                          ? "Supporter theme unlocked for " + supporterService.supporterLabel + ". Thank you for supporting KFPS."
+                          : "Night Blossom is active. Import a signed supporter unlock to enable optional supporter themes."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -83,6 +86,67 @@ Item {
                     Layout.preferredHeight: Math.max(1, Theme.px(1))
                     color: Theme.divider
                     opacity: 0.68
+                }
+
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 106 : 124)
+                    soft: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(6)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Supporter unlock"
+                            color: supporterService.unlocked ? Theme.primaryBright : Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(12.2)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: supporterService.status
+                            color: supporterService.unlocked ? Theme.muted : Theme.subtle
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(9.8)
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(7)
+
+                            PrimaryButton {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                text: supporterService.unlocked ? "Replace Unlock" : "Import Unlock"
+                                iconName: "settings"
+                                onClicked: {
+                                    if (supporterService.importKey()) {
+                                        settings.theme = "Ko-fi Cherry"
+                                    }
+                                }
+                            }
+
+                            GhostButton {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                enabled: supporterService.unlocked
+                                text: "Remove"
+                                onClicked: {
+                                    supporterService.removeKey()
+                                    settings.theme = "Night Blossom"
+                                }
+                            }
+                        }
+                    }
                 }
 
                 KfpsSwitch {

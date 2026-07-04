@@ -19,6 +19,7 @@ class SettingsService(QObject):
         "glassEffects": True,
         "consoleCollapsed": False,
     }
+    KNOWN_THEMES = {"Night Blossom", "Ko-fi Cherry"}
 
     def __init__(self, path: Path, parent=None):
         super().__init__(parent)
@@ -35,7 +36,8 @@ class SettingsService(QObject):
                         self._data[key] = payload[key]
         except Exception:
             pass
-        self._data["theme"] = "Night Blossom"
+        if self._data.get("theme") not in self.KNOWN_THEMES:
+            self._data["theme"] = "Night Blossom"
         self._data["uiScale"] = max(0.80, min(1.35, float(self._data["uiScale"])))
 
     def save(self):
@@ -53,6 +55,12 @@ class SettingsService(QObject):
 
     @Property(str, notify=changed)
     def theme(self): return str(self._get("theme"))
+    @theme.setter
+    def theme(self, value):
+        text = str(value)
+        if text not in self.KNOWN_THEMES:
+            text = "Night Blossom"
+        self._set("theme", text)
     @Property(float, notify=changed)
     def uiScale(self): return float(self._get("uiScale"))
     @uiScale.setter

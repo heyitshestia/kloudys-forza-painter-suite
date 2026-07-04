@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.30
+- supporter themes WIP
+
 ## 3.0.29
 - Reworked the native QML app around a creator-first, no-scroll workflow layout.
 - Added the new Create page and consolidated output browsing into the Outputs workflow.
