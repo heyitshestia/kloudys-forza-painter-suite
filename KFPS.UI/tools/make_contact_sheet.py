@@ -1,6 +1,6 @@
 from pathlib import Path
 from PIL import Image, ImageDraw
-ROOT=Path(__file__).resolve().parents[1];folder=ROOT/"Previews";files=sorted(folder.glob("*_1548x970.png"));thumbs=[]
+ROOT=Path(__file__).resolve().parents[1];folder=ROOT/"Previews";files=sorted(folder.glob("*_1760x1040.png"));thumbs=[]
 for path in files:
  im=Image.open(path).convert("RGB");im.thumbnail((600,376));thumbs.append((path.stem,im.copy()))
 if thumbs:

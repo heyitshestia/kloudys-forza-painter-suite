@@ -15,7 +15,7 @@ class SourceImageService(QObject):
 
     def __init__(self, paths: AppPaths, desktop: DesktopService, log: LogService, parent=None):
         super().__init__(parent); self.paths = paths; self.desktop = desktop; self.log = log
-        self._path = ""; self._paths = []; self._url = ""; self._title = "Source check"; self._message = "Choose an image to get a source check."; self._severity = "neutral"; self._metrics = "No source image selected."; self._heatmap = ""
+        self._path = ""; self._paths = []; self._url = ""; self._title = "Source check"; self._message = "Choose an image to get a source check."; self._severity = "neutral"; self._metrics = "No source image selected."; self._heatmap = ""; self._revision = 0
 
     @Property(str, notify=changed)
     def path(self): return self._path
@@ -32,6 +32,8 @@ class SourceImageService(QObject):
         return f"{len(self._paths)} source images queued; first: {Path(self._path).name}"
     @Property(str, notify=changed)
     def url(self): return self._url
+    @Property(int, notify=changed)
+    def revision(self): return self._revision
     @Property(str, notify=changed)
     def reportTitle(self): return self._title
     @Property(str, notify=changed)
@@ -71,6 +73,7 @@ class SourceImageService(QObject):
         self._path = paths[0]
         self._url = file_url(first)
         self._heatmap = ""
+        self._revision += 1
         self._analyze(first)
         if len(paths) == 1:
             self.log.append(f"Selected source image: {self._path}")

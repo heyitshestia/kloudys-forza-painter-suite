@@ -46,6 +46,14 @@ Item {
         root.forceActiveFocus(Qt.OtherFocusReason)
     })
 
+    Connections {
+        target: sourceService
+        function onChanged() {
+            if (sourceService.url && !generationService.running)
+                generationService.clearPreview()
+        }
+    }
+
     GridLayout {
         anchors.fill: parent
         columns: root.threeColumns ? 3 : 1
@@ -422,7 +430,7 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 142 : 162)
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 82 : 98)
                     soft: true
                     border.color: root.sourceBorderColor()
 
@@ -447,7 +455,7 @@ Item {
                             text: sourceService.path ? sourceService.reportMessage : "Choose source art in step 1. KFPS will show resolution, visibility, and generation readiness here."
                             color: Theme.muted
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.3)
+                            font.pixelSize: Theme.px(9.8)
                             wrapMode: Text.Wrap
                             elide: Text.ElideRight
                         }
@@ -456,7 +464,7 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 126 : 146)
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 92 : 108)
                     soft: true
 
                     ColumnLayout {
@@ -480,32 +488,72 @@ Item {
                             text: sourceService.metrics
                             color: Theme.subtle
                             font.family: Theme.monoFamily
-                            font.pixelSize: Theme.px(9.3)
+                            font.pixelSize: Theme.px(9.1)
                             wrapMode: Text.Wrap
                             elide: Text.ElideRight
                         }
                     }
                 }
 
-                Rectangle {
+                GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(1, Theme.px(1))
-                    color: Theme.divider
-                    opacity: 0.72
-                }
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.px(root.compactHeight ? 160 : 200)
+                    soft: true
 
-                Text {
-                    Layout.fillWidth: true
-                    text: "When finalization completes, open Outputs to choose the exact checkpoint JSON for import."
-                    color: Theme.muted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(10.6)
-                    wrapMode: Text.Wrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
-                }
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(12)
+                        spacing: Theme.px(7)
 
-                Item { Layout.fillHeight: true }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Live generation log"
+                            color: Theme.primaryBright
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(13)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        Flickable {
+                            id: sideLiveLogScroll
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            contentWidth: width
+                            contentHeight: Math.max(height, sideLiveLogText.height)
+
+                            function pinToBottom() {
+                                contentY = Math.max(0, contentHeight - height)
+                            }
+
+                            TextEdit {
+                                id: sideLiveLogText
+                                width: sideLiveLogScroll.width
+                                height: Math.max(contentHeight + Theme.px(10), sideLiveLogScroll.height)
+                                text: generationService.liveLog
+                                readOnly: true
+                                selectByMouse: true
+                                persistentSelection: true
+                                wrapMode: TextEdit.Wrap
+                                textFormat: TextEdit.PlainText
+                                color: Theme.muted
+                                selectedTextColor: Theme.primaryText
+                                selectionColor: Theme.primary
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.px(10.8)
+
+                                onTextChanged: Qt.callLater(function() {
+                                    sideLiveLogScroll.pinToBottom()
+                                })
+                            }
+
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        }
+                    }
+                }
 
                 PrimaryButton {
                     Layout.fillWidth: true

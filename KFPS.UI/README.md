@@ -11,11 +11,11 @@ python -m pip install -r requirements.txt
 python KFPS.UI\app.py
 ```
 
-The app starts at approximately `1548×970`, adapts down to `1140×720`, and uses a wide sidebar on normal displays with an automatic compact rail on constrained windows.
+The app starts at approximately `1760×1040`, adapts down to `1360×820`, and uses a wide sidebar on normal displays with an automatic compact rail on constrained windows.
 
 ## Current refinement baseline
 
-The first geometry refinement pass standardizes centered button content, field alignment, logical scaling breakpoints, stacked dashboard sizing, and route-aware sidebar scrolling. See `docs/REFINEMENT_PASS_01.md` and `Previews/refinement-pass-01/`.
+The current geometry baseline standardizes centered button content, field alignment, logical scaling breakpoints, creator-first page sizing, and route-aware sidebar scrolling. Use `tools/audit_layout_matrix.py` and `tools/capture_pages.py` for repeatable layout checks.
 
 ## Build KFPS.exe
 

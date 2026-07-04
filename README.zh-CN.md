@@ -15,7 +15,7 @@
 3. 打开 `KFPS.exe`。
 4. 如果程序提示运行环境异常，在 Settings 里检查内置 runtime；完整 bundled 版本不需要手动安装 Python。
 5. 如果显示有更新，可以在 `Update` 标签页更新。
-6. 在 `Generate` 标签页选择一张图片。
+6. 在 `Create` 页面选择一张或多张图片。
 7. 选择适合图片类型的预设：
    - `Shaded Character Art`：动漫、人物、头发、眼睛、皮肤、混合线稿。
    - `Flat Colors`：贴纸、吉祥物、硬边、平涂区域。
@@ -24,7 +24,7 @@
 9. 普通用户默认不需要打开 Pro settings。Max resolution、Random samples、Mutated samples 会根据图片和预设自动计算。
 10. 等到日志显示 `FINALIZE CHECKPOINTS COMPLETE`。
 11. 在 FH6 里打开 Vinyl Group Editor，准备足够层数的模板，并确保模板已经 ungroup。
-12. 在 `JSON` 标签页选择 finalized checkpoint，输入 FH6 模板的准确层数，然后导入。
+12. 在 `Outputs` 页面选择 finalized checkpoint，输入 FH6 模板的准确层数，然后导入。
 
 ## 关键规则
 

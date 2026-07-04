@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.33
+- Improved Create preview refresh and live generation log behavior.
+- Cleaned stale app files and documentation references.
+
 ## 3.0.32
 - Removed stale development docs and unused theme references.
 

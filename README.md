@@ -95,19 +95,19 @@ The standalone release includes bundled Python 3.12, bundled Python dependencies
 2. Open `KFPS.exe`.
 3. Use Settings to verify the bundled runtime if the app reports a problem.
 4. Open the `Update` tab only when the app says a newer version is available.
-5. Start from the Dashboard workflow buttons.
+5. Start from the Create workflow buttons.
 
 ## Main Workflow
 
 1. Put source art into the `Images/` folder next to `KFPS.exe`.
 2. Open `KFPS.exe`.
-3. Open `Generate Final Vinyl`.
-4. Choose one source image.
+3. Open `Create`.
+4. Choose one or more source images.
 5. Choose a preset.
 6. Set `Template layers` to the FH6 template size you will import into.
 7. Click `Generate vinyl`.
 8. Wait until the log says `FINALIZE CHECKPOINTS COMPLETE`.
-9. Open the `JSON` tab.
+9. Open `Outputs`.
 10. Select the finalized checkpoint you want.
 11. Open FH6, load your reusable 3000-layer plain white circle template, and ungroup it.
 12. Click `Import JSON`.
@@ -202,7 +202,7 @@ Basic use:
 6. Save and reload the vinyl group before judging the final result.
 
 <p align="center">
-  <img src="docs/screenshots/03-import-final-json.png" alt="Import JSON tab" width="820">
+  <img src="docs/screenshots/03-import-final-json.png" alt="Outputs import workflow" width="820">
 </p>
 
 Important limitation: the live FH6 editor preview can display imported shape-code layers incorrectly until the group is saved and reopened. Judge the saved/reloaded group, not the first live refresh.

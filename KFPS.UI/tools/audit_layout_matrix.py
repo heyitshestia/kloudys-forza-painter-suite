@@ -10,15 +10,12 @@ from pathlib import Path
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 PAGES = [
-    "dashboard", "generate", "json", "editor", "images",
-    "tools", "help", "reports", "update", "settings",
+    "create", "outputs", "editor", "help", "settings",
+    "tools", "images", "reports", "update",
 ]
 DEFAULT_SIZES = [
-    (1140, 720),
-    (1280, 720),
-    (1366, 768),
-    (1548, 970),
-    (1600, 900),
+    (1360, 820),
+    (1760, 1040),
     (1920, 1080),
     (2560, 1440),
     (3440, 1440),

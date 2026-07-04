@@ -1,6 +1,6 @@
 # KFPS User Manual
 
-> **3.x note:** KFPS now opens through the native `KFPS.exe` app. Some deeper setup sections still mention the older launcher flow for legacy troubleshooting, but the current start-here workflow is the native Dashboard -> Generate -> JSON -> Editor layout shown in the screenshots below.
+> **3.x note:** KFPS now opens through the native `KFPS.exe` app. The current start-here workflow is Create -> Outputs -> Editor.
 
 This is the full manual. It is intentionally detailed so a first-time user can follow it without guessing.
 
@@ -63,18 +63,13 @@ After extracting the release zip, the folder should look roughly like this:
 
 ```text
 Kloudys Painter Standalone/
-  Kloudys Painter Launcher.exe
+  KFPS.exe
   Images/
     PUT_SOURCE_IMAGES_HERE.txt
   KloudysFH6Painter/
-    00_launcher.bat
-    01_add_python312_to_path.bat
-    02_install_dependencies.bat
     03_update_from_github.bat
-    04_start_app.bat
-    05_check_environment.bat
-    app_qt.py
-    launcher_qt.py
+    KFPS.UI/
+    KFPS.exe
     KloudysGalateaGenesis.exe
     python/
     settings/
@@ -88,163 +83,34 @@ Important folders:
 | `Images/` | Put source images here. The source-image chooser opens this folder first. |
 | `KloudysFH6Painter/` | The app files. Do not randomly move individual files out of this folder. |
 | `KloudysFH6Painter/python/` | Bundled Python runtime in standalone releases. |
-| `KloudysFH6Painter/tools/forza-vinyl-studio/` | Bundled offline JSON editor opened from the Editor tab. |
+| `KloudysFH6Painter/tools/fabric-editor/` | Bundled offline JSON editor opened from the Editor page. |
 | `KloudysFH6Painter/imgs/generated/` | Generated runs. Created after using the app. |
 | `KloudysFH6Painter/runtime/` | Logs, cache, update backups, custom presets. Created by the app. |
 
-## First-Time Setup: Press Buttons Left To Right
+## First-Time Setup
 
 For first use, open:
 
 ```text
-Kloudys Painter Launcher.exe
+KFPS.exe
 ```
 
-Then press the launcher buttons from left to right before trying to use the app.
+The full standalone release includes bundled Python and dependencies. If KFPS reports a runtime problem, open Settings and use the runtime check buttons there.
 
-<img src="screenshots/launcher-overview-annotated.png" width="900" alt="Launcher overview with numbered first-time setup buttons">
-
-Numbered areas:
-
-1. `Setup Python`
-2. `Install Dependencies`
-3. `Update`
-4. `Launch App`
-5. Status/log area
-
-### Step 1: Setup Python
-
-Click:
-
-```text
-Setup Python
-```
-
-What this is for:
-
-- Ensures the app can use 64-bit Python 3.12.
-- If the standalone bundled Python exists, the launcher can use that.
-- If system Python is needed, the setup helper can install official 64-bit Python 3.12 and add it to PATH.
-
-Expected good result:
-
-```text
-Python 3.12 and dependencies are installed.
-```
-
-or a launcher status that says Python is usable.
-
-If it fails:
-
-- Close the app.
-- Run `01_add_python312_to_path.bat` from inside `KloudysFH6Painter/`.
-- Re-open the launcher.
-
-### Step 2: Install Dependencies
-
-Click:
-
-```text
-Install Dependencies
-```
-
-What this installs:
-
-- PySide6 for the app and launcher UI.
-- Pillow for image loading.
-- NumPy/OpenCV for previews, luma processing, scoring, and finalization support.
-- psutil / pywin32-style process tooling needed by the importer path.
-
-Expected good result:
-
-```text
-Python 3.12 and dependencies are installed.
-```
-
-If it fails:
-
-- Check internet connection.
-- Run launcher as administrator only if normal install cannot write where it needs to.
-- Run `05_check_environment.bat` to see what package is missing.
-
-### Step 3: Update
-
-Click:
-
-```text
-Update
-```
-
-Use this before first use if the launcher says an update is available.
-
-What it does:
-
-- Pulls/syncs app files from GitHub `main`.
-- Preserves generated output and runtime data.
-- Makes a program-file backup before overwriting files.
-- Cleans retired old generator/preset files.
-
-Expected good result:
-
-```text
-Update complete.
-```
-
-If it fails:
-
-- Read the log path printed in the launcher.
-- Close the painter app if it is open.
-- Try the update once more.
-
-### Step 4: Launch App
-
-Click:
-
-```text
-Launch App
-```
-
-This opens the actual painter app.
-
-Do not skip directly to Launch App on first use if Python/dependencies are not green.
-
-## Launcher Explained
-
-The launcher is the intended entry point. It exists so users do not need to understand Python commands.
-
-### Status Text
-
-The launcher status area tells you:
-
-- local version
-- GitHub main version
-- whether Python/dependencies are installed
-- whether update is available
-- update output while updating
-
-If it says your local version is lower than GitHub main, press `Update`.
-
-### Why The Launcher May Show Your Paths
-
-The launcher/app logs show actual local file paths. If a screenshot was made on another machine, paths in that screenshot are from that person's machine.
+Use the Update page only when KFPS says a newer version is available. The updater preserves generated output and runtime data while replacing program files.
 
 ### When To Use Batch Files Instead
 
-Use batch files directly only when the launcher cannot open or you are troubleshooting.
+Use batch files directly only when KFPS cannot open or you are troubleshooting.
 
 | File | Use |
 | --- | --- |
-| `00_launcher.bat` | Opens the launcher from source/folder installs. |
-| `01_add_python312_to_path.bat` | Python setup fallback. |
-| `02_install_dependencies.bat` | Dependency install fallback. |
 | `03_update_from_github.bat` | Updater fallback. |
-| `04_start_app.bat` | Starts the app without using the launcher UI. |
-| `05_check_environment.bat` | Diagnostic check. |
 | `99_clean_runtime_data.bat` | Removes runtime/generated cache for troubleshooting. |
 
 ## Generate Final Vinyl: Simple Workflow
 
-Open the `Generate Final Vinyl` tab.
+Open `Create`.
 
 <img src="screenshots/app-generate-workflow-annotated.png" width="900" alt="Generate Final Vinyl tab with numbered controls">
 
@@ -272,7 +138,7 @@ Numbered areas:
 
 Opens the `Images/` folder first in standalone installs.
 
-Use this to choose exactly one source image. The app does not build a queue anymore; one image is the intended workflow.
+Use this to choose one or more source images. Multiple selected images are queued and generated one after another with the same settings.
 
 Recommended source:
 
@@ -1031,59 +897,30 @@ runtime/update-logs/
 
 Do this in order:
 
-1. Open `Kloudys Painter Launcher.exe`.
-2. Click `Setup Python`.
-3. Click `Install Dependencies`.
-4. Click `Launch App`.
+1. Open `KFPS.exe`.
+2. Open Settings if the app reports a runtime problem.
+3. Use the runtime check buttons to confirm bundled Python and dependencies.
+4. Run `03_update_from_github.bat` only if the app itself cannot open far enough to update.
 
-If launcher will not open:
+If KFPS will not open:
 
 ```text
-00_launcher.bat
-01_add_python312_to_path.bat
-02_install_dependencies.bat
-05_check_environment.bat
+03_update_from_github.bat
 ```
 
 ### No Usable Python 3.12 Found
 
-Use `Setup Python` in the launcher or run:
-
-```text
-01_add_python312_to_path.bat
-```
-
-The app expects 64-bit Python 3.12.
+Use a full standalone release. It includes bundled 64-bit Python 3.12. If you downloaded source code instead of a release zip, download the bundled release.
 
 ### Dependencies Missing
 
-Use launcher:
-
-```text
-Install Dependencies
-```
-
-or run:
-
-```text
-02_install_dependencies.bat
-```
-
-Then check:
-
-```text
-05_check_environment.bat
-```
+Use Settings to check the bundled runtime. If dependencies are missing from a bundled release, update or redownload the release zip.
 
 ### Preview Unavailable
 
 Preview uses Python packages such as Pillow/OpenCV/NumPy.
 
-Fix:
-
-```text
-02_install_dependencies.bat
-```
+Fix this by updating or redownloading the full bundled release.
 
 Generation/import may still work even if preview is unavailable, but you lose visual checking.
 

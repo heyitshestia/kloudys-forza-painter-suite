@@ -196,64 +196,155 @@ Item {
                 SectionHeading {
                     Layout.fillWidth: true
                     title: "Folders"
-                    subtitle: "Each filesystem location appears once here."
+                    subtitle: "Upper half: important folders. Lower half: bundled changelog."
                 }
 
-                QuickActionRow {
+                GlassPanel {
                     Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "folder"
-                    title: "Application root"
-                    subtitle: desktop.appRoot
-                    onClicked: desktop.openRoot()
+                    Layout.fillHeight: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 210 : 270)
+                    soft: true
+
+                    FastScrollView {
+                        id: folderScroll
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(9)
+                        clip: true
+                        contentWidth: availableWidth
+                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                        ColumnLayout {
+                            width: folderScroll.availableWidth
+                            spacing: Theme.px(root.compactHeight ? 5 : 7)
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "folder"
+                                title: "Application root"
+                                subtitle: desktop.appRoot
+                                onClicked: desktop.openRoot()
+                            }
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "images"
+                                title: "Source images"
+                                subtitle: desktop.sourceImagesFolder
+                                onClicked: desktop.openSourceImages()
+                            }
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "json"
+                                title: "Generated outputs"
+                                subtitle: desktop.generatedFolder
+                                onClicked: desktop.openGenerated()
+                            }
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "transfer"
+                                title: "Exported JSONs"
+                                subtitle: desktop.exportedFolder
+                                onClicked: desktop.openExported()
+                            }
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "editor"
+                                title: "Editor projects"
+                                subtitle: desktop.editorProjectsFolder
+                                onClicked: desktop.openProjects()
+                            }
+
+                            QuickActionRow {
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                iconName: "reports"
+                                title: "Saved reports"
+                                subtitle: desktop.reportsFolder
+                                onClicked: desktop.openReports()
+                            }
+                        }
+                    }
                 }
 
-                QuickActionRow {
+                GlassPanel {
                     Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "images"
-                    title: "Source images"
-                    subtitle: desktop.sourceImagesFolder
-                    onClicked: desktop.openSourceImages()
-                }
+                    Layout.fillHeight: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 190 : 250)
+                    soft: true
 
-                QuickActionRow {
-                    Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "json"
-                    title: "Generated outputs"
-                    subtitle: desktop.generatedFolder
-                    onClicked: desktop.openGenerated()
-                }
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(7)
 
-                QuickActionRow {
-                    Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "transfer"
-                    title: "Exported JSONs"
-                    subtitle: desktop.exportedFolder
-                    onClicked: desktop.openExported()
-                }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Changelog"
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12.2)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            GhostButton {
+                                dense: true
+                                text: "Refresh"
+                                minimumWidth: Theme.px(74)
+                                onClicked: changelogService.refresh()
+                            }
+                        }
 
-                QuickActionRow {
-                    Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "editor"
-                    title: "Editor projects"
-                    subtitle: desktop.editorProjectsFolder
-                    onClicked: desktop.openProjects()
-                }
+                        FastListView {
+                            id: settingsChangelog
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: changelogService.model
+                            spacing: Theme.px(3)
 
-                QuickActionRow {
-                    Layout.fillWidth: true
-                    dense: root.compactHeight
-                    iconName: "reports"
-                    title: "Saved reports"
-                    subtitle: desktop.reportsFolder
-                    onClicked: desktop.openReports()
-                }
+                            delegate: Item {
+                                required property string version
+                                required property string summary
+                                width: settingsChangelog.width
+                                height: Theme.px(39)
 
-                Item { Layout.fillHeight: true }
+                                Column {
+                                    anchors.fill: parent
+                                    spacing: Theme.px(1)
+                                    Text {
+                                        width: parent.width
+                                        text: version
+                                        color: Theme.success
+                                        font.family: Theme.monoFamily
+                                        font.pixelSize: Theme.px(9.8)
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        text: summary
+                                        color: Theme.muted
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(10.1)
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        }
+                    }
+                }
             }
         }
 

@@ -18,11 +18,11 @@
       "summary": "Generate a vinyl, choose a final JSON, prepare the FH6 template, import, then save and reload.",
       "keywords": ["first", "beginner", "workflow", "start", "import"],
       "steps": [
-        "Open Generate and choose a clean source image. Transparent PNGs are best for cutout art.",
+        "Open Create and choose a clean source image. Transparent PNGs are best for cutout art.",
         "Let the automatic preset pick a starting point unless you already know which preset fits.",
         "Pick a template layer count. 1500 is usually a good first serious test; 3000 is for final high-detail attempts.",
         "Press Generate and wait until finalization is done. A checkpoint JSON is not the same as a finalized JSON.",
-        "Open JSON Import / Export and choose the finalized checkpoint you want, usually the highest useful layer count.",
+        "Open Outputs and choose the finalized checkpoint you want, usually the highest useful layer count.",
         "For FH6 importing, open your saved 3000 plain white circle template, make sure it has been saved and loaded at least once, and ungroup it before importing.",
         "Import once, save the vinyl, then reload it before judging shape correctness or the final thumbnail."
       ],

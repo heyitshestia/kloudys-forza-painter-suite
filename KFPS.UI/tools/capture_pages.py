@@ -5,8 +5,8 @@ from pathlib import Path
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 OUT = UI / "Previews"
-PAGES = ["dashboard","generate","json","editor","images","tools","help","reports","update","settings"]
-SIZES = [(1140,720),(1548,970),(1920,1080),(2560,1440)]
+PAGES = ["create","outputs","editor","help","settings","tools","images","reports","update"]
+SIZES = [(1360,820),(1760,1040),(1920,1080),(2560,1440)]
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)

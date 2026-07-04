@@ -12,6 +12,24 @@ Item {
     property var layerOptions: ["500", "1000", "1500", "2000", "2500", "3000"]
     property var customLayerCombo: null
     property var customCheckpointField: null
+    property int seenSourceRevision: sourceService.revision
+    property int seenPreviewRevision: generationService.previewRevision
+    property bool preferSourcePreview: false
+    property string activePreviewUrl: preferSourcePreview ? sourceService.url : (generationService.previewUrl || sourceService.url)
+
+    function notePreviewRevision() {
+        if (seenPreviewRevision === generationService.previewRevision)
+            return
+        seenPreviewRevision = generationService.previewRevision
+        preferSourcePreview = false
+    }
+
+    function noteSourceRevision() {
+        if (seenSourceRevision === sourceService.revision)
+            return
+        seenSourceRevision = sourceService.revision
+        preferSourcePreview = !!sourceService.url
+    }
 
     function checkpointTextFor(layerText) {
         var target = parseInt(layerText)
@@ -66,6 +84,25 @@ Item {
     Loader {
         anchors.fill: parent
         sourceComponent: root.wide ? wideComp : compactComp
+    }
+
+    Connections {
+        target: generationService
+        function onChanged() {
+            root.notePreviewRevision()
+        }
+    }
+
+    Connections {
+        target: sourceService
+        function onChanged() {
+            root.noteSourceRevision()
+        }
+    }
+
+    Component.onCompleted: {
+        root.seenSourceRevision = sourceService.revision
+        root.seenPreviewRevision = generationService.previewRevision
     }
 
     Component {
@@ -329,13 +366,13 @@ Item {
                         Image {
                             anchors.fill: parent
                             anchors.margins: Theme.px(12)
-                            source: generationService.previewUrl || sourceService.url
+                            source: root.activePreviewUrl
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: false
                         }
                         EmptyState {
-                            visible: !(generationService.previewUrl || sourceService.url)
+                            visible: !root.activePreviewUrl
                             anchors.centerIn: parent
                             iconName: "images"
                             title: "No output selected"
@@ -361,6 +398,52 @@ Item {
                             elide: Text.ElideRight
                             wrapMode: Text.NoWrap
                             clip: true
+                        }
+                    }
+
+                    GlassPanel {
+                        visible: Theme.logical(root.width) < 1060
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: visible ? Theme.px(132) : 0
+                        Layout.minimumHeight: visible ? Theme.px(118) : 0
+                        soft: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(10)
+                            spacing: Theme.px(6)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Live generation log"
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            FastScrollView {
+                                id: centerGenerationLiveLogScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                contentWidth: availableWidth
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                                Text {
+                                    width: centerGenerationLiveLogScroll.availableWidth
+                                    text: generationService.liveLog
+                                    color: Theme.muted
+                                    font.family: Theme.monoFamily
+                                    font.pixelSize: Theme.px(9.5)
+                                    wrapMode: Text.Wrap
+                                    onTextChanged: Qt.callLater(function() {
+                                        if (centerGenerationLiveLogScroll.contentItem)
+                                            centerGenerationLiveLogScroll.contentItem.contentY = Math.max(0, centerGenerationLiveLogScroll.contentItem.contentHeight - centerGenerationLiveLogScroll.contentItem.height)
+                                    })
+                                }
+                            }
                         }
                     }
                 }
@@ -404,7 +487,7 @@ Item {
                     }
                     GlassPanel {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.px(132)
+                        Layout.preferredHeight: Theme.px(88)
                         soft: true
                         border.color: sourceService.severity === "red" ? Theme.danger : (sourceService.severity === "yellow" ? Theme.warning : (sourceService.severity === "green" ? Theme.success : Theme.border))
                         Column {
@@ -428,8 +511,49 @@ Item {
                             }
                         }
                     }
-                    Item {
+                    GlassPanel {
+                        Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: Theme.px(122)
+                        soft: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(10)
+                            spacing: Theme.px(6)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Live generation log"
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            FastScrollView {
+                                id: generationLiveLogScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                contentWidth: availableWidth
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                                Text {
+                                    width: generationLiveLogScroll.availableWidth
+                                    text: generationService.liveLog
+                                    color: Theme.muted
+                                    font.family: Theme.monoFamily
+                                    font.pixelSize: Theme.px(9.5)
+                                    wrapMode: Text.Wrap
+                                    onTextChanged: Qt.callLater(function() {
+                                        if (generationLiveLogScroll.contentItem)
+                                            generationLiveLogScroll.contentItem.contentY = Math.max(0, generationLiveLogScroll.contentItem.contentHeight - generationLiveLogScroll.contentItem.height)
+                                    })
+                                }
+                            }
+                        }
                     }
                     GhostButton {
                         Layout.fillWidth: true
@@ -591,14 +715,58 @@ Item {
                     Image {
                         anchors.fill: parent
                         anchors.margins: Theme.px(12)
-                        source: generationService.previewUrl || sourceService.url
+                        source: root.activePreviewUrl
                         fillMode: Image.PreserveAspectFit
                     }
                     EmptyState {
-                        visible: !(generationService.previewUrl || sourceService.url)
+                        visible: !root.activePreviewUrl
                         anchors.centerIn: parent
                         title: "No preview"
                         message: "Choose a source or begin generation."
+                    }
+                }
+
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.px(132)
+                    soft: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(6)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Live generation log"
+                            color: Theme.primaryBright
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(12)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        FastScrollView {
+                            id: compactGenerationLiveLogScroll
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            contentWidth: availableWidth
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            Text {
+                                width: compactGenerationLiveLogScroll.availableWidth
+                                text: generationService.liveLog
+                                color: Theme.muted
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.px(9.5)
+                                wrapMode: Text.Wrap
+                                onTextChanged: Qt.callLater(function() {
+                                    if (compactGenerationLiveLogScroll.contentItem)
+                                        compactGenerationLiveLogScroll.contentItem.contentY = Math.max(0, compactGenerationLiveLogScroll.contentItem.contentHeight - compactGenerationLiveLogScroll.contentItem.height)
+                                })
+                            }
+                        }
                     }
                 }
             }

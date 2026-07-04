@@ -32,24 +32,23 @@ class QmlRefinementTests(unittest.TestCase):
     def test_responsive_breakpoints_use_logical_units(self):
         theme = self.read("Kfps/Theme/Theme.qml")
         main = self.read("Main.qml")
-        dashboard = self.read("pages/DashboardPage.qml")
+        create = self.read("pages/CreatePage.qml")
         self.assertIn("function logical", theme)
         self.assertIn("Theme.logical(width)", main)
         self.assertIn("Theme.logical(height)", main)
-        self.assertIn("Theme.logical(width)", dashboard)
-        self.assertIn("Theme.logical(height)", dashboard)
+        self.assertIn("Theme.logical(width)", create)
+        self.assertIn("Theme.logical(height)", create)
 
     def test_short_sidebar_keeps_current_route_visible(self):
         sidebar = self.read("shell/Sidebar.qml")
         self.assertIn("currentIndex: root.pageIndex(appController.currentPage)", sidebar)
         self.assertIn("positionViewAtIndex(currentIndex, ListView.Contain)", sidebar)
 
-    def test_dashboard_stacked_rows_have_explicit_heights(self):
-        dashboard = self.read("pages/DashboardPage.qml")
-        self.assertGreaterEqual(dashboard.count("Layout.preferredHeight: root.heroCardHeight"), 2)
-        self.assertGreaterEqual(dashboard.count("Layout.preferredHeight: root.workflowCardHeight"), 3)
-        self.assertGreaterEqual(dashboard.count("Layout.preferredHeight: root.lowerCardHeight"), 3)
-
+    def test_legacy_dashboard_page_is_retired(self):
+        self.assertFalse((QML / "pages" / "DashboardPage.qml").exists())
+        main = self.read("Main.qml")
+        self.assertIn('dashboard: "CreatePage"', main)
+        self.assertIn('create: "CreatePage"', main)
 
     def test_global_scaling_uses_one_continuous_viewport_factor(self):
         theme = self.read("Kfps/Theme/Theme.qml")

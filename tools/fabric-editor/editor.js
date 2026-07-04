@@ -8,7 +8,6 @@ const RECTANGLE_DIVISOR = 127.0;
 const ELLIPSE_DIVISOR = 63.0;
 const VINYL_RESOURCE_BASES = [
   "/tools/fabric-editor/Resources/Vinyls",
-  "/tools/forza-vinyl-studio/Resources/Vinyls",
 ];
 const STARTUP_HELP_CONFIRMED_KEY = "kloudyFabricStartupHelpConfirmed";
 const STARTUP_HELP_CONFIRMED_API = "/api/fabric-editor/startup-help-confirmed";
@@ -9783,7 +9782,7 @@ const EDITOR_TOUR_STEPS = [
   },
   {
     title: "Export Check Before Import",
-    body: "Export Check gives the final sanity pass. When the layer count and warnings look right, use Export FH6 JSON, then import that JSON through the main KFPS Import JSON tab.",
+    body: "Export Check gives the final sanity pass. When the layer count and warnings look right, use Export FH6 JSON, then import that JSON through KFPS Outputs.",
     target: "#exportCheckPane",
     panel: "exportCheckPane",
     tool: "select",

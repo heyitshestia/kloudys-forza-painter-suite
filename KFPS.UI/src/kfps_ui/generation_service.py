@@ -20,7 +20,8 @@ class GenerationService(QObject):
         super().__init__(parent); self.paths = paths; self.log = log
         self._process = QProcess(self); self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read); self._process.finished.connect(self._finished)
-        self._running = False; self._status = "Ready"; self._run_dir = ""; self._preview = ""; self._buffer = b""
+        self._running = False; self._status = "Ready"; self._run_dir = ""; self._preview = ""; self._preview_revision = 0; self._buffer = b""
+        self._live_log_lines = []; self._live_log = "Live generation log appears here."
         self._full_log_path = ""; self._full_log_handle = None
         self._queue = []; self._queue_total = 0; self._queue_index = 0
         self._preview_timer = QTimer(self); self._preview_timer.setInterval(1000); self._preview_timer.timeout.connect(self.refreshPreview)
@@ -49,6 +50,10 @@ class GenerationService(QObject):
     def runDirectory(self): return self._run_dir
     @Property(str, notify=changed)
     def previewUrl(self): return self._preview
+    @Property(int, notify=changed)
+    def previewRevision(self): return self._preview_revision
+    @Property(str, notify=changed)
+    def liveLog(self): return self._live_log
     @Property(int, notify=changed)
     def queueRemaining(self): return len(self._queue)
     @Property(str, notify=changed)
@@ -95,7 +100,7 @@ class GenerationService(QObject):
             if mutated_samples.strip(): args += ["--mutated-samples", mutated_samples.strip()]
         self._open_full_generation_log()
         prefix = f" ({self.queueStatus})" if self.queueStatus else ""
-        self._run_dir = ""; self._preview = file_url(image); self._buffer = b""; self._running = True; self._status = "Starting generation" + prefix; self.changed.emit()
+        self._run_dir = ""; self._set_preview(file_url(image)); self._buffer = b""; self._live_log_lines = []; self._live_log = "Starting generation" + prefix; self._running = True; self._status = "Starting generation" + prefix; self.changed.emit()
         self.log.append(f"Starting generation for: {image}")
         if self._full_log_path:
             self.log.append(f"Full generation log: {self._full_log_path}")
@@ -135,6 +140,26 @@ class GenerationService(QObject):
                 handle.close()
             except Exception:
                 pass
+
+    def _set_preview(self, value):
+        value = str(value or "")
+        if value == self._preview:
+            return False
+        self._preview = value
+        self._preview_revision += 1
+        return True
+
+    @Slot()
+    def clearPreview(self):
+        if self._set_preview(""):
+            self.changed.emit()
+
+    def _append_live_log(self, line):
+        text = str(line or "").strip()
+        if not text:
+            return
+        self._live_log_lines.append(text)
+        self._live_log = "\n".join(self._live_log_lines)
 
     @staticmethod
     def _stream_live_generation_line(line):
@@ -262,8 +287,9 @@ class GenerationService(QObject):
             if line.startswith("KFPS_RUN_DIR:") or line.startswith("WPF_RUN_DIR:"):
                 self._run_dir = line.split(":",1)[1].strip(); self.changed.emit()
             elif line.startswith("KFPS_PREVIEW:") or line.startswith("WPF_PREVIEW:"):
-                path = line.split(":",1)[1].strip(); self._preview = file_url(path); self.changed.emit()
+                path = line.split(":",1)[1].strip(); self._set_preview(file_url(path)); self.changed.emit()
             elif self._stream_live_generation_line(line):
+                self._append_live_log(line)
                 self.log.append(line, update_status=False)
                 self._status = line[:100]
                 self.changed.emit()
@@ -274,6 +300,7 @@ class GenerationService(QObject):
             for line in buffered.splitlines():
                 self._write_full_generation_log(line)
                 if self._stream_live_generation_line(line):
+                    self._append_live_log(line)
                     self.log.append(line, update_status=False)
             self._buffer = b""
         self._close_full_generation_log()
@@ -299,7 +326,7 @@ class GenerationService(QObject):
         if candidates:
             latest = max(candidates, key=lambda p: p.stat().st_mtime_ns)
             url = file_url(latest)
-            if url != self._preview: self._preview = url; self.changed.emit()
+            if self._set_preview(url): self.changed.emit()
 
     @Slot()
     def gracefulStop(self):
