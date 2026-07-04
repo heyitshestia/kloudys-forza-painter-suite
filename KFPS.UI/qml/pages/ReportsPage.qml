@@ -151,7 +151,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         radius: Theme.px(10)
-                        color: "#c006040a"
+                        color: Theme.previewSurfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
                         KfpsTextArea {
@@ -184,7 +184,7 @@ Item {
 
     Component {
         id: compactComponent
-        ScrollView {
+        FastScrollView {
             id: compactScroll
             clip: true
             contentWidth: availableWidth

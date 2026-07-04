@@ -54,7 +54,7 @@ Item {
                     dense: root.compactHeight
                     model: supporterService.availableThemes
                     currentIndex: Math.max(0, supporterService.availableThemes.indexOf(settings.theme))
-                    enabled: supporterService.unlocked
+                    enabled: supporterService.unlocked || supporterService.availableThemes.length > 1
                     onActivated: settings.theme = currentText
                 }
 
@@ -130,7 +130,7 @@ Item {
                                 iconName: "settings"
                                 onClicked: {
                                     if (supporterService.importKey()) {
-                                        settings.theme = "Ko-fi Cherry"
+                                        settings.theme = supporterService.preferredTheme
                                     }
                                 }
                             }
@@ -142,7 +142,7 @@ Item {
                                 text: "Remove"
                                 onClicked: {
                                     supporterService.removeKey()
-                                    settings.theme = "Night Blossom"
+                                    settings.theme = Theme.defaultThemeName
                                 }
                             }
                         }

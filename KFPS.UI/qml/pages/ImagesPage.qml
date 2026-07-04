@@ -115,7 +115,7 @@ Item {
                 Layout.fillHeight: true
                 Layout.minimumHeight: Theme.px(220)
                 radius: Theme.px(10)
-                color: "#c006040a"
+                color: Theme.previewSurfaceSoft
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.borderSoft
 
@@ -151,7 +151,7 @@ Item {
                 subtitle: "Real measurements from the selected file."
             }
 
-            ScrollView {
+            FastScrollView {
                 id: reportScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -303,7 +303,7 @@ Item {
     Component {
         id: compactComponent
 
-        ScrollView {
+        FastScrollView {
             id: compactScroll
             clip: true
             contentWidth: availableWidth

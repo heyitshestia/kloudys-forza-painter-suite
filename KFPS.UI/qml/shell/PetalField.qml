@@ -4,7 +4,7 @@ import Kfps.Theme 1.0
 Item {
     id: root
     clip: true
-    property bool running: Theme.ambientMotion && !Theme.reducedMotion && !screenshotMode
+    property bool running: Theme.ambientMotion && !Theme.reducedMotion && !screenshotMode && Theme.backdropPetalsVisible
 
     Repeater {
         model: [
@@ -21,7 +21,7 @@ Item {
             id: petal
             width: Theme.px(modelData.s)
             height: width * 0.72
-            source: assetRoot + "/petal.png"
+            source: assetRoot + "/" + Theme.backdropPetalFile
             fillMode: Image.PreserveAspectFit
             smooth: true
             mipmap: true
@@ -35,36 +35,12 @@ Item {
                 loops: Animation.Infinite
                 PauseAnimation { duration: modelData.delay }
                 ParallelAnimation {
-                    NumberAnimation {
-                        target: petal
-                        property: "x"
-                        from: -60
-                        to: root.width + 90
-                        duration: modelData.d
-                    }
+                    NumberAnimation { target: petal; property: "x"; from: -60; to: root.width + 90; duration: modelData.d }
                     SequentialAnimation {
-                        NumberAnimation {
-                            target: petal
-                            property: "y"
-                            to: root.height * modelData.y - 38
-                            duration: modelData.d * 0.34
-                            easing.type: Easing.InOutSine
-                        }
-                        NumberAnimation {
-                            target: petal
-                            property: "y"
-                            to: root.height * modelData.y + 104
-                            duration: modelData.d * 0.66
-                            easing.type: Easing.InOutSine
-                        }
+                        NumberAnimation { target: petal; property: "y"; to: root.height * modelData.y - 38; duration: modelData.d * 0.34; easing.type: Easing.InOutSine }
+                        NumberAnimation { target: petal; property: "y"; to: root.height * modelData.y + 104; duration: modelData.d * 0.66; easing.type: Easing.InOutSine }
                     }
-                    NumberAnimation {
-                        target: petal
-                        property: "rotation"
-                        from: 0
-                        to: modelData.r
-                        duration: modelData.d
-                    }
+                    NumberAnimation { target: petal; property: "rotation"; from: 0; to: modelData.r; duration: modelData.d }
                     SequentialAnimation {
                         NumberAnimation { target: petal; property: "opacity"; from: 0; to: modelData.a; duration: 900 }
                         PauseAnimation { duration: modelData.d - 2700 }

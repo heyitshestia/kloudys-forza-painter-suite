@@ -17,12 +17,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.px(7)
-        color: hover.hovered ? "#25ff82ba" : "transparent"
-        Behavior on color {
-            ColorAnimation {
-                duration: 110
-            }
-        }
+        color: hover.hovered ? Theme.rowHover : "transparent"
+        Behavior on color { ColorAnimation { duration: 110 } }
     }
 
     Icon {
@@ -77,12 +73,6 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
     }
 
-    HoverHandler {
-        id: hover
-        cursorShape: Qt.PointingHandCursor
-    }
-
-    TapHandler {
-        onTapped: root.clicked()
-    }
+    HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+    TapHandler { onTapped: root.clicked() }
 }

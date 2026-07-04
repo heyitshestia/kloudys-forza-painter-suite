@@ -61,7 +61,8 @@ Item {
     }
 
     Image {
-        source: assetRoot + "/branch-bottom.png"
+        visible: Theme.backdropBranchesVisible
+        source: assetRoot + "/" + Theme.backdropBranchBottomFile
         width: root.width * (root.compact ? 2.6 : 1.95)
         height: root.height * 0.37
         anchors.left: parent.left
@@ -69,7 +70,7 @@ Item {
         anchors.leftMargin: -width * 0.28
         anchors.bottomMargin: Theme.px(28)
         fillMode: Image.PreserveAspectFit
-        opacity: root.compact ? 0.30 : 0.40
+        opacity: root.compact ? Theme.sidebarCompactBranchOpacity : Theme.sidebarBranchOpacity
         smooth: true
         mipmap: true
     }
@@ -96,45 +97,34 @@ Item {
                     width: Theme.px(root.denseNavigation ? 48 : 56)
                     height: width
                     radius: width / 2
-                    color: "#45160b22"
+                    color: Theme.logoCapsuleSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
 
                     Image {
                         anchors.fill: parent
                         anchors.margins: Theme.px(3)
-                        source: assetRoot + "/kfps-logo.png"
+                        source: assetRoot + "/" + Theme.logoFile
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                         mipmap: true
                     }
                 }
 
-                Column {
+                Item {
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.px(1)
+                    width: brandText.implicitWidth
+                    height: parent.height
 
                     Text {
+                        id: brandText
+                        anchors.centerIn: parent
                         text: "KFPS"
                         color: Theme.primaryBright
                         font.family: Theme.displayFamily
                         font.pixelSize: Theme.px(root.denseNavigation ? 21 : 25)
                         font.weight: Font.DemiBold
                         font.letterSpacing: Theme.px(1.4)
-                    }
-
-                    Text {
-                        text: "Create-first"
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(root.denseNavigation ? 8.8 : 9.5)
-                    }
-
-                    Text {
-                        text: "Painter Suite"
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(root.denseNavigation ? 8.8 : 9.5)
                     }
                 }
             }
@@ -148,14 +138,14 @@ Item {
                     width: Theme.px(root.denseNavigation ? 42 : 50)
                     height: width
                     radius: width / 2
-                    color: "#45160b22"
+                    color: Theme.logoCapsuleSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
 
                     Image {
                         anchors.fill: parent
                         anchors.margins: Theme.px(3)
-                        source: assetRoot + "/kfps-logo.png"
+                        source: assetRoot + "/" + Theme.logoFile
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                     }

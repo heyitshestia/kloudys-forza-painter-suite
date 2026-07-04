@@ -59,7 +59,7 @@ ApplicationWindow {
         anchors.fill: parent
         color: "transparent"
         border.width: Math.max(1, Theme.px(1))
-        border.color: "#4c7b526d"
+        border.color: Theme.appBorder
         z: 200
     }
 

@@ -322,7 +322,7 @@ Item {
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.px(340)
                     radius: Theme.px(18)
-                    color: "#da08050b"
+                    color: Theme.previewSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
                     clip: true

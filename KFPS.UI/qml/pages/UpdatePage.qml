@@ -9,7 +9,7 @@ Item {
     id: root
     anchors.fill: parent
 
-    ScrollView {
+    FastScrollView {
         id: scroll
         anchors.fill: parent
         contentWidth: availableWidth

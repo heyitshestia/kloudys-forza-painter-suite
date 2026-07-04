@@ -30,9 +30,9 @@ Switch {
         implicitHeight: Theme.px(dense ? 20 : 22)
         y: Math.round((root.height - height) / 2)
         radius: height / 2
-        color: root.checked ? Theme.primaryDeep : "#423043"
+        color: root.checked ? Theme.primaryDeep : Theme.switchTrackOff
         border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focus
+        border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? Theme.primaryBright
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
 
@@ -42,14 +42,11 @@ Switch {
             radius: width / 2
             y: Math.round((parent.height - height) / 2)
             x: root.checked ? parent.width - width - Theme.px(3) : Theme.px(3)
-            color: root.checked ? "white" : Theme.muted
+            color: root.checked ? Theme.primaryText : Theme.muted
 
             Behavior on x {
                 enabled: !Theme.reducedMotion
-                NumberAnimation {
-                    duration: 150
-                    easing.type: Easing.OutCubic
-                }
+                NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
             }
         }
     }

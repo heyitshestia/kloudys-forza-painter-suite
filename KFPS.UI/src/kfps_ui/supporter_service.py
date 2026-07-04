@@ -11,6 +11,8 @@ from pathlib import Path
 from PySide6.QtCore import QFileSystemWatcher, QObject, Property, Signal, Slot, QTimer
 from PySide6.QtWidgets import QFileDialog
 
+from .theme_catalog import DEFAULT_THEME, SUPPORTER_THEME_NAMES, available_theme_names
+
 
 PUBLIC_KEY_MODULUS_HEX = (
     "934C0F9B6DF5151523EC46C982E9B2800F97CB8E6F977D2A79582B70F385E419"
@@ -27,7 +29,7 @@ PUBLIC_KEY_MODULUS_HEX = (
     "9C398D90E3A97824F5902212391C617DBA55E6F06B053EA504517054FA9EA57D"
 )
 PUBLIC_KEY_EXPONENT = 65537
-SUPPORTER_THEME_NAME = "Ko-fi Cherry"
+SUPPORTER_THEME_NAME = SUPPORTER_THEME_NAMES[0] if SUPPORTER_THEME_NAMES else DEFAULT_THEME
 SHA256_DIGESTINFO_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
 
 
@@ -165,10 +167,11 @@ class SupporterService(QObject):
 
     @Property("QStringList", notify=changed)
     def availableThemes(self):
-        themes = ["Night Blossom"]
-        if self.unlocked:
-            themes.append(SUPPORTER_THEME_NAME)
-        return themes
+        return available_theme_names(self.unlocked)
+
+    @Property(str, notify=changed)
+    def preferredTheme(self):
+        return SUPPORTER_THEME_NAME
 
     @Property("QStringList", notify=changed)
     def entitlements(self):
@@ -181,8 +184,6 @@ class SupporterService(QObject):
 
     @Slot(str, result=bool)
     def hasEntitlement(self, name: str):
-        # Supporter-only additions should be hidden when this returns False,
-        # not shown as disabled paywall panels.
         if not self._payload:
             return False
         target = str(name or "").strip()

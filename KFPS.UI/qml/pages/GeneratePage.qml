@@ -90,7 +90,7 @@ Item {
                         subtitle: "Choose one source, a preset, and the target game layer budget."
                     }
 
-                    ScrollView {
+                    FastScrollView {
                         id: controlScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -323,7 +323,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         radius: Theme.px(10)
-                        color: "#c407050a"
+                        color: Theme.previewSurfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
                         Image {
@@ -385,7 +385,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(210)
                         radius: Theme.px(10)
-                        color: "#bc08050b"
+                        color: Theme.previewSurface
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
                         Image {
@@ -444,7 +444,7 @@ Item {
 
     Component {
         id: compactComp
-        ScrollView {
+        FastScrollView {
             id: compactScroll
             clip: true
             contentWidth: availableWidth

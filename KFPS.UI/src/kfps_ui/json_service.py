@@ -105,7 +105,12 @@ class JsonService(QObject):
         self._selected_group=index; rows=[]
         for path in self._groups[index]["files"]:
             rows.append({"name":path.name,"path":str(path),"layers":self._count(path),"modifiedLabel":self._age(path.stat().st_mtime)})
-        self._file_model.replace(rows); self.changed.emit()
+        self._file_model.replace(rows)
+        if rows:
+            self.selectPath(str(rows[0]["path"]))
+        else:
+            self.clearSelection()
+        self.changed.emit()
 
     @staticmethod
     def _count(path):

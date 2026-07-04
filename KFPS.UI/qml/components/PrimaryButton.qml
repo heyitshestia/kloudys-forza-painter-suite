@@ -46,18 +46,12 @@ Button {
 
         Behavior on y {
             enabled: !Theme.reducedMotion
-            NumberAnimation {
-                duration: 140
-                easing.type: Easing.OutCubic
-            }
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
     }
     Behavior on scale {
         enabled: !Theme.reducedMotion
-        NumberAnimation {
-            duration: 70
-            easing.type: Easing.OutCubic
-        }
+        NumberAnimation { duration: 70; easing.type: Easing.OutCubic }
     }
 
     background: Item {
@@ -67,33 +61,23 @@ Button {
             radius: Theme.px(Metrics.controlRadius)
             antialiasing: true
             border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-            border.color: root.activeFocus ? Theme.focus : (root.hovered ? "#ffffd5e8" : Theme.primaryBright)
+            border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder)
             opacity: root.enabled ? 1.0 : 0.42
             clip: true
             gradient: Gradient {
-                GradientStop {
-                    position: 0.0
-                    color: root.hovered ? "#ffff68aa" : "#fff04b95"
-                }
-                GradientStop {
-                    position: 0.55
-                    color: root.hovered ? "#fff13f8d" : "#ffe22f7f"
-                }
-                GradientStop {
-                    position: 1.0
-                    color: root.hovered ? "#ffd51f6c" : "#ffae1456"
-                }
+                GradientStop { position: 0.0; color: root.hovered ? Theme.primaryButtonHoverTop : Theme.primaryButtonTop }
+                GradientStop { position: 0.55; color: root.hovered ? Theme.primaryButtonHoverMiddle : Theme.primaryButtonMiddle }
+                GradientStop { position: 1.0; color: root.hovered ? Theme.primaryButtonHoverBottom : Theme.primaryButtonBottom }
             }
             layer.enabled: Theme.glassEffects && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
-                shadowColor: root.hovered ? "#ccff2d82" : "#99250018"
+                shadowColor: root.hovered ? Theme.primaryButtonHoverShadow : Theme.primaryButtonShadow
                 shadowBlur: root.hovered ? 0.8 : 0.5
                 shadowOpacity: root.hovered ? 0.8 : 0.48
                 shadowHorizontalOffset: 0
                 shadowVerticalOffset: root.hovered ? Theme.px(3) : Theme.px(2)
             }
-
 
             Rectangle {
                 id: sheen
@@ -105,9 +89,9 @@ Button {
                 opacity: 0
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
-                    GradientStop { position: 0; color: "#00ffffff" }
-                    GradientStop { position: 0.5; color: "#8affffff" }
-                    GradientStop { position: 1; color: "#00ffffff" }
+                    GradientStop { position: 0; color: Theme.primaryButtonSheenTransparent }
+                    GradientStop { position: 0.5; color: Theme.primaryButtonSheen }
+                    GradientStop { position: 1; color: Theme.primaryButtonSheenTransparent }
                 }
             }
         }
@@ -125,7 +109,7 @@ Button {
             name: root.iconName
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: "white"
+            tint: Theme.primaryText
             glow: false
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -139,7 +123,7 @@ Button {
                        0,
                        parent.width - (root.reserveSideSlots ? (root.sideSlotWidth + root.sideGap) * 2 : 0))
             text: root.text
-            color: "white"
+            color: Theme.primaryText
             font.family: Theme.fontFamily
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold
@@ -156,7 +140,7 @@ Button {
             name: "chevron-right"
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: "white"
+            tint: Theme.primaryText
             glow: false
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
@@ -167,11 +151,7 @@ Button {
 
     SequentialAnimation {
         id: sheenAnimation
-        PropertyAction {
-            target: sheen
-            property: "opacity"
-            value: 0.46
-        }
+        PropertyAction { target: sheen; property: "opacity"; value: 0.46 }
         NumberAnimation {
             target: sheen
             property: "x"
@@ -180,10 +160,6 @@ Button {
             duration: 430
             easing.type: Easing.OutCubic
         }
-        PropertyAction {
-            target: sheen
-            property: "opacity"
-            value: 0
-        }
+        PropertyAction { target: sheen; property: "opacity"; value: 0 }
     }
 }

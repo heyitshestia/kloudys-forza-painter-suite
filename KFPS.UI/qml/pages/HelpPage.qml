@@ -79,7 +79,7 @@ Item {
                 text: "Categories"
             }
 
-            ListView {
+            FastListView {
                 id: categoryList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -107,7 +107,7 @@ Item {
 
                     background: Rectangle {
                         radius: Theme.px(12)
-                        color: categoryButton.index === categoryList.currentIndex ? "#e6ff4d9a" : (categoryButton.hovered ? "#d7251435" : "#bc120a20")
+                        color: categoryButton.index === categoryList.currentIndex ? Theme.helpCategorySelected : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
                         border.width: Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1))
                         border.color: categoryButton.index === categoryList.currentIndex ? Theme.primaryBright : (categoryButton.hovered ? Theme.primary : Theme.borderSoft)
                         Behavior on color { ColorAnimation { duration: 120 } }
@@ -129,9 +129,9 @@ Item {
                             Layout.preferredWidth: Theme.px(34)
                             Layout.preferredHeight: Theme.px(24)
                             radius: height / 2
-                            color: categoryButton.index === categoryList.currentIndex ? "#34ffffff" : "#22ffffff"
+                            color: categoryButton.index === categoryList.currentIndex ? Theme.helpBadgeSelected : Theme.helpBadge
                             border.width: Math.max(1, Theme.px(1))
-                            border.color: "#55ffffff"
+                            border.color: Theme.helpBadgeBorder
                             Text {
                                 anchors.centerIn: parent
                                 text: categoryButton.count
@@ -158,7 +158,7 @@ Item {
                 subtitle: "Pick a guide, then follow the right pane."
             }
 
-            ListView {
+            FastListView {
                 id: topicList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -186,7 +186,7 @@ Item {
 
                     background: Rectangle {
                         radius: Theme.px(13)
-                        color: topicButton.index === topicList.currentIndex ? "#d7351a42" : (topicButton.hovered ? "#c72a1435" : "#a1120920")
+                        color: topicButton.index === topicList.currentIndex ? Theme.helpTopicSelected : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
                         border.width: Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1))
                         border.color: topicButton.index === topicList.currentIndex ? Theme.primaryBright : (topicButton.hovered ? Theme.primary : Theme.borderSoft)
                         Behavior on color { ColorAnimation { duration: 120 } }
@@ -279,7 +279,7 @@ Item {
                 color: Theme.borderSoft
             }
 
-            ScrollView {
+            FastScrollView {
                 id: articleScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -337,7 +337,7 @@ Item {
                                         Layout.preferredWidth: Theme.px(29)
                                         Layout.preferredHeight: Theme.px(29)
                                         radius: height / 2
-                                        color: "#35ff6fac"
+                                        color: Theme.stepBadge
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.primaryBright
                                         Text {
@@ -523,7 +523,7 @@ Item {
 
     Component {
         id: compactComponent
-        ScrollView {
+        FastScrollView {
             id: compactScroll
             clip: true
             contentWidth: availableWidth

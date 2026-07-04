@@ -116,7 +116,7 @@ Item {
                     subtitle: "Select exactly one saved editor project."
                 }
 
-                ListView {
+                FastListView {
                     id: projects
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -165,7 +165,7 @@ Item {
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.px(330)
                     radius: Theme.px(18)
-                    color: "#d908050b"
+                    color: Theme.previewSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
                     clip: true

@@ -7,7 +7,7 @@ Rectangle {
 
     property var window
 
-    color: "#f1090710"
+    color: Theme.titleBarSurface
     height: Theme.px(Metrics.titleHeight)
 
     Rectangle {
@@ -26,7 +26,7 @@ Rectangle {
         spacing: Theme.px(7)
 
         Image {
-            source: assetRoot + "/kfps-logo.png"
+            source: assetRoot + "/" + Theme.logoFile
             width: Theme.px(16)
             height: width
             fillMode: Image.PreserveAspectFit
@@ -58,7 +58,7 @@ Rectangle {
                 width: Theme.px(46)
                 height: parent.height
                 color: hover.hovered
-                       ? (modelData === "close" ? "#c9481f43" : "#20ffffff")
+                       ? (modelData === "close" ? Theme.titleBarCloseHover : Theme.titleBarButtonHover)
                        : "transparent"
 
                 Item {
@@ -97,10 +97,7 @@ Rectangle {
                     }
                 }
 
-                HoverHandler {
-                    id: hover
-                    cursorShape: Qt.PointingHandCursor
-                }
+                HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
 
                 TapHandler {
                     onTapped: {

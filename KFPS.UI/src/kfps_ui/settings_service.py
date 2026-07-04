@@ -6,12 +6,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
+from .theme_catalog import DEFAULT_THEME, KNOWN_THEME_NAMES, normalize_theme
+
 
 class SettingsService(QObject):
     changed = Signal()
 
     DEFAULTS = {
-        "theme": "Night Blossom",
+        "theme": DEFAULT_THEME,
         "uiScale": 1.0,
         "manualOverrides": False,
         "reducedMotion": False,
@@ -19,7 +21,7 @@ class SettingsService(QObject):
         "glassEffects": True,
         "consoleCollapsed": False,
     }
-    KNOWN_THEMES = {"Night Blossom", "Ko-fi Cherry"}
+    KNOWN_THEMES = set(KNOWN_THEME_NAMES)
 
     def __init__(self, path: Path, parent=None):
         super().__init__(parent)
@@ -36,8 +38,7 @@ class SettingsService(QObject):
                         self._data[key] = payload[key]
         except Exception:
             pass
-        if self._data.get("theme") not in self.KNOWN_THEMES:
-            self._data["theme"] = "Night Blossom"
+        self._data["theme"] = normalize_theme(self._data.get("theme"))
         self._data["uiScale"] = max(0.80, min(1.35, float(self._data["uiScale"])))
 
     def save(self):
@@ -56,11 +57,7 @@ class SettingsService(QObject):
     @Property(str, notify=changed)
     def theme(self): return str(self._get("theme"))
     @theme.setter
-    def theme(self, value):
-        text = str(value)
-        if text not in self.KNOWN_THEMES:
-            text = "Night Blossom"
-        self._set("theme", text)
+    def theme(self, value): self._set("theme", normalize_theme(value))
     @Property(float, notify=changed)
     def uiScale(self): return float(self._get("uiScale"))
     @uiScale.setter

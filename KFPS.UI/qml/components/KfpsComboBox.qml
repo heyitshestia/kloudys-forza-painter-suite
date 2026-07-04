@@ -59,14 +59,12 @@ ComboBox {
 
     background: Rectangle {
         radius: Theme.px(Metrics.controlRadius)
-        color: root.popup.visible ? "#ed201328" : (root.hovered ? "#d21c1021" : "#c60c0811")
+        color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
         border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focus
+        border.color: root.activeFocus ? Theme.focusColor
                                        : (root.popup.visible ? Theme.primaryBright
                                                              : (root.hovered ? Theme.primary : Theme.borderSoft))
         opacity: root.enabled ? 1.0 : 0.64
-
-
         Behavior on color { ColorAnimation { duration: 120 } }
         Behavior on border.color { ColorAnimation { duration: 120 } }
     }
@@ -87,7 +85,7 @@ ComboBox {
         contentItem: Text {
             id: delegateLabel
             text: delegateRoot.modelData
-            color: delegateRoot.highlighted ? "white" : Theme.text
+            color: delegateRoot.highlighted ? Theme.primaryText : Theme.text
             font: root.font
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignLeft
@@ -95,7 +93,7 @@ ComboBox {
         }
 
         background: Rectangle {
-            color: delegateRoot.highlighted ? Theme.primaryDeep : "transparent"
+            color: delegateRoot.highlighted ? Theme.comboHighlight : "transparent"
             radius: Theme.px(6)
         }
     }
@@ -109,7 +107,7 @@ ComboBox {
 
         background: Rectangle {
             radius: Theme.px(10)
-            color: Theme.surfaceRaised
+            color: Theme.comboPopupSurface
             border.width: Theme.px(1)
             border.color: Theme.borderStrong
         }

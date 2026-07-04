@@ -14,6 +14,7 @@ for item in (str(SRC), str(ROOT)):
         sys.path.insert(0, item)
 
 from PySide6.QtCore import QCoreApplication, QPointF, QTimer, QUrl
+from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -34,6 +35,7 @@ from kfps_ui.runtime_service import RuntimeService
 from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_image_service import SourceImageService
 from kfps_ui.supporter_service import SupporterService
+from kfps_ui.theme_catalog import DEFAULT_THEME, is_supporter_theme
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
 from kfps_ui.version_service import VersionService
@@ -68,6 +70,10 @@ def main():
     app.setApplicationDisplayName("KFPS")
 
     paths = AppPaths.discover()
+    icon_path = paths.asset_root / "kfps-logo.png"
+    app_icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     settings = SettingsService(paths.settings_file)
     if args.ui_scale is not None:
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
@@ -83,11 +89,11 @@ def main():
     transfer = TransferService(paths, logs, jsons)
     editor = EditorService(paths, preview, desktop, logs)
     help_service = HelpService()
-    reports = ReportService(paths, logs, version)
+    reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
     supporter = SupporterService(paths.runtime_root)
-    if not supporter.unlocked and settings.theme != "Night Blossom":
-        settings.theme = "Night Blossom"
+    if is_supporter_theme(settings.theme) and not supporter.unlocked:
+        settings.theme = DEFAULT_THEME
     controller = AppController()
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md")
 
@@ -123,6 +129,8 @@ def main():
     if not engine.rootObjects():
         return 2
     window = engine.rootObjects()[0]
+    if not app_icon.isNull() and hasattr(window, "setIcon"):
+        window.setIcon(app_icon)
     try:
         window.setPersistentGraphics(False)
         window.setPersistentSceneGraph(False)
@@ -165,6 +173,7 @@ def main():
             "page": controller.currentPage,
             "window": {"width": window.width(), "height": window.height()},
             "uiScale": settings.uiScale,
+            "theme": settings.theme,
             "controls": controls,
             "zeroSize": [item["name"] for item in controls if item["width"] < 1 or item["height"] < 1],
             "tooSmall": [item["name"] for item in controls if item["width"] < 18 or item["height"] < 18],

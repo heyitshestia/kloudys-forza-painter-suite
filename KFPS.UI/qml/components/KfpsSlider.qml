@@ -24,9 +24,9 @@ Slider {
         width: root.availableWidth
         height: Theme.px(5)
         radius: height / 2
-        color: "#5b38263d"
+        color: Theme.sliderTrack
         border.width: Math.max(1, Theme.px(1))
-        border.color: root.activeFocus ? Theme.focus : Theme.borderSoft
+        border.color: root.activeFocus ? Theme.focusColor : Theme.borderSoft
 
         Rectangle {
             width: root.visualPosition * parent.width
@@ -48,10 +48,7 @@ Slider {
 
         Behavior on x {
             enabled: !root.pressed && !Theme.reducedMotion
-            NumberAnimation {
-                duration: 90
-                easing.type: Easing.OutCubic
-            }
+            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
         }
     }
 }

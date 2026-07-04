@@ -24,7 +24,7 @@ Item {
     property real workflowHeight: threeColumns ? workflowCardHeight : workflowCardHeight * 3 + Theme.px(20)
     property real lowerMinimum: threeColumns ? lowerCardHeight : lowerCardHeight * 3 + Theme.px(20)
 
-    ScrollView {
+    FastScrollView {
         id: scroll
         anchors.fill: parent
         clip: true
@@ -65,8 +65,7 @@ Item {
                         Column {
                             spacing: Theme.px(6)
                             Text {
-                                text: "Welcome to <font color='#ff78b6'>KFPS</font>"
-                                textFormat: Text.RichText
+                                text: "Welcome to KFPS"
                                 color: Theme.text
                                 font.family: Theme.displayFamily
                                 font.pixelSize: Theme.px(root.compactHeight ? 25 : 30)

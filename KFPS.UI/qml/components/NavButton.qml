@@ -29,22 +29,9 @@ Button {
     transform: Translate {
         id: hoverLift
         y: root.hovered && !root.down ? -Theme.px(1) : 0
-
-        Behavior on y {
-            enabled: !Theme.reducedMotion
-            NumberAnimation {
-                duration: 140
-                easing.type: Easing.OutCubic
-            }
-        }
+        Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
-    Behavior on scale {
-        enabled: !Theme.reducedMotion
-        NumberAnimation {
-            duration: 70
-            easing.type: Easing.OutCubic
-        }
-    }
+    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
 
     background: Item {
         Rectangle {
@@ -57,7 +44,7 @@ Button {
             layer.enabled: Theme.glassEffects && root.active && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
-                shadowColor: "#efff2e83"
+                shadowColor: Theme.navActiveGlow
                 shadowBlur: 0.9
                 shadowOpacity: 0.8
                 shadowHorizontalOffset: 0
@@ -70,18 +57,17 @@ Button {
             anchors.fill: parent
             radius: Theme.px(9)
             antialiasing: true
-            color: root.active ? "transparent" : (root.hovered ? "#56442543" : "transparent")
+            color: root.active ? "transparent" : (root.hovered ? Theme.navHoverSurface : "transparent")
             border.width: root.active || root.hovered || root.activeFocus ? Theme.px(1) : 0
-            border.color: root.activeFocus ? Theme.focus : (root.active ? Theme.primaryBright : Theme.borderSoft)
+            border.color: root.activeFocus ? Theme.focusColor : (root.active ? Theme.primaryBright : Theme.borderSoft)
             gradient: root.active ? activeGradient : undefined
 
             Gradient {
                 id: activeGradient
-                GradientStop { position: 0.0; color: "#e8c3216d" }
-                GradientStop { position: 0.52; color: "#d8ad195e" }
-                GradientStop { position: 1.0; color: "#d876123f" }
+                GradientStop { position: 0.0; color: Theme.navActiveTop }
+                GradientStop { position: 0.52; color: Theme.navActiveMiddle }
+                GradientStop { position: 1.0; color: Theme.navActiveBottom }
             }
-
 
             Behavior on color { ColorAnimation { duration: 120 } }
         }
@@ -96,13 +82,10 @@ Button {
         }
     }
 
-    contentItem: Loader {
-        sourceComponent: root.compact ? compactContent : wideContent
-    }
+    contentItem: Loader { sourceComponent: root.compact ? compactContent : wideContent }
 
     Component {
         id: wideContent
-
         Item {
             Row {
                 anchors.left: parent.left
@@ -116,9 +99,9 @@ Button {
                     name: root.iconName
                     iconSize: Theme.px(root.dense ? 18 : 20)
                     colorize: root.active
-                    tint: "white"
+                    tint: Theme.primaryText
                     glow: root.active
-                    glowColor: "#baff9ac8"
+                    glowColor: Theme.focusColor
                     iconOpacity: root.active ? 1 : 0.78
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -126,7 +109,7 @@ Button {
                 Text {
                     width: Math.max(0, parent.width - x)
                     text: root.text
-                    color: root.active ? "white" : Theme.muted
+                    color: root.active ? Theme.primaryText : Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
                     font.weight: root.active ? Font.DemiBold : Font.Medium
@@ -141,7 +124,7 @@ Button {
                 width: Theme.px(20)
                 text: "›"
                 visible: root.active || root.hovered
-                color: root.active ? "white" : Theme.primaryBright
+                color: root.active ? Theme.primaryText : Theme.primaryBright
                 opacity: root.active ? 1 : 0.75
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(24)
@@ -156,7 +139,6 @@ Button {
 
     Component {
         id: compactContent
-
         Column {
             anchors.centerIn: parent
             width: parent.width
@@ -166,9 +148,9 @@ Button {
                 name: root.iconName
                 iconSize: Theme.px(root.dense ? 17 : 19)
                 colorize: root.active
-                tint: "white"
+                tint: Theme.primaryText
                 glow: root.active
-                glowColor: "#baff9ac8"
+                glowColor: Theme.focusColor
                 iconOpacity: root.active ? 1 : 0.78
                 anchors.horizontalCenter: parent.horizontalCenter
             }
@@ -176,7 +158,7 @@ Button {
             Text {
                 width: parent.width - Theme.px(8)
                 text: root.text
-                color: root.active ? "white" : Theme.muted
+                color: root.active ? Theme.primaryText : Theme.muted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.dense ? 8 : 9)
                 font.weight: Font.DemiBold

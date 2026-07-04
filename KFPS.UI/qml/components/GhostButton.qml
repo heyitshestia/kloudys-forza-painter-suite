@@ -44,42 +44,27 @@ Button {
     transform: Translate {
         id: hoverLift
         y: root.hovered && !root.down ? -Theme.px(1) : 0
-
-        Behavior on y {
-            enabled: !Theme.reducedMotion
-            NumberAnimation {
-                duration: 140
-                easing.type: Easing.OutCubic
-            }
-        }
+        Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
-    Behavior on scale {
-        enabled: !Theme.reducedMotion
-        NumberAnimation {
-            duration: 70
-            easing.type: Easing.OutCubic
-        }
-    }
+    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
 
     background: Rectangle {
         id: chrome
         radius: Theme.px(Metrics.controlRadius)
         antialiasing: true
-        color: root.down ? "#d91e1022" : (root.hovered ? "#d73a1c3b" : "#a9251428")
+        color: root.down ? Theme.ghostPressedSurface : (root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface)
         border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focus : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
+        border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
         opacity: root.enabled ? 1.0 : 0.42
         layer.enabled: Theme.glassEffects && root.hovered && !screenshotMode
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowColor: "#a7d61f69"
+            shadowColor: Theme.ghostShadow
             shadowBlur: 0.64
             shadowOpacity: 0.62
             shadowHorizontalOffset: 0
             shadowVerticalOffset: Theme.px(2)
         }
-
-
         Behavior on color { ColorAnimation { duration: 120 } }
         Behavior on border.color { ColorAnimation { duration: 120 } }
     }

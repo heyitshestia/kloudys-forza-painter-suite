@@ -31,9 +31,9 @@ CheckBox {
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
         radius: Theme.px(5)
-        color: root.checked ? Theme.primary : (root.hovered ? "#a22c1830" : "#c60c0811")
+        color: root.checked ? Theme.checkboxCheckedSurface : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
         border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focus
+        border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? Theme.primaryBright
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
 
@@ -41,7 +41,7 @@ CheckBox {
             anchors.centerIn: parent
             text: "✓"
             visible: root.checked
-            color: "white"
+            color: Theme.primaryText
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(dense ? 10 : 12)
             font.bold: true
