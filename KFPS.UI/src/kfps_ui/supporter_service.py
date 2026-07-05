@@ -4,7 +4,9 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QObject, Property, Signal, Slot, QTimer
@@ -69,10 +71,13 @@ def _verify_rsa_pkcs1_v15_sha256(message: bytes, signature: bytes) -> bool:
 class SupporterService(QObject):
     changed = Signal()
 
-    def __init__(self, runtime_root: Path, parent=None):
+    def __init__(self, app_root: Path, parent=None):
         super().__init__(parent)
-        self._root = Path(runtime_root) / "supporter"
-        self._installed_key = self._root / "supporter.kfpskey"
+        self._app_root = Path(app_root)
+        self._root = self._app_root
+        self._legacy_root = self._app_root / "runtime" / "supporter"
+        self._legacy_installed_key = self._legacy_root / "supporter.kfpskey"
+        self._legacy_temp_key = self._legacy_root / "supporter.tmp"
         self._payload: dict | None = None
         self._status = "No local unlock installed."
         self._watcher = QFileSystemWatcher(self)
@@ -124,25 +129,66 @@ class SupporterService(QObject):
         old_status = self._status
         old_label = self.supporterLabel
         self._payload = None
-        if self._installed_key.is_file():
-            ok, payload, status = self._validate_file(self._installed_key)
+        fallback_status = "No local unlock installed."
+        for key_path in self._candidate_key_paths():
+            ok, payload, status = self._validate_file(key_path)
+            if ok and self._is_legacy_key(key_path):
+                self._install_key(key_path, payload, status, remove_source=True)
+                break
             if ok:
                 self._payload = payload
                 self._status = status
-            else:
-                self._status = status
-        else:
-            self._status = "No local unlock installed."
+                break
+            fallback_status = status
+        if self._payload is None:
+            self._status = fallback_status
         self._refresh_watchers()
         if old_unlocked != (self._payload is not None) or old_status != self._status or old_label != self.supporterLabel:
             self.changed.emit()
+
+    def _root_key_paths(self) -> list[Path]:
+        keys = [path for path in self._app_root.glob("*.kfpskey") if path.is_file()]
+        return sorted(keys, key=lambda path: (path.stat().st_mtime, path.name.lower()), reverse=True)
+
+    def _candidate_key_paths(self) -> list[Path]:
+        candidates = [*self._root_key_paths(), self._legacy_installed_key, self._legacy_temp_key]
+        result: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate.is_file():
+                try:
+                    key = str(candidate.resolve()).lower()
+                except OSError:
+                    key = str(candidate).lower()
+                if key not in seen:
+                    seen.add(key)
+                    result.append(candidate)
+        return result
+
+    def _is_legacy_key(self, path: Path) -> bool:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return False
+        for legacy in (self._legacy_installed_key, self._legacy_temp_key):
+            try:
+                if legacy.exists() and legacy.resolve() == resolved:
+                    return True
+            except OSError:
+                pass
+        return False
 
     def _refresh_watchers(self):
         self._root.mkdir(parents=True, exist_ok=True)
         watched = set(self._watcher.files() + self._watcher.directories())
         wanted = {str(self._root)}
-        if self._installed_key.is_file():
-            wanted.add(str(self._installed_key))
+        if self._legacy_root.exists():
+            wanted.add(str(self._legacy_root))
+        for key in self._root_key_paths():
+            wanted.add(str(key))
+        for legacy in (self._legacy_installed_key, self._legacy_temp_key):
+            if legacy.is_file():
+                wanted.add(str(legacy))
         for path in watched - wanted:
             self._watcher.removePath(path)
         for path in wanted - watched:
@@ -206,22 +252,85 @@ class SupporterService(QObject):
             self._payload = None
             self._set_status(status)
             return False
+        return self._install_key(source, payload, status)
+
+    def _install_key(self, source: Path, payload: dict, status: str, remove_source: bool = False) -> bool:
         self._root.mkdir(parents=True, exist_ok=True)
-        tmp = self._installed_key.with_suffix(".tmp")
-        shutil.copyfile(source, tmp)
-        os.replace(tmp, self._installed_key)
-        self._payload = payload
-        self._set_status(status)
-        return True
+        source = Path(source)
+        destination = self._destination_for_source(source)
+        temp_path: Path | None = None
+        try:
+            try:
+                if source.resolve() == destination.resolve():
+                    self._payload = payload
+                    self._status = status
+                    self._refresh_watchers()
+                    self.changed.emit()
+                    return True
+            except OSError:
+                pass
+
+            fd, temp_name = tempfile.mkstemp(prefix="supporter-", suffix=".tmp", dir=self._root)
+            os.close(fd)
+            temp_path = Path(temp_name)
+            shutil.copyfile(source, temp_path)
+            os.replace(temp_path, destination)
+            temp_path = None
+
+            self._payload = payload
+            self._status = status
+            if remove_source:
+                self._remove_legacy_source(source)
+            self._refresh_watchers()
+            self.changed.emit()
+            return True
+        except Exception as exc:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+            self._set_status(f"Could not install unlock file: {exc}")
+            return False
+
+    def _destination_for_source(self, source: Path) -> Path:
+        name = source.name
+        if source.suffix.lower() != ".kfpskey":
+            name = f"{source.stem or 'supporter'}.kfpskey"
+        return self._app_root / name
+
+    def _remove_legacy_source(self, source: Path):
+        try:
+            resolved = source.resolve()
+        except OSError:
+            return
+        for legacy in (self._legacy_installed_key, self._legacy_temp_key):
+            try:
+                if legacy.exists() and legacy.resolve() == resolved:
+                    legacy.unlink()
+                    return
+            except OSError:
+                pass
 
     @Slot()
     def removeKey(self):
-        try:
-            self._installed_key.unlink()
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            self._set_status(f"Could not remove unlock file: {exc}")
+        failures = []
+        for key in self._root_key_paths():
+            try:
+                key.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                failures.append(str(exc))
+        for legacy in (self._legacy_installed_key, self._legacy_temp_key):
+            try:
+                legacy.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+        if failures:
+            self._set_status(f"Could not remove unlock file: {failures[0]}")
             return
         self._payload = None
         self._set_status("Local unlock removed.")

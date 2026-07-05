@@ -69,7 +69,7 @@ if exist ".git\" (
         call :log "Generated outputs are stored separately and are not intentionally removed."
         goto :fail
     )
-    git clean -fdx -e runtime/ -e imgs/ -e webui-data/ -e python/
+    git clean -fdx -e runtime/ -e imgs/ -e webui-data/ -e python/ -e "*.kfpskey"
     if errorlevel 1 (
         call :log "Warning: Git cleanup of untracked program files reported an error."
     )
@@ -257,7 +257,7 @@ if not exist "%SYNC_REPO%\VERSION" (
     exit /b 1
 )
 call :log "Mirroring program files from GitHub while preserving generated/runtime data..."
-robocopy "%SYNC_REPO%" "%CD%" /MIR /R:2 /W:1 /XD ".git" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" /XF "*.pyc" >nul
+robocopy "%SYNC_REPO%" "%CD%" /MIR /R:2 /W:1 /XD ".git" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" /XF "*.pyc" "*.kfpskey" >nul
 if errorlevel 8 (
     call :log "File mirror failed during update copy. Robocopy exit code: %ERRORLEVEL%"
     exit /b 1
@@ -273,7 +273,7 @@ if not exist "%VERIFY_REPO%\.git\" (
 call :log "Verifying updated program files against Git..."
 set "KFPS_VERIFY_REPO=%VERIFY_REPO%"
 set "KFPS_VERIFY_APP=%CD%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repo=(Resolve-Path -LiteralPath $env:KFPS_VERIFY_REPO).Path; $app=(Resolve-Path -LiteralPath $env:KFPS_VERIFY_APP).Path; $tracked=& git -C $repo ls-files; if($LASTEXITCODE -ne 0){ throw 'git ls-files failed' }; $skip='^(runtime/|imgs/|webui-data/|python/|dist/|build/)|(^|/)__pycache__/|\.pyc$'; $checked=0; $repaired=0; $failed=@(); foreach($rel in $tracked){ if($rel -match $skip){ continue }; $src=Join-Path $repo ($rel -replace '/', [IO.Path]::DirectorySeparatorChar); $dst=Join-Path $app ($rel -replace '/', [IO.Path]::DirectorySeparatorChar); if(-not (Test-Path -LiteralPath $src -PathType Leaf)){ $failed += $rel; continue }; $needCopy=$false; if(-not (Test-Path -LiteralPath $dst -PathType Leaf)){ $needCopy=$true } else { $srcHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash; $dstHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash; if($srcHash -ne $dstHash){ $needCopy=$true } }; if($needCopy){ $parent=Split-Path -Parent $dst; if($parent -and -not (Test-Path -LiteralPath $parent)){ New-Item -ItemType Directory -Force -Path $parent | Out-Null }; Copy-Item -LiteralPath $src -Destination $dst -Force; $repaired++ }; $srcHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash; if(-not (Test-Path -LiteralPath $dst -PathType Leaf)){ $failed += $rel; continue }; $dstHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash; if($srcHash -ne $dstHash){ $failed += $rel } else { $checked++ } }; if($failed.Count -gt 0){ Write-Host ('Verification failed for ' + $failed.Count + ' file(s):'); $failed | Select-Object -First 25 | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }; Write-Host ('Verified ' + $checked + ' tracked program file(s); repaired ' + $repaired + ' mismatched/missing file(s).'); exit 0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repo=(Resolve-Path -LiteralPath $env:KFPS_VERIFY_REPO).Path; $app=(Resolve-Path -LiteralPath $env:KFPS_VERIFY_APP).Path; $tracked=& git -C $repo ls-files; if($LASTEXITCODE -ne 0){ throw 'git ls-files failed' }; $skip='^(runtime/|imgs/|webui-data/|python/|dist/|build/)|(^|/)__pycache__/|\.pyc$|\.kfpskey$'; $checked=0; $repaired=0; $failed=@(); foreach($rel in $tracked){ if($rel -match $skip){ continue }; $src=Join-Path $repo ($rel -replace '/', [IO.Path]::DirectorySeparatorChar); $dst=Join-Path $app ($rel -replace '/', [IO.Path]::DirectorySeparatorChar); if(-not (Test-Path -LiteralPath $src -PathType Leaf)){ $failed += $rel; continue }; $needCopy=$false; if(-not (Test-Path -LiteralPath $dst -PathType Leaf)){ $needCopy=$true } else { $srcHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash; $dstHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash; if($srcHash -ne $dstHash){ $needCopy=$true } }; if($needCopy){ $parent=Split-Path -Parent $dst; if($parent -and -not (Test-Path -LiteralPath $parent)){ New-Item -ItemType Directory -Force -Path $parent | Out-Null }; Copy-Item -LiteralPath $src -Destination $dst -Force; $repaired++ }; $srcHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash; if(-not (Test-Path -LiteralPath $dst -PathType Leaf)){ $failed += $rel; continue }; $dstHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash; if($srcHash -ne $dstHash){ $failed += $rel } else { $checked++ } }; if($failed.Count -gt 0){ Write-Host ('Verification failed for ' + $failed.Count + ' file(s):'); $failed | Select-Object -First 25 | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }; Write-Host ('Verified ' + $checked + ' tracked program file(s); repaired ' + $repaired + ' mismatched/missing file(s).'); exit 0"
 if errorlevel 1 (
     call :log "Program file verification failed. Git copy and local install still differ."
     exit /b 1
@@ -387,7 +387,7 @@ if not exist "!QML_BUNDLE_ROOT!\KloudysFH6Painter\" (
 )
 
 call :log "Copying QML app files into this install..."
-robocopy "!QML_BUNDLE_ROOT!\KloudysFH6Painter" "%CD%" /E /R:2 /W:1 /XD .git runtime imgs webui-data dist build __pycache__ python /XF "*.pyc" >nul
+robocopy "!QML_BUNDLE_ROOT!\KloudysFH6Painter" "%CD%" /E /R:2 /W:1 /XD .git runtime imgs webui-data dist build __pycache__ python /XF "*.pyc" "*.kfpskey" >nul
 if errorlevel 8 (
     call :log "QML bundle app copy failed. Robocopy exit code: %ERRORLEVEL%"
     exit /b 1

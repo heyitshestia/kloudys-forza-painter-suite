@@ -91,7 +91,7 @@ def main():
     help_service = HelpService()
     reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
-    supporter = SupporterService(paths.runtime_root)
+    supporter = SupporterService(paths.app_root)
     if is_supporter_theme(settings.theme) and not supporter.unlocked:
         settings.theme = DEFAULT_THEME
     controller = AppController()
