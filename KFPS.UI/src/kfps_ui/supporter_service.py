@@ -4,7 +4,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -75,7 +74,7 @@ class SupporterService(QObject):
         self._root = Path(runtime_root) / "supporter"
         self._installed_key = self._root / "supporter.kfpskey"
         self._payload: dict | None = None
-        self._status = "No supporter unlock installed."
+        self._status = "No local unlock installed."
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self.reload)
         self._watcher.directoryChanged.connect(self.reload)
@@ -89,36 +88,36 @@ class SupporterService(QObject):
         try:
             envelope = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception as exc:
-            return False, None, f"Could not read supporter key: {exc}"
+            return False, None, f"Could not read unlock file: {exc}"
         if not isinstance(envelope, dict):
-            return False, None, "Supporter key is not a valid signed envelope."
+            return False, None, "Unlock file is not a valid signed envelope."
         if envelope.get("type") != "kfps.supporter.unlock":
-            return False, None, "Supporter key type is not recognized."
+            return False, None, "Unlock file type is not recognized."
         if int(envelope.get("version", 0)) != 1:
-            return False, None, "Supporter key version is not supported."
+            return False, None, "Unlock file version is not supported."
         payload_b64 = envelope.get("payload")
         signature_b64 = envelope.get("signature")
         if not isinstance(payload_b64, str) or not isinstance(signature_b64, str):
-            return False, None, "Supporter key is missing payload or signature."
+            return False, None, "Unlock file is missing payload or signature."
         try:
             payload_bytes = _b64url_decode(payload_b64)
             signature = _b64url_decode(signature_b64)
             payload = json.loads(payload_bytes.decode("utf-8"))
         except Exception as exc:
-            return False, None, f"Supporter key data is malformed: {exc}"
+            return False, None, f"Unlock file data is malformed: {exc}"
         if not isinstance(payload, dict):
-            return False, None, "Supporter key payload is invalid."
+            return False, None, "Unlock file payload is invalid."
         if payload.get("schema") != "kfps.supporter.v1":
-            return False, None, "Supporter key payload schema is not supported."
+            return False, None, "Unlock file payload schema is not supported."
         canonical = _canonical_payload(payload)
         if canonical != payload_bytes:
-            return False, None, "Supporter key payload was not canonicalized."
+            return False, None, "Unlock file payload was not canonicalized."
         if not _verify_rsa_pkcs1_v15_sha256(canonical, signature):
-            return False, None, "Supporter key signature is invalid or the file was edited."
+            return False, None, "Unlock file signature is invalid or the file was edited."
         entitlements = payload.get("entitlements")
         if not isinstance(entitlements, list) or "supporter_theme" not in entitlements:
-            return False, None, "Supporter key does not unlock the supporter theme."
-        return True, payload, "Supporter unlock verified."
+            return False, None, "Unlock file does not enable this feature."
+        return True, payload, "Local unlock verified."
 
     def reload(self):
         old_unlocked = self._payload is not None
@@ -133,7 +132,7 @@ class SupporterService(QObject):
             else:
                 self._status = status
         else:
-            self._status = "No supporter unlock installed."
+            self._status = "No local unlock installed."
         self._refresh_watchers()
         if old_unlocked != (self._payload is not None) or old_status != self._status or old_label != self.supporterLabel:
             self.changed.emit()
@@ -184,7 +183,7 @@ class SupporterService(QObject):
 
     @Slot(str, result=bool)
     def hasEntitlement(self, name: str):
-        if not self._payload:
+        if not self.unlocked:
             return False
         target = str(name or "").strip()
         values = set(self.entitlements)
@@ -195,9 +194,9 @@ class SupporterService(QObject):
         start = str(Path.home())
         path, _ = QFileDialog.getOpenFileName(
             None,
-            "Import KFPS supporter unlock",
+            "Import KFPS unlock",
             start,
-            "KFPS supporter unlock (*.kfpskey);;JSON files (*.json);;All files (*)",
+            "KFPS unlock (*.kfpskey);;JSON files (*.json);;All files (*)",
         )
         if not path:
             return False
@@ -222,10 +221,10 @@ class SupporterService(QObject):
         except FileNotFoundError:
             pass
         except Exception as exc:
-            self._set_status(f"Could not remove supporter key: {exc}")
+            self._set_status(f"Could not remove unlock file: {exc}")
             return
         self._payload = None
-        self._set_status("Supporter unlock removed.")
+        self._set_status("Local unlock removed.")
         self._refresh_watchers()
 
     @Slot()

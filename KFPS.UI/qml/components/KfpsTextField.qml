@@ -32,13 +32,46 @@ TextField {
     selectByMouse: true
     clip: true
 
-    background: Rectangle {
-        radius: Theme.px(Metrics.controlRadius)
-        color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
-        border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
-        opacity: root.enabled ? 1.0 : 0.62
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on border.color { ColorAnimation { duration: 120 } }
+    background: Item {
+        Rectangle {
+            id: fieldChrome
+            anchors.fill: parent
+            radius: Theme.px(Metrics.controlRadius)
+            color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
+            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
+            opacity: root.enabled ? 1.0 : 0.62
+            clip: true
+            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+            Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+
+            Image {
+                anchors.fill: parent
+                visible: Theme.panelRefractionFile.length > 0
+                source: visible ? assetRoot + "/" + Theme.panelRefractionFile : ""
+                fillMode: Image.Tile
+                opacity: Theme.panelRefractionOpacity * (root.activeFocus ? 0.32 : 0.18)
+                smooth: true
+                clip: true
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: Theme.px(1)
+                anchors.rightMargin: Theme.px(1)
+                anchors.topMargin: Theme.px(1)
+                height: parent.height * 0.48
+                radius: Math.max(0, fieldChrome.radius - Theme.px(1))
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                    GradientStop { position: 0.74; color: Theme.primaryButtonGlassMiddle }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                }
+                opacity: root.activeFocus ? 0.38 : (root.hovered ? 0.30 : 0.20)
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 120 } }
+            }
+        }
     }
 }

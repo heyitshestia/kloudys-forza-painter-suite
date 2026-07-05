@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.34
+- General bug fixes and UI polish.
+
 ## 3.0.33
 - Improved Create preview refresh and live generation log behavior.
 - Cleaned stale app files and documentation references.
@@ -12,7 +15,7 @@
 - Improved output selection and scrolling behavior.
 
 ## 3.0.30
-- supporter themes WIP
+- General bug fixes and UI polish.
 
 ## 3.0.29
 - Reworked the native QML app around a creator-first, no-scroll workflow layout.

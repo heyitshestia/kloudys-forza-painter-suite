@@ -61,6 +61,10 @@ QtObject {
     readonly property color panelOverlay: "#0affffff"
     readonly property color panelStrongOverlay: "#13000000"
     readonly property color panelGlowShadow: "#c9561546"
+    readonly property color panelConvexLeftHighlight: "#00ffffff"
+    readonly property color panelConvexRightShadow: "#00000000"
+    readonly property color panelConvexBottomShadow: "#00000000"
+    readonly property color panelConvexCenterGlow: "#00ffffff"
     readonly property real panelNoiseSoftOpacity: 0.060
     readonly property real panelNoiseOpacity: 0.068
     readonly property real panelNoiseStrongOpacity: 0.078
@@ -82,6 +86,35 @@ QtObject {
     readonly property color primaryButtonHoverShadow: "#ccff2d82"
     readonly property color primaryButtonSheenTransparent: "#00ffffff"
     readonly property color primaryButtonSheen: "#8affffff"
+    readonly property color primaryButtonLip: primaryButtonBottom
+    readonly property color primaryButtonLipPressed: primaryButtonBottom
+    readonly property color primaryButtonGlassTop: primaryButtonSheen
+    readonly property color primaryButtonGlassMiddle: primaryButtonSheenTransparent
+    readonly property color primaryButtonInnerShadow: "#33000000"
+    readonly property string primaryButtonTextureFile: ""
+    readonly property real primaryButtonTextureOpacity: 0.0
+    readonly property string primaryButtonLensOverlayFile: ""
+    readonly property real primaryButtonLensOverlayOpacity: 0.0
+    readonly property color primaryButtonText: primaryText
+    readonly property real buttonGlassBackdropOpacity: 0.0
+    readonly property real buttonGlassBackdropBlur: 0.0
+    readonly property int buttonGlassBackdropBlurMax: 32
+    readonly property real buttonGlassBackdropBlurMultiplier: 0.0
+    readonly property real buttonGlassBackdropBrightness: 0.0
+    readonly property real buttonGlassBackdropContrast: 0.0
+    readonly property real buttonGlassBackdropSaturation: 1.0
+    readonly property real buttonGlassBackdropDownsample: 1.0
+    readonly property real buttonGlassLensOpacity: 0.0
+    readonly property real buttonGlassLensInsetX: 0.0
+    readonly property real buttonGlassLensInsetY: 0.0
+    readonly property real buttonGlassLensOffsetX: 0.0
+    readonly property real buttonGlassLensOffsetY: 0.0
+    readonly property real buttonGlassLensBlur: 0.0
+    readonly property real buttonGlassLensContrast: 0.0
+    readonly property real buttonGlassLensSaturation: 1.0
+    readonly property color buttonGlassLensLeftHighlight: "#00ffffff"
+    readonly property color buttonGlassLensCenterHighlight: "#00ffffff"
+    readonly property color buttonGlassLensRightShadow: "#00000000"
 
     readonly property color ghostSurface: "#a9251428"
     readonly property color ghostHoverSurface: "#d73a1c3b"
@@ -133,6 +166,23 @@ QtObject {
     readonly property string backdropBranchTopFile: "branch-top.png"
     readonly property string backdropBranchBottomFile: "branch-bottom.png"
     readonly property string backdropPetalFile: "petal.png"
+    readonly property string panelNoiseFile: "glass-noise.png"
+    readonly property string panelGlintFile: ""
+    readonly property string panelRefractionFile: ""
+    readonly property real panelRefractionOpacity: 0.0
+    readonly property string panelEdgeFile: ""
+    readonly property real panelEdgeOpacity: 0.0
+    readonly property string goldTrimFile: ""
+    readonly property real goldTrimOpacity: 0.0
+    readonly property bool glassBackdropEnabled: false
+    readonly property real glassBackdropOpacity: 0.0
+    readonly property real glassBackdropBlur: 0.0
+    readonly property int glassBackdropBlurMax: 32
+    readonly property real glassBackdropBlurMultiplier: 0.0
+    readonly property real glassBackdropBrightness: 0.0
+    readonly property real glassBackdropContrast: 0.0
+    readonly property real glassBackdropSaturation: 1.0
+    readonly property real glassBackdropDownsample: 1.0
     readonly property string logoFile: "kfps-logo.png"
     readonly property bool backdropBranchesVisible: true
     readonly property bool backdropPetalsVisible: true
@@ -140,4 +190,6 @@ QtObject {
     readonly property real backdropBottomBranchOpacity: 0.62
     readonly property real sidebarBranchOpacity: 0.40
     readonly property real sidebarCompactBranchOpacity: 0.30
+    readonly property bool supporterSignatureVisible: false
+    readonly property string supporterSignatureText: ""
 }

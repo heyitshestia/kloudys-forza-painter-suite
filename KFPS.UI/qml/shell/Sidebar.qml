@@ -18,6 +18,8 @@ Item {
         { page: "settings", label: "Settings", icon: "settings" }
     ]
     signal route(string page)
+    property int logoTapCount: 0
+    property bool insaneActive: false
 
     function primaryPage(page) {
         if (page === "outputs" || page === "json" || page === "library")
@@ -38,6 +40,18 @@ Item {
                 return index
         }
         return 0
+    }
+
+    function registerLogoTap() {
+        if (!Theme.supporterTheme)
+            return
+        logoTapReset.restart()
+        logoTapCount += 1
+        if (logoTapCount >= 10) {
+            logoTapCount = 0
+            insaneActive = true
+            insaneTimer.restart()
+        }
     }
 
     width: railWidth
@@ -89,9 +103,14 @@ Item {
             Layout.minimumHeight: Layout.preferredHeight
 
             Row {
+                id: wideLogoContent
                 visible: !root.compact
                 anchors.centerIn: parent
                 spacing: Theme.px(10)
+                opacity: root.insaneActive ? 0 : 1
+                y: root.insaneActive ? Theme.px(8) : 0
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     width: Theme.px(root.denseNavigation ? 48 : 56)
@@ -130,9 +149,14 @@ Item {
             }
 
             Column {
+                id: compactLogoContent
                 visible: root.compact
                 anchors.centerIn: parent
                 spacing: Theme.px(3)
+                opacity: root.insaneActive ? 0 : 1
+                y: root.insaneActive ? Theme.px(8) : 0
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     width: Theme.px(root.denseNavigation ? 42 : 50)
@@ -161,6 +185,34 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
+            }
+
+            Text {
+                visible: Theme.supporterTheme
+                anchors.centerIn: parent
+                width: parent.width - Theme.px(10)
+                text: "CREATE INSANE"
+                color: Theme.primaryBright
+                opacity: root.insaneActive ? 1 : 0
+                scale: root.insaneActive ? 1.0 : 0.72
+                font.family: Theme.displayFamily
+                font.pixelSize: Theme.px(root.compact ? 11.5 : 16)
+                font.weight: Font.Black
+                font.letterSpacing: Theme.px(root.compact ? 0.6 : 1.1)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                wrapMode: Text.NoWrap
+                elide: Text.ElideRight
+                fontSizeMode: Text.HorizontalFit
+                minimumPixelSize: Theme.px(root.compact ? 8.5 : 11.5)
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 210; easing.type: Easing.OutCubic } }
+                Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 210; easing.type: Easing.OutBack } }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                enabled: Theme.supporterTheme
+                onTapped: root.registerLogoTap()
             }
         }
 
@@ -211,35 +263,54 @@ Item {
         GlassPanel {
             visible: !root.compact
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(root.denseNavigation ? 58 : 68)
+            Layout.preferredHeight: Theme.px(root.denseNavigation ? 76 : 90)
             soft: true
 
             Column {
                 anchors.fill: parent
-                anchors.margins: Theme.px(9)
-                spacing: Theme.px(2)
+                anchors.margins: Theme.px(11)
+                spacing: Theme.px(4)
 
                 Text {
                     width: parent.width
-                    text: "Single path per task"
+                    text: Theme.supporterSignatureVisible ? Theme.supporterSignatureText : "Single path per task"
                     color: Theme.primaryBright
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(10.2)
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
+                    font.pixelSize: Theme.px(Theme.supporterSignatureVisible ? 11.2 : 10.2)
+                    font.weight: Theme.supporterSignatureVisible ? Font.DemiBold : Font.DemiBold
+                    font.italic: Theme.supporterSignatureVisible
+                    wrapMode: Theme.supporterSignatureVisible ? Text.WordWrap : Text.NoWrap
+                    maximumLineCount: Theme.supporterSignatureVisible ? 2 : 1
+                    lineHeight: Theme.supporterSignatureVisible ? 0.94 : 1.0
+                    lineHeightMode: Text.ProportionalHeight
+                    elide: Theme.supporterSignatureVisible ? Text.ElideNone : Text.ElideRight
                 }
 
                 Text {
                     width: parent.width
-                    text: "Folders and maintenance are in Settings."
+                    text: Theme.supporterSignatureVisible ? Theme.activeThemeName : "Folders and maintenance are in Settings."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(8.7)
+                    font.pixelSize: Theme.px(10.2)
                     wrapMode: Text.Wrap
                     maximumLineCount: 2
                     elide: Text.ElideRight
                 }
             }
         }
+    }
+
+    Timer {
+        id: logoTapReset
+        interval: 1600
+        repeat: false
+        onTriggered: root.logoTapCount = 0
+    }
+
+    Timer {
+        id: insaneTimer
+        interval: 5000
+        repeat: false
+        onTriggered: root.insaneActive = false
     }
 }

@@ -15,11 +15,17 @@ QtObject {
     property bool supporterUnlocked: false
 
     readonly property QtObject nightBlossom: PaletteNightBlossom {}
+    readonly property QtObject patronsAtelier: PalettePatronsAtelier {}
+    readonly property QtObject carbonDark: PaletteCarbonDark {}
 
     readonly property string defaultThemeName: nightBlossom.name
-    readonly property string activeThemeName: nightBlossom.name
-    readonly property bool supporterTheme: false
-    readonly property var palette: nightBlossom
+    readonly property bool requestedPatronsAtelier: themeName === patronsAtelier.name
+    readonly property bool requestedCarbonDark: themeName === carbonDark.name
+    readonly property bool activePatronsAtelier: requestedPatronsAtelier && supporterUnlocked
+    readonly property bool activeCarbonDark: requestedCarbonDark && supporterUnlocked
+    readonly property string activeThemeName: activePatronsAtelier ? patronsAtelier.name : (activeCarbonDark ? carbonDark.name : nightBlossom.name)
+    readonly property bool supporterTheme: activePatronsAtelier || activeCarbonDark
+    readonly property var palette: activePatronsAtelier ? patronsAtelier : (activeCarbonDark ? carbonDark : nightBlossom)
 
     // Core color contract retained for existing pages/components.
     readonly property color backgroundA: palette.backgroundA
@@ -69,6 +75,23 @@ QtObject {
     readonly property string backdropBranchTopFile: palette.backdropBranchTopFile
     readonly property string backdropBranchBottomFile: palette.backdropBranchBottomFile
     readonly property string backdropPetalFile: palette.backdropPetalFile
+    readonly property string panelNoiseFile: palette.panelNoiseFile
+    readonly property string panelGlintFile: palette.panelGlintFile
+    readonly property string panelRefractionFile: palette.panelRefractionFile
+    readonly property real panelRefractionOpacity: palette.panelRefractionOpacity
+    readonly property string panelEdgeFile: palette.panelEdgeFile
+    readonly property real panelEdgeOpacity: palette.panelEdgeOpacity
+    readonly property string goldTrimFile: palette.goldTrimFile
+    readonly property real goldTrimOpacity: palette.goldTrimOpacity
+    readonly property bool glassBackdropEnabled: palette.glassBackdropEnabled
+    readonly property real glassBackdropOpacity: palette.glassBackdropOpacity
+    readonly property real glassBackdropBlur: palette.glassBackdropBlur
+    readonly property int glassBackdropBlurMax: palette.glassBackdropBlurMax
+    readonly property real glassBackdropBlurMultiplier: palette.glassBackdropBlurMultiplier
+    readonly property real glassBackdropBrightness: palette.glassBackdropBrightness
+    readonly property real glassBackdropContrast: palette.glassBackdropContrast
+    readonly property real glassBackdropSaturation: palette.glassBackdropSaturation
+    readonly property real glassBackdropDownsample: palette.glassBackdropDownsample
     readonly property string logoFile: palette.logoFile
     readonly property bool backdropBranchesVisible: palette.backdropBranchesVisible
     readonly property bool backdropPetalsVisible: palette.backdropPetalsVisible
@@ -76,6 +99,8 @@ QtObject {
     readonly property real backdropBottomBranchOpacity: palette.backdropBottomBranchOpacity
     readonly property real sidebarBranchOpacity: palette.sidebarBranchOpacity
     readonly property real sidebarCompactBranchOpacity: palette.sidebarCompactBranchOpacity
+    readonly property bool supporterSignatureVisible: palette.supporterSignatureVisible
+    readonly property string supporterSignatureText: palette.supporterSignatureText
 
     // Component-specific semantic tokens.
     readonly property color panelTopHighlight: palette.panelTopHighlight
@@ -84,6 +109,10 @@ QtObject {
     readonly property color panelOverlay: palette.panelOverlay
     readonly property color panelStrongOverlay: palette.panelStrongOverlay
     readonly property color panelGlowShadow: palette.panelGlowShadow
+    readonly property color panelConvexLeftHighlight: palette.panelConvexLeftHighlight
+    readonly property color panelConvexRightShadow: palette.panelConvexRightShadow
+    readonly property color panelConvexBottomShadow: palette.panelConvexBottomShadow
+    readonly property color panelConvexCenterGlow: palette.panelConvexCenterGlow
 
     readonly property color primaryButtonBorder: palette.primaryButtonBorder
     readonly property color primaryButtonHoverBorder: palette.primaryButtonHoverBorder
@@ -97,6 +126,35 @@ QtObject {
     readonly property color primaryButtonHoverShadow: palette.primaryButtonHoverShadow
     readonly property color primaryButtonSheenTransparent: palette.primaryButtonSheenTransparent
     readonly property color primaryButtonSheen: palette.primaryButtonSheen
+    readonly property color primaryButtonLip: palette.primaryButtonLip
+    readonly property color primaryButtonLipPressed: palette.primaryButtonLipPressed
+    readonly property color primaryButtonGlassTop: palette.primaryButtonGlassTop
+    readonly property color primaryButtonGlassMiddle: palette.primaryButtonGlassMiddle
+    readonly property color primaryButtonInnerShadow: palette.primaryButtonInnerShadow
+    readonly property string primaryButtonTextureFile: palette.primaryButtonTextureFile
+    readonly property real primaryButtonTextureOpacity: palette.primaryButtonTextureOpacity
+    readonly property string primaryButtonLensOverlayFile: palette.primaryButtonLensOverlayFile
+    readonly property real primaryButtonLensOverlayOpacity: palette.primaryButtonLensOverlayOpacity
+    readonly property color primaryButtonText: palette.primaryButtonText
+    readonly property real buttonGlassBackdropOpacity: palette.buttonGlassBackdropOpacity
+    readonly property real buttonGlassBackdropBlur: palette.buttonGlassBackdropBlur
+    readonly property int buttonGlassBackdropBlurMax: palette.buttonGlassBackdropBlurMax
+    readonly property real buttonGlassBackdropBlurMultiplier: palette.buttonGlassBackdropBlurMultiplier
+    readonly property real buttonGlassBackdropBrightness: palette.buttonGlassBackdropBrightness
+    readonly property real buttonGlassBackdropContrast: palette.buttonGlassBackdropContrast
+    readonly property real buttonGlassBackdropSaturation: palette.buttonGlassBackdropSaturation
+    readonly property real buttonGlassBackdropDownsample: palette.buttonGlassBackdropDownsample
+    readonly property real buttonGlassLensOpacity: palette.buttonGlassLensOpacity
+    readonly property real buttonGlassLensInsetX: palette.buttonGlassLensInsetX
+    readonly property real buttonGlassLensInsetY: palette.buttonGlassLensInsetY
+    readonly property real buttonGlassLensOffsetX: palette.buttonGlassLensOffsetX
+    readonly property real buttonGlassLensOffsetY: palette.buttonGlassLensOffsetY
+    readonly property real buttonGlassLensBlur: palette.buttonGlassLensBlur
+    readonly property real buttonGlassLensContrast: palette.buttonGlassLensContrast
+    readonly property real buttonGlassLensSaturation: palette.buttonGlassLensSaturation
+    readonly property color buttonGlassLensLeftHighlight: palette.buttonGlassLensLeftHighlight
+    readonly property color buttonGlassLensCenterHighlight: palette.buttonGlassLensCenterHighlight
+    readonly property color buttonGlassLensRightShadow: palette.buttonGlassLensRightShadow
 
     readonly property color ghostSurface: palette.ghostSurface
     readonly property color ghostHoverSurface: palette.ghostHoverSurface

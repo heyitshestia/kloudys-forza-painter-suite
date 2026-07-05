@@ -61,8 +61,8 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: supporterService.unlocked
-                          ? "Supporter theme unlocked for " + supporterService.supporterLabel + ". Thank you for supporting KFPS."
-                          : "Night Blossom is active. Import a signed supporter unlock to enable optional supporter themes."
+                          ? "Unlocked for " + supporterService.supporterLabel + ". Thank you for supporting KFPS."
+                          : "Night Blossom is active."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -100,7 +100,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Supporter unlock"
+                            text: supporterService.unlocked ? "Local unlock active" : "Local unlock"
                             color: supporterService.unlocked ? Theme.primaryBright : Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(12.2)

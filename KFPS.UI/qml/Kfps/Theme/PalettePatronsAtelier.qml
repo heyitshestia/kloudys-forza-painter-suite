@@ -1,0 +1,195 @@
+import QtQuick 6.7
+
+QtObject {
+    readonly property string name: "Patron's Atelier"
+
+    readonly property color backgroundA: "#f2dce4"
+    readonly property color backgroundB: "#fff7fa"
+    readonly property color backgroundC: "#e7c0cf"
+
+    readonly property color surface: "#78fff8fb"
+    readonly property color surfaceSoft: "#66fff8fb"
+    readonly property color surfaceStrong: "#8efff8fb"
+    readonly property color surfaceRaised: "#98fff8fb"
+    readonly property color surfaceTop: "#78fff8fb"
+    readonly property color surfaceBottom: "#74fff8fb"
+    readonly property color surfaceStrongTop: "#8efff8fb"
+    readonly property color surfaceStrongBottom: "#8afff8fb"
+
+    readonly property color border: "#b0e3becf"
+    readonly property color borderSoft: "#68fff1f7"
+    readonly property color borderStrong: "#c8b99058"
+    readonly property color divider: "#45e6cad5"
+    readonly property color text: "#2b2228"
+    readonly property color muted: "#7a5b68"
+    readonly property color subtle: "#9b7f89"
+    readonly property color faint: "#bea5ac"
+
+    readonly property color primary: "#d86f99"
+    readonly property color primaryBright: "#b94470"
+    readonly property color primaryHot: "#ed86ae"
+    readonly property color primaryDeep: "#64263f"
+    readonly property color primarySoft: "#30e89abb"
+    readonly property color hover: "#24efb5c9"
+    readonly property color success: "#3e9f65"
+    readonly property color warning: "#b87928"
+    readonly property color danger: "#be4258"
+    readonly property color consoleBackground: "#eefdf1f6"
+    readonly property color shadow: "#527a4356"
+    readonly property color innerHighlight: "#adfffbfd"
+    readonly property color focusColor: "#d0b99058"
+    readonly property color primaryText: "#fffdf8"
+
+    readonly property color appBorder: "#b8b99058"
+    readonly property color titleBarSurface: "#c0fff1f7"
+    readonly property color titleBarButtonHover: "#35d87696"
+    readonly property color titleBarCloseHover: "#d8be4258"
+    readonly property color logoCapsuleSurface: "#bffff1f7"
+
+    readonly property color panelTop: "#68fff8fb"
+    readonly property color panelMiddle: "#5efff8fb"
+    readonly property color panelBottom: "#64fff8fb"
+    readonly property color panelSoftTop: "#58fff8fb"
+    readonly property color panelSoftMiddle: "#50fff8fb"
+    readonly property color panelSoftBottom: "#56fff8fb"
+    readonly property color panelStrongTop: "#80fff8fb"
+    readonly property color panelStrongMiddle: "#76fff8fb"
+    readonly property color panelStrongBottom: "#7cfff8fb"
+    readonly property color panelTopHighlight: "#c0fffbfd"
+    readonly property color panelInnerBorder: "#adfffbfd"
+    readonly property color panelStrongInnerBorder: "#d4b99058"
+    readonly property color panelOverlay: "#03ffffff"
+    readonly property color panelStrongOverlay: "#05fff8fb"
+    readonly property color panelGlowShadow: "#42c75785"
+    readonly property color panelConvexLeftHighlight: "#58fffbfd"
+    readonly property color panelConvexRightShadow: "#36702d49"
+    readonly property color panelConvexBottomShadow: "#3a702d49"
+    readonly property color panelConvexCenterGlow: "#14fff7fb"
+    readonly property real panelNoiseSoftOpacity: 0.004
+    readonly property real panelNoiseOpacity: 0.006
+    readonly property real panelNoiseStrongOpacity: 0.008
+    readonly property real panelHighlightSoftOpacity: 0.20
+    readonly property real panelHighlightOpacity: 0.24
+    readonly property real panelHighlightStrongOpacity: 0.29
+    readonly property real panelOverlaySoftOpacity: 0.008
+    readonly property real panelOverlayOpacity: 0.012
+
+    readonly property color primaryButtonBorder: "#e8fff7fb"
+    readonly property color primaryButtonHoverBorder: "#fbffffff"
+    readonly property color primaryButtonTop: "#12fffafd"
+    readonly property color primaryButtonMiddle: "#10f2a6c0"
+    readonly property color primaryButtonBottom: "#16dc79a2"
+    readonly property color primaryButtonHoverTop: "#24fffafd"
+    readonly property color primaryButtonHoverMiddle: "#16ffbfd4"
+    readonly property color primaryButtonHoverBottom: "#20ec86ae"
+    readonly property color primaryButtonShadow: "#00ffffff"
+    readonly property color primaryButtonHoverShadow: "#00ffffff"
+    readonly property color primaryButtonSheenTransparent: "#00ffffff"
+    readonly property color primaryButtonSheen: "#bffff8fb"
+    readonly property color primaryButtonLip: "#38d979a0"
+    readonly property color primaryButtonLipPressed: "#56d979a0"
+    readonly property color primaryButtonGlassTop: "#d8fff7fb"
+    readonly property color primaryButtonGlassMiddle: "#1efff7fb"
+    readonly property color primaryButtonInnerShadow: "#22000000"
+    readonly property string primaryButtonTextureFile: "themes/patrons-atelier/candy-glass-button.png"
+    readonly property real primaryButtonTextureOpacity: 0.026
+    readonly property string primaryButtonLensOverlayFile: "themes/patrons-atelier/candy-lens-overlay.png"
+    readonly property real primaryButtonLensOverlayOpacity: 0.28
+    readonly property color primaryButtonText: "#6f2f45"
+    readonly property real buttonGlassBackdropOpacity: 1.0
+    readonly property real buttonGlassBackdropBlur: 0.32
+    readonly property int buttonGlassBackdropBlurMax: 40
+    readonly property real buttonGlassBackdropBlurMultiplier: 0.72
+    readonly property real buttonGlassBackdropBrightness: -0.018
+    readonly property real buttonGlassBackdropContrast: 0.24
+    readonly property real buttonGlassBackdropSaturation: 0.82
+    readonly property real buttonGlassBackdropDownsample: 0.86
+    readonly property real buttonGlassLensOpacity: 0.80
+    readonly property real buttonGlassLensInsetX: 0.19
+    readonly property real buttonGlassLensInsetY: 0.30
+    readonly property real buttonGlassLensOffsetX: -0.030
+    readonly property real buttonGlassLensOffsetY: -0.080
+    readonly property real buttonGlassLensBlur: 0.04
+    readonly property real buttonGlassLensContrast: 0.40
+    readonly property real buttonGlassLensSaturation: 0.92
+    readonly property color buttonGlassLensLeftHighlight: "#28fff7fb"
+    readonly property color buttonGlassLensCenterHighlight: "#12fff7fb"
+    readonly property color buttonGlassLensRightShadow: "#28000000"
+
+    readonly property color ghostSurface: "#4cfff6fa"
+    readonly property color ghostHoverSurface: "#70fff6fa"
+    readonly property color ghostPressedSurface: "#70f7e8ef"
+    readonly property color ghostShadow: "#00ffffff"
+
+    readonly property color fieldSurface: "#dcfff3f8"
+    readonly property color fieldHoverSurface: "#e8fff3f8"
+    readonly property color fieldFocusSurface: "#f6fff3f8"
+    readonly property color comboSurfaceOpen: "#f6fff3f8"
+    readonly property color comboHoverSurface: "#f2fff1f7"
+    readonly property color comboPopupSurface: "#f8fff7fb"
+    readonly property color comboHighlight: "#d7799f"
+
+    readonly property color checkboxSurface: "#eafffbf8"
+    readonly property color checkboxHoverSurface: "#f3fbecef"
+    readonly property color checkboxCheckedSurface: primary
+    readonly property color switchTrackOff: "#d8dcc5d0"
+    readonly property color sliderTrack: "#bfdca7c0"
+
+    readonly property color navHoverSurface: "#20fffdf9"
+    readonly property color navActiveGlow: "#30ffffff"
+    readonly property color navActiveTop: "#24fffdfc"
+    readonly property color navActiveMiddle: "#16f0bcc9"
+    readonly property color navActiveBottom: "#18e6a5b8"
+
+    readonly property color rowHover: "#2dd87696"
+    readonly property color rowSelectedSurface: "#56ed96b8"
+    readonly property color previewSurface: "#94fff7fa"
+    readonly property color previewSurfaceSoft: "#84fff7fa"
+
+    readonly property color helpCategorySelected: "#d8c5a061"
+    readonly property color helpCategoryHover: "#dffbe8f1"
+    readonly property color helpCategorySurface: "#cafff3f8"
+    readonly property color helpBadgeSelected: "#56ffffff"
+    readonly property color helpBadge: "#40fff8f2"
+    readonly property color helpBadgeBorder: "#bfc5a061"
+    readonly property color helpTopicSelected: "#d8f3a4c4"
+    readonly property color helpTopicHover: "#dffbe8f1"
+    readonly property color helpTopicSurface: "#cafff3f8"
+    readonly property color stepBadge: "#52c5a061"
+    readonly property color richAccent: "#7a572a"
+
+    readonly property color backdropOverlayTop: "#00ffe8f1"
+    readonly property color backdropOverlayMiddle: "#00fff5fa"
+    readonly property color backdropOverlayBottom: "#03efb5c9"
+
+    readonly property string backdropBaseFile: "themes/patrons-atelier/backdrop-atelier-strawberry.png"
+    readonly property string backdropBranchTopFile: "themes/patrons-atelier/branch-top.png"
+    readonly property string backdropBranchBottomFile: "themes/patrons-atelier/branch-bottom.png"
+    readonly property string backdropPetalFile: "themes/patrons-atelier/soft-mote.png"
+    readonly property string panelNoiseFile: "themes/patrons-atelier/panel-frost-noise.png"
+    readonly property string panelGlintFile: "themes/patrons-atelier/pearl-glint.png"
+    readonly property string panelRefractionFile: "themes/patrons-atelier/glass-refraction-field.png"
+    readonly property real panelRefractionOpacity: 0.012
+    readonly property string panelEdgeFile: "themes/patrons-atelier/glass-edge-prism.png"
+    readonly property real panelEdgeOpacity: 0.24
+    readonly property string goldTrimFile: "themes/patrons-atelier/gold-foil-tile.png"
+    readonly property real goldTrimOpacity: 0.16
+    readonly property bool glassBackdropEnabled: true
+    readonly property real glassBackdropOpacity: 0.52
+    readonly property real glassBackdropBlur: 0.78
+    readonly property int glassBackdropBlurMax: 64
+    readonly property real glassBackdropBlurMultiplier: 1.32
+    readonly property real glassBackdropBrightness: -0.025
+    readonly property real glassBackdropContrast: 0.09
+    readonly property real glassBackdropSaturation: 0.72
+    readonly property real glassBackdropDownsample: 0.80
+    readonly property string logoFile: "themes/patrons-atelier/kfps-logo-gold.png"
+    readonly property bool backdropBranchesVisible: true
+    readonly property bool backdropPetalsVisible: true
+    readonly property real backdropTopBranchOpacity: 0.34
+    readonly property real backdropBottomBranchOpacity: 0.25
+    readonly property real sidebarBranchOpacity: 0.12
+    readonly property real sidebarCompactBranchOpacity: 0.08
+    readonly property bool supporterSignatureVisible: true
+    readonly property string supporterSignatureText: "thank you for the support -kloudy"
+}

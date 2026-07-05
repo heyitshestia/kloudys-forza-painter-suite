@@ -44,6 +44,7 @@ ApplicationWindow {
     property real consoleHeight: settings.consoleCollapsed
                                  ? Theme.px(Metrics.consoleCollapsedHeight)
                                  : consoleExpandedHeight
+    property Item glassBackdropSource: backdropLayer
 
     Binding { target: Theme; property: "viewportScale"; value: window.viewportFitScale }
     Binding { target: Theme; property: "uiScale"; value: settings.uiScale }
@@ -53,7 +54,10 @@ ApplicationWindow {
     Binding { target: Theme; property: "themeName"; value: settings.theme }
     Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked }
 
-    BlossomBackdrop { anchors.fill: parent }
+    BlossomBackdrop {
+        id: backdropLayer
+        anchors.fill: parent
+    }
 
     Rectangle {
         anchors.fill: parent

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 
 DEFAULT_THEME = "Night Blossom"
+PATRONS_ATELIER_THEME = "Patron's Atelier"
+CARBON_DARK_THEME = "Carbon Dark"
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,8 @@ class ThemePreset:
 
 THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(DEFAULT_THEME),
+    ThemePreset(PATRONS_ATELIER_THEME, supporter_only=True),
+    ThemePreset(CARBON_DARK_THEME, supporter_only=True),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

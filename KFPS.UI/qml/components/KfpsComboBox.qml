@@ -57,16 +57,49 @@ ComboBox {
         }
     }
 
-    background: Rectangle {
-        radius: Theme.px(Metrics.controlRadius)
-        color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
-        border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focusColor
-                                       : (root.popup.visible ? Theme.primaryBright
-                                                             : (root.hovered ? Theme.primary : Theme.borderSoft))
-        opacity: root.enabled ? 1.0 : 0.64
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on border.color { ColorAnimation { duration: 120 } }
+    background: Item {
+        Rectangle {
+            id: comboChrome
+            anchors.fill: parent
+            radius: Theme.px(Metrics.controlRadius)
+            color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
+            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.color: root.activeFocus ? Theme.focusColor
+                                           : (root.popup.visible ? Theme.primaryBright
+                                                                 : (root.hovered ? Theme.primary : Theme.borderSoft))
+            opacity: root.enabled ? 1.0 : 0.64
+            clip: true
+            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+            Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+
+            Image {
+                anchors.fill: parent
+                visible: Theme.panelRefractionFile.length > 0
+                source: visible ? assetRoot + "/" + Theme.panelRefractionFile : ""
+                fillMode: Image.Tile
+                opacity: Theme.panelRefractionOpacity * (root.popup.visible ? 0.34 : (root.hovered ? 0.24 : 0.16))
+                smooth: true
+                clip: true
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: Theme.px(1)
+                anchors.rightMargin: Theme.px(1)
+                anchors.topMargin: Theme.px(1)
+                height: parent.height * 0.48
+                radius: Math.max(0, comboChrome.radius - Theme.px(1))
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                    GradientStop { position: 0.74; color: Theme.primaryButtonGlassMiddle }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                }
+                opacity: root.popup.visible ? 0.42 : (root.hovered ? 0.30 : 0.20)
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 120 } }
+            }
+        }
     }
 
     TapHandler {
@@ -105,11 +138,43 @@ ComboBox {
         padding: Theme.px(4)
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
-        background: Rectangle {
-            radius: Theme.px(10)
-            color: Theme.comboPopupSurface
-            border.width: Theme.px(1)
-            border.color: Theme.borderStrong
+        background: Item {
+            Rectangle {
+                id: popupChrome
+                anchors.fill: parent
+                radius: Theme.px(10)
+                color: Theme.comboPopupSurface
+                border.width: Theme.px(1)
+                border.color: Theme.borderStrong
+                clip: true
+
+                Image {
+                    anchors.fill: parent
+                    visible: Theme.panelRefractionFile.length > 0
+                    source: visible ? assetRoot + "/" + Theme.panelRefractionFile : ""
+                    fillMode: Image.Tile
+                    opacity: Theme.panelRefractionOpacity * 0.20
+                    smooth: true
+                    clip: true
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.leftMargin: Theme.px(1)
+                    anchors.rightMargin: Theme.px(1)
+                    anchors.topMargin: Theme.px(1)
+                    height: parent.height * 0.18
+                    radius: Math.max(0, popupChrome.radius - Theme.px(1))
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                        GradientStop { position: 0.78; color: Theme.primaryButtonGlassMiddle }
+                        GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                    }
+                    opacity: 0.22
+                }
+            }
         }
 
         contentItem: ListView {

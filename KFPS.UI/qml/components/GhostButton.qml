@@ -20,6 +20,8 @@ Button {
     readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(6) : 0
+    readonly property real lipDepth: Theme.px(dense ? 1.8 : 2.8)
+    readonly property real capTravel: down ? Theme.px(dense ? 1.1 : 2.0) : 0
 
     implicitHeight: Math.max(
                         Theme.px(dense ? Metrics.denseButtonHeight : 36),
@@ -39,7 +41,7 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: down ? 0.985 : 1.0
+    scale: down ? 0.982 : 1.0
 
     transform: Translate {
         id: hoverLift
@@ -48,25 +50,189 @@ Button {
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
 
-    background: Rectangle {
-        id: chrome
-        radius: Theme.px(Metrics.controlRadius)
-        antialiasing: true
-        color: root.down ? Theme.ghostPressedSurface : (root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface)
-        border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-        border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
-        opacity: root.enabled ? 1.0 : 0.42
-        layer.enabled: Theme.glassEffects && root.hovered && !screenshotMode
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: Theme.ghostShadow
-            shadowBlur: 0.64
-            shadowOpacity: 0.62
-            shadowHorizontalOffset: 0
-            shadowVerticalOffset: Theme.px(2)
+    background: Item {
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Theme.px(2)
+            anchors.rightMargin: Theme.px(2)
+            height: Theme.px(root.dense ? 3 : 5)
+            radius: Theme.px(Metrics.controlRadius)
+            color: Theme.ghostShadow
+            opacity: root.down ? 0.02 : (root.hovered ? 0.05 : 0.025)
+            antialiasing: true
+            Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110 } }
         }
-        Behavior on color { ColorAnimation { duration: 120 } }
-        Behavior on border.color { ColorAnimation { duration: 120 } }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: Math.min(parent.height, root.lipDepth + Theme.px(root.dense ? 3 : 5))
+            radius: Theme.px(Metrics.controlRadius)
+            antialiasing: true
+            color: root.down ? Theme.ghostPressedSurface : Theme.panelGradientBottom(false, false)
+            border.width: Math.max(1, Theme.px(1))
+            border.color: root.hovered ? Theme.primaryBright : Theme.borderSoft
+            opacity: root.enabled ? 0.36 : 0.14
+            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+            Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+        }
+
+        Rectangle {
+            id: chrome
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: Math.max(Theme.px(8), parent.height - (root.down ? Theme.px(1.0) : root.lipDepth))
+            y: root.capTravel
+            radius: Theme.px(Metrics.controlRadius)
+            antialiasing: true
+            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
+            opacity: root.enabled ? 1.0 : 0.42
+            clip: true
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: root.down ? Theme.ghostPressedSurface : Theme.fieldFocusSurface }
+                GradientStop { position: 0.48; color: root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface }
+                GradientStop { position: 1.0; color: root.down ? Theme.ghostPressedSurface : Theme.ghostSurface }
+            }
+            layer.enabled: Theme.glassEffects && root.hovered && !screenshotMode
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Theme.ghostShadow
+                shadowBlur: 0.18
+                shadowOpacity: 0.05
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: Theme.px(root.down ? 0.5 : 1)
+            }
+            Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 85; easing.type: Easing.OutCubic } }
+            Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: 85; easing.type: Easing.OutCubic } }
+            Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
+
+            ButtonGlassBackdrop {
+                anchors.fill: parent
+                extraOpacity: root.down ? 0.30 : (root.hovered ? 0.54 : 0.36)
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: Theme.px(1.4)
+                radius: Math.max(0, chrome.radius - Theme.px(1.5))
+                antialiasing: true
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                    GradientStop { position: 0.46; color: Theme.primaryButtonGlassMiddle }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                }
+                opacity: root.down ? 0.16 : (root.hovered ? 0.34 : 0.22)
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110 } }
+            }
+
+            Image {
+                anchors.fill: parent
+                visible: Theme.primaryButtonTextureFile.length > 0
+                source: visible ? assetRoot + "/" + Theme.primaryButtonTextureFile : ""
+                fillMode: Image.Tile
+                opacity: Theme.primaryButtonTextureOpacity * (root.hovered ? 0.26 : 0.14)
+                smooth: true
+                clip: true
+            }
+
+            BorderImage {
+                anchors.fill: parent
+                visible: Theme.panelEdgeFile.length > 0
+                source: visible ? assetRoot + "/" + Theme.panelEdgeFile : ""
+                border.left: 42
+                border.right: 42
+                border.top: 42
+                border.bottom: 42
+                horizontalTileMode: BorderImage.Stretch
+                verticalTileMode: BorderImage.Stretch
+                opacity: Theme.panelEdgeOpacity * (root.hovered ? 0.46 : 0.24)
+                smooth: true
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: Theme.px(1)
+                anchors.rightMargin: Theme.px(1)
+                anchors.topMargin: Theme.px(1)
+                height: parent.height * 0.48
+                radius: Math.max(0, chrome.radius - Theme.px(1))
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                    GradientStop { position: 0.78; color: Theme.primaryButtonGlassMiddle }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                }
+                opacity: root.down ? 0.18 : (root.hovered ? 0.38 : 0.24)
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110 } }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: Theme.px(1.4)
+                radius: Math.max(0, chrome.radius - Theme.px(1.4))
+                color: "transparent"
+                border.width: Math.max(1, Theme.px(1))
+                border.color: Theme.primaryButtonGlassTop
+                opacity: root.down ? 0.10 : (root.hovered ? 0.30 : 0.18)
+                antialiasing: true
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110 } }
+            }
+
+            Image {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                visible: Theme.goldTrimFile.length > 0
+                source: visible ? assetRoot + "/" + Theme.goldTrimFile : ""
+                height: Math.max(1, Theme.px(1))
+                fillMode: Image.TileHorizontally
+                opacity: Theme.goldTrimOpacity * (root.hovered ? 0.46 : 0.24)
+                smooth: true
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: Math.max(1, Theme.px(1.4))
+                radius: chrome.radius
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonSheenTransparent }
+                }
+                opacity: root.down ? 0.12 : (root.hovered ? 0.34 : 0.22)
+            }
+
+            Rectangle {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: Math.max(1, Theme.px(1.4))
+                radius: chrome.radius
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: Theme.primaryButtonSheenTransparent }
+                    GradientStop { position: 1.0; color: Theme.primaryButtonInnerShadow }
+                }
+                opacity: root.down ? 0.10 : (root.hovered ? 0.22 : 0.14)
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: chrome.radius
+                color: Theme.primaryButtonGlassTop
+                opacity: root.down ? 0.14 : 0
+                antialiasing: true
+                Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 80 } }
+            }
+        }
     }
 
     contentItem: Item {
@@ -74,6 +240,13 @@ Button {
                        + (root.reserveSideSlots ? (root.sideSlotWidth + root.sideGap) * 2 : 0)
         implicitHeight: Math.max(buttonLabel.implicitHeight, root.sideSlotWidth)
         clip: true
+        transform: Translate {
+            y: root.down ? Theme.px(0.9) : 0
+            Behavior on y {
+                enabled: !Theme.reducedMotion
+                NumberAnimation { duration: 82; easing.type: Easing.OutCubic }
+            }
+        }
 
         Icon {
             visible: root.iconName.length > 0
