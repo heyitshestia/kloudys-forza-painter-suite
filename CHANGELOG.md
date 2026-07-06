@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.43
+- General UI cleanup.
+
 ## 3.0.42
 - Restored the Tools tab with source preparation shortcuts.
 

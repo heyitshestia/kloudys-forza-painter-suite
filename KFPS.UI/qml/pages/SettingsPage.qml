@@ -405,39 +405,6 @@ Item {
                     onClicked: desktop.openRuntime()
                 }
 
-                GlassPanel {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 150 : 178)
-                    soft: true
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(12)
-                        spacing: Theme.px(6)
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Layout rule"
-                            color: Theme.primaryBright
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(13)
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: "Primary creation screens do not duplicate folder shortcuts or maintenance paths. Use Settings for locations, Create for generation, Outputs for import/export, and Editor for project work."
-                            color: Theme.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.5)
-                            wrapMode: Text.Wrap
-                            elide: Text.ElideRight
-                        }
-                    }
-                }
-
                 Item { Layout.fillHeight: true }
             }
         }
