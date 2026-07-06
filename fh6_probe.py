@@ -26,9 +26,9 @@ READABLE_WRITABLE_MASK = 0xCC
 ROOT = Path(__file__).resolve().parent
 
 FH6_CALIBRATED_RTTI_PROFILE = {
-    "update_code": b"90396176695449",
-    "descriptor_offset": 0x9E2B7D0,
-    "vtable_offsets": [0x680ECC0],
+    "update_code": b"91173565759607",
+    "descriptor_offset": 0x9E2C940,
+    "vtable_offsets": [0x680FC00],
     "base_class_count": 4,
 }
 
