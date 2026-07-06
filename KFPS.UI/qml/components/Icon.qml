@@ -10,9 +10,10 @@ Item {
     property real iconSize: Theme.px(22)
     property real iconOpacity: 1
     property bool glow: false
-    property bool colorize: false
-    property color tint: Theme.primaryBright
+    property bool colorize: Theme.activeCarbonDark
+    property color tint: Theme.activeCarbonDark ? Theme.primary : Theme.primaryBright
     property color glowColor: Theme.primary
+    readonly property string iconFolder: Theme.activeCarbonDark ? "icons-carbon" : "icons"
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -24,7 +25,7 @@ Item {
         anchors.centerIn: parent
         width: root.iconSize
         height: root.iconSize
-        source: root.name.length > 0 ? assetRoot + "/icons/" + root.name + ".svg" : ""
+        source: root.name.length > 0 ? assetRoot + "/" + root.iconFolder + "/" + root.name + ".svg" : ""
         fillMode: Image.PreserveAspectFit
         opacity: root.iconOpacity
         smooth: true

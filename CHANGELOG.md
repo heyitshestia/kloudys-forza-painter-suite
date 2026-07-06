@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.36
+- General bug fixes and UI polish.
+
 ## 3.0.35
 - General bug fixes and UI polish.
 
