@@ -214,6 +214,13 @@ Item {
                                 contentY = Math.max(0, contentHeight - height)
                             }
 
+                            Timer {
+                                id: transferLiveLogPinTimer
+                                interval: 0
+                                repeat: false
+                                onTriggered: transferLiveLogScroll.pinToBottom()
+                            }
+
                             TextEdit {
                                 id: transferLiveLogText
                                 width: transferLiveLogScroll.width
@@ -230,9 +237,7 @@ Item {
                                 font.family: Theme.monoFamily
                                 font.pixelSize: Theme.px(10.3)
 
-                                onTextChanged: Qt.callLater(function() {
-                                    transferLiveLogScroll.pinToBottom()
-                                })
+                                onTextChanged: transferLiveLogPinTimer.restart()
                             }
 
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }

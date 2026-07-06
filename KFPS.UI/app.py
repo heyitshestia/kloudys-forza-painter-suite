@@ -132,8 +132,10 @@ def main():
     if not app_icon.isNull() and hasattr(window, "setIcon"):
         window.setIcon(app_icon)
     try:
-        window.setPersistentGraphics(False)
-        window.setPersistentSceneGraph(False)
+        # Keep the scene graph alive while minimized so long-running import/export
+        # jobs can finish without the restored UI rebuilding under log updates.
+        window.setPersistentGraphics(True)
+        window.setPersistentSceneGraph(True)
     except Exception:
         pass
     window.setWidth(args.width)

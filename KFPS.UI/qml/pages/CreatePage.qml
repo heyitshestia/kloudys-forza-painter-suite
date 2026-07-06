@@ -529,6 +529,13 @@ Item {
                                 contentY = Math.max(0, contentHeight - height)
                             }
 
+                            Timer {
+                                id: sideLiveLogPinTimer
+                                interval: 0
+                                repeat: false
+                                onTriggered: sideLiveLogScroll.pinToBottom()
+                            }
+
                             TextEdit {
                                 id: sideLiveLogText
                                 width: sideLiveLogScroll.width
@@ -545,9 +552,7 @@ Item {
                                 font.family: Theme.monoFamily
                                 font.pixelSize: Theme.px(10.8)
 
-                                onTextChanged: Qt.callLater(function() {
-                                    sideLiveLogScroll.pinToBottom()
-                                })
+                                onTextChanged: sideLiveLogPinTimer.restart()
                             }
 
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }

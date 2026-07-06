@@ -431,6 +431,16 @@ Item {
                                 contentWidth: availableWidth
                                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
+                                Timer {
+                                    id: centerGenerationLiveLogPinTimer
+                                    interval: 0
+                                    repeat: false
+                                    onTriggered: {
+                                        if (centerGenerationLiveLogScroll.contentItem)
+                                            centerGenerationLiveLogScroll.contentItem.contentY = Math.max(0, centerGenerationLiveLogScroll.contentItem.contentHeight - centerGenerationLiveLogScroll.contentItem.height)
+                                    }
+                                }
+
                                 Text {
                                     width: centerGenerationLiveLogScroll.availableWidth
                                     text: generationService.liveLog
@@ -438,10 +448,7 @@ Item {
                                     font.family: Theme.monoFamily
                                     font.pixelSize: Theme.px(9.5)
                                     wrapMode: Text.Wrap
-                                    onTextChanged: Qt.callLater(function() {
-                                        if (centerGenerationLiveLogScroll.contentItem)
-                                            centerGenerationLiveLogScroll.contentItem.contentY = Math.max(0, centerGenerationLiveLogScroll.contentItem.contentHeight - centerGenerationLiveLogScroll.contentItem.height)
-                                    })
+                                    onTextChanged: centerGenerationLiveLogPinTimer.restart()
                                 }
                             }
                         }
@@ -540,6 +547,16 @@ Item {
                                 contentWidth: availableWidth
                                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
+                                Timer {
+                                    id: generationLiveLogPinTimer
+                                    interval: 0
+                                    repeat: false
+                                    onTriggered: {
+                                        if (generationLiveLogScroll.contentItem)
+                                            generationLiveLogScroll.contentItem.contentY = Math.max(0, generationLiveLogScroll.contentItem.contentHeight - generationLiveLogScroll.contentItem.height)
+                                    }
+                                }
+
                                 Text {
                                     width: generationLiveLogScroll.availableWidth
                                     text: generationService.liveLog
@@ -547,10 +564,7 @@ Item {
                                     font.family: Theme.monoFamily
                                     font.pixelSize: Theme.px(9.5)
                                     wrapMode: Text.Wrap
-                                    onTextChanged: Qt.callLater(function() {
-                                        if (generationLiveLogScroll.contentItem)
-                                            generationLiveLogScroll.contentItem.contentY = Math.max(0, generationLiveLogScroll.contentItem.contentHeight - generationLiveLogScroll.contentItem.height)
-                                    })
+                                    onTextChanged: generationLiveLogPinTimer.restart()
                                 }
                             }
                         }
@@ -754,6 +768,16 @@ Item {
                             contentWidth: availableWidth
                             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
+                            Timer {
+                                id: compactGenerationLiveLogPinTimer
+                                interval: 0
+                                repeat: false
+                                onTriggered: {
+                                    if (compactGenerationLiveLogScroll.contentItem)
+                                        compactGenerationLiveLogScroll.contentItem.contentY = Math.max(0, compactGenerationLiveLogScroll.contentItem.contentHeight - compactGenerationLiveLogScroll.contentItem.height)
+                                }
+                            }
+
                             Text {
                                 width: compactGenerationLiveLogScroll.availableWidth
                                 text: generationService.liveLog
@@ -761,10 +785,7 @@ Item {
                                 font.family: Theme.monoFamily
                                 font.pixelSize: Theme.px(9.5)
                                 wrapMode: Text.Wrap
-                                onTextChanged: Qt.callLater(function() {
-                                    if (compactGenerationLiveLogScroll.contentItem)
-                                        compactGenerationLiveLogScroll.contentItem.contentY = Math.max(0, compactGenerationLiveLogScroll.contentItem.contentHeight - compactGenerationLiveLogScroll.contentItem.height)
-                                })
+                                onTextChanged: compactGenerationLiveLogPinTimer.restart()
                             }
                         }
                     }
