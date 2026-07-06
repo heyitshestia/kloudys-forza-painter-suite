@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.40
+- General bug fixes and stability improvements.
+
 ## 3.0.39
 - General bug fixes and import/export stability improvements.
 
