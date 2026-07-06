@@ -166,7 +166,79 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Item { Layout.fillHeight: true }
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.px(root.compactHeight ? 126 : 166)
+                    soft: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(11)
+                        spacing: Theme.px(7)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Live import/export log"
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12.6)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.maximumWidth: Theme.px(130)
+                                text: transferService.running ? "Running" : transferService.status
+                                color: transferService.running ? Theme.warning : Theme.muted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(9.4)
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Flickable {
+                            id: transferLiveLogScroll
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            contentWidth: width
+                            contentHeight: Math.max(height, transferLiveLogText.height)
+
+                            function pinToBottom() {
+                                contentY = Math.max(0, contentHeight - height)
+                            }
+
+                            TextEdit {
+                                id: transferLiveLogText
+                                width: transferLiveLogScroll.width
+                                height: Math.max(contentHeight + Theme.px(10), transferLiveLogScroll.height)
+                                text: transferService.liveLog
+                                readOnly: true
+                                selectByMouse: true
+                                persistentSelection: true
+                                wrapMode: TextEdit.Wrap
+                                textFormat: TextEdit.PlainText
+                                color: Theme.muted
+                                selectedTextColor: Theme.primaryText
+                                selectionColor: Theme.primary
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.px(10.3)
+
+                                onTextChanged: Qt.callLater(function() {
+                                    transferLiveLogScroll.pinToBottom()
+                                })
+                            }
+
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        }
+                    }
+                }
 
                 PrimaryButton {
                     Layout.fillWidth: true
