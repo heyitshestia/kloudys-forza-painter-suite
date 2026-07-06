@@ -21,8 +21,8 @@ Item {
 
             SectionHeading {
                 Layout.fillWidth: true
-                title: "Source preparation tools"
-                subtitle: "These helpers open externally. Use them before generation when a source needs a clean cutout, a better size, or lighter compression."
+                title: "Tools"
+                subtitle: "Quick source-prep shortcuts for cleaner cutouts, better source size, and lighter image files before generation."
             }
 
             GridLayout {
@@ -35,8 +35,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.px(250)
                     number: ""
-                    title: "Background Remover"
-                    description: "Cut out opaque backgrounds so the generator spends shapes on the vinyl instead of the backdrop."
+                    title: "Remove background"
+                    description: "Use this when an image still has a solid or messy background. Cleaner transparency usually means fewer wasted shapes."
                     iconName: "cutout"
                     buttonText: "Open PhotoRoom"
                     onAction: desktop.openUrl("https://www.photoroom.com/tools/background-remover")
@@ -46,8 +46,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.px(250)
                     number: ""
-                    title: "Browser Upscaler"
-                    description: "Upscale genuinely small art before using a detail-heavy preset. Best for tiny logos and low-resolution references."
+                    title: "Upscale small sources"
+                    description: "Use this for tiny logos or low-resolution references before running detailed presets. Do not upscale already large images."
                     iconName: "upscale"
                     buttonText: "Open Upscaler"
                     onAction: desktop.openUrl("https://hcodx.com/tools/image-upscaler")
@@ -57,8 +57,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.px(250)
                     number: ""
-                    title: "Resize / Compress"
-                    description: "Bring oversized art into a practical megapixel range and export clean PNG or WebP inputs."
+                    title: "Resize or compress"
+                    description: "Use this when a source is much too large, saved in an awkward format, or needs a cleaner PNG/WebP export."
                     iconName: "compress"
                     buttonText: "Open Squoosh"
                     onAction: desktop.openUrl("https://squoosh.app")
@@ -75,7 +75,7 @@ Item {
                     spacing: Theme.px(10)
 
                     Text {
-                        text: "Nothing is uploaded by KFPS"
+                        text: "Privacy reminder"
                         color: Theme.primaryBright
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(16)
@@ -84,7 +84,7 @@ Item {
 
                     Text {
                         width: parent.width
-                        text: "KFPS only opens these tools. Read each service's privacy terms before uploading personal or unpublished artwork. The local browser upscaler remains on your machine when available."
+                        text: "KFPS only opens these websites in your browser. Check each site's privacy policy and terms before uploading personal, paid, unreleased, or client artwork."
                         color: Theme.muted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(12)

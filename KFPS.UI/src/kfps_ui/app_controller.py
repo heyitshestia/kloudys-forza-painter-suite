@@ -19,7 +19,7 @@ class AppController(QObject):
         "json": "Outputs",
         "library": "Outputs",
         "images": "Source Check",
-        "tools": "Image Tools",
+        "tools": "Tools",
         "reports": "Reports",
         "update": "Update",
     }
@@ -32,7 +32,7 @@ class AppController(QObject):
         "settings": "Preferences, folders, maintenance, and diagnostics.",
         "generate": "Full generator controls for advanced/manual runs.",
         "images": "Source image measurements and resize guidance.",
-        "tools": "Source preparation links and external image tools.",
+        "tools": "External source-prep links. Check each website's privacy policy before uploading artwork.",
         "reports": "Create a local diagnostic report for support.",
         "update": "Check and apply app updates.",
     }

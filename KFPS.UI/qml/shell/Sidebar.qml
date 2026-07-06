@@ -14,6 +14,7 @@ Item {
         { page: "create", label: "Create", icon: "generate" },
         { page: "outputs", label: "Outputs", icon: "json" },
         { page: "editor", label: "Editor", icon: "editor" },
+        { page: "tools", label: "Tools", icon: "tools" },
         { page: "help", label: "Help", icon: "help" },
         { page: "settings", label: "Settings", icon: "settings" }
     ]
@@ -26,6 +27,8 @@ Item {
             return "outputs"
         if (page === "editor")
             return "editor"
+        if (page === "tools" || page === "images")
+            return "tools"
         if (page === "help" || page === "learn")
             return "help"
         if (page === "settings" || page === "reports" || page === "update")
