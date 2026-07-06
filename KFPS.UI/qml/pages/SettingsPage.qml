@@ -11,6 +11,19 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
+    property real pendingUiScale: settings.uiScale
+
+    function roundedUiScale(value) {
+        return Math.max(0.8, Math.min(1.35, Math.round(value * 20) / 20))
+    }
+
+    Connections {
+        target: settings
+        function onChanged() {
+            if (!uiScaleSlider.pressed)
+                root.pendingUiScale = settings.uiScale
+        }
+    }
 
     GridLayout {
         anchors.fill: parent
@@ -71,14 +84,19 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Label { text: "UI scale  •  " + Math.round(settings.uiScale * 100) + "%" }
+                Label { text: "UI scale  •  " + Math.round(root.pendingUiScale * 100) + "%" }
                 KfpsSlider {
+                    id: uiScaleSlider
                     Layout.fillWidth: true
                     from: 0.8
                     to: 1.35
                     stepSize: 0.05
-                    value: settings.uiScale
-                    onMoved: settings.uiScale = value
+                    value: root.pendingUiScale
+                    onMoved: root.pendingUiScale = root.roundedUiScale(value)
+                    onPressedChanged: {
+                        if (!pressed)
+                            settings.uiScale = root.roundedUiScale(root.pendingUiScale)
+                    }
                 }
 
                 Rectangle {
