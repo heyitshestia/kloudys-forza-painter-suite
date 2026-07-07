@@ -93,6 +93,22 @@ VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {
 SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
 
 
+def _resource_count_for_family(family: str) -> int:
+    if str(family).startswith("Upper_Letters_"):
+        return 26
+    return 40
+
+
+def _resolve_full_type_resource(type_code: int) -> tuple[str, int] | None:
+    if int(type_code) <= 1000000:
+        return None
+    for family, base in VINYL_TYPE_BASES.items():
+        delta = int(type_code) - int(base)
+        if 0 <= delta < _resource_count_for_family(family):
+            return family, delta + 1
+    return None
+
+
 def _safe_relpath(path: Path) -> str:
     return path.resolve().relative_to(ROOT.resolve()).as_posix()
 
@@ -522,6 +538,10 @@ def _shape_word_resource_map() -> dict[int, tuple[str, int] | None]:
     if SHAPE_WORD_RESOURCE_CACHE is not None:
         return SHAPE_WORD_RESOURCE_CACHE
     mapping: dict[int, tuple[str, int] | None] = {}
+    for family, base in VINYL_TYPE_BASES.items():
+        base_word = int(base) & 0xFFFF
+        for index in range(1, _resource_count_for_family(family) + 1):
+            mapping.setdefault((base_word + index - 1) & 0xFFFF, (family, index))
     if SHAPE_WORDS_PATH.exists():
         try:
             payload = json.loads(SHAPE_WORDS_PATH.read_text(encoding="utf-8"))
@@ -532,23 +552,18 @@ def _shape_word_resource_map() -> dict[int, tuple[str, int] | None]:
                 continue
             for index, word in values.items():
                 try:
-                    mapping[int(word) & 0xFFFF] = (family, int(index))
+                    mapping.setdefault(int(word) & 0xFFFF, (family, int(index)))
                 except (TypeError, ValueError):
                     continue
-    for family, base in VINYL_TYPE_BASES.items():
-        base_word = int(base) & 0xFFFF
-        for index in range(1, 41):
-            mapping.setdefault((base_word + index - 1) & 0xFFFF, (family, index))
-            if "Letters" not in family:
-                mapping.setdefault((base_word + (index - 1) * 4) & 0xFFFF, (family, index))
-    for index in range(1, 41):
-        mapping.setdefault((100 + index) & 0xFFFF, ("Primitives", index))
     SHAPE_WORD_RESOURCE_CACHE = mapping
     return mapping
 
 
 def _resolve_vinyl_resource(type_code: int, shape: dict | None = None) -> tuple[str, int] | None:
     shape = shape or {}
+    full_resource = _resolve_full_type_resource(type_code)
+    if full_resource:
+        return full_resource
     family = shape.get("resource_family")
     index = shape.get("resource_index")
     if family and index:

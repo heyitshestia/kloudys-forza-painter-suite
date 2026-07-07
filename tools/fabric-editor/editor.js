@@ -1591,33 +1591,48 @@ function leaveGuideModeForLayerEdit() {
   setStatus("Guide drawing disengaged. Select mode is active while editing shapes.");
 }
 
-function typeCodeToResource(typeCode) {
-  const word = Number(typeCode) & 0xffff;
-  const primitiveIndex = word - 100;
-  if (primitiveIndex >= 1 && primitiveIndex <= 40) {
-    return { family: "Primitives", index: primitiveIndex, typeCode: 0x100000 + word, shapeWord: word };
+function resourceCountForFamilyDefinition(family) {
+  if (String(family).startsWith("Upper_Letters_")) return 26;
+  return 40;
+}
+
+function resolvedResourceFromFullTypeCode(typeCode) {
+  const fullCode = Number(typeCode);
+  if (!Number.isFinite(fullCode) || fullCode <= 1000000) return null;
+  for (const [family, base] of Object.entries(VINYL_TYPE_BASES)) {
+    const delta = fullCode - Number(base);
+    if (delta >= 0 && delta < resourceCountForFamilyDefinition(family)) {
+      const shapeWord = fullCode & 0xffff;
+      return { family, index: delta + 1, typeCode: fullCode, shapeWord };
+    }
   }
+  return null;
+}
+
+function resolvedResourceFromShapeWord(wordValue) {
+  const word = Number(wordValue) & 0xffff;
+  for (const [family, base] of Object.entries(VINYL_TYPE_BASES)) {
+    const baseWord = Number(base) & 0xffff;
+    const delta = word - baseWord;
+    if (delta >= 0 && delta < resourceCountForFamilyDefinition(family)) {
+      return { family, index: delta + 1, typeCode: 0x100000 + word, shapeWord: word };
+    }
+  }
+  return null;
+}
+
+function typeCodeToResource(typeCode) {
+  const fullResource = resolvedResourceFromFullTypeCode(typeCode);
+  if (fullResource) return fullResource;
+  const word = Number(typeCode) & 0xffff;
+  const compactResource = resolvedResourceFromShapeWord(word);
+  if (compactResource) return compactResource;
   const explicit = shapeWords?.families || {};
   for (const [family, values] of Object.entries(explicit)) {
     for (const [index, shapeWord] of Object.entries(values || {})) {
       if ((Number(shapeWord) & 0xffff) === word) {
         return { family, index: Number(index), typeCode: 0x100000 + word, shapeWord: word };
       }
-    }
-  }
-  for (const [family, base] of Object.entries(VINYL_TYPE_BASES)) {
-    const baseWord = base & 0xffff;
-    const delta = word - baseWord;
-    if (delta >= 0) {
-      const compactIndex = delta + 1;
-      if (compactIndex >= 1 && compactIndex <= 40) {
-        return { family, index: compactIndex, typeCode: 0x100000 + word, shapeWord: word };
-      }
-    }
-    if (family.includes("Letters")) continue;
-    if (delta >= 0 && delta % 4 === 0) {
-      const index = delta / 4 + 1;
-      if (index >= 1 && index <= 40) return { family, index, typeCode: 0x100000 + word, shapeWord: word };
     }
   }
   return null;
@@ -1827,6 +1842,7 @@ function normalizeInputShape(shape, index, legacyOffset = { x: 0, y: 0 }) {
 
 async function makeFabricObject(shape, name = null) {
   const typeCode = Number(shape.type);
+  const typeResolved = typeCodeToResource(typeCode);
   const explicitResource = shape.resource_family && shape.resource_index
     ? {
       family: String(shape.resource_family),
@@ -1835,10 +1851,10 @@ async function makeFabricObject(shape, name = null) {
       shapeWord: Number(shape.type_word ?? (typeCode & 0xffff)),
     }
     : null;
-  const d = explicitResource ? await loadResourcePathForResolved(explicitResource) : await loadResourcePath(typeCode);
+  const resolved = typeResolved || explicitResource;
+  const d = resolved ? await loadResourcePathForResolved(resolved) : await loadResourcePath(typeCode);
   const color = normalizeColor(shape.color);
   const data = shape.data || [0, 0, 1, 1, 0, 0, 0];
-  const resolved = explicitResource || typeCodeToResource(typeCode);
   const outlinePath = resolved ? await loadResourceOutlinePathForResolved(resolved).catch(() => "") : "";
   const gradientResource = isGradientResource(resolved);
   const shapePathForBounds = gradientResource ? new fabric.Path(d, { originX: "center", originY: "center" }) : null;
@@ -1867,12 +1883,13 @@ async function makeFabricObject(shape, name = null) {
       height: Math.max(1, Number(shapePathForBounds.height) || Number(object.height) || 1),
     });
   }
+  const resolvedShapeWord = Number(resolved?.shapeWord ?? shape.type_word ?? (typeCode & 0xffff));
   object.kloudy = {
-    name: name || shape.shape_name || (explicitResource ? shapeDisplayName(explicitResource.family, explicitResource.index) : typeLabel(typeCode)),
+    name: name || (resolved ? shapeDisplayName(resolved.family, resolved.index) : (shape.shape_name || typeLabel(typeCode))),
     type: typeCode,
-    type_word: Number(shape.type_word ?? (typeCode & 0xffff)),
-    resource_family: explicitResource?.family || null,
-    resource_index: explicitResource?.index || null,
+    type_word: Number.isFinite(resolvedShapeWord) ? resolvedShapeWord : (typeCode & 0xffff),
+    resource_family: resolved?.family || null,
+    resource_index: resolved?.index || null,
     source_format: shape.source_format || "fh6_typecode",
     legacy_type: shape.legacy_type ?? null,
     legacy_divisor: shape.legacy_divisor ?? null,
@@ -1915,7 +1932,12 @@ function typeLabel(typeCode) {
 
 function shapeDisplayName(family, index) {
   const familyLabel = family.replaceAll("_", " ");
-  const word = shapeWords?.families?.[family]?.[String(index)];
+  let word;
+  try {
+    word = resourceToShapeWord(family, index);
+  } catch (_err) {
+    word = shapeWords?.families?.[family]?.[String(index)];
+  }
   const suffix = word !== undefined ? ` / word ${word}` : "";
   if (family === "Primitives" || family.includes("Letters")) {
     return shapeNames?.families?.[family]?.[String(index)] || `${familyLabel} slot ${index}${suffix}`;
