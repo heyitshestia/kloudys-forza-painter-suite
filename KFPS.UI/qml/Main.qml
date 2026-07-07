@@ -45,6 +45,7 @@ ApplicationWindow {
                                  ? Theme.px(Metrics.consoleCollapsedHeight)
                                  : consoleExpandedHeight
     property Item glassBackdropSource: backdropLayer
+    property bool updateAutoOpened: false
 
     Binding { target: Theme; property: "viewportScale"; value: window.viewportFitScale }
     Binding { target: Theme; property: "uiScale"; value: settings.uiScale }
@@ -53,6 +54,18 @@ ApplicationWindow {
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
     Binding { target: Theme; property: "themeName"; value: settings.theme }
     Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked }
+
+    Connections {
+        target: versionService
+        function onChanged() {
+            if (versionService.updateAvailable && !window.updateAutoOpened) {
+                window.updateAutoOpened = true
+                appController.navigate("update")
+            } else if (!versionService.updateAvailable) {
+                window.updateAutoOpened = false
+            }
+        }
+    }
 
     BlossomBackdrop {
         id: backdropLayer

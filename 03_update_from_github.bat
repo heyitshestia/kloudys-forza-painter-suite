@@ -121,7 +121,12 @@ call :log ""
 call :log "Update complete."
 call :log "Version: !OLD_VERSION! to !FINAL_VERSION!"
 call :log "Backup folder: !BACKUP_DIR!"
-call :log "Run KFPS.exe from the main KFPS folder when you are ready."
+call :relaunch_kfps_after_update
+if defined KFPS_RELAUNCH_AFTER_UPDATE (
+    call :log "KFPS should reopen automatically."
+) else (
+    call :log "Run KFPS.exe from the main KFPS folder when you are ready."
+)
 if not "%FORZA_PAINTER_NO_PAUSE%"=="1" pause
 exit /b 0
 
@@ -135,6 +140,26 @@ call :log "Update failed. No generated images or runtime output were intentional
 call :log "If program files were partially changed, check backup folder: !BACKUP_DIR!"
 if not "%FORZA_PAINTER_NO_PAUSE%"=="1" pause
 exit /b 1
+
+:relaunch_kfps_after_update
+if not defined KFPS_RELAUNCH_AFTER_UPDATE exit /b 0
+set "KFPS_RELAUNCH_EXE="
+if defined KFPS_RELAUNCH_TARGET (
+    if exist "%KFPS_RELAUNCH_TARGET%" set "KFPS_RELAUNCH_EXE=%KFPS_RELAUNCH_TARGET%"
+)
+if not defined KFPS_RELAUNCH_EXE (
+    if exist "%CD%\..\KFPS.exe" set "KFPS_RELAUNCH_EXE=%CD%\..\KFPS.exe"
+)
+if not defined KFPS_RELAUNCH_EXE (
+    if exist "%CD%\KFPS.exe" set "KFPS_RELAUNCH_EXE=%CD%\KFPS.exe"
+)
+if not defined KFPS_RELAUNCH_EXE (
+    call :log "Update finished, but KFPS.exe could not be found for automatic relaunch."
+    exit /b 0
+)
+call :log "Relaunching KFPS..."
+start "" "!KFPS_RELAUNCH_EXE!"
+exit /b 0
 
 :init_update_log
 set "UPDATE_STAMP=manual"

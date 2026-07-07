@@ -9,6 +9,11 @@ Item {
     id: root
     anchors.fill: parent
 
+    readonly property bool hasUpdate: versionService.updateAvailable
+    readonly property string latestLabel: versionService.latestVersion && versionService.latestVersion.length > 0
+                                         ? versionService.latestVersion
+                                         : "checking"
+
     FastScrollView {
         id: scroll
         anchors.fill: parent
@@ -19,6 +24,7 @@ Item {
         ColumnLayout {
             width: scroll.availableWidth
             height: Math.max(scroll.availableHeight, implicitHeight)
+            spacing: Theme.px(18)
 
             Item {
                 Layout.fillHeight: true
@@ -27,132 +33,228 @@ Item {
             HoverCard {
                 id: updateCard
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Math.min(scroll.availableWidth - Theme.px(40), Theme.px(620))
-                Layout.minimumWidth: Math.min(scroll.availableWidth - Theme.px(40), Theme.px(360))
-                Layout.preferredHeight: Theme.px(440)
-                Layout.minimumHeight: Layout.preferredHeight
+                Layout.preferredWidth: Math.max(
+                                           Theme.px(440),
+                                           Math.min(scroll.availableWidth - Theme.px(40), Theme.px(900)))
+                Layout.minimumWidth: Math.min(scroll.availableWidth - Theme.px(28), Theme.px(380))
+                Layout.minimumHeight: Theme.px(520)
                 strong: true
-                padding: Theme.px(20)
+                padding: Theme.px(24)
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: Theme.px(14)
+                    spacing: Theme.px(16)
 
-                    Icon {
-                        name: "update"
-                        iconSize: Theme.px(56)
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    Text {
-                        text: "Update KFPS"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(26)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: "KFPS closes before updating so Windows can safely replace the executable. Generated images, editor projects, JSON outputs, and runtime data remain preserved by the existing updater."
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(12)
-                        wrapMode: Text.Wrap
-                        horizontalAlignment: Text.AlignHCenter
-                        lineHeight: 1.35
-                    }
+                        spacing: Theme.px(16)
 
-                    GlassPanel {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.px(58)
-                        soft: true
+                        Icon {
+                            name: "update"
+                            iconSize: Theme.px(58)
+                            Layout.alignment: Qt.AlignTop
+                        }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: Theme.px(14)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(4)
 
                             Text {
-                                text: "Current version"
-                                color: Theme.muted
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(12)
-                                Layout.alignment: Qt.AlignVCenter
-                            }
-
-                            Item {
                                 Layout.fillWidth: true
-                            }
-
-                            Text {
-                                text: "v" + versionService.localVersion
+                                text: "Update KFPS"
                                 color: Theme.text
                                 font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(16)
+                                font.pixelSize: Theme.px(30)
                                 font.weight: Font.DemiBold
-                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.hasUpdate
+                                      ? "A newer version is available. Update from here and KFPS will reopen when the updater finishes."
+                                      : "KFPS is using the latest version reported by GitHub."
+                                color: root.hasUpdate ? Theme.warning : Theme.muted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(13)
+                                wrapMode: Text.Wrap
+                                lineHeight: 1.28
+
+                                Behavior on color {
+                                    enabled: !Theme.reducedMotion
+                                    ColorAnimation { duration: 160 }
+                                }
                             }
                         }
                     }
 
                     GlassPanel {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.px(58)
+                        Layout.preferredHeight: Theme.px(72)
                         soft: true
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.margins: Theme.px(14)
+                            anchors.margins: Theme.px(16)
+                            spacing: Theme.px(12)
+
+                            Rectangle {
+                                Layout.preferredWidth: Theme.px(12)
+                                Layout.preferredHeight: Theme.px(12)
+                                radius: width / 2
+                                color: root.hasUpdate ? Theme.danger : Theme.success
+                                opacity: root.hasUpdate ? (versionService.blinkOn ? 1.0 : 0.36) : 1.0
+
+                                Behavior on opacity {
+                                    enabled: !Theme.reducedMotion
+                                    NumberAnimation { duration: 180 }
+                                }
+                            }
 
                             Text {
-                                text: "Latest version"
+                                Layout.fillWidth: true
+                                text: root.hasUpdate
+                                      ? "Update available: v" + versionService.localVersion + " -> v" + root.latestLabel
+                                      : "No update available right now."
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(15)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                text: versionService.checking ? "checking..." : "checked every minute"
                                 color: Theme.muted
                                 font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(12)
-                                Layout.alignment: Qt.AlignVCenter
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                            }
-
-                            Text {
-                                text: "v" + versionService.latestVersion
-                                color: versionService.updateAvailable ? Theme.danger : Theme.success
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(16)
-                                font.weight: Font.DemiBold
-                                Layout.alignment: Qt.AlignVCenter
+                                font.pixelSize: Theme.px(11)
+                                visible: Theme.logical(updateCard.width) >= 680
                             }
                         }
-                    }
-
-                    Item {
-                        Layout.fillHeight: true
                     }
 
                     GridLayout {
                         Layout.fillWidth: true
-                        Layout.maximumWidth: Theme.px(500)
-                        Layout.alignment: Qt.AlignHCenter
-                        columns: Theme.logical(updateCard.width) >= 520 ? 2 : 1
-                        columnSpacing: Theme.px(8)
-                        rowSpacing: Theme.px(8)
+                        columns: Theme.logical(updateCard.width) >= 700 ? 2 : 1
+                        columnSpacing: Theme.px(14)
+                        rowSpacing: Theme.px(14)
+
+                        GlassPanel {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.px(150)
+                            soft: true
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: Theme.px(18)
+                                spacing: Theme.px(8)
+
+                                Text {
+                                    text: "Current version"
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(12)
+                                    font.capitalization: Font.AllUppercase
+                                    font.letterSpacing: Theme.px(1.2)
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "v" + versionService.localVersion
+                                    color: Theme.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(38)
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Installed locally"
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(12)
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        GlassPanel {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.px(150)
+                            soft: !root.hasUpdate
+                            strong: root.hasUpdate
+                            glow: root.hasUpdate
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: Theme.px(18)
+                                spacing: Theme.px(8)
+
+                                Text {
+                                    text: root.hasUpdate ? "New version" : "Latest version"
+                                    color: root.hasUpdate ? Theme.warning : Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(12)
+                                    font.capitalization: Font.AllUppercase
+                                    font.letterSpacing: Theme.px(1.2)
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "v" + root.latestLabel
+                                    color: root.hasUpdate ? Theme.danger : Theme.success
+                                    opacity: root.hasUpdate ? (versionService.blinkOn ? 1.0 : 0.72) : 1.0
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(38)
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+
+                                    Behavior on opacity {
+                                        enabled: !Theme.reducedMotion
+                                        NumberAnimation { duration: 180 }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.hasUpdate ? "Ready to install" : "GitHub main matches this install"
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(12)
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+                    }
+
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.px(78)
+                        text: root.hasUpdate ? "Update to v" + root.latestLabel : "Run updater from GitHub"
+                        iconName: "update"
+                        textPixelSize: Theme.px(18)
+                        onClicked: confirm.open()
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.px(12)
 
                         GhostButton {
-                            Layout.fillWidth: true
+                            Layout.preferredWidth: Theme.px(190)
                             text: "Check again"
                             iconName: "refresh"
                             onClicked: versionService.checkNow()
                         }
 
-                        PrimaryButton {
+                        Text {
                             Layout.fillWidth: true
-                            text: versionService.updateAvailable ? "Update available — update now" : "Update from GitHub"
-                            iconName: "update"
-                            onClicked: confirm.open()
+                            text: "Generated images, editor projects, JSON outputs, Python, dependencies, runtime data, and unlock keys are preserved."
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(11.5)
+                            wrapMode: Text.Wrap
+                            lineHeight: 1.25
                         }
                     }
                 }
@@ -167,7 +269,7 @@ Item {
     MessageDialog {
         id: confirm
         title: "Update KFPS?"
-        text: "KFPS will close, run the existing updater, and relaunch when the update succeeds."
+        text: "KFPS will close, run the existing updater, and reopen automatically when the update succeeds."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: updateService.startUpdate()
     }

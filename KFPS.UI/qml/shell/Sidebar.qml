@@ -16,6 +16,7 @@ Item {
         { page: "editor", label: "Editor", icon: "editor" },
         { page: "tools", label: "Tools", icon: "tools" },
         { page: "help", label: "Help", icon: "help" },
+        { page: "update", label: "Update", icon: "update" },
         { page: "settings", label: "Settings", icon: "settings" }
     ]
     signal route(string page)
@@ -31,7 +32,9 @@ Item {
             return "tools"
         if (page === "help" || page === "learn")
             return "help"
-        if (page === "settings" || page === "reports" || page === "update")
+        if (page === "update")
+            return "update"
+        if (page === "settings" || page === "reports")
             return "settings"
         return "create"
     }

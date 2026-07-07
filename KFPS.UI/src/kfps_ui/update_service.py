@@ -31,6 +31,13 @@ class UpdateService(QObject):
             if batch.parent != self.paths.app_root:
                 env["KFPS_UPDATER_REMOTE_BOOTSTRAP"] = "1"
                 env["KFPS_UPDATER_ROOT"] = str(self.paths.app_root)
+            env["KFPS_RELAUNCH_AFTER_UPDATE"] = "1"
+            env["FORZA_PAINTER_NO_PAUSE"] = "1"
+            relaunch_target = self.paths.app_root.parent / "KFPS.exe"
+            if not relaunch_target.is_file():
+                relaunch_target = self.paths.app_root / "KFPS.exe"
+            if relaunch_target.is_file():
+                env["KFPS_RELAUNCH_TARGET"] = str(relaunch_target)
             flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             subprocess.Popen(
                 [comspec, "/c", "start", "KFPS Updater", str(batch)],

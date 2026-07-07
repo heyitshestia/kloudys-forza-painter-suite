@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.45
+- Improved update page and update relaunch behavior.
+
 ## 3.0.44
 - General preview and editor compatibility fixes.
 
