@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.47
+- Added another Forza Motorsport process name for detection.
+
 ## 3.0.46
 - Improved update tab clarity.
 

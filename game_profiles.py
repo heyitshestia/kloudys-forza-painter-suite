@@ -56,6 +56,7 @@ PROFILES: Dict[str, GameProfile] = {
         process_names=(
             "ForzaMotorsport.exe",
             "forza_steamworks_release_final.exe",
+            "forza_gaming.desktop.x64_release_final.exe",
         ),
         signature_patterns=(KNOWN_LIVERY_SIGNATURE,),
         scan_regions=COMMON_SCAN_REGIONS,
