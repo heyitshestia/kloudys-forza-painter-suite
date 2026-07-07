@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.changelog_service import ChangelogService
+from kfps_ui.cgroup_library_service import CGroupLibraryService
 from kfps_ui.desktop_service import DesktopService
 from kfps_ui.editor_service import EditorService
 from kfps_ui.generation_service import GenerationService
@@ -85,15 +86,16 @@ def main():
     preview = PreviewService(paths)
     source = SourceImageService(paths, desktop, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
+    supporter = SupporterService(paths.app_root)
+    if is_supporter_theme(settings.theme) and not supporter.unlocked:
+        settings.theme = DEFAULT_THEME
+    cgroup_library = CGroupLibraryService(paths, preview, jsons, logs, supporter=supporter, demo=args.demo)
     generation = GenerationService(paths, logs)
     transfer = TransferService(paths, logs, jsons)
     editor = EditorService(paths, preview, desktop, logs)
     help_service = HelpService()
     reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
-    supporter = SupporterService(paths.app_root)
-    if is_supporter_theme(settings.theme) and not supporter.unlocked:
-        settings.theme = DEFAULT_THEME
     controller = AppController()
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md")
 
@@ -108,6 +110,7 @@ def main():
         "desktop": desktop,
         "sourceService": source,
         "jsonService": jsons,
+        "cgroupLibraryService": cgroup_library,
         "generationService": generation,
         "transferService": transfer,
         "editorService": editor,

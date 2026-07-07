@@ -85,5 +85,9 @@ class AppPaths:
         return self.app_root / "imgs" / "exported"
 
     @property
+    def library_root(self) -> Path:
+        return self.app_root / "imgs" / "library"
+
+    @property
     def project_root(self) -> Path:
         return self.runtime_root / "fabric-editor" / "projects"

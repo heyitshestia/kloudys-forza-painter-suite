@@ -11,6 +11,13 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
+    Connections {
+        target: supporterService
+        function onChanged() {
+            if (!supporterService.unlocked && jsonService.sourceIndex === 3)
+                jsonService.setSource(0)
+        }
+    }
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
@@ -51,7 +58,7 @@ Item {
                     SectionHeading {
                         Layout.fillWidth: true
                         title: "1. Import setup"
-                        subtitle: "Target game and template layer count."
+                        subtitle: "Online uses the live probe. Offline creates a save folder."
                     }
                 }
 
@@ -93,8 +100,99 @@ Item {
                     id: source
                     Layout.fillWidth: true
                     dense: root.compactHeight
-                    model: ["Generated finals", "Editor exports", "Exported game JSONs"]
+                    model: supporterService.unlocked
+                           ? ["Generated finals", "Editor exports", "Game exports", "Library"]
+                           : ["Generated finals", "Editor exports", "Game exports"]
                     onActivated: jsonService.setSource(currentIndex)
+                }
+
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 148 : 176)
+                    soft: true
+                    visible: supporterService.unlocked
+                    border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(6)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Offline import & save library"
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12.4)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.maximumWidth: Theme.px(130)
+                                text: cgroupLibraryService.running ? "Scanning" : cgroupLibraryService.status
+                                color: cgroupLibraryService.running ? Theme.warning : Theme.muted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(9.4)
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: cgroupLibraryService.summary
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(9.4)
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+
+                            PrimaryButton {
+                                Layout.fillWidth: true
+                                minimumWidth: 0
+                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + " saves..." : "Scan " + game.currentText + " offline library"
+                                iconName: "folder"
+                                dense: root.compactHeight
+                                enabled: !cgroupLibraryService.running
+                                onClicked: cgroupLibraryService.scanSaves(game.currentText)
+                            }
+
+                            GhostButton {
+                                Layout.preferredWidth: Theme.px(116)
+                                minimumWidth: 0
+                                text: "Open"
+                                iconName: "folder"
+                                dense: root.compactHeight
+                                onClicked: desktop.openFolder(cgroupLibraryService.libraryFolder)
+                            }
+                        }
+
+                        GhostButton {
+                            Layout.fillWidth: true
+                            minimumWidth: 0
+                            text: cgroupLibraryService.running
+                                  ? "Installing / scanning..."
+                                  : (game.currentText === "FH6"
+                                     ? "Offline Import Selected JSON"
+                                     : "Offline Import FH6 Only For Now")
+                            iconName: "transfer"
+                            dense: root.compactHeight
+                            enabled: !cgroupLibraryService.running
+                                     && game.currentText === "FH6"
+                                     && jsonService.selectedPath.length > 0
+                            onClicked: cgroupLibraryService.createFH6LayerGroupFromSelectedJson(jsonService.selectedPath)
+                        }
+                    }
                 }
 
                 GridLayout {
@@ -157,7 +255,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Import sends the selected JSON into the prepared in-game template. Export reads the current in-game group."
+                    text: "Online import writes into the open in-game template. Offline import creates a new FH6 save-folder vinyl with a transparent thumbnail."
                     color: Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -247,15 +345,15 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: transferService.running ? "Working…" : "Import Selected JSON"
+                    text: jsonService.sourceIndex === 3 ? "Library entries are already in game" : (transferService.running ? "Working…" : "Online Import Selected JSON")
                     iconName: "transfer"
-                    enabled: !transferService.running && jsonService.selectedPath.length > 0
+                    enabled: !transferService.running && jsonService.selectedPath.length > 0 && jsonService.sourceIndex !== 3
                     onClicked: transferService.importJson(game.currentText, jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
                 }
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "Export Current Group"
+                    text: "Online Export Current Group"
                     enabled: !transferService.running
                     onClicked: transferService.exportJson(game.currentText, parseInt(layerCount.text) || 0)
                 }
@@ -300,12 +398,14 @@ Item {
 
                     delegate: GhostButton {
                         required property string name
+                        required property string displayName
+                        required property string detailText
                         required property int count
                         required property int index
                         width: groups.width
                         minimumWidth: 0
                         maximumTextWidth: Math.max(Theme.px(150), width - Theme.px(48))
-                        text: name + "  (" + count + ")"
+                        text: displayName + "  •  " + detailText
                         dense: root.compactHeight
                         onClicked: jsonService.selectGroup(index)
                     }
@@ -335,6 +435,7 @@ Item {
                     delegate: Rectangle {
                         id: fileRow
                         required property string name
+                        required property string displayName
                         required property string path
                         required property int layers
                         required property string modifiedLabel
@@ -358,7 +459,7 @@ Item {
 
                             Text {
                                 width: parent.width
-                                text: fileRow.name
+                                text: fileRow.displayName
                                 color: Theme.text
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(10.8)

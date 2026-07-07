@@ -119,6 +119,7 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
                     anchors.rightMargin: Theme.px(16)
+                    visible: !supporterPromo.visible
                     z: 20
                 }
 
@@ -141,8 +142,18 @@ ApplicationWindow {
                                versionPill.x - width - Theme.px(14),
                                Math.max(Theme.px(14), (versionPill.x - width) / 2)
                            )
-                       )
+                    )
                     z: 20
+                }
+
+                SupporterPromoToast {
+                    id: supporterPromo
+                    compact: window.compactHeader
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
+                    anchors.rightMargin: Theme.px(16)
+                    z: 80
                 }
 
                 ColumnLayout {

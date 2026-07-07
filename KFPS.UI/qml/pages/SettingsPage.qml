@@ -167,6 +167,49 @@ Item {
                     }
                 }
 
+                GlassPanel {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 96 : 116) : 0
+                    visible: Theme.activeThemeName === Theme.defaultThemeName && !supporterService.unlocked
+                    strong: true
+                    glow: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(6)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Supporter extras"
+                            color: Theme.primaryBright
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(12.4)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "One-click FH6 save-library exports and supporter themes are available through the local unlock."
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(9.6)
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+
+                        PrimaryButton {
+                            Layout.fillWidth: true
+                            dense: root.compactHeight
+                            text: "Open Ko-fi Unlock"
+                            iconName: "heart"
+                            onClicked: desktop.openUrl("https://ko-fi.com/s/2d1507698d")
+                        }
+                    }
+                }
+
                 KfpsSwitch {
                     Layout.fillWidth: true
                     text: "Manual generator overrides"

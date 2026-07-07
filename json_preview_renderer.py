@@ -78,11 +78,11 @@ def _resolve_full_type_resource(type_code: int) -> tuple[str, int] | None:
     return None
 
 
-def render_json_preview(path: Path | str, max_size: int = PREVIEW_MAX) -> bytes | None:
+def render_json_preview(path: Path | str, max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     path = Path(path)
     if _looks_like_typecode_preview(path):
-        return _render_typecode_preview(path, max_size) or _render_primitive_preview(path, max_size)
-    return _render_primitive_preview(path, max_size) or _render_typecode_preview(path, max_size)
+        return _render_typecode_preview(path, max_size, transparent_background=transparent_background) or _render_primitive_preview(path, max_size, transparent_background=transparent_background)
+    return _render_primitive_preview(path, max_size, transparent_background=transparent_background) or _render_typecode_preview(path, max_size, transparent_background=transparent_background)
 
 
 def _shape_word_from_shape(shape: dict, type_code: int) -> int:
@@ -304,7 +304,7 @@ def _transform_resource_polygon(points: list[tuple[float, float]], data: list) -
     return transformed
 
 
-def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX) -> bytes | None:
+def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     from PIL import Image, ImageDraw
 
     all_points = [point for item in polygons for poly in item["polygons"] for point in poly]
@@ -325,7 +325,7 @@ def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX) -> bytes
     def to_canvas(point: tuple[float, float]) -> tuple[float, float]:
         return ((point[0] - min_x + padding) * scale, (max_y - point[1] + padding) * scale)
 
-    image = _checkerboard((width, height))
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0)) if transparent_background else _checkerboard((width, height))
     for item in polygons:
         color = item["color"]
         if color[3] <= 0:
@@ -342,7 +342,7 @@ def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX) -> bytes
     return out.getvalue()
 
 
-def _render_primitive_preview(path: Path, max_size: int = PREVIEW_MAX) -> bytes | None:
+def _render_primitive_preview(path: Path, max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     try:
         data = load_normalized_geometry(path)
         shapes = data["shapes"]
@@ -369,14 +369,14 @@ def _render_primitive_preview(path: Path, max_size: int = PREVIEW_MAX) -> bytes 
             poly = _ellipse_points(x, -y, abs(width), abs(height), -rot)
         polygons.append({"polygons": [poly], "color": color})
     if polygons:
-        return _render_polygons(polygons, max_size=max_size)
+        return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background)
     color = _color_tuple(background.get("color"))
     if color and color[3] > 0:
-        return _render_polygons([{"polygons": [[(-1, -1), (1, -1), (1, 1), (-1, 1)]], "color": color}], max_size=max_size)
+        return _render_polygons([{"polygons": [[(-1, -1), (1, -1), (1, 1), (-1, 1)]], "color": color}], max_size=max_size, transparent_background=transparent_background)
     return None
 
 
-def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX) -> bytes | None:
+def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -412,4 +412,4 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX) -> bytes |
         transformed = [_transform_resource_polygon(poly, data) for poly in triangles]
         if transformed:
             polygons.append({"polygons": transformed, "color": color})
-    return _render_polygons(polygons, max_size=max_size) if polygons else None
+    return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background) if polygons else None

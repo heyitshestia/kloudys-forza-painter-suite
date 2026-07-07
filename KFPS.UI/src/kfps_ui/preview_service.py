@@ -54,6 +54,8 @@ class PreviewService:
                 return "editor"
             if self.paths.exported_root.resolve() in resolved.parents:
                 return "exported"
+            if self.paths.library_root.resolve() in resolved.parents:
+                return "library"
         except Exception:
             pass
         return ""
