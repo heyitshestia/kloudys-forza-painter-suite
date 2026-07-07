@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.46
+- Improved update tab clarity.
+
 ## 3.0.45
 - Improved update page and update relaunch behavior.
 

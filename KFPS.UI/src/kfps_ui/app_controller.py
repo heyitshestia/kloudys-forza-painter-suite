@@ -39,7 +39,7 @@ class AppController(QObject):
 
     # Keep the primary workflow free from the bottom log panel so all visible
     # options fit on screen. Advanced/maintenance pages keep the live log.
-    LOG_PAGES = {"generate", "images", "reports", "update"}
+    LOG_PAGES = {"generate", "images", "reports"}
     ALIASES = {"dashboard": "create", "json": "outputs", "library": "outputs", "learn": "help"}
 
     def __init__(self, parent=None):

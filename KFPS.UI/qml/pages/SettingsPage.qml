@@ -381,14 +381,7 @@ Item {
                 SectionHeading {
                     Layout.fillWidth: true
                     title: "Maintenance"
-                    subtitle: "Updates, reports, and logs stay out of the creation flow."
-                }
-
-                PrimaryButton {
-                    Layout.fillWidth: true
-                    text: "Check Updates"
-                    iconName: "update"
-                    onClicked: appController.navigate("update")
+                    subtitle: "Reports and logs stay out of the creation flow. Updates have their own tab."
                 }
 
                 GhostButton {
