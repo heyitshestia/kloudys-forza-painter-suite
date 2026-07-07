@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.50
+- Improved native window restore behavior and text sharpness.
+
 ## 3.0.49
 - Improved offline FH6 imports for generated JSONs and transparent save thumbnails.
 

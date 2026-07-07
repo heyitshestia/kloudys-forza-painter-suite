@@ -28,6 +28,8 @@ TextField {
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
     font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+    renderType: TextInput.NativeRendering
+    font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: TextInput.AlignVCenter
     selectByMouse: true
     clip: true

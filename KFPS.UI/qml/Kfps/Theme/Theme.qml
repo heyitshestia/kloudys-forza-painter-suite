@@ -201,7 +201,7 @@ QtObject {
     readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
 
     function px(value) {
-        return Math.round(value * effectiveScale * 100) / 100
+        return Math.round(value * effectiveScale)
     }
 
     function logical(value) {

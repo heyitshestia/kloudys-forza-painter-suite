@@ -25,6 +25,8 @@ TextArea {
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
     font.pixelSize: Theme.px(11.5)
+    renderType: TextEdit.NativeRendering
+    font.hintingPreference: Font.PreferFullHinting
     wrapMode: TextEdit.Wrap
     selectByMouse: true
 

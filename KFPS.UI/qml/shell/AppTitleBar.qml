@@ -38,6 +38,8 @@ Rectangle {
             color: Theme.muted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(10.5)
+            renderType: Text.NativeRendering
+            font.hintingPreference: Font.PreferFullHinting
             verticalAlignment: Text.AlignVCenter
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -92,6 +94,8 @@ Rectangle {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(19)
                         font.weight: Font.Light
+                        renderType: Text.NativeRendering
+                        font.hintingPreference: Font.PreferFullHinting
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -104,7 +108,7 @@ Rectangle {
                         if (button.modelData === "min") {
                             root.window.showMinimized()
                         } else if (button.modelData === "max") {
-                            if (root.window.visibility === Window.Maximized)
+                            if (root.window.visibility === Window.FullScreen || root.window.visibility === Window.Maximized)
                                 root.window.showNormal()
                             else
                                 root.window.showMaximized()
@@ -130,7 +134,7 @@ Rectangle {
     TapHandler {
         acceptedButtons: Qt.LeftButton
         onDoubleTapped: {
-            if (root.window.visibility === Window.Maximized)
+            if (root.window.visibility === Window.FullScreen || root.window.visibility === Window.Maximized)
                 root.window.showNormal()
             else
                 root.window.showMaximized()

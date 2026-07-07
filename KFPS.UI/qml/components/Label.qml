@@ -8,6 +8,8 @@ Text {
     font.weight: Font.DemiBold
     font.capitalization: Font.AllUppercase
     font.letterSpacing: Theme.px(0.5)
+    renderType: Text.NativeRendering
+    font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
 }
