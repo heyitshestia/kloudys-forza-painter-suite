@@ -23,6 +23,12 @@ except ImportError:  # pragma: no cover - direct script execution fallback
 
 
 MAX_FLAT_LAYERS = 3000
+LEGACY_RECTANGLE_TYPES = {1, 2}
+LEGACY_ELLIPSE_TYPES = {8, 16}
+LEGACY_RECTANGLE_WORD = 0x0065
+LEGACY_ELLIPSE_WORD = 0x0066
+LEGACY_RECTANGLE_DIVISOR = 127.0
+LEGACY_ELLIPSE_DIVISOR = 63.0
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,36 @@ def normalize_rgba(value: Any) -> tuple[int, int, int, int]:
     while len(items) < 4:
         items.append(255)
     return tuple(clamp_byte(item) for item in items[:4])  # type: ignore[return-value]
+
+
+def parse_numeric_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text, 0)
+        except ValueError:
+            return None
+    return None
+
+
+def shape_mask_flag(shape: dict[str, Any], data: list[Any]) -> bool:
+    for key in ("mask", "is_mask", "isMask"):
+        if key in shape:
+            return bool(shape.get(key))
+    if len(data) > 6:
+        try:
+            return bool(int(float(data[6])))
+        except (TypeError, ValueError):
+            return bool(data[6])
+    return False
 
 
 def default_payload_prefix() -> bytes:
@@ -163,6 +199,9 @@ def read_cgroup_payload(path: Path | str) -> bytes:
 
 
 def layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | None:
+    legacy = legacy_layer_from_shape(shape, index)
+    if legacy is not False:
+        return legacy
     color = normalize_rgba(shape.get("color"))
     if color[3] <= 0:
         return None
@@ -181,7 +220,58 @@ def layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | None:
         rotation=float(data[4]),
         skew=float(data[5]),
         color_rgba=color,
-        mask=bool(shape.get("mask") or (len(data) > 6 and data[6])),
+        mask=shape_mask_flag(shape, data),
+        source_index=index,
+    )
+
+
+def legacy_layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | None | bool:
+    """Convert generated geometry JSON into FH6 C_group layer fields.
+
+    Generated JSONs use legacy primitive IDs (`1/2` rectangle, `8/16` ellipse)
+    and pixel-space size. C_group needs real FH shape words and the same
+    position/scale transform used by the online memory importer.
+
+    Returns False when the shape is not legacy geometry, None when it is a
+    transparent legacy layer that should be skipped, or CGroupLayer when it can
+    be written.
+    """
+    if any(key in shape for key in ("shape_word", "shapeWord", "type_word", "typeWord", "font_shape", "fontShape")):
+        return False
+    if shape.get("resource_family") or shape.get("resourceFamily"):
+        return False
+    type_code = parse_numeric_int(shape.get("type"))
+    if type_code not in LEGACY_RECTANGLE_TYPES and type_code not in LEGACY_ELLIPSE_TYPES:
+        return False
+    data = list(shape.get("data") or [])
+    if len(data) < 4:
+        raise ValueError(f"legacy shape {index + 1} needs data [x,y,width,height]")
+    try:
+        x, y, width, height = [float(item) for item in data[:4]]
+        rotation = float(data[4]) if len(data) >= 5 else 0.0
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"legacy shape {index + 1} has invalid geometry data") from exc
+    color = normalize_rgba(shape.get("color"))
+    if color[3] <= 0:
+        return None
+    if type_code in LEGACY_RECTANGLE_TYPES:
+        shape_word = LEGACY_RECTANGLE_WORD
+        divisor = LEGACY_RECTANGLE_DIVISOR
+        rotation = rotation if type_code == 2 else 0.0
+    else:
+        shape_word = LEGACY_ELLIPSE_WORD
+        divisor = LEGACY_ELLIPSE_DIVISOR
+        rotation = rotation if type_code == 16 else 0.0
+    return CGroupLayer(
+        shape_id=shape_word,
+        x=float(x),
+        y=float(-y),
+        sx=float(width) / divisor,
+        sy=float(height) / divisor,
+        rotation=float((360.0 - rotation) % 360.0),
+        skew=float(data[5]) if len(data) > 5 else 0.0,
+        color_rgba=color,
+        mask=shape_mask_flag(shape, data),
         source_index=index,
     )
 
@@ -269,4 +359,3 @@ def parse_flat_payload(payload: bytes) -> dict[str, Any]:
 
 def read_flat_cgroup(path: Path | str) -> dict[str, Any]:
     return parse_flat_payload(read_cgroup_payload(path))
-

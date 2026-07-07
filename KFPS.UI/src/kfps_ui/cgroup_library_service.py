@@ -623,21 +623,15 @@ class CGroupLibraryService(QObject):
         temp.write_bytes(data)
         os.replace(temp, path)
 
-    @staticmethod
-    def _write_save_thumb(json_path: Path, thumb_path: Path) -> bool:
+    def _write_save_thumb(self, json_path: Path, thumb_path: Path) -> bool:
         try:
-            from io import BytesIO
-
-            from PIL import Image
-            from json_preview_renderer import render_json_preview
-
-            preview_data = render_json_preview(json_path, max_size=512, transparent_background=True)
-            if not preview_data:
+            image = self._save_thumb_source_image(json_path)
+            if image is None:
                 return False
-            with Image.open(BytesIO(preview_data)) as image:
-                image = image.convert("RGBA")
-                temp = thumb_path.with_name(f"{thumb_path.name}.kfps.tmp")
-                image.save(temp, "WEBP", quality=92, method=6)
+            image = self._fit_save_thumb(image)
+            temp = thumb_path.with_name(f"{thumb_path.name}.kfps.tmp")
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(temp, "WEBP", quality=92, method=6)
             os.replace(temp, thumb_path)
             return True
         except Exception:
@@ -648,6 +642,76 @@ class CGroupLibraryService(QObject):
             except OSError:
                 pass
             return False
+
+    def _save_thumb_source_image(self, json_path: Path):
+        from io import BytesIO
+
+        from PIL import Image
+        from json_preview_renderer import render_json_preview
+
+        # Generated thumbnails should use the same geometry renderer as the app
+        # preview, but without the checker/background layer the app preview uses.
+        max_size = 900 if self._json_looks_generated(json_path) else 512
+        preview_data = render_json_preview(json_path, max_size=max_size, transparent_background=True)
+        if not preview_data:
+            return None
+        with Image.open(BytesIO(preview_data)) as image:
+            return image.convert("RGBA").copy()
+
+    @staticmethod
+    def _fit_save_thumb(image):
+        from PIL import Image
+
+        output_size = 256
+        resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+        image = image.convert("RGBA")
+        image.thumbnail((output_size, output_size), resample)
+        canvas = Image.new("RGBA", (output_size, output_size), (0, 0, 0, 0))
+        x = (output_size - image.width) // 2
+        y = (output_size - image.height) // 2
+        canvas.alpha_composite(image, (x, y))
+        return canvas
+
+    def _json_looks_generated(self, json_path: Path) -> bool:
+        try:
+            resolved = json_path.resolve()
+            generated_root = self.paths.generated_root.resolve()
+            if resolved == generated_root or generated_root in resolved.parents:
+                return True
+        except Exception:
+            pass
+
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            shapes = data.get("shapes") if isinstance(data, dict) else None
+        except Exception:
+            return False
+        if not isinstance(shapes, list):
+            return False
+
+        generated_types = {1, 2, 8, 16}
+        identity_keys = {
+            "type_word",
+            "typeWord",
+            "shape_word",
+            "shapeWord",
+            "resource_family",
+            "resourceFamily",
+            "resource_index",
+            "resourceIndex",
+        }
+        for shape in shapes[:80]:
+            if not isinstance(shape, dict):
+                continue
+            if any(key in shape for key in identity_keys):
+                continue
+            try:
+                shape_type = int(shape.get("type"))
+            except Exception:
+                continue
+            if shape_type in generated_types:
+                return True
+        return False
 
     @classmethod
     def _discover_save_artifacts(cls, roots: list[Path]) -> list[Path]:

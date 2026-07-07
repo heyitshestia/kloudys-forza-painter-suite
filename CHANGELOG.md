@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.49
+- Improved offline FH6 imports for generated JSONs and transparent save thumbnails.
+
 ## 3.0.48
 - Added supporter-gated offline FH6 save-folder library scanning and one-button offline JSON import.
 - Offline imports create a fresh FH6 LayerGroup folder with a transparent thumbnail.
