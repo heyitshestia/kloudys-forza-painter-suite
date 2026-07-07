@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.48
+- Added supporter-gated offline FH6 save-folder library scanning and one-button offline JSON import.
+- Offline imports create a fresh FH6 LayerGroup folder with a transparent thumbnail.
+- Clarified online probe import/export labels and kept offline import greyed out for FH5/FM8 until tested.
+
 ## 3.0.47
 - Added another Forza Motorsport process name for detection.
 
