@@ -23,11 +23,11 @@ Use this with:
 10. [Luma Prep](#luma-prep)
 11. [Edge Repair](#edge-repair)
 12. [2x Sample Goblin](#2x-sample-goblin-slower)
-13. [Final JSON Browser](#final-json-browser)
+13. [Outputs Browser](#outputs-browser)
 14. [Import JSON](#import-json)
 15. [Editor Tab](#editor-tab)
-16. [Image Tools Tab](#image-tools-tab)
-17. [Image Size Helper Tab](#image-size-helper-tab)
+16. [Tools Tab](#tools-tab)
+17. [Source Check](#source-check)
 18. [Settings And Themes](#settings-and-themes)
 19. [Files And Folders](#files-and-folders)
 20. [Updating](#updating)
@@ -546,28 +546,28 @@ It does not double:
 
 Use it when the current preset is close but needs more search effort. It is a quality/search-effort toggle, not a speed toggle, so expect longer generation times.
 
-## Final JSON Browser
+## Outputs Browser
 
 Open:
 
 ```text
-Import JSON
+Outputs
 ```
 
-<img src="screenshots/app-import-json-browser-annotated.png" width="900" alt="Import tab JSON browser with numbered controls">
+<img src="screenshots/app-import-json-browser-annotated.png" width="900" alt="Outputs browser with JSON thumbnails and import controls">
 
 Numbered areas:
 
 1. FH6 process/session selector
 2. Template layer count and mask mode
-3. Generated run and finalized checkpoint picker
-4. Auto-locate/import controls
-5. Final vinyl preview
+3. Output source and JSON thumbnail grid
+4. Online import/export controls
+5. Selected JSON preview and details
 
 The browser has three jobs:
 
-1. find generated runs
-2. show finalized checkpoints
+1. find generated finals, editor exports, game exports, and library JSONs
+2. show JSON thumbnails and previews
 3. pick exactly one final JSON for import
 
 ### Generated Vinyl Run Dropdown
@@ -739,12 +739,12 @@ What it does not do:
 - It exports JSON for the app's `Import JSON` workflow.
 - It is not required for normal image-to-vinyl generation.
 
-## Image Tools Tab
+## Tools Tab
 
 Open:
 
 ```text
-Image Tools
+Tools
 ```
 
 This tab is a simple launcher for useful browser tools that can improve source art before generation.
@@ -759,12 +759,12 @@ Available links:
 
 The app does not upload files through this tab. It only opens the selected web tool in your browser.
 
-## Image Size Helper Tab
+## Source Check
 
 Open:
 
 ```text
-Image Size Helper
+Create
 ```
 
 Choose one image to see:
@@ -774,7 +774,7 @@ Choose one image to see:
 - resize targets from `1 MP` through `6 MP`
 - a quick preset MP cheat sheet
 
-The resize targets keep the original aspect ratio. Use this with the Image Tools links when deciding whether to upscale, downscale, or leave a source alone.
+The resize targets keep the original aspect ratio. Use this with the Tools links when deciding whether to upscale, downscale, or leave a source alone.
 
 Preset starting points:
 
@@ -952,8 +952,8 @@ FINALIZE CHECKPOINTS COMPLETE
 
 If it crashed during finalization:
 
-- open Import tab
-- select the generated run
+- open Outputs
+- select the generated run/checkpoint
 - click `Resume unfinished finalize`
 
 ### Import Cannot Find FH6
