@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.53
+- Added a live scrolling status banner backed by a remote announcement feed.
+- The banner can be clicked to pause or resume scrolling.
+
 ## 3.0.52
 - Reworked the Outputs browser into a JSON-first thumbnail grid.
 - Generated outputs now stay grouped by generation run, newest first, with checkpoints ordered from low to high layer count.
