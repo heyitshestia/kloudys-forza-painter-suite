@@ -112,6 +112,26 @@ ApplicationWindow {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
+                property real controlsTopMargin: announcementTicker.visible
+                                                 ? Theme.px(window.shortWindow ? 42 : 54)
+                                                 : Theme.px(window.shortWindow ? 10 : 16)
+
+                AnnouncementTicker {
+                    id: announcementTicker
+                    compact: window.compactHeader
+                    anchors.top: parent.top
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset: supporterPromo.visible ? -Theme.px(220) : -Theme.px(80)
+                    anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
+                    width: Math.max(
+                               Theme.px(window.compactHeader ? 420 : 540),
+                               Math.min(
+                                   Theme.px(supporterPromo.visible ? 760 : (window.compactHeader ? 720 : 900)),
+                                   parent.width - Theme.px(window.compactHeader ? 320 : 680)
+                               )
+                           )
+                    z: 24
+                }
 
                 HeaderControls {
                     compact: window.compactHeader
@@ -127,7 +147,7 @@ ApplicationWindow {
                     id: versionPill
                     compact: window.compactHeader
                     anchors.top: parent.top
-                    anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
+                    anchors.topMargin: workspace.controlsTopMargin
                     x: Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
                     z: 20
                 }
@@ -135,7 +155,7 @@ ApplicationWindow {
                 SupporterPill {
                     compact: window.compactHeader
                     anchors.top: parent.top
-                    anchors.topMargin: Theme.px(window.shortWindow ? 12 : 18)
+                    anchors.topMargin: workspace.controlsTopMargin + Theme.px(2)
                     x: Math.max(
                            Theme.px(14),
                            Math.min(
@@ -151,7 +171,7 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.right: parent.right
-                    anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
+                    anchors.topMargin: Theme.px(window.shortWindow ? -2 : 2)
                     anchors.rightMargin: Theme.px(16)
                     z: 80
                 }

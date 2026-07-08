@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication
 
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
+from kfps_ui.announcement_service import AnnouncementService
 from kfps_ui.changelog_service import ChangelogService
 from kfps_ui.cgroup_library_service import CGroupLibraryService
 from kfps_ui.desktop_service import DesktopService
@@ -82,6 +83,7 @@ def main():
     logs = LogService()
     desktop = DesktopService(paths, logs)
     version = VersionService(paths.app_root / "VERSION", demo=args.demo)
+    announcements = AnnouncementService(demo=args.demo)
     runtime = RuntimeService(demo=args.demo)
     preview = PreviewService(paths)
     source = SourceImageService(paths, desktop, logs)
@@ -106,6 +108,7 @@ def main():
         "settings": settings,
         "logs": logs,
         "versionService": version,
+        "announcementService": announcements,
         "runtimeService": runtime,
         "desktop": desktop,
         "sourceService": source,
