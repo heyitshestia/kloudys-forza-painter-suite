@@ -140,25 +140,41 @@ def has_color_data(color: tuple[int, int, int, int]) -> bool:
 
 def unwrap_forza_container(path: Path) -> bytes:
     raw = path.read_bytes()
+    if raw.startswith(b"gyvl") or raw.startswith(b"vlrc"):
+        return raw
+    return unwrap_forza_container_bytes(raw, path)
+
+
+def unwrap_forza_container_bytes(raw: bytes, path: Path) -> bytes:
     if len(raw) < 8:
         raise DecodeError(f"{path} is too short for a Forza container")
-    compressed_len, payload_len = struct.unpack_from("<II", raw, 0)
-    compressed = raw[8:]
-    if compressed_len != len(compressed):
-        raise DecodeError(
-            f"{path} compressed length header does not match file size "
-            f"({compressed_len} != {len(compressed)})"
-        )
-    try:
-        payload = zlib.decompress(compressed)
-    except zlib.error as exc:
-        raise DecodeError(f"{path} zlib payload could not be decompressed: {exc}") from exc
-    if payload_len != len(payload):
-        raise DecodeError(
-            f"{path} decompressed length header does not match payload "
-            f"({payload_len} != {len(payload)})"
-        )
-    return payload
+    pos = 0
+    payloads: list[bytes] = []
+    while pos < len(raw):
+        if pos + 8 > len(raw):
+            raise DecodeError(f"{path} has a truncated Forza container block at 0x{pos:x}")
+        compressed_len, payload_len = struct.unpack_from("<II", raw, pos)
+        pos += 8
+        remaining = len(raw) - pos
+        if compressed_len <= 0 or compressed_len > remaining:
+            expected = len(raw) - 8 if not payloads else remaining
+            raise DecodeError(
+                f"{path} compressed length header does not match file size "
+                f"({compressed_len} != {expected})"
+            )
+        compressed = raw[pos : pos + compressed_len]
+        pos += compressed_len
+        try:
+            payload = zlib.decompress(compressed)
+        except zlib.error as exc:
+            raise DecodeError(f"{path} zlib payload could not be decompressed: {exc}") from exc
+        if payload_len != len(payload):
+            raise DecodeError(
+                f"{path} decompressed length header does not match payload "
+                f"({payload_len} != {len(payload)})"
+            )
+        payloads.append(payload)
+    return b"".join(payloads)
 
 
 def resolve_forza_source(path: Path | str) -> tuple[Path, str]:
@@ -166,17 +182,27 @@ def resolve_forza_source(path: Path | str) -> tuple[Path, str]:
     if path.is_dir():
         cgroup = path / "C_group"
         clivery = path / "C_livery"
+        data = path / "data"
         if cgroup.is_file():
             return cgroup, "cgroup"
         if clivery.is_file():
             return clivery, "clivery"
-        raise DecodeError(f"{path} is a folder but does not contain C_group or C_livery")
+        if data.is_file() and path.parent.name.lower() == "layergroups":
+            return data, "cgroup"
+        if data.is_file() and path.parent.name.lower() == "liveries":
+            return data, "clivery"
+        raise DecodeError(f"{path} is a folder but does not contain C_group, C_livery, or known Forza data")
     name = path.name.lower()
     if name == "c_group":
         return path, "cgroup"
     if name == "c_livery":
         return path, "clivery"
-    payload = unwrap_forza_container(path)
+    raw = path.read_bytes()
+    if raw.startswith(b"gyvl"):
+        return path, "cgroup"
+    if raw.startswith(b"vlrc"):
+        return path, "clivery"
+    payload = unwrap_forza_container_bytes(raw, path)
     if payload.startswith(b"gyvl"):
         return path, "cgroup"
     if payload.startswith(b"vlrc") or b"gyvl" in payload[:0x200]:

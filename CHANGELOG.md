@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.51
+- Kept FH6 offline save-folder import visible while temporarily hiding FM8 from the game target dropdown.
+- Prepared the offline save-library path for FH5 scanner work.
+
 ## 3.0.50
 - Improved native window restore behavior and text sharpness.
 

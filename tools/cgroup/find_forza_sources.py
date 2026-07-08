@@ -145,7 +145,11 @@ def describe_source(path: Path, expected_layers: int | None, inspect: bool, insp
         size = 0
         modified = ""
         sort_mtime = 0.0
-    kind = "cgroup" if path.name.lower() == "c_group" else "clivery"
+    name = path.name.lower()
+    if name == "c_group" or (name == "data" and path.parent.parent.name.lower() == "layergroups"):
+        kind = "cgroup"
+    else:
+        kind = "clivery"
     entry: dict[str, Any] = {
         "kind": kind,
         "file": str(path),

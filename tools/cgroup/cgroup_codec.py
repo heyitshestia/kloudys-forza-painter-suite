@@ -17,9 +17,21 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from .shape_identity import canonical_shape_identity
+    from .shape_identity import (
+        FM8_COMMUNITY_SLOT_WORDS,
+        FM8_COMPACT_TAB_BASES,
+        canonical_shape_identity,
+        normalize_game_key,
+        parse_int,
+    )
 except ImportError:  # pragma: no cover - direct script execution fallback
-    from shape_identity import canonical_shape_identity
+    from shape_identity import (
+        FM8_COMMUNITY_SLOT_WORDS,
+        FM8_COMPACT_TAB_BASES,
+        canonical_shape_identity,
+        normalize_game_key,
+        parse_int,
+    )
 
 
 MAX_FLAT_LAYERS = 3000
@@ -198,7 +210,29 @@ def read_cgroup_payload(path: Path | str) -> bytes:
     return unwrap_payload(path.read_bytes())
 
 
-def layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | None:
+def target_game_shape_word(shape: dict[str, Any], identity_word: int, target_game: str | None = "fh6") -> int:
+    game_key = normalize_game_key(target_game)
+    if game_key != "fm8":
+        return int(identity_word) & 0xFFFF
+
+    raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
+    if raw_word is not None and normalize_game_key(shape.get("source_game") or shape.get("sourceGame")) == "fm8":
+        return raw_word & 0xFFFF
+
+    family = shape.get("resource_family") or shape.get("resourceFamily")
+    index = parse_int(shape.get("resource_index") or shape.get("resourceIndex"))
+    if family and index is not None:
+        family = str(family)
+        if family in FM8_COMMUNITY_SLOT_WORDS and 1 <= index <= len(FM8_COMMUNITY_SLOT_WORDS[family]):
+            return int(FM8_COMMUNITY_SLOT_WORDS[family][index - 1]) & 0xFFFF
+        for base_word, base_family in FM8_COMPACT_TAB_BASES.items():
+            if family == base_family and 1 <= index <= 40:
+                return (int(base_word) + index - 1) & 0xFFFF
+
+    return int(identity_word) & 0xFFFF
+
+
+def layer_from_shape(shape: dict[str, Any], index: int, target_game: str | None = "fh6") -> CGroupLayer | None:
     legacy = legacy_layer_from_shape(shape, index)
     if legacy is not False:
         return legacy
@@ -211,8 +245,9 @@ def layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | None:
     while len(data) < 6:
         data.append(0)
     identity = canonical_shape_identity(shape)
+    shape_word = target_game_shape_word(shape, identity.word, target_game)
     return CGroupLayer(
-        shape_id=identity.word,
+        shape_id=shape_word,
         x=float(data[0]),
         y=float(data[1]),
         sx=float(data[2]),
@@ -276,7 +311,7 @@ def legacy_layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | 
     )
 
 
-def layers_from_kfps_json(path: Path | str) -> list[CGroupLayer]:
+def layers_from_kfps_json(path: Path | str, target_game: str | None = "fh6") -> list[CGroupLayer]:
     path = Path(path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     shapes = payload.get("shapes") if isinstance(payload, dict) else None
@@ -286,14 +321,14 @@ def layers_from_kfps_json(path: Path | str) -> list[CGroupLayer]:
     for index, shape in enumerate(shapes):
         if not isinstance(shape, dict):
             continue
-        layer = layer_from_shape(shape, index)
+        layer = layer_from_shape(shape, index, target_game=target_game)
         if layer:
             layers.append(layer)
     return layers
 
 
-def build_flat_cgroup_from_json(path: Path | str) -> bytes:
-    return build_flat_payload(layers_from_kfps_json(path))
+def build_flat_cgroup_from_json(path: Path | str, target_game: str | None = "fh6") -> bytes:
+    return build_flat_payload(layers_from_kfps_json(path, target_game=target_game))
 
 
 def parse_flat_payload(payload: bytes) -> dict[str, Any]:

@@ -4,6 +4,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import struct
 import string
@@ -19,12 +20,14 @@ from PySide6.QtWidgets import QFileDialog
 from .app_paths import AppPaths
 from .json_service import JsonService
 from .log_service import LogService
+from .models import DictListModel
 from .preview_service import PreviewService
 from .qt_utils import safe_file_part
 
 
 class CGroupLibraryService(QObject):
     changed = Signal()
+    fm8CreatorPromptRequested = Signal()
     _resultReady = Signal(object)
 
     def __init__(
@@ -46,12 +49,14 @@ class CGroupLibraryService(QObject):
         self.demo = demo
         self._running = False
         self._status = "Ready"
-        self._summary = "Scan Forza saves into the offline Library, or create an FH6 vinyl folder from the selected JSON."
+        self._summary = "Scan Forza saves into the offline Library, or create a save-folder vinyl from the selected JSON."
         self._candidate_count = 0
         self._exported_count = 0
         self._skipped_count = 0
         self._last_output = ""
         self._active_game_key = "fh6"
+        self._creator_prompt_summary = ""
+        self._creator_prompt_model = DictListModel(["creator", "displayName", "detailText", "score", "recommended"])
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="cgroup-library")
         self._resultReady.connect(self._apply_result)
 
@@ -91,6 +96,14 @@ class CGroupLibraryService(QObject):
     def activeGame(self):
         return self._active_game_key
 
+    @Property(QObject, constant=True)
+    def creatorCandidateModel(self):
+        return self._creator_prompt_model
+
+    @Property(str, notify=changed)
+    def creatorPromptSummary(self):
+        return self._creator_prompt_summary
+
     @Slot()
     @Slot(str)
     def scanSaves(self, game: str = "fh6"):
@@ -105,15 +118,43 @@ class CGroupLibraryService(QObject):
             return
         game_key = self._game_key(game)
         self._active_game_key = game_key
+        if game_key == "fm8" and not self._load_creator_profile():
+            if self._prepare_fm8_creator_prompt():
+                return
         self._running = True
         game_label = self._game_label(game_key)
         self._status = f"Scanning {game_label}"
-        self._summary = f"Scanning common {game_label} save folders for LayerGroup C_group files..."
+        self._summary = f"Scanning common {game_label} save folders for individual vinyl group files..."
         self.changed.emit()
-        self.log.append(f"Scanning {game_label} save folders for LayerGroup C_group files...")
+        self.log.append(f"Scanning {game_label} save folders for individual vinyl group files...")
 
         future = self._executor.submit(self._scan_work, game_key)
         future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
+
+    @Slot(str, result=bool)
+    def confirmFm8Creator(self, creator: str) -> bool:
+        creator = str(creator or "").strip()
+        if not creator:
+            self._status = "Profile not saved"
+            self._summary = "Choose a valid FM8 creator profile before scanning the offline library."
+            self.changed.emit()
+            return False
+        self._save_creator_profile(creator)
+        self._creator_prompt_model.replace([])
+        self._creator_prompt_summary = ""
+        self._status = "FM8 profile saved"
+        self._summary = "FM8 profile confirmed privately. Scanning your vinyl groups..."
+        self.changed.emit()
+        self.scanSaves("fm8")
+        return True
+
+    @Slot()
+    def cancelFm8CreatorPrompt(self):
+        self._creator_prompt_model.replace([])
+        self._creator_prompt_summary = ""
+        self._status = "FM8 profile needed"
+        self._summary = "FM8 offline library scan waits until you choose the local creator profile once."
+        self.changed.emit()
 
     @Slot(str)
     def installSelectedJsonToFH6(self, json_path: str):
@@ -143,26 +184,38 @@ class CGroupLibraryService(QObject):
 
     @Slot(str)
     def createFH6LayerGroupFromSelectedJson(self, json_path: str):
+        self.createLayerGroupFromSelectedJson(json_path, "FH6")
+
+    @Slot(str, str)
+    def createLayerGroupFromSelectedJson(self, json_path: str, game: str = "fh6"):
         if self._running:
             self.log.append("C_group folder install is already running.")
             return
         if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
             self._status = "Supporter unlock required"
-            self._summary = "FH6 offline folder import is available with a local supporter unlock."
+            self._summary = "Offline folder import is available with a local supporter unlock."
             self.changed.emit()
-            self.log.append("FH6 save-folder import requires a local supporter unlock.")
+            self.log.append("Save-folder import requires a local supporter unlock.")
             return
         source = Path(str(json_path or ""))
         if not source.is_file():
-            self.log.append("Choose a JSON before creating an FH6 save folder.", "error")
+            self.log.append("Choose a JSON before creating a save-folder vinyl.", "error")
+            return
+        game_key = self._game_key(game)
+        game_label = self._game_label(game_key)
+        if game_key == "fh5":
+            self._status = "FH5 offline import disabled"
+            self._summary = "FH5 offline folder import is not wired yet. Use online import/export for FH5 testing."
+            self.changed.emit()
+            self.log.append("FH5 offline folder import is not wired yet.", "error")
             return
         self._running = True
-        self._active_game_key = "fh6"
+        self._active_game_key = game_key
         self._status = "Offline import"
-        self._summary = "Creating a new FH6 LayerGroup folder from the selected JSON with a transparent thumbnail."
+        self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
         self.changed.emit()
-        self.log.append("Offline import: creating a new FH6 LayerGroup folder from selected JSON...")
-        future = self._executor.submit(self._create_folder_install_work, Path(source))
+        self.log.append(f"Offline import: creating a new {game_label} vinyl group folder from selected JSON...")
+        future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
         future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
 
     @Slot(str, str)
@@ -238,12 +291,175 @@ class CGroupLibraryService(QObject):
     def _root_cache_file(self, game_key: str | None = None) -> Path:
         return self.paths.runtime_root / f"cgroup-library-roots-{self._game_key(game_key)}.json"
 
+    @property
+    def _creator_profile_file(self) -> Path:
+        return self.paths.runtime_root / "fm8-local-profile.json"
+
+    @classmethod
+    def _normalize_creator_name(cls, value: str) -> str:
+        return " ".join(str(value or "").replace("\x00", " ").split()).casefold()
+
+    @classmethod
+    def _creator_hash(cls, creator: str, salt: str) -> str:
+        normalized = cls._normalize_creator_name(creator)
+        payload = f"kfps-fm8-local-profile-v1:{salt}:{normalized}".encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _system_creator_names() -> set[str]:
+        return {
+            "",
+            "forza",
+            "forza baselivery",
+            "turn 10",
+            "turn10",
+            "mclaren",
+        }
+
+    def _load_creator_profile(self) -> dict[str, str] | None:
+        try:
+            data = json.loads(self._creator_profile_file.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict) or data.get("format") != "kfps_fm8_local_profile_v1":
+            return None
+        salt = str(data.get("salt") or "")
+        digest = str(data.get("creator_hash") or "")
+        if len(salt) < 16 or len(digest) != 64:
+            return None
+        return {"salt": salt, "creator_hash": digest}
+
+    def _save_creator_profile(self, creator: str) -> None:
+        salt = secrets.token_hex(16)
+        payload = {
+            "format": "kfps_fm8_local_profile_v1",
+            "created_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+            "salt": salt,
+            "creator_hash": self._creator_hash(creator, salt),
+        }
+        self._creator_profile_file.parent.mkdir(parents=True, exist_ok=True)
+        temp = self._creator_profile_file.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(temp, self._creator_profile_file)
+
+    def _creator_matches_profile(self, creator: str, profile: dict[str, str] | None = None) -> bool:
+        profile = profile or self._load_creator_profile()
+        if not profile:
+            return False
+        salt = str(profile.get("salt") or "")
+        digest = str(profile.get("creator_hash") or "")
+        return bool(creator) and self._creator_hash(creator, salt) == digest
+
+    def _prepare_fm8_creator_prompt(self) -> bool:
+        rows = self._fm8_creator_candidate_rows()
+        self._creator_prompt_model.replace(rows)
+        if rows:
+            self._status = "Choose FM8 profile"
+            self._summary = "Confirm your local FM8 creator profile once before scanning the offline library."
+            self._creator_prompt_summary = (
+                "KFPS found multiple creators in the FM8 local cache. Pick your own profile so downloaded/community "
+                "vinyls stay hidden from the offline library."
+            )
+        else:
+            self._status = "FM8 profile not found"
+            self._summary = "No FM8 creator profiles were found in local save files. Save one vinyl group in FM8, then scan again."
+            self._creator_prompt_summary = self._summary
+        self.changed.emit()
+        self.fm8CreatorPromptRequested.emit()
+        return True
+
+    def _fm8_creator_candidate_rows(self) -> list[dict[str, Any]]:
+        roots = self._default_save_roots("fm8")
+        system_names = self._system_creator_names()
+        candidates: dict[str, dict[str, Any]] = {}
+
+        def add_creator(creator: str, title: str, kind: str, mtime: float) -> None:
+            creator = " ".join(str(creator or "").replace("\x00", " ").split())
+            key = self._normalize_creator_name(creator)
+            if key in system_names:
+                return
+            item = candidates.setdefault(
+                key,
+                {
+                    "creator": creator,
+                    "layergroups": 0,
+                    "liveries": 0,
+                    "titles": [],
+                    "newest": 0.0,
+                },
+            )
+            if kind == "livery":
+                item["liveries"] += 1
+            else:
+                item["layergroups"] += 1
+            if title and len(item["titles"]) < 5:
+                item["titles"].append(str(title))
+            item["newest"] = max(float(item.get("newest") or 0.0), float(mtime or 0.0))
+
+        for source_path in self._discover_save_artifacts(roots, "fm8"):
+            metadata = self._read_layer_group_metadata(source_path)
+            try:
+                mtime = source_path.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            add_creator(str(metadata.get("creator") or ""), str(metadata.get("title") or ""), "layergroup", mtime)
+
+        seen_liveries: set[str] = set()
+        for root in roots:
+            for livery_path in self._targeted_fm8_liveries(root):
+                try:
+                    resolved = str(livery_path.resolve()).lower()
+                except OSError:
+                    continue
+                if resolved in seen_liveries:
+                    continue
+                seen_liveries.add(resolved)
+                metadata = self._read_layer_group_metadata(livery_path)
+                try:
+                    mtime = livery_path.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                add_creator(str(metadata.get("creator") or ""), str(metadata.get("title") or ""), "livery", mtime)
+
+        now = time.time()
+        rows: list[dict[str, Any]] = []
+        for item in candidates.values():
+            layergroups = int(item.get("layergroups") or 0)
+            liveries = int(item.get("liveries") or 0)
+            newest = float(item.get("newest") or 0.0)
+            score = layergroups + liveries
+            if layergroups and liveries:
+                score += 8
+            if newest and now - newest < 14 * 86400:
+                score += 3
+            elif newest and now - newest < 60 * 86400:
+                score += 1
+            detail = f"{layergroups} vinyl group(s), {liveries} design(s)"
+            titles = [str(title) for title in item.get("titles") or [] if title]
+            if titles:
+                detail += " - " + ", ".join(titles[:3])
+            rows.append(
+                {
+                    "creator": str(item.get("creator") or ""),
+                    "displayName": str(item.get("creator") or ""),
+                    "detailText": detail,
+                    "score": score,
+                    "recommended": False,
+                }
+            )
+        rows.sort(key=lambda row: (int(row.get("score") or 0), str(row.get("displayName") or "")), reverse=True)
+        if rows:
+            rows[0]["recommended"] = True
+            rows[0]["displayName"] = f"{rows[0]['displayName']}  ·  best guess"
+        return rows[:18]
+
     def _scan_work(self, game_key: str = "fh6") -> dict[str, Any]:
         from tools.cgroup.find_forza_sources import describe_source
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
         game_key = self._game_key(game_key)
         game_label = self._game_label(game_key)
+        creator_profile = self._load_creator_profile() if game_key == "fm8" else None
         roots = self._default_save_roots(game_key)
         if self.demo:
             return {
@@ -267,7 +483,8 @@ class CGroupLibraryService(QObject):
                 "message": f"No common {game_label} save folders were found on this machine.",
             }
 
-        source_paths = self._discover_save_artifacts(roots)
+        source_paths = self._discover_save_artifacts(roots, game_key)
+        ignored_designs = self._count_ignored_designs(roots, game_key)
         if source_paths:
             self._save_cached_roots(self._roots_for_sources(source_paths), game_key)
         candidates = [
@@ -281,6 +498,7 @@ class CGroupLibraryService(QObject):
         exported: list[str] = []
         active_entry_names: set[str] = set()
         skipped = 0
+        ignored_other_creators = 0
         seen_fingerprints: set[str] = set()
 
         for source in candidates:
@@ -305,9 +523,19 @@ class CGroupLibraryService(QObject):
                 continue
 
             layers = len(decoded.layers)
+            if game_key == "fm8" and layers <= 0:
+                skipped += 1
+                continue
             metadata = self._read_layer_group_metadata(source_path)
+            if game_key == "fm8" and creator_profile:
+                creator = str(metadata.get("creator") or "")
+                if not self._creator_matches_profile(creator, creator_profile):
+                    ignored_other_creators += 1
+                    continue
             title = metadata.get("title") or source.get("folder_name") or source_path.parent.name or "Forza LayerGroup"
             metadata["layers"] = layers
+            metadata["layer_count"] = layers
+            metadata["asset_type"] = "vinyl_group"
             metadata["target_game"] = game_key
             metadata["source_folder"] = source.get("folder_name") or source_path.parent.name
             display_stem = safe_file_part(str(title), "forza-layergroup")
@@ -336,6 +564,7 @@ class CGroupLibraryService(QObject):
                         "created_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
                         "source_path": str(source_path),
                         "source_kind": decoded.source_kind,
+                        "asset_type": "vinyl_group",
                         "target_game": game_key,
                         "source_modified_utc": source.get("modified_utc"),
                         "source_fingerprint": fingerprint,
@@ -364,10 +593,14 @@ class CGroupLibraryService(QObject):
             "candidates": len(candidates),
             "exported": len(exported),
             "skipped": skipped,
+            "ignored_designs": ignored_designs,
+            "ignored_other_creators": ignored_other_creators,
             "outputs": exported,
             "message": (
                 f"{game_label} save scan complete: scanned {len(candidates)} candidate(s), "
-                f"exported {len(exported)}, skipped {skipped}."
+                f"exported {len(exported)}, skipped {skipped}"
+                + (f", ignored {ignored_other_creators} other-creator vinyl(s)" if ignored_other_creators else "")
+                + (f", ignored {ignored_designs} design(s)." if ignored_designs else ".")
             ),
         }
 
@@ -423,8 +656,14 @@ class CGroupLibraryService(QObject):
             ),
         }
 
-    def _create_folder_install_work(self, json_path: Path) -> dict[str, Any]:
+    def _create_folder_install_work(self, json_path: Path, game_key: str = "fh6") -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
+
+        game_key = self._game_key(game_key)
+        if game_key == "fm8":
+            return self._create_fm8_layer_group_install_work(json_path)
+        if game_key != "fh6":
+            raise ValueError(f"{self._game_label(game_key)} offline folder import is not wired yet.")
 
         json_path = json_path.resolve()
         if not json_path.is_file():
@@ -484,6 +723,66 @@ class CGroupLibraryService(QObject):
             ),
         }
 
+    def _create_fm8_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
+        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload
+
+        json_path = json_path.resolve()
+        if not json_path.is_file():
+            raise ValueError(f"JSON does not exist: {json_path}")
+
+        layer_groups_root = self._fm8_layer_groups_root()
+        if layer_groups_root is None:
+            raise ValueError("No FM8 LayerGroups folder was found. Save one vinyl group in Forza Motorsport first.")
+        layer_groups_root.mkdir(parents=True, exist_ok=True)
+        source_group = self._latest_fm8_layer_group()
+
+        folder_name = str(uuid.uuid4())
+        target_folder = layer_groups_root / folder_name
+        while target_folder.exists():
+            folder_name = str(uuid.uuid4())
+            target_folder = layer_groups_root / folder_name
+
+        temp_folder = layer_groups_root / f".{target_folder.name}.kfps-tmp"
+        if temp_folder.exists():
+            shutil.rmtree(temp_folder)
+        temp_folder.mkdir(parents=True)
+        try:
+            payload = build_flat_cgroup_from_json(json_path, target_game="fm8")
+            self._atomic_write_bytes(temp_folder / "data", payload)
+            parsed = parse_flat_payload(payload)
+
+            title = self._title_for_install_json(json_path)
+            source_header = source_group / "header" if source_group else None
+            if source_header and source_header.is_file():
+                self._atomic_write_bytes(temp_folder / "header", self._rename_header(source_header.read_bytes(), title))
+            else:
+                self._atomic_write_bytes(temp_folder / "header", self._build_draft_header(title))
+
+            thumb_written = self._write_save_thumb(json_path, temp_folder / "thumbnail")
+            if not thumb_written and source_group:
+                source_thumb = source_group / "thumbnail"
+                if source_thumb.is_file():
+                    shutil.copy2(source_thumb, temp_folder / "thumbnail")
+
+            os.replace(temp_folder, target_folder)
+        finally:
+            if temp_folder.exists():
+                shutil.rmtree(temp_folder, ignore_errors=True)
+
+        layers = int(parsed.get("count") or 0)
+        return {
+            "ok": True,
+            "game": "fm8",
+            "candidates": 1,
+            "exported": 1,
+            "skipped": 0,
+            "outputs": [],
+            "message": (
+                f"Offline import complete: created FM8 LayerGroups folder {target_folder.name} with {layers} layer(s). "
+                "Reload Forza Motorsport's vinyl group library/editor, or restart the game if it does not appear."
+            ),
+        }
+
     @staticmethod
     def _validate_fh6_layer_group_target(target_folder: Path) -> None:
         if not target_folder.is_dir():
@@ -534,7 +833,7 @@ class CGroupLibraryService(QObject):
     def _latest_fh6_layer_group(self) -> Path | None:
         latest: tuple[float, Path] | None = None
         for root in self._default_save_roots("fh6"):
-            for cgroup in self._discover_save_artifacts([root])[:120]:
+            for cgroup in self._discover_save_artifacts([root], "fh6")[:120]:
                 folder = cgroup.parent
                 if folder.name.startswith("LayerGroup_") and folder.parent.name == "ContainersRoot":
                     try:
@@ -544,6 +843,36 @@ class CGroupLibraryService(QObject):
                     if latest is None or mtime > latest[0]:
                         latest = (mtime, folder)
         return latest[1] if latest else None
+
+    def _latest_fm8_layer_group(self) -> Path | None:
+        latest: tuple[float, Path] | None = None
+        root = self._fm8_layer_groups_root()
+        if root is None:
+            return None
+        creator_profile = self._load_creator_profile()
+        for data_file in self._targeted_fm8_layer_groups(root):
+            folder = data_file.parent
+            if creator_profile:
+                metadata = self._read_layer_group_metadata(data_file)
+                if not self._creator_matches_profile(str(metadata.get("creator") or ""), creator_profile):
+                    continue
+            try:
+                mtime = data_file.stat().st_mtime
+            except OSError:
+                continue
+            if latest is None or mtime > latest[0]:
+                latest = (mtime, folder)
+        return latest[1] if latest else None
+
+    def _fm8_layer_groups_root(self) -> Path | None:
+        for root in self._default_save_roots("fm8"):
+            name = root.name.lower()
+            if name == "layergroups" and root.is_dir():
+                return root
+            candidate = root / "LayerGroups"
+            if candidate.is_dir():
+                return candidate
+        return None
 
     @classmethod
     def _title_for_install_json(cls, json_path: Path) -> str:
@@ -714,7 +1043,8 @@ class CGroupLibraryService(QObject):
         return False
 
     @classmethod
-    def _discover_save_artifacts(cls, roots: list[Path]) -> list[Path]:
+    def _discover_save_artifacts(cls, roots: list[Path], game_key: str = "fh6") -> list[Path]:
+        game_key = cls._game_key(game_key)
         found: list[Path] = []
         seen: set[str] = set()
 
@@ -728,15 +1058,22 @@ class CGroupLibraryService(QObject):
             found.append(path)
 
         for root in roots:
-            for path in cls._targeted_xbox_layer_groups(root):
+            targeted = cls._targeted_fm8_layer_groups(root) if game_key == "fm8" else cls._targeted_xbox_layer_groups(root)
+            for path in targeted:
                 add(path)
 
         for root in roots:
             if len(found) >= 180:
                 break
-            if cls._is_xbox_game_save_root(root):
+            if game_key != "fm8" and cls._is_xbox_game_save_root(root):
                 continue
-            for path in cls._bounded_source_walk(root, remaining=180 - len(found), max_files=60_000, max_seconds=18.0):
+            for path in cls._bounded_source_walk(
+                root,
+                remaining=180 - len(found),
+                max_files=60_000,
+                max_seconds=18.0,
+                game_key=game_key,
+            ):
                 add(path)
 
         found.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
@@ -783,7 +1120,74 @@ class CGroupLibraryService(QObject):
         return paths
 
     @staticmethod
-    def _bounded_source_walk(root: Path, remaining: int, max_files: int, max_seconds: float) -> list[Path]:
+    def _targeted_fm8_layer_groups(root: Path) -> list[Path]:
+        candidates: list[Path] = []
+        if not root.exists():
+            return candidates
+        if root.name.lower() == "layergroups":
+            layer_groups_root = root
+        elif root.name.lower() == "ugc":
+            layer_groups_root = root / "LayerGroups"
+        else:
+            maybe = root / "Microsoft.ForzaMotorsport" / "UGC" / "LayerGroups"
+            layer_groups_root = maybe if maybe.is_dir() else root / "LayerGroups"
+        if not layer_groups_root.is_dir():
+            return candidates
+        try:
+            folders = [item for item in layer_groups_root.iterdir() if item.is_dir()]
+        except OSError:
+            return candidates
+        for folder in folders:
+            data_file = folder / "data"
+            if data_file.is_file():
+                candidates.append(data_file)
+        return candidates
+
+    @staticmethod
+    def _targeted_fm8_liveries(root: Path) -> list[Path]:
+        candidates: list[Path] = []
+        if not root.exists():
+            return candidates
+        if root.name.lower() == "liveries":
+            liveries_root = root
+        elif root.name.lower() == "ugc":
+            liveries_root = root / "Liveries"
+        else:
+            maybe = root / "Microsoft.ForzaMotorsport" / "UGC" / "Liveries"
+            liveries_root = maybe if maybe.is_dir() else root / "Liveries"
+        if not liveries_root.is_dir():
+            return candidates
+        try:
+            folders = [item for item in liveries_root.iterdir() if item.is_dir()]
+        except OSError:
+            return candidates
+        for folder in folders:
+            data_file = folder / "data"
+            if data_file.is_file():
+                candidates.append(data_file)
+        return candidates
+
+    @classmethod
+    def _count_ignored_designs(cls, roots: list[Path], game_key: str) -> int:
+        if cls._game_key(game_key) != "fm8":
+            return 0
+        seen: set[str] = set()
+        for root in roots:
+            for path in cls._targeted_fm8_liveries(root):
+                try:
+                    seen.add(str(path.resolve()).lower())
+                except OSError:
+                    continue
+        return len(seen)
+
+    @staticmethod
+    def _bounded_source_walk(
+        root: Path,
+        remaining: int,
+        max_files: int,
+        max_seconds: float,
+        game_key: str = "fh6",
+    ) -> list[Path]:
         if remaining <= 0 or not root.exists():
             return []
         skip_names = {
@@ -811,7 +1215,12 @@ class CGroupLibraryService(QObject):
             scanned += len(filenames)
             for filename in filenames:
                 current = Path(dirpath)
-                if filename.lower() == "c_group" and current.name.startswith("LayerGroup_"):
+                filename_lower = filename.lower()
+                if game_key == "fm8":
+                    is_candidate = filename_lower == "data" and current.parent.name.lower() == "layergroups"
+                else:
+                    is_candidate = filename_lower == "c_group" and current.name.startswith("LayerGroup_")
+                if is_candidate:
                     found.append(current / filename)
                     if len(found) >= remaining:
                         return found
@@ -820,11 +1229,19 @@ class CGroupLibraryService(QObject):
         return found
 
     def _default_save_roots(self, game_key: str | None = None) -> list[Path]:
+        game_key = self._game_key(game_key)
         roots: list[Path] = []
         roots.extend(self._load_cached_roots(game_key))
-        roots.extend(self._discover_xbox_game_save_roots())
 
         local_app_data = os.environ.get("LOCALAPPDATA")
+        if game_key == "fm8" and local_app_data:
+            fm8_ugc = Path(local_app_data) / "Microsoft.ForzaMotorsport" / "UGC"
+            for candidate in (fm8_ugc / "LayerGroups", fm8_ugc):
+                if candidate.exists():
+                    roots.append(candidate)
+
+        roots.extend(self._discover_xbox_game_save_roots())
+
         if local_app_data:
             packages = Path(local_app_data) / "Packages"
             if packages.exists():
@@ -979,6 +1396,10 @@ class CGroupLibraryService(QObject):
                 index = lowered.index("pgs")
                 roots.append(Path(*parts[: index + 1]))
                 continue
+            if "ugc" in lowered and "layergroups" in lowered:
+                index = lowered.index("ugc")
+                roots.append(Path(*parts[: index + 2]))
+                continue
             for marker in ("wgs", "helium"):
                 if marker in lowered:
                     index = lowered.index(marker)
@@ -1032,6 +1453,7 @@ class CGroupLibraryService(QObject):
             "display_name": title,
             "description": description,
             "creator": creator,
+            "asset_type": "vinyl_group",
             "header_strings": meaningful[:6],
         }
 
@@ -1097,7 +1519,14 @@ class CGroupLibraryService(QObject):
                 continue
             source_path = Path(str(manifest.get("source_path") or ""))
             source_folder = str(manifest.get("source_folder") or source_path.parent.name)
-            is_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
+            target_game = CGroupLibraryService._game_key(str(manifest.get("target_game") or "fh6"))
+            is_fh_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
+            is_fm8_layer_group = (
+                target_game == "fm8"
+                and source_path.name.lower() == "data"
+                and source_path.parent.parent.name.lower() == "layergroups"
+            )
+            is_layer_group = is_fh_layer_group or is_fm8_layer_group
             if not is_layer_group or (active_entry_names and entry.name not in active_entry_names):
                 try:
                     shutil.rmtree(entry)

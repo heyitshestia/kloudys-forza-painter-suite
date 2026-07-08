@@ -533,7 +533,7 @@ def annotate_fm_export_resource(shape, layer, game):
     if str(game).lower() != "fm":
         return False
     raw_word = int(shape.get("type_word") or 0) & 0xFFFF
-    resource = fm_direct_community_resource(raw_word)
+    resource = FM_EXPORT_RESOURCE_MAP.get(raw_word)
     if not resource:
         for base_word, family in sorted(FM_EXPORT_COMPACT_TAB_BASES.items(), reverse=True):
             offset = raw_word - int(base_word)

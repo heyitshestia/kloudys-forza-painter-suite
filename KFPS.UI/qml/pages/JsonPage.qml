@@ -11,11 +11,27 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
+    property int fm8CreatorConfirmStep: 1
+    property string fm8PendingCreator: ""
+    property string fm8PendingCreatorDisplay: ""
+    property string fm8PendingCreatorDetail: ""
+
     Connections {
         target: supporterService
         function onChanged() {
             if (!supporterService.unlocked && jsonService.sourceIndex === 3)
                 jsonService.setSource(0)
+        }
+    }
+
+    Connections {
+        target: cgroupLibraryService
+        function onFm8CreatorPromptRequested() {
+            root.fm8CreatorConfirmStep = 1
+            root.fm8PendingCreator = ""
+            root.fm8PendingCreatorDisplay = ""
+            root.fm8PendingCreatorDetail = ""
+            fm8CreatorDialog.open()
         }
     }
 
@@ -76,7 +92,7 @@ Item {
                             id: game
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            model: ["FH6", "FH5", "FM8"]
+                            model: ["FH6", "FH5"]
                         }
                     }
 
@@ -124,7 +140,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "Offline import & save library"
+                                text: "FH6 offline import & save library"
                                 color: Theme.primaryBright
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(12.4)
@@ -160,7 +176,7 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + " saves..." : "Scan " + game.currentText + " offline library"
+                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + " saves..." : "Scan " + game.currentText + " save library"
                                 iconName: "folder"
                                 dense: root.compactHeight
                                 enabled: !cgroupLibraryService.running
@@ -183,14 +199,14 @@ Item {
                             text: cgroupLibraryService.running
                                   ? "Installing / scanning..."
                                   : (game.currentText === "FH6"
-                                     ? "Offline Import Selected JSON"
-                                     : "Offline Import FH6 Only For Now")
+                                     ? "FH6 Offline Import Selected JSON"
+                                     : "Offline Import FH5 Disabled")
                             iconName: "transfer"
                             dense: root.compactHeight
                             enabled: !cgroupLibraryService.running
                                      && game.currentText === "FH6"
                                      && jsonService.selectedPath.length > 0
-                            onClicked: cgroupLibraryService.createFH6LayerGroupFromSelectedJson(jsonService.selectedPath)
+                            onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
                         }
                     }
                 }
@@ -255,7 +271,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Online import writes into the open in-game template. Offline import creates a new FH6 save-folder vinyl with a transparent thumbnail."
+                    text: "Online import writes into the open in-game template. FH6 offline import can also create a new save-folder vinyl with a transparent thumbnail. FH5 save scanning is next."
                     color: Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -602,6 +618,255 @@ Item {
                             font.family: Theme.monoFamily
                             font.pixelSize: Theme.px(9.2)
                             elide: Text.ElideMiddle
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: fm8CreatorDialog
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.NoAutoClose
+        width: Math.min(root.width - Theme.px(48), Theme.px(860))
+        height: Math.min(root.height - Theme.px(48), Theme.px(620))
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(18)
+
+        background: Rectangle {
+            radius: Theme.px(24)
+            color: Theme.surfaceRaised
+            border.width: Math.max(1, Theme.px(1))
+            border.color: Theme.borderStrong
+            antialiasing: true
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(14)
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.px(12)
+
+                Icon {
+                    name: "folder"
+                    iconSize: Theme.px(34)
+                    glow: true
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.px(2)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.fm8CreatorConfirmStep === 1 ? "Choose Your FM8 Profile" : "Confirm This Is You"
+                        color: Theme.primaryBright
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(20)
+                        font.weight: Font.Bold
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: cgroupLibraryService.creatorPromptSummary
+                        color: Theme.muted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(11.5)
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: Math.max(1, Theme.px(1))
+                color: Theme.borderSoft
+                opacity: 0.9
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: Theme.px(10)
+                    visible: root.fm8CreatorConfirmStep === 1
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Pick the creator name that belongs to your local FM8 profile. KFPS will use it privately to hide downloaded/community vinyls from the offline library."
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(12.4)
+                        wrapMode: Text.Wrap
+                    }
+
+                    ListView {
+                        id: fm8CreatorList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: Theme.px(8)
+                        model: cgroupLibraryService.creatorCandidateModel
+
+                        delegate: Rectangle {
+                            id: creatorRow
+                            required property string creator
+                            required property string displayName
+                            required property string detailText
+                            required property int score
+                            required property bool recommended
+
+                            width: fm8CreatorList.width
+                            height: Theme.px(76)
+                            radius: Theme.px(16)
+                            color: root.fm8PendingCreator === creator ? Theme.primarySoft : (creatorHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
+                            border.width: Math.max(1, Theme.px(root.fm8PendingCreator === creator ? 2 : 1))
+                            border.color: root.fm8PendingCreator === creator ? Theme.primaryBright : (recommended ? Theme.warning : Theme.borderSoft)
+                            antialiasing: true
+
+                            Column {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Theme.px(14)
+                                anchors.rightMargin: Theme.px(14)
+                                spacing: Theme.px(4)
+
+                                Text {
+                                    width: parent.width
+                                    text: displayName
+                                    color: Theme.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(13.8)
+                                    font.weight: Font.Bold
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: detailText
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(10.6)
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            HoverHandler {
+                                id: creatorHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+
+                            TapHandler {
+                                onTapped: event => {
+                                    event.accepted = true
+                                    root.fm8PendingCreator = creatorRow.creator
+                                    root.fm8PendingCreatorDisplay = creatorRow.displayName
+                                    root.fm8PendingCreatorDetail = creatorRow.detailText
+                                }
+                            }
+                        }
+
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: Theme.px(16)
+                    visible: root.fm8CreatorConfirmStep === 2
+
+                    GlassPanel {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.px(190)
+                        soft: true
+                        border.color: Theme.warning
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(18)
+                            spacing: Theme.px(10)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.fm8PendingCreator
+                                color: Theme.primaryBright
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(22)
+                                font.weight: Font.Bold
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.fm8PendingCreatorDetail
+                                color: Theme.muted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12)
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Please check this twice. After confirmation, KFPS stores only a private hash and will not show this profile name again. If this is wrong, the offline library may hide your own vinyls or include the wrong cached files."
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(13)
+                        wrapMode: Text.Wrap
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.px(10)
+
+                GhostButton {
+                    Layout.preferredWidth: Theme.px(132)
+                    text: root.fm8CreatorConfirmStep === 1 ? "Cancel" : "Back"
+                    onClicked: {
+                        if (root.fm8CreatorConfirmStep === 1) {
+                            cgroupLibraryService.cancelFm8CreatorPrompt()
+                            fm8CreatorDialog.close()
+                        } else {
+                            root.fm8CreatorConfirmStep = 1
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                PrimaryButton {
+                    Layout.preferredWidth: Theme.px(root.fm8CreatorConfirmStep === 1 ? 180 : 260)
+                    text: root.fm8CreatorConfirmStep === 1 ? "Continue" : "Yes, This Is My Profile"
+                    iconName: "check"
+                    enabled: root.fm8PendingCreator.length > 0
+                    onClicked: {
+                        if (root.fm8CreatorConfirmStep === 1) {
+                            root.fm8CreatorConfirmStep = 2
+                        } else if (cgroupLibraryService.confirmFm8Creator(root.fm8PendingCreator)) {
+                            fm8CreatorDialog.close()
                         }
                     }
                 }
