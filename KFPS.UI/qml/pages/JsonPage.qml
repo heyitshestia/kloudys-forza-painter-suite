@@ -15,6 +15,11 @@ Item {
     property string fm8PendingCreator: ""
     property string fm8PendingCreatorDisplay: ""
     property string fm8PendingCreatorDetail: ""
+    property string infoCardName: ""
+    property string infoCardDetail: ""
+    property string infoCardFolder: ""
+    property string infoCardPath: ""
+    property string infoCardPreview: ""
 
     Connections {
         target: supporterService
@@ -74,7 +79,7 @@ Item {
                     SectionHeading {
                         Layout.fillWidth: true
                         title: "1. Import setup"
-                        subtitle: "Online uses the live probe. Offline creates a save folder."
+                        subtitle: "Online uses the live probe. Offline scans supported save folders."
                     }
                 }
 
@@ -119,6 +124,7 @@ Item {
                     model: supporterService.unlocked
                            ? ["Generated finals", "Editor exports", "Game exports", "Library"]
                            : ["Generated finals", "Editor exports", "Game exports"]
+                    currentIndex: jsonService.sourceIndex
                     onActivated: jsonService.setSource(currentIndex)
                 }
 
@@ -140,7 +146,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "FH6 offline import & save library"
+                                text: "FH6/FH5 save library"
                                 color: Theme.primaryBright
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(12.4)
@@ -158,9 +164,9 @@ Item {
                             }
                         }
 
-                            Text {
-                                Layout.fillWidth: true
-                                text: cgroupLibraryService.summary
+                        Text {
+                            Layout.fillWidth: true
+                            text: cgroupLibraryService.summary
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.4)
@@ -219,6 +225,15 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
+                        text: "Browse JSON"
+                        iconName: "folder"
+                        dense: root.compactHeight
+                        onClicked: jsonService.browseManual()
+                    }
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        minimumWidth: 0
                         text: "Refresh"
                         iconName: "refresh"
                         dense: root.compactHeight
@@ -227,6 +242,7 @@ Item {
 
                     KfpsCheckBox {
                         id: clearUnused
+                        Layout.columnSpan: 2
                         Layout.fillWidth: true
                         text: "Clear unused layers"
                         checked: true
@@ -271,7 +287,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Online import writes into the open in-game template. FH6 offline import can also create a new save-folder vinyl with a transparent thumbnail. FH5 save scanning is next."
+                    text: "Online import writes into the open in-game template. FH6 offline import can also create a new save-folder vinyl with a transparent thumbnail. FH5 currently supports offline save-library scanning."
                     color: Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -379,149 +395,14 @@ Item {
         HoverCard {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: root.wide ? Theme.px(430) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(360) : 0
-            padding: Theme.px(root.compactHeight ? 14 : 16)
-
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: Theme.px(root.compactHeight ? 7 : 9)
-
-                SectionHeading {
-                    Layout.fillWidth: true
-                    title: "2. Choose output"
-                    subtitle: "Select one run/folder, then one checkpoint."
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "Runs / folders"
-                    color: Theme.primaryBright
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(12.2)
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
-                }
-
-                FastListView {
-                    id: groups
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: parent.height * 0.36
-                    Layout.minimumHeight: Theme.px(150)
-                    clip: true
-                    model: jsonService.groupModel
-                    spacing: Theme.px(5)
-
-                    delegate: GhostButton {
-                        required property string name
-                        required property string displayName
-                        required property string detailText
-                        required property int count
-                        required property int index
-                        width: groups.width
-                        minimumWidth: 0
-                        maximumTextWidth: Math.max(Theme.px(150), width - Theme.px(48))
-                        text: displayName + "  •  " + detailText
-                        dense: root.compactHeight
-                        onClicked: jsonService.selectGroup(index)
-                    }
-
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "Checkpoint JSON"
-                    color: Theme.primaryBright
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(12.2)
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
-                }
-
-                FastListView {
-                    id: files
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: Theme.px(210)
-                    clip: true
-                    model: jsonService.fileModel
-                    spacing: Theme.px(5)
-
-                    delegate: Rectangle {
-                        id: fileRow
-                        required property string name
-                        required property string displayName
-                        required property string path
-                        required property int layers
-                        required property string modifiedLabel
-                        required property int index
-
-                        width: files.width
-                        height: Theme.px(root.compactHeight ? 50 : 58)
-                        radius: Theme.px(9)
-                        color: jsonService.selectedPath === path ? Theme.primarySoft : (rowHover.hovered ? Theme.hover : "transparent")
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.border
-                        antialiasing: true
-
-                        Column {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: Theme.px(10)
-                            anchors.rightMargin: Theme.px(10)
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: Theme.px(3)
-
-                            Text {
-                                width: parent.width
-                                text: fileRow.displayName
-                                color: Theme.text
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(10.8)
-                                font.weight: jsonService.selectedPath === fileRow.path ? Font.DemiBold : Font.Medium
-                                elide: Text.ElideMiddle
-                            }
-
-                            Text {
-                                width: parent.width
-                                text: fileRow.layers + " layers  •  " + fileRow.modifiedLabel
-                                color: Theme.subtle
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(9.2)
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        HoverHandler {
-                            id: rowHover
-                            cursorShape: Qt.PointingHandCursor
-                        }
-
-                        TapHandler {
-                            onTapped: event => {
-                                event.accepted = true
-                                jsonService.selectFile(fileRow.index)
-                            }
-                        }
-                    }
-
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                }
-            }
-        }
-
-        HoverCard {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.preferredWidth: root.wide ? Theme.px(570) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(430) : 0
+            Layout.columnSpan: root.wide ? 2 : 1
+            Layout.minimumWidth: root.wide ? Theme.px(720) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Theme.px(root.compactHeight ? 7 : 9)
+                spacing: Theme.px(root.compactHeight ? 8 : 10)
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -529,8 +410,8 @@ Item {
 
                     SectionHeading {
                         Layout.fillWidth: true
-                        title: "3. Preview & details"
-                        subtitle: "Verify before importing."
+                        title: "2. Browse outputs"
+                        subtitle: "All JSONs in the selected source are shown here as thumbnails."
                     }
 
                     Text {
@@ -543,82 +424,310 @@ Item {
                     }
                 }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: Theme.px(330)
-                    radius: Theme.px(18)
-                    color: Theme.previewSurface
-                    border.width: Math.max(1, Theme.px(1))
-                    border.color: Theme.borderStrong
-                    clip: true
-
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(1)
-                        radius: parent.radius - Theme.px(1)
-                        color: "transparent"
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.innerHighlight
-                        opacity: 0.92
-                    }
-
-                    Image {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(14)
-                        source: jsonService.previewUrl
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        smooth: true
-                        mipmap: true
-                    }
-
-                    EmptyState {
-                        visible: !jsonService.previewUrl
-                        anchors.centerIn: parent
-                        iconName: "json"
-                        title: "Select a JSON"
-                        message: "Choose a folder/run and then one checkpoint JSON."
-                    }
-                }
-
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 100 : 116)
+                    Layout.fillHeight: true
                     soft: true
+                    border.color: jsonService.selectedPath.length > 0 ? Theme.borderStrong : Theme.borderSoft
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Theme.px(11)
-                        spacing: Theme.px(4)
+                        anchors.margins: Theme.px(10)
+                        spacing: Theme.px(8)
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Name: " + jsonService.selectedName
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.8)
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideMiddle
-                        }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(8)
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Layers: " + jsonService.selectedLayers
-                            color: Theme.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.4)
-                            elide: Text.ElideRight
-                        }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "JSON thumbnails"
+                                    color: Theme.primaryBright
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(12.2)
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Folder: " + jsonService.selectedFolder
-                            color: Theme.subtle
-                            font.family: Theme.monoFamily
-                            font.pixelSize: Theme.px(9.2)
-                            elide: Text.ElideMiddle
+                                Text {
+                                    Layout.maximumWidth: Theme.px(300)
+                                    text: jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(9.6)
+                                    elide: Text.ElideMiddle
+                                }
+                            }
+
+                            GridView {
+                                id: files
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                model: jsonService.fileModel
+                                boundsBehavior: Flickable.StopAtBounds
+                                maximumFlickVelocity: 100000
+                                flickDeceleration: 12000
+                                property int columns: Math.max(1, Math.floor(width / Theme.px(root.compactHeight ? 148 : 180)))
+                                cellWidth: Math.max(Theme.px(138), width / columns)
+                                cellHeight: Theme.px(root.compactHeight ? 158 : 186)
+
+                                delegate: Rectangle {
+                                    id: fileCard
+                                    required property string displayName
+                                    required property string path
+                                    required property int layers
+                                    required property string modifiedLabel
+                                    required property string previewUrl
+                                    required property string detailText
+                                    required property string folder
+                                    required property int index
+
+                                    width: files.cellWidth - Theme.px(8)
+                                    height: files.cellHeight - Theme.px(8)
+                                    radius: Theme.px(16)
+                                    color: jsonService.selectedPath === path ? Theme.primarySoft : (cardHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
+                                    border.width: Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
+                                    border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
+                                    antialiasing: true
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.px(8)
+                                        spacing: Theme.px(6)
+
+                                        Rectangle {
+                                            width: parent.width
+                                            height: Math.max(Theme.px(72), fileCard.height - Theme.px(root.compactHeight ? 70 : 78))
+                                            radius: Theme.px(12)
+                                            color: Theme.previewSurface
+                                            border.width: Math.max(1, Theme.px(1))
+                                            border.color: Theme.border
+                                            clip: true
+
+                                            Image {
+                                                anchors.fill: parent
+                                                anchors.margins: Theme.px(5)
+                                                source: fileCard.previewUrl
+                                                fillMode: Image.PreserveAspectFit
+                                                asynchronous: true
+                                                smooth: true
+                                                mipmap: true
+                                            }
+
+                                            EmptyState {
+                                                visible: !fileCard.previewUrl
+                                                anchors.centerIn: parent
+                                                iconName: "json"
+                                                title: ""
+                                                message: "No preview"
+                                            }
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: fileCard.displayName
+                                            color: Theme.text
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(10.4)
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideMiddle
+                                            maximumLineCount: 1
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: fileCard.detailText
+                                            color: Theme.subtle
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(9.2)
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: cardHover
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        acceptedButtons: Qt.LeftButton
+                                        onClicked: mouse => {
+                                            mouse.accepted = true
+                                            jsonService.selectFile(fileCard.index)
+                                        }
+                                        onDoubleClicked: mouse => {
+                                            mouse.accepted = true
+                                            jsonService.selectFile(fileCard.index)
+                                            root.infoCardName = fileCard.displayName
+                                            root.infoCardDetail = fileCard.detailText
+                                            root.infoCardFolder = fileCard.folder
+                                            root.infoCardPath = fileCard.path
+                                            root.infoCardPreview = fileCard.previewUrl
+                                            jsonInfoPopup.open()
+                                        }
+                                    }
+                                }
+
+                                WheelHandler {
+                                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                                    target: null
+                                    onWheel: event => {
+                                        var delta = event.pixelDelta.y
+                                        if (delta === 0)
+                                            delta = (event.angleDelta.y / 120.0) * Theme.px(96)
+                                        if (delta === 0)
+                                            return
+                                        files.contentY = Math.max(0, Math.min(files.contentY - delta, Math.max(0, files.contentHeight - files.height)))
+                                        event.accepted = true
+                                    }
+                                }
+
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            }
+
+                            GlassPanel {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.px(root.compactHeight ? 68 : 80)
+                                soft: true
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.px(9)
+                                    spacing: Theme.px(3)
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "Selected: " + jsonService.selectedName
+                                        color: Theme.text
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(10.6)
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "Layers: " + jsonService.selectedLayers + "  •  Folder: " + jsonService.selectedFolder
+                                        color: Theme.subtle
+                                        font.family: Theme.monoFamily
+                                        font.pixelSize: Theme.px(9.0)
+                                        elide: Text.ElideMiddle
+                                    }
+                                }
+                            }
                         }
+                    }
+                }
+        }
+    }
+
+    Popup {
+        id: jsonInfoPopup
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min(root.width - Theme.px(34), Theme.px(1040))
+        height: Math.min(root.height - Theme.px(34), Theme.px(800))
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(18)
+
+        background: Rectangle {
+            radius: Theme.px(24)
+            color: Theme.surfaceRaised
+            border.width: Math.max(1, Theme.px(1))
+            border.color: Theme.borderStrong
+            antialiasing: true
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(12)
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.px(10)
+
+                SectionHeading {
+                    Layout.fillWidth: true
+                    title: root.infoCardName || "Vinyl JSON"
+                    subtitle: root.infoCardDetail || "Preview and file information."
+                }
+
+                GhostButton {
+                    Layout.preferredWidth: Theme.px(110)
+                    text: "Close"
+                    onClicked: jsonInfoPopup.close()
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: Theme.px(460)
+                radius: Theme.px(18)
+                color: Theme.previewSurface
+                border.width: Math.max(1, Theme.px(1))
+                border.color: Theme.borderStrong
+                clip: true
+
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: Theme.px(16)
+                    source: root.infoCardPreview
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    smooth: true
+                    mipmap: true
+                }
+
+                EmptyState {
+                    visible: !root.infoCardPreview
+                    anchors.centerIn: parent
+                    iconName: "json"
+                    title: "No preview"
+                    message: "The JSON can still be imported, but no thumbnail was available."
+                }
+            }
+
+            GlassPanel {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.px(96)
+                soft: true
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.px(11)
+                    spacing: Theme.px(4)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.infoCardDetail
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(11)
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Folder: " + root.infoCardFolder
+                        color: Theme.subtle
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.px(9.4)
+                        elide: Text.ElideMiddle
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "JSON: " + root.infoCardPath
+                        color: Theme.subtle
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.px(9.4)
+                        elide: Text.ElideMiddle
                     }
                 }
             }

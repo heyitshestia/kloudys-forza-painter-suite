@@ -21,7 +21,7 @@ class JsonService(QObject):
     def __init__(self, paths: AppPaths, preview: PreviewService, desktop: DesktopService, log: LogService, demo=False, parent=None):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
         self._group_model = DictListModel(["name","displayName","detailText","path","count","modifiedLabel"])
-        self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel"])
+        self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
         self._recent_model = DictListModel(["name","path","folder","age","source"])
         self._source = 0; self._selected_group = -1; self._selected_path = ""; self._selected_display_name = ""; self._preview_url = ""; self._layers = "—"; self._folder = "—"
         self._groups: list[dict] = []
@@ -60,7 +60,11 @@ class JsonService(QObject):
         src = self.paths.app_root / "assets" / "app" / "KFPS Logo.json"
         if not src.is_file(): return
         for dest in [self.paths.generated_root / "KFPS Logo" / "finals" / "KFPS Logo.3000v2.json", self.paths.editor_json_root / "KFPS Logo" / "KFPS Logo.json", self.paths.exported_root / "KFPS Logo.json"]:
-            try: dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(src, dest)
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_file() and dest.read_bytes() == src.read_bytes():
+                    continue
+                shutil.copy2(src, dest)
             except Exception: pass
 
     @Slot(int)
@@ -80,15 +84,23 @@ class JsonService(QObject):
             for path in self._files(root, generated=False): grouped.setdefault(path.parent, []).append(path)
             for folder, files in grouped.items(): groups.append(self._group(str(folder.relative_to(root)) if folder != root else root.name, folder, files))
         groups.sort(key=lambda g:g["modified"], reverse=True)
-        self._groups=groups; self._group_model.replace([{k:g[k] for k in ("name","displayName","detailText","path","count","modifiedLabel")} for g in groups]); self._file_model.replace([])
-        if groups: self.selectGroup(0)
+        self._groups=groups
+        self._group_model.replace([{k:g[k] for k in ("name","displayName","detailText","path","count","modifiedLabel")} for g in groups])
+        rows = [self._row_for_json(path) for path in self._sorted_visible_files(groups)]
+        self._file_model.replace(rows)
+        if self._selected_path and any(str(row["path"]) == self._selected_path for row in rows):
+            self.selectPath(self._selected_path)
+        elif rows:
+            self.selectPath(str(rows[0]["path"]))
+        else:
+            self.clearSelection()
 
     def _files(self, root: Path, generated: bool):
         out=[]
         for path in root.rglob("*.json"):
             low=path.name.lower()
             if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")): continue
-            if generated and not ("v2" in low or path.parent.name.lower()=="finals"): continue
+            if generated and not (path.parent.name.lower()=="finals" and low.endswith("v2.json")): continue
             out.append(path)
         return out
 
@@ -106,6 +118,38 @@ class JsonService(QObject):
                 detail_text = f"{layers} layers"
         return {"name":name,"displayName":display_name,"detailText":detail_text,"path":str(folder),"files":sorted(files,key=lambda p:p.stat().st_mtime,reverse=True),"count":len(files),"modified":modified,"modifiedLabel":self._age(modified)}
 
+    def _sorted_visible_files(self, groups):
+        if self._source == 0:
+            files = []
+            for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
+                files.extend(sorted(self._dedupe_generated_files(group["files"]), key=lambda path: (self._count(path), path.name.casefold())))
+            return files
+        files = [path for group in groups for path in group["files"]]
+        return sorted(files, key=lambda path: (path.stat().st_mtime * -1, self._display_name_for_json(path).casefold(), self._count(path), path.name.casefold()))
+
+    def _dedupe_generated_files(self, files):
+        selected = {}
+        for path in files:
+            key = self._count(path)
+            previous = selected.get(key)
+            if previous is None or path.stat().st_mtime >= previous.stat().st_mtime:
+                selected[key] = path
+        return list(selected.values())
+
+    def _row_for_json(self, path):
+        layers = self._count(path)
+        modified_label = self._age(path.stat().st_mtime)
+        return {
+            "name": path.name,
+            "displayName": self._display_name_for_json(path),
+            "path": str(path),
+            "layers": layers,
+            "modifiedLabel": modified_label,
+            "previewUrl": self.preview.preview_for_json(path, self._source_names()[self._source]),
+            "detailText": f"{layers} layers  •  {modified_label}",
+            "folder": str(path.parent),
+        }
+
     @staticmethod
     def _age(ts):
         import time
@@ -120,7 +164,7 @@ class JsonService(QObject):
         if not 0<=index<len(self._groups): return
         self._selected_group=index; rows=[]
         for path in self._groups[index]["files"]:
-            rows.append({"name":path.name,"displayName":self._display_name_for_json(path),"path":str(path),"layers":self._count(path),"modifiedLabel":self._age(path.stat().st_mtime)})
+            rows.append(self._row_for_json(path))
         self._file_model.replace(rows)
         if rows:
             self.selectPath(str(rows[0]["path"]))

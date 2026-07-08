@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.52
+- Reworked the Outputs browser into a JSON-first thumbnail grid.
+- Generated outputs now stay grouped by generation run, newest first, with checkpoints ordered from low to high layer count.
+- Added FH5 offline save-library scanning and a first-scan warning for large vinyl libraries.
+
 ## 3.0.51
 - Kept FH6 offline save-folder import visible while temporarily hiding FM8 from the game target dropdown.
 - Prepared the offline save-library path for FH5 scanner work.

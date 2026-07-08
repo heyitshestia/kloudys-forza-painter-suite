@@ -127,6 +127,11 @@ class CGroupLibraryService(QObject):
         self._summary = f"Scanning common {game_label} save folders for individual vinyl group files..."
         self.changed.emit()
         self.log.append(f"Scanning {game_label} save folders for individual vinyl group files...")
+        if game_key == "fh5":
+            self.log.append(
+                "FH5 save-library scan: the first scan can take quite some time when you have many vinyls, "
+                "because KFPS imports each group and renders thumbnails/previews. Later scans reuse cached previews."
+            )
 
         future = self._executor.submit(self._scan_work, game_key)
         future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
@@ -286,7 +291,7 @@ class CGroupLibraryService(QObject):
         return {"fm8": "FM8", "fh5": "FH5", "fh6": "FH6"}.get(game_key, str(game_key).upper())
 
     def _library_root(self, game_key: str | None = None) -> Path:
-        return self.paths.library_root / self._game_key(game_key)
+        return self.paths.library_root
 
     def _root_cache_file(self, game_key: str | None = None) -> Path:
         return self.paths.runtime_root / f"cgroup-library-roots-{self._game_key(game_key)}.json"
@@ -495,11 +500,11 @@ class CGroupLibraryService(QObject):
 
         library_root = self._library_root(game_key)
         library_root.mkdir(parents=True, exist_ok=True)
+        self._flatten_legacy_game_library_roots(library_root)
         exported: list[str] = []
         active_entry_names: set[str] = set()
         skipped = 0
         ignored_other_creators = 0
-        seen_fingerprints: set[str] = set()
 
         for source in candidates:
             decode = source.get("decode") or {}
@@ -511,10 +516,6 @@ class CGroupLibraryService(QObject):
                 skipped += 1
                 continue
             fingerprint = str(source.get("fingerprint") or self._file_fingerprint(source_path))
-            if fingerprint in seen_fingerprints:
-                skipped += 1
-                continue
-            seen_fingerprints.add(fingerprint)
 
             try:
                 decoded = decode_forza_source(source_path, allow_locked=False, game=game_key)
@@ -523,6 +524,9 @@ class CGroupLibraryService(QObject):
                 continue
 
             layers = len(decoded.layers)
+            if game_key == "fh5" and decoded.source_kind != "cgroup":
+                skipped += 1
+                continue
             if game_key == "fm8" and layers <= 0:
                 skipped += 1
                 continue
@@ -539,7 +543,12 @@ class CGroupLibraryService(QObject):
             metadata["target_game"] = game_key
             metadata["source_folder"] = source.get("folder_name") or source_path.parent.name
             display_stem = safe_file_part(str(title), "forza-layergroup")
-            entry_name = safe_file_part(f"{display_stem}-{layers}layers-{fingerprint}", "forza-layergroup")
+            try:
+                source_key_text = str(source_path.resolve())
+            except OSError:
+                source_key_text = str(source_path)
+            source_key = hashlib.sha1(source_key_text.encode("utf-8", errors="ignore")).hexdigest()[:8]
+            entry_name = safe_file_part(f"{display_stem}-{layers}layers-{source_key}-{fingerprint}", "forza-layergroup")
             active_entry_names.add(entry_name)
             entry_root = library_root / entry_name
             output_json = entry_root / f"{entry_name}.json"
@@ -554,37 +563,33 @@ class CGroupLibraryService(QObject):
                 "metadata": metadata,
                 "shapes": decoded.layers,
             }
+            report_payload = decoded.report
+            manifest_payload = {
+                "format": "kfps_cgroup_library_manifest_v1",
+                "created_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "source_path": str(source_path),
+                "source_kind": decoded.source_kind,
+                "asset_type": "vinyl_group",
+                "target_game": game_key,
+                "source_modified_utc": source.get("modified_utc"),
+                "source_fingerprint": fingerprint,
+                "layers": layers,
+                "title": metadata.get("title"),
+                "description": metadata.get("description"),
+                "creator": metadata.get("creator"),
+                "display_name": metadata.get("display_name") or title,
+                "source_folder": metadata.get("source_folder"),
+                "warnings": decoded.report.get("warnings", [])
+                + decoded.report.get("identity_warnings", []),
+            }
             entry_root.mkdir(parents=True, exist_ok=True)
-            output_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            report_path.write_text(json.dumps(decoded.report, indent=2), encoding="utf-8")
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        "format": "kfps_cgroup_library_manifest_v1",
-                        "created_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-                        "source_path": str(source_path),
-                        "source_kind": decoded.source_kind,
-                        "asset_type": "vinyl_group",
-                        "target_game": game_key,
-                        "source_modified_utc": source.get("modified_utc"),
-                        "source_fingerprint": fingerprint,
-                        "layers": layers,
-                        "title": metadata.get("title"),
-                        "description": metadata.get("description"),
-                        "creator": metadata.get("creator"),
-                        "display_name": metadata.get("display_name") or title,
-                        "source_folder": metadata.get("source_folder"),
-                        "warnings": decoded.report.get("warnings", [])
-                        + decoded.report.get("identity_warnings", []),
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            self._write_text_if_changed(output_json, json.dumps(payload, indent=2))
+            self._write_text_if_changed(report_path, json.dumps(report_payload, indent=2))
+            self._write_text_if_changed(manifest_path, json.dumps(manifest_payload, indent=2))
             self._write_preview(output_json)
             exported.append(str(output_json.resolve()))
 
-        self._prune_non_layergroup_library_entries(library_root, active_entry_names)
+        self._prune_non_layergroup_library_entries(library_root, active_entry_names, game_key)
 
         return {
             "ok": True,
@@ -1181,6 +1186,15 @@ class CGroupLibraryService(QObject):
         return len(seen)
 
     @staticmethod
+    def _is_fh5_layer_group_candidate(path: Path) -> bool:
+        name = path.name.lower()
+        if name == "c_group":
+            return True
+        if name.endswith(".c_group"):
+            return True
+        return False
+
+    @staticmethod
     def _bounded_source_walk(
         root: Path,
         remaining: int,
@@ -1218,6 +1232,8 @@ class CGroupLibraryService(QObject):
                 filename_lower = filename.lower()
                 if game_key == "fm8":
                     is_candidate = filename_lower == "data" and current.parent.name.lower() == "layergroups"
+                elif game_key == "fh5":
+                    is_candidate = CGroupLibraryService._is_fh5_layer_group_candidate(current / filename)
                 else:
                     is_candidate = filename_lower == "c_group" and current.name.startswith("LayerGroup_")
                 if is_candidate:
@@ -1231,18 +1247,25 @@ class CGroupLibraryService(QObject):
     def _default_save_roots(self, game_key: str | None = None) -> list[Path]:
         game_key = self._game_key(game_key)
         roots: list[Path] = []
-        roots.extend(self._load_cached_roots(game_key))
+        cached_roots = self._load_cached_roots(game_key)
+        if game_key == "fh5":
+            roots.extend(root for root in cached_roots if self._is_fh5_save_root(root))
+        else:
+            roots.extend(cached_roots)
 
         local_app_data = os.environ.get("LOCALAPPDATA")
-        if game_key == "fm8" and local_app_data:
+        if game_key == "fh5":
+            roots.extend(self._discover_fh5_save_roots())
+        elif game_key == "fm8" and local_app_data:
             fm8_ugc = Path(local_app_data) / "Microsoft.ForzaMotorsport" / "UGC"
             for candidate in (fm8_ugc / "LayerGroups", fm8_ugc):
                 if candidate.exists():
                     roots.append(candidate)
+            roots.extend(self._discover_xbox_game_save_roots())
+        else:
+            roots.extend(self._discover_xbox_game_save_roots())
 
-        roots.extend(self._discover_xbox_game_save_roots())
-
-        if local_app_data:
+        if local_app_data and game_key == "fh6":
             packages = Path(local_app_data) / "Packages"
             if packages.exists():
                 for pattern in (
@@ -1261,6 +1284,102 @@ class CGroupLibraryService(QObject):
                 continue
             seen.add(key)
             unique.append(root)
+        return unique
+
+    @classmethod
+    def _is_fh5_save_root(cls, root: Path) -> bool:
+        text = str(root).replace("\\", "/").lower()
+        return (
+            "624f8b84b80" in text
+            or "forzahorizon5" in text
+            or "/1551360/" in text
+            or text.endswith("/1551360/remote")
+        )
+
+    @classmethod
+    def _discover_fh5_save_roots(cls) -> list[Path]:
+        roots: list[Path] = []
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            packages = Path(local_app_data) / "Packages"
+            if packages.exists():
+                for package in packages.iterdir():
+                    if not package.is_dir():
+                        continue
+                    name = package.name.lower()
+                    if "624f8b84b80" not in name and "forzahorizon5" not in name:
+                        continue
+                    for marker in ("wgs", "Helium"):
+                        candidate = package / "SystemAppData" / marker
+                        if candidate.exists():
+                            roots.append(candidate)
+        roots.extend(cls._discover_fh5_steam_roots())
+        return cls._unique_existing_paths(roots)
+
+    @classmethod
+    def _discover_fh5_steam_roots(cls) -> list[Path]:
+        roots: list[Path] = []
+        for steam_root in cls._steam_install_roots():
+            userdata = steam_root / "userdata"
+            if not userdata.is_dir():
+                continue
+            try:
+                users = [item for item in userdata.iterdir() if item.is_dir()]
+            except OSError:
+                continue
+            for user in users:
+                remote = user / "1551360" / "remote"
+                if remote.exists():
+                    roots.append(remote)
+        return cls._unique_existing_paths(roots)
+
+    @classmethod
+    def _steam_install_roots(cls) -> list[Path]:
+        candidates: list[Path] = []
+        try:
+            import winreg  # type: ignore
+
+            registry_locations = (
+                (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Valve\Steam", "InstallPath"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Valve\Steam", "InstallPath"),
+            )
+            for hive, key_name, value_name in registry_locations:
+                try:
+                    with winreg.OpenKey(hive, key_name) as key:
+                        value, _ = winreg.QueryValueEx(key, value_name)
+                    if value:
+                        candidates.append(Path(str(value)))
+                except OSError:
+                    continue
+        except Exception:
+            pass
+
+        for env_name in ("PROGRAMFILES(X86)", "PROGRAMFILES"):
+            value = os.environ.get(env_name)
+            if value:
+                candidates.append(Path(value) / "Steam")
+
+        for drive in cls._windows_drive_roots():
+            candidates.extend((drive / "Steam", drive / "SteamLibrary" / "Steam"))
+
+        return cls._unique_existing_paths(candidates)
+
+    @staticmethod
+    def _unique_existing_paths(paths: list[Path]) -> list[Path]:
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for path in paths:
+            if not path.exists():
+                continue
+            try:
+                key = str(path.resolve()).lower()
+            except OSError:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(path)
         return unique
 
     @classmethod
@@ -1400,6 +1519,10 @@ class CGroupLibraryService(QObject):
                 index = lowered.index("ugc")
                 roots.append(Path(*parts[: index + 2]))
                 continue
+            if "1551360" in lowered and "remote" in lowered:
+                index = lowered.index("remote")
+                roots.append(Path(*parts[: index + 1]))
+                continue
             for marker in ("wgs", "helium"):
                 if marker in lowered:
                     index = lowered.index(marker)
@@ -1419,20 +1542,36 @@ class CGroupLibraryService(QObject):
         return digest.hexdigest()[:12]
 
     def _write_preview(self, json_path: Path) -> None:
+        preview_path = json_path.with_suffix(".preview.png")
+        try:
+            if preview_path.is_file() and preview_path.stat().st_mtime_ns >= json_path.stat().st_mtime_ns:
+                return
+        except OSError:
+            pass
         try:
             from json_preview_renderer import render_json_preview
 
             data = render_json_preview(json_path, max_size=900)
             if data:
-                json_path.with_suffix(".preview.png").write_bytes(data)
+                preview_path.write_bytes(data)
                 return
         except Exception:
             pass
         self.preview.preview_for_json(json_path, "exported")
 
+    @staticmethod
+    def _write_text_if_changed(path: Path, text: str) -> None:
+        text = text + "\n"
+        try:
+            if path.is_file() and path.read_text(encoding="utf-8") == text:
+                return
+        except Exception:
+            pass
+        path.write_text(text, encoding="utf-8")
+
     @classmethod
     def _read_layer_group_metadata(cls, source_path: Path) -> dict[str, Any]:
-        header_path = source_path.parent / "header"
+        header_path = cls._metadata_header_path(source_path)
         strings = cls._extract_header_strings(header_path)
         generic_titles = {"Forza", "Forza BaseLivery"}
         meaningful = [item for item in strings if item not in generic_titles]
@@ -1456,6 +1595,22 @@ class CGroupLibraryService(QObject):
             "asset_type": "vinyl_group",
             "header_strings": meaningful[:6],
         }
+
+    @staticmethod
+    def _metadata_header_path(source_path: Path) -> Path:
+        direct = source_path.parent / "header"
+        if direct.is_file():
+            return direct
+        name = source_path.name
+        lower = name.lower()
+        for suffix in (".c_group", ".c_livery", ".data"):
+            if lower.endswith(suffix):
+                base = name[: -len(suffix)]
+                sibling = source_path.with_name(base + ".header")
+                if sibling.is_file():
+                    return sibling
+                break
+        return direct
 
     @staticmethod
     def _extract_header_strings(header_path: Path) -> list[str]:
@@ -1504,9 +1659,37 @@ class CGroupLibraryService(QObject):
         return value[:120]
 
     @staticmethod
-    def _prune_non_layergroup_library_entries(library_root: Path, active_entry_names: set[str]) -> None:
+    @staticmethod
+    def _flatten_legacy_game_library_roots(library_root: Path) -> None:
+        for game_folder in ("fh6", "fh5", "fm8"):
+            legacy_root = library_root / game_folder
+            if not legacy_root.is_dir():
+                continue
+            try:
+                entries = [item for item in legacy_root.iterdir() if item.is_dir()]
+            except OSError:
+                continue
+            for entry in entries:
+                target = library_root / entry.name
+                if target.exists():
+                    suffix = 2
+                    while (library_root / f"{entry.name}-{suffix}").exists():
+                        suffix += 1
+                    target = library_root / f"{entry.name}-{suffix}"
+                try:
+                    shutil.move(str(entry), str(target))
+                except OSError:
+                    continue
+            try:
+                legacy_root.rmdir()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _prune_non_layergroup_library_entries(library_root: Path, active_entry_names: set[str], game_key: str | None = None) -> None:
         if not library_root.is_dir():
             return
+        scan_game_key = CGroupLibraryService._game_key(game_key)
         for entry in library_root.iterdir():
             if not entry.is_dir():
                 continue
@@ -1519,14 +1702,18 @@ class CGroupLibraryService(QObject):
                 continue
             source_path = Path(str(manifest.get("source_path") or ""))
             source_folder = str(manifest.get("source_folder") or source_path.parent.name)
+            source_kind = str(manifest.get("source_kind") or "").lower()
             target_game = CGroupLibraryService._game_key(str(manifest.get("target_game") or "fh6"))
+            if target_game != scan_game_key:
+                continue
             is_fh_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
+            is_fh5_layer_group = target_game == "fh5" and source_kind == "cgroup" and source_path.name.lower().endswith(".c_group")
             is_fm8_layer_group = (
                 target_game == "fm8"
                 and source_path.name.lower() == "data"
                 and source_path.parent.parent.name.lower() == "layergroups"
             )
-            is_layer_group = is_fh_layer_group or is_fm8_layer_group
+            is_layer_group = is_fh_layer_group or is_fh5_layer_group or is_fm8_layer_group
             if not is_layer_group or (active_entry_names and entry.name not in active_entry_names):
                 try:
                     shutil.rmtree(entry)

@@ -38,6 +38,27 @@ SKIP_DIR_NAMES = {
 }
 
 
+def is_fh5_layer_group_candidate(path: Path) -> bool:
+    name = path.name.lower()
+    if name == "c_group":
+        return True
+    if name.endswith(".c_group"):
+        return True
+    return False
+
+
+def is_source_candidate(path: Path, game: str) -> bool:
+    name = path.name.lower()
+    game_key = str(game or "fh6").lower()
+    if name in SOURCE_NAMES:
+        return True
+    if game_key == "fh5":
+        return is_fh5_layer_group_candidate(path)
+    if game_key in {"fm", "fm8"}:
+        return name == "data" and path.parent.parent.name.lower() in {"layergroups", "liveries"}
+    return False
+
+
 def default_roots() -> list[Path]:
     roots: list[Path] = []
     for candidate in (
@@ -146,7 +167,7 @@ def describe_source(path: Path, expected_layers: int | None, inspect: bool, insp
         modified = ""
         sort_mtime = 0.0
     name = path.name.lower()
-    if name == "c_group" or (name == "data" and path.parent.parent.name.lower() == "layergroups"):
+    if name == "c_group" or name.endswith(".c_group") or (name == "data" and path.parent.parent.name.lower() == "layergroups"):
         kind = "cgroup"
     else:
         kind = "clivery"
@@ -167,10 +188,10 @@ def describe_source(path: Path, expected_layers: int | None, inspect: bool, insp
     return entry
 
 
-def discover_source_paths(root: Path, max_results: int, max_files: int, progress: bool) -> list[Path]:
+def discover_source_paths(root: Path, max_results: int, max_files: int, progress: bool, game: str = "fh6") -> list[Path]:
     candidates: list[Path] = []
     if root.is_file():
-        return [root] if root.name.lower() in SOURCE_NAMES else []
+        return [root] if is_source_candidate(root, game) else []
     if not root.exists():
         return []
     scanned_files = 0
@@ -182,9 +203,9 @@ def discover_source_paths(root: Path, max_results: int, max_files: int, progress
             dirnames[:] = [name for name in dirnames if name.lower() not in {".git", ".venv", "venv", "__pycache__"}]
         scanned_files += len(filenames)
         for filename in filenames:
-            if filename.lower() not in SOURCE_NAMES:
-                continue
             candidate = current / filename
+            if not is_source_candidate(candidate, game):
+                continue
             candidates.append(candidate)
             if progress:
                 print(f"found candidate {len(candidates)}: {candidate}", file=sys.stderr, flush=True)
@@ -209,7 +230,7 @@ def find_sources(
     game: str,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    candidates = discover_source_paths(root, max_results=max_results, max_files=max_files, progress=progress)
+    candidates = discover_source_paths(root, max_results=max_results, max_files=max_files, progress=progress, game=game)
     candidates.sort(key=lambda item: (path_mtime(item), str(item)), reverse=True)
     for index, path in enumerate(candidates[:max_results], 1):
         if progress:
