@@ -295,11 +295,20 @@ def decode_shape_at(data: bytes, pos: int, is_mask: bool = False, flags: int = 0
     )
 
 
-def transform_markers_at(data: bytes, pos: int, end: int, livery: bool = False) -> list[bytes]:
+def transform_markers_at(
+    data: bytes,
+    pos: int,
+    end: int,
+    livery: bool = False,
+    game: str | None = None,
+) -> list[bytes]:
     if pos >= end:
         return []
     markers: list[bytes] = []
     term = 0x01 if livery else 0x03
+    game_key = normalize_game_key(game)
+    if not livery and game_key == "fm8" and data[pos] == 0x02:
+        markers.append(b"\x02")
     if not livery and data[pos] == 0x00:
         cursor = pos + 1
         while cursor < end and data[cursor] == 0x01:
@@ -333,8 +342,14 @@ def transform_markers_at(data: bytes, pos: int, end: int, livery: bool = False) 
     return markers
 
 
-def read_transform_record(data: bytes, pos: int, end: int, livery: bool = False) -> tuple[int, Transform, bytes] | None:
-    for marker in transform_markers_at(data, pos, end, livery=livery):
+def read_transform_record(
+    data: bytes,
+    pos: int,
+    end: int,
+    livery: bool = False,
+    game: str | None = None,
+) -> tuple[int, Transform, bytes] | None:
+    for marker in transform_markers_at(data, pos, end, livery=livery, game=game):
         transform = read_transform_payload(data, pos + len(marker), end)
         if not transform:
             continue
@@ -530,7 +545,14 @@ def push_markerless_group(data: bytes, pos: int, end: int, info: GroupInfo, stat
     return pos + info.size
 
 
-def walk_step(data: bytes, pos: int, end: int, state: WalkState, livery: bool = False) -> int:
+def walk_step(
+    data: bytes,
+    pos: int,
+    end: int,
+    state: WalkState,
+    livery: bool = False,
+    game: str | None = None,
+) -> int:
     markerless = valid_markerless_group_at(data, pos, end, False, livery) if state.pending_transform else None
     if markerless:
         return push_markerless_group(data, pos, end, markerless, state, livery)
@@ -591,7 +613,7 @@ def walk_step(data: bytes, pos: int, end: int, state: WalkState, livery: bool = 
         state.pending_prefix = b""
         return pos + (32 if bytes_at(data, pos, b"\x00\x02", end) or bytes_at(data, pos, b"\x01\x02", end) else 31)
 
-    transform_record = read_transform_record(data, pos, end, livery=False)
+    transform_record = read_transform_record(data, pos, end, livery=False, game=game)
     if transform_record:
         size, transform, marker = transform_record
         state.pending_transform = transform
@@ -631,8 +653,9 @@ def get_cgroup_layer_data(payload: bytes) -> tuple[bytes, int]:
     return payload[38:], 38
 
 
-def build_cgroup_tree(payload: bytes) -> tuple[GroupNode, int, list[str]]:
+def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNode, int, list[str], dict[str, Any]]:
     warnings: list[str] = []
+    game_key = normalize_game_key(game)
     root = GroupNode(source="root")
     transform = read_transform_payload(payload, 13, len(payload))
     if transform:
@@ -648,25 +671,36 @@ def build_cgroup_tree(payload: bytes) -> tuple[GroupNode, int, list[str]]:
     state = WalkState(stack=[root])
     pos = 0
     guard = 0
-    initial = read_initial_child_transform(layer_data, pos, len(layer_data))
+    initial = read_initial_child_transform(layer_data, pos, len(layer_data), game=game_key)
     if initial:
         pos, state.pending_transform, state.pending_marker = initial
     while pos < len(layer_data) and guard < len(layer_data) + 4096:
         guard += 1
         close_complete_stack(state.stack)
-        next_pos = walk_step(layer_data, pos, len(layer_data), state)
+        next_pos = walk_step(layer_data, pos, len(layer_data), state, game=game_key)
         if next_pos <= pos:
             warnings.append(f"decoder made no progress at layer-data offset 0x{pos:x}")
             break
         pos = next_pos
     if pos < len(layer_data):
         warnings.append(f"decoder stopped before end: 0x{pos:x}/0x{len(layer_data):x}")
-    return root, layer_start, warnings
+    stats = cgroup_tree_stats(root)
+    if game_key == "fm8":
+        stats["fm8_pre_group_transform_records"] = count_fm8_pre_group_transform_records(layer_data)
+        stats["offline_decode_profile"] = "fm8_local_save_cgroup_v1"
+    else:
+        stats["offline_decode_profile"] = "standard_cgroup_v1"
+    return root, layer_start, warnings, stats
 
 
-def read_initial_child_transform(data: bytes, pos: int, end: int) -> tuple[int, Transform, bytes] | None:
+def read_initial_child_transform(
+    data: bytes,
+    pos: int,
+    end: int,
+    game: str | None = "fh6",
+) -> tuple[int, Transform, bytes] | None:
     for candidate in range(pos, min(end, pos + 8)):
-        record = read_transform_record(data, candidate, end, livery=False)
+        record = read_transform_record(data, candidate, end, livery=False, game=game)
         if record:
             size, transform, marker = record
             if valid_counted_group_at(data, candidate + size, end):
@@ -676,6 +710,49 @@ def read_initial_child_transform(data: bytes, pos: int, end: int) -> tuple[int, 
         if transform:
             return pos + 16, transform, b""
     return None
+
+
+def transform_is_identity(transform: Transform) -> bool:
+    return (
+        abs(float(transform.x)) <= 1e-6
+        and abs(float(transform.y)) <= 1e-6
+        and abs(float(transform.sx) - 1.0) <= 1e-6
+        and abs(float(transform.sy) - 1.0) <= 1e-6
+        and abs(normalize_rotation(float(transform.rotation))) <= 1e-6
+    )
+
+
+def cgroup_tree_stats(root: GroupNode) -> dict[str, Any]:
+    stats = {
+        "group_nodes": 0,
+        "non_identity_group_transforms": 0,
+        "max_group_depth": 0,
+    }
+
+    def walk(node: GroupNode, depth: int) -> None:
+        for item in node.items:
+            if not isinstance(item, GroupNode):
+                continue
+            stats["group_nodes"] += 1
+            stats["max_group_depth"] = max(int(stats["max_group_depth"]), depth + 1)
+            if not transform_is_identity(item.transform):
+                stats["non_identity_group_transforms"] += 1
+            walk(item, depth + 1)
+
+    walk(root, 0)
+    return stats
+
+
+def count_fm8_pre_group_transform_records(data: bytes) -> int:
+    count = 0
+    end = len(data)
+    for pos in range(0, max(0, end - 17) + 1):
+        if data[pos] != 0x02:
+            continue
+        transform = read_transform_payload(data, pos + 1, end)
+        if transform and valid_counted_group_at(data, pos + 17, end):
+            count += 1
+    return count
 
 
 def compose_group_transform(parent: Transform, child: Transform) -> Transform:
@@ -771,14 +848,15 @@ def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = No
     return layers
 
 
-def cgroup_to_layers(payload: bytes) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    root, layer_start, warnings = build_cgroup_tree(payload)
+def cgroup_to_layers(payload: bytes, game: str | None = "fh6") -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    root, layer_start, warnings, stats = build_cgroup_tree(payload, game=game)
     layers = flatten_tree(root, layer_start=layer_start)
     return layers, {
         "source_kind": "cgroup",
         "payload_size": len(payload),
         "layer_data_start": layer_start,
         "root_expected_children": root.expected_children,
+        **stats,
         "decoded_layers": len(layers),
         "warnings": warnings,
     }
@@ -940,7 +1018,7 @@ def decode_forza_source(path: Path | str, allow_locked: bool = False, game: str 
     payload = unwrap_forza_container(source_path)
     privacy_warnings = enforce_privacy(source_path, kind, payload, allow_locked=allow_locked)
     if kind == "cgroup":
-        layers, report = cgroup_to_layers(payload)
+        layers, report = cgroup_to_layers(payload, game=game_key)
     else:
         layers, report = clivery_to_layers(payload)
     json_layers, identity_warnings = layers_to_kfps_json_layers(layers, game=game_key)

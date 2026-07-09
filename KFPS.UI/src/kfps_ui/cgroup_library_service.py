@@ -132,6 +132,11 @@ class CGroupLibraryService(QObject):
                 "FH5 save-library scan: the first scan can take quite some time when you have many vinyls, "
                 "because KFPS imports each group and renders thumbnails/previews. Later scans reuse cached previews."
             )
+        elif game_key == "fm8":
+            self.log.append(
+                "FM8 offline scan uses the separate local-save LayerGroups/data path. "
+                "It reads saved files only; it does not touch the live editor or FH offline export flow."
+            )
 
         future = self._executor.submit(self._scan_work, game_key)
         future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
@@ -217,7 +222,14 @@ class CGroupLibraryService(QObject):
         self._running = True
         self._active_game_key = game_key
         self._status = "Offline import"
-        self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
+        if game_key == "fm8":
+            self._summary = "Creating a separate FM8 LayerGroups/data folder from the selected JSON."
+            self.log.append(
+                "FM8 offline import writes a new local-save LayerGroups/data folder. "
+                "Existing FM8 saves and the FH offline C_group writer are left untouched."
+            )
+        else:
+            self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
         self.changed.emit()
         self.log.append(f"Offline import: creating a new {game_label} vinyl group folder from selected JSON...")
         future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
@@ -505,6 +517,9 @@ class CGroupLibraryService(QObject):
         active_entry_names: set[str] = set()
         skipped = 0
         ignored_other_creators = 0
+        fm8_grouped_sources = 0
+        fm8_group_transforms = 0
+        fm8_pre_group_records = 0
 
         for source in candidates:
             decode = source.get("decode") or {}
@@ -530,6 +545,13 @@ class CGroupLibraryService(QObject):
             if game_key == "fm8" and layers <= 0:
                 skipped += 1
                 continue
+            if game_key == "fm8":
+                report = decoded.report
+                grouped = int(report.get("group_nodes") or 0)
+                if grouped:
+                    fm8_grouped_sources += 1
+                fm8_group_transforms += int(report.get("non_identity_group_transforms") or 0)
+                fm8_pre_group_records += int(report.get("fm8_pre_group_transform_records") or 0)
             metadata = self._read_layer_group_metadata(source_path)
             if game_key == "fm8" and creator_profile:
                 creator = str(metadata.get("creator") or "")
@@ -539,6 +561,7 @@ class CGroupLibraryService(QObject):
             title = metadata.get("title") or source.get("folder_name") or source_path.parent.name or "Forza LayerGroup"
             metadata["layers"] = layers
             metadata["layer_count"] = layers
+            metadata["shape_count"] = layers
             metadata["asset_type"] = "vinyl_group"
             metadata["target_game"] = game_key
             metadata["source_folder"] = source.get("folder_name") or source_path.parent.name
@@ -574,6 +597,8 @@ class CGroupLibraryService(QObject):
                 "source_modified_utc": source.get("modified_utc"),
                 "source_fingerprint": fingerprint,
                 "layers": layers,
+                "layer_count": layers,
+                "shape_count": layers,
                 "title": metadata.get("title"),
                 "description": metadata.get("description"),
                 "creator": metadata.get("creator"),
@@ -591,6 +616,13 @@ class CGroupLibraryService(QObject):
 
         self._prune_non_layergroup_library_entries(library_root, active_entry_names, game_key)
 
+        fm8_message = ""
+        if game_key == "fm8":
+            fm8_message = (
+                f"; FM8 local-save decoder recovered {fm8_group_transforms} placed group transform(s) "
+                f"from {fm8_grouped_sources} grouped save(s), using {fm8_pre_group_records} pre-group transform record(s)"
+            )
+
         return {
             "ok": True,
             "game": game_key,
@@ -600,12 +632,17 @@ class CGroupLibraryService(QObject):
             "skipped": skipped,
             "ignored_designs": ignored_designs,
             "ignored_other_creators": ignored_other_creators,
+            "fm8_grouped_sources": fm8_grouped_sources,
+            "fm8_group_transforms": fm8_group_transforms,
+            "fm8_pre_group_records": fm8_pre_group_records,
             "outputs": exported,
             "message": (
                 f"{game_label} save scan complete: scanned {len(candidates)} candidate(s), "
                 f"exported {len(exported)}, skipped {skipped}"
                 + (f", ignored {ignored_other_creators} other-creator vinyl(s)" if ignored_other_creators else "")
-                + (f", ignored {ignored_designs} design(s)." if ignored_designs else ".")
+                + (f", ignored {ignored_designs} design(s)" if ignored_designs else "")
+                + fm8_message
+                + "."
             ),
         }
 
@@ -783,7 +820,8 @@ class CGroupLibraryService(QObject):
             "skipped": 0,
             "outputs": [],
             "message": (
-                f"Offline import complete: created FM8 LayerGroups folder {target_folder.name} with {layers} layer(s). "
+                f"FM8 offline import complete: created separate LayerGroups folder {target_folder.name} "
+                f"with {layers} layer(s). Existing FM8 save folders were not modified. "
                 "Reload Forza Motorsport's vinyl group library/editor, or restart the game if it does not appear."
             ),
         }
@@ -1578,7 +1616,20 @@ class CGroupLibraryService(QObject):
         title = source_path.parent.name
         description = ""
         creator = ""
-        if strings and strings[0] not in generic_titles and meaningful:
+        title_from_fm8_header = False
+        if source_path.name.lower() == "data":
+            fm8_title = cls._extract_fm8_header_title(header_path)
+            if fm8_title and fm8_title not in generic_titles:
+                title = fm8_title
+                title_from_fm8_header = True
+        if title_from_fm8_header:
+            remaining = [item for item in meaningful if item != title]
+            if len(remaining) >= 2:
+                description = remaining[0]
+                creator = remaining[1]
+            elif len(remaining) == 1:
+                creator = remaining[0]
+        elif strings and strings[0] not in generic_titles and meaningful:
             title = meaningful[0]
             if len(meaningful) >= 3:
                 description = meaningful[1]
@@ -1642,14 +1693,39 @@ class CGroupLibraryService(QObject):
         return strings
 
     @staticmethod
-    def _clean_header_string(value: str) -> str:
+    def _extract_fm8_header_title(header_path: Path) -> str:
+        if not header_path.is_file():
+            return ""
+        try:
+            data = header_path.read_bytes()
+        except OSError:
+            return ""
+        if len(data) < 8:
+            return ""
+        try:
+            length = struct.unpack_from("<I", data, 4)[0]
+        except struct.error:
+            return ""
+        if not 1 <= length <= 96:
+            return ""
+        start = 8
+        end = start + length * 2
+        if end > len(data):
+            return ""
+        try:
+            return CGroupLibraryService._clean_header_string(data[start:end].decode("utf-16le"), minimum_length=1)
+        except UnicodeDecodeError:
+            return ""
+
+    @staticmethod
+    def _clean_header_string(value: str, minimum_length: int = 3) -> str:
         if any(not (char.isprintable() or char.isspace()) for char in value):
             return ""
         value = " ".join(value.replace("\x00", " ").split())
-        if len(value) < 3:
+        if len(value) < minimum_length:
             return ""
         ascii_count = sum(1 for char in value if char.isascii() and (char.isalnum() or char in " _-.?!'#/&()+,:"))
-        if ascii_count < 3:
+        if ascii_count < max(1, min(3, minimum_length)):
             return ""
         if ascii_count / max(len(value), 1) < 0.65:
             return ""

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.54
+- Restored FM8 as a save-library target now that offline imports use the separate FM8 local-save writer.
+- Fixed FM8 offline save-library decoding for grouped vinyls so group transforms keep their intended positions.
+- FM8 save-library rows now use local header names and show shape counts.
+
 ## 3.0.53
 - Added a live scrolling status banner backed by a remote announcement feed.
 - The banner can be clicked to pause or resume scrolling.

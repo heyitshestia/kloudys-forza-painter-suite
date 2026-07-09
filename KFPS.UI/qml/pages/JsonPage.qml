@@ -97,7 +97,7 @@ Item {
                             id: game
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            model: ["FH6", "FH5"]
+                            model: ["FH6", "FH5", "FM8"]
                         }
                     }
 
@@ -146,7 +146,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "FH6/FH5 save library"
+                                text: "FH6/FH5/FM8 save library"
                                 color: Theme.primaryBright
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(12.4)
@@ -206,11 +206,13 @@ Item {
                                   ? "Installing / scanning..."
                                   : (game.currentText === "FH6"
                                      ? "FH6 Offline Import Selected JSON"
-                                     : "Offline Import FH5 Disabled")
+                                     : (game.currentText === "FM8"
+                                        ? "FM8 Offline Import Selected JSON"
+                                        : "Offline Import FH5 Disabled"))
                             iconName: "transfer"
                             dense: root.compactHeight
                             enabled: !cgroupLibraryService.running
-                                     && game.currentText === "FH6"
+                                     && (game.currentText === "FH6" || game.currentText === "FM8")
                                      && jsonService.selectedPath.length > 0
                             onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
                         }
@@ -287,7 +289,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Online import writes into the open in-game template. FH6 offline import can also create a new save-folder vinyl with a transparent thumbnail. FH5 currently supports offline save-library scanning."
+                    text: "Online import writes into the open in-game template. FH6 and FM8 offline import can also create new save-folder vinyls with transparent thumbnails. FH5 currently supports offline save-library scanning."
                     color: Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)

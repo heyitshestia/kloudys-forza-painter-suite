@@ -111,11 +111,11 @@ class JsonService(QObject):
         if files:
             meta = self._metadata_for_json(files[0])
             title = meta.get("display_name") or meta.get("title")
-            layers = meta.get("layers")
+            layers = self._metadata_count(meta, files[0])
             if title:
                 display_name = str(title)
             if isinstance(layers, int):
-                detail_text = f"{layers} layers"
+                detail_text = self._count_detail_text(layers, meta)
         return {"name":name,"displayName":display_name,"detailText":detail_text,"path":str(folder),"files":sorted(files,key=lambda p:p.stat().st_mtime,reverse=True),"count":len(files),"modified":modified,"modifiedLabel":self._age(modified)}
 
     def _sorted_visible_files(self, groups):
@@ -139,14 +139,16 @@ class JsonService(QObject):
     def _row_for_json(self, path):
         layers = self._count(path)
         modified_label = self._age(path.stat().st_mtime)
+        meta = self._metadata_for_json(path)
+        detail = self._count_detail_text(layers, meta)
         return {
             "name": path.name,
-            "displayName": self._display_name_for_json(path),
+            "displayName": self._display_name_for_json(path, meta),
             "path": str(path),
             "layers": layers,
             "modifiedLabel": modified_label,
             "previewUrl": self.preview.preview_for_json(path, self._source_names()[self._source]),
-            "detailText": f"{layers} layers  •  {modified_label}",
+            "detailText": f"{detail}  •  {modified_label}",
             "folder": str(path.parent),
         }
 
@@ -191,7 +193,11 @@ class JsonService(QObject):
             if manifest.is_file():
                 data = json.loads(manifest.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    return data
+                    result = dict(data)
+                    result.setdefault("layers", cls._count(path))
+                    result.setdefault("layer_count", result.get("layers"))
+                    result.setdefault("shape_count", result.get("layers"))
+                    return result
         except Exception:
             pass
         try:
@@ -199,14 +205,36 @@ class JsonService(QObject):
             if isinstance(data, dict) and isinstance(data.get("metadata"), dict):
                 result = dict(data["metadata"])
                 result.setdefault("layers", cls._count(path))
+                result.setdefault("layer_count", result.get("layers"))
+                result.setdefault("shape_count", result.get("layers"))
                 return result
         except Exception:
             pass
         return {}
 
     @classmethod
-    def _display_name_for_json(cls, path):
-        meta = cls._metadata_for_json(path)
+    def _metadata_count(cls, meta, path):
+        for key in ("shape_count", "layer_count", "layers"):
+            value = meta.get(key)
+            if isinstance(value, int):
+                return value
+            try:
+                if value is not None and str(value).strip():
+                    return int(value)
+            except (TypeError, ValueError):
+                pass
+        return cls._count(path)
+
+    @staticmethod
+    def _count_detail_text(layers, meta):
+        game = str(meta.get("target_game") or meta.get("game") or "").strip().lower()
+        if game in {"fm", "fm8"}:
+            return f"FM8  •  {int(layers)} shapes"
+        return f"{int(layers)} layers"
+
+    @classmethod
+    def _display_name_for_json(cls, path, meta=None):
+        meta = meta or cls._metadata_for_json(path)
         name = meta.get("display_name") or meta.get("title")
         return str(name) if name else path.name
 
