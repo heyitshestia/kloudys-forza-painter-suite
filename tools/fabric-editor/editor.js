@@ -187,7 +187,8 @@ const ALPHA_MESH_RASTER_SCALE = 8;
 const ALPHA_MESH_RASTER_MIN_SIZE = 512;
 const ALPHA_MESH_RASTER_MAX_SIZE = 2048;
 const SELECTION_OUTLINE_SCREEN_WIDTH = 1.65;
-const HYBRID_RENDER_MIN_LAYERS = 700;
+const HYBRID_RENDER_MIN_LAYERS = 300;
+const HYBRID_RENDER_PREWARM_CHUNK = 64;
 const HYBRID_RENDER_SETTLE_MS = 260;
 const resourceCache = new Map();
 const resourceOutlineCache = new Map();
@@ -822,6 +823,9 @@ function applyObjectColor(object, color) {
       alpha: 1,
     })];
     object.applyFilters();
+  }
+  if (hybridRenderActive && canvas) {
+    requestHybridRender();
   }
 }
 
@@ -2277,7 +2281,6 @@ function hybridLayerEligible(object) {
     && meta.resource_family
     && objectEditorVisible(object)
     && (object.opacity ?? 1) > 0
-    && !hybridFabricVisibleObjects.has(object)
   );
 }
 
@@ -2293,10 +2296,30 @@ function hybridShouldUse(objects = vinylObjects()) {
   return Boolean(initHybridRenderer());
 }
 
+async function prewarmHybridMeshesForObjects(objects = vinylObjects()) {
+  if (!hybridShouldUse(objects)) return;
+  const targets = [];
+  const seen = new Set();
+  for (const object of objects) {
+    if (!hybridLayerEligible(object)) continue;
+    const key = hybridResourceKeyFromObject(object);
+    if (!key || seen.has(key) || hybridMeshCache.has(key)) continue;
+    seen.add(key);
+    targets.push(object);
+  }
+  for (let index = 0; index < targets.length; index += 1) {
+    hybridMeshForObject(targets[index]);
+    if ((index + 1) % HYBRID_RENDER_PREWARM_CHUNK === 0) {
+      await nextFrame();
+    }
+  }
+}
+
 function hybridSetFabricLowerVisible(visible) {
   if (!canvas?.lowerCanvasEl) return;
   if (visible) {
     canvas.lowerCanvasEl.style.visibility = hybridLowerVisibility;
+    hybridLowerVisibility = "";
     return;
   }
   if (!hybridRenderActive) hybridLowerVisibility = canvas.lowerCanvasEl.style.visibility || "";
@@ -2304,25 +2327,13 @@ function hybridSetFabricLowerVisible(visible) {
 }
 
 function hideHybridFabricBulkObjects(objects = vinylObjects()) {
-  if (hybridHiddenObjects.length) return;
-  const keepVisible = new Set(selectedVinylObjects());
-  hybridFabricVisibleObjects = keepVisible;
-  objects.forEach((object) => {
-    if (!hybridLayerEligible(object)) return;
-    if (keepVisible.has(object)) return;
-    object.__kloudyHybridHidden = true;
-    object.__kloudyHybridOriginalVisible = object.visible;
-    object.visible = false;
-    hybridHiddenObjects.push(object);
-  });
+  hybridHiddenObjects = [];
+  hybridFabricVisibleObjects = new Set();
+  // Fabric's lower canvas is hidden during hybrid mode, so object visibility stays intact.
+  // That preserves target finding, active selections, and layer visibility while WebGL handles fills.
 }
 
 function restoreHybridFabricBulkObjects() {
-  hybridHiddenObjects.forEach((object) => {
-    object.visible = object.__kloudyHybridOriginalVisible !== false;
-    delete object.__kloudyHybridHidden;
-    delete object.__kloudyHybridOriginalVisible;
-  });
   hybridHiddenObjects = [];
   hybridFabricVisibleObjects = new Set();
 }
@@ -2369,6 +2380,7 @@ function beginHybridRender(reason = "interaction") {
   if (!hybridShouldUse(objects)) return false;
   clearTimeout(hybridRenderSettleTimer);
   hybridRenderSettleTimer = null;
+  hybridSetFabricLowerVisible(false);
   hybridRenderActive = true;
   hybridRenderer.element.hidden = false;
   hideHybridFabricBulkObjects(objects);
@@ -3184,6 +3196,7 @@ async function restoreShapes(shapes, options = {}) {
   historyLocked = false;
   refreshLayers();
   syncCanvasObjectCoords();
+  await prewarmHybridMeshesForObjects(vinylObjects());
   canvas.requestRenderAll();
 }
 
@@ -5759,6 +5772,10 @@ async function loadPayload(payload) {
   syncCanvasObjectCoords();
   refreshLayers();
   fitDesignView();
+  if (hybridShouldUse(builtObjects)) {
+    setBusy(`Preparing GPU preview: ${builtObjects.length} layer(s)...`);
+    await prewarmHybridMeshesForObjects(builtObjects);
+  }
   pushHistory("import");
   protectedHistoryIndex = historyIndex;
   clearBusy(`Loaded ${builtObjects.length}/${normalized.length} editable FH6 layer(s).${failed ? ` Failed: ${failed}.` : ""}`);

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.57
+- Improved Fabric editor responsiveness for large vinyl projects by moving pan, zoom, and transform previews onto the GPU hybrid path sooner.
+- Kept layer visibility and selection state intact during GPU preview, then restored the normal Fabric render after interaction settles.
+- Prewarmed large-project GPU preview meshes after import/restore to reduce first-interaction stalls.
+
 ## 3.0.56
 - Centered the supporter badge, version pill, and live status banner over the main Create/Generate panels.
 - Made the live status banner scroll continuously with a tighter repeat gap.
