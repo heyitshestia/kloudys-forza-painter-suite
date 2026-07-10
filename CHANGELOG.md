@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.55
+- Improved Fabric editor rendering for transparent Community Vinyls 1, 2, and 3.
+- Made selected-shape outlines thinner and steadier across zoom levels.
+- Added an experimental GPU preview path for large editor projects to make pan, zoom, and selected-layer movement smoother.
+
 ## 3.0.54
 - Restored FM8 as a save-library target now that offline imports use the separate FM8 local-save writer.
 - Fixed FM8 offline save-library decoding for grouped vinyls so group transforms keep their intended positions.

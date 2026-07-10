@@ -168,10 +168,9 @@ const VINYL_TYPE_BASES = {
   Upper_Letters_11: 1052277,
   Lower_Letters_11: 1052377,
 };
+const FULL_RESOURCE_SLOTS = Array.from({ length: 40 }, (_value, index) => index + 1);
 const GRADIENT_RESOURCE_SLOTS = {
-  Gradient_Shapes: Array.from({ length: 40 }, (_value, index) => index + 1),
-  Community_Vinyls_1: [8, 20, 40],
-  Community_Vinyls_2: [1, 2, 3, 4, 9, 11, 12, 13, 14, 19, 21, 22, 23, 24, 31, 32, 33, 34, 40],
+  Gradient_Shapes: FULL_RESOURCE_SLOTS,
   Community_Vinyls_4: [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 25, 26, 27, 31, 32, 33, 34, 35, 36, 37, 40],
   Stripes: [23],
 };
@@ -183,10 +182,30 @@ const GRADIENT_SHAPE_WORDS = new Set(
 
 const FAMILY_ORDER = Object.keys(VINYL_TYPE_BASES);
 const FAVORITE_COLOR_SLOTS = 16;
+const ALPHA_MESH_IMAGE_FAMILIES = new Set(["Community_Vinyls_1", "Community_Vinyls_2", "Community_Vinyls_3"]);
+const ALPHA_MESH_RASTER_SCALE = 8;
+const ALPHA_MESH_RASTER_MIN_SIZE = 512;
+const ALPHA_MESH_RASTER_MAX_SIZE = 2048;
+const SELECTION_OUTLINE_SCREEN_WIDTH = 1.65;
+const HYBRID_RENDER_MIN_LAYERS = 700;
+const HYBRID_RENDER_SETTLE_MS = 260;
 const resourceCache = new Map();
 const resourceOutlineCache = new Map();
+const resourcePayloadCache = new Map();
+const alphaMeshImageCache = new Map();
+const fabricPathDataCache = new Map();
+const selectionOutlinePathPromises = new Map();
+const hybridMeshCache = new Map();
 const textVinylMeshCache = new Map();
 let canvas;
+let hybridRenderer = null;
+let hybridRenderActive = false;
+let hybridRenderFrame = null;
+let hybridRenderSettleTimer = null;
+let hybridLowerVisibility = "";
+let hybridDisabledReason = "";
+let hybridHiddenObjects = [];
+let hybridFabricVisibleObjects = new Set();
 let isPanning = false;
 let lastPan = null;
 let loadedName = "untitled";
@@ -769,12 +788,14 @@ function isGradientResource(resource) {
     ? (explicitWord & 0xffff)
     : resourceToShapeWord(resource.family, resource.index);
   if (GRADIENT_SHAPE_WORDS.has(shapeWord)) return true;
+  if (ALPHA_MESH_IMAGE_FAMILIES.has(String(resource.family))) return false;
   const name = shapeNames?.families?.[resource.family]?.[String(resource.index)] || "";
   return /\b(gradient|shadow|faded)\b/i.test(String(name));
 }
 
 function isGradientObject(object) {
   const meta = object?.kloudy;
+  if (meta?.alpha_mesh_image) return true;
   if (!meta?.resource_family || !meta?.resource_index) return false;
   return isGradientResource({
     family: meta.resource_family,
@@ -802,6 +823,28 @@ function applyObjectColor(object, color) {
     })];
     object.applyFilters();
   }
+}
+
+function shouldUseObjectPixelTargetFind(object, enabled = $("boxVisibleOnly")?.checked ?? true) {
+  if (!enabled) return false;
+  const complexity = Number(object?.kloudy?.render_complexity);
+  return !(Number.isFinite(complexity) && complexity <= 8);
+}
+
+function applyObjectHitTestMode(object, enabled = $("boxVisibleOnly")?.checked ?? true) {
+  if (!object?.kloudy || object.kloudyGuide) return;
+  if (object.kloudy.mask) {
+    object.set({
+      perPixelTargetFind: false,
+      targetFindTolerance: 12,
+    });
+    return;
+  }
+  const perPixel = shouldUseObjectPixelTargetFind(object, enabled);
+  object.set({
+    perPixelTargetFind: perPixel,
+    targetFindTolerance: perPixel ? VINYL_HIT_TOLERANCE : 0,
+  });
 }
 
 function editorTransformColors() {
@@ -980,13 +1023,37 @@ function colorLuminance(rgb) {
 
 function selectedShapeHalo(object) {
   const rgb = rgbFromCssColor(object?.fill);
-  const luminance = colorLuminance(rgb);
-  const opacity = Number(object?.opacity ?? 1);
-  const darkShape = luminance < 0.36 || opacity < 0.35;
+  const shapeLuminance = colorLuminance(rgb);
+  const bgLuminance = colorLuminance(rgbFromCssColor(cssColorVar("--fabric-canvas-bg", "#fffefe")));
+  const opacity = Math.max(0, Math.min(1, Number(object?.opacity ?? 1)));
+  const useBrightOutline = opacity < 0.3 ? bgLuminance < 0.48 : shapeLuminance < 0.18;
   return {
-    color: darkShape ? "rgba(255, 255, 255, 0.98)" : "rgba(18, 12, 18, 0.92)",
-    blur: darkShape ? 13 : 10,
+    color: useBrightOutline ? "rgba(255, 255, 255, 0.98)" : "rgba(18, 12, 18, 0.92)",
+    blur: useBrightOutline ? 13 : 10,
   };
+}
+
+function cloneFabricPathData(pathData) {
+  return Array.isArray(pathData)
+    ? pathData.map((segment) => (Array.isArray(segment) ? segment.slice() : segment))
+    : pathData;
+}
+
+function makeCachedFabricPath(pathText, options = {}, cacheKey = null) {
+  if (cacheKey && typeof pathText === "string" && fabric?.util?.parsePath) {
+    let pathData = fabricPathDataCache.get(cacheKey);
+    if (!pathData) {
+      pathData = fabric.util.parsePath(pathText);
+      fabricPathDataCache.set(cacheKey, pathData);
+    }
+    return new fabric.Path(cloneFabricPathData(pathData), options);
+  }
+  return new fabric.Path(pathText, options);
+}
+
+function objectPathCacheKey(object, kind) {
+  const meta = object?.kloudy || {};
+  return `${kind}:${meta.resource_family || ""}:${meta.resource_index || ""}:${meta.type || ""}`;
 }
 
 function restoreSelectionOutline(object) {
@@ -1006,36 +1073,94 @@ function storeSelectionOutlineOriginal(object) {
   };
 }
 
+function selectionOutlineResourceForObject(object) {
+  const meta = object?.kloudy;
+  if (!meta?.resource_family || !meta?.resource_index) return null;
+  return {
+    family: String(meta.resource_family),
+    index: Number(meta.resource_index),
+    typeCode: Number(meta.type),
+    shapeWord: Number(meta.type_word ?? (Number(meta.type) & 0xffff)),
+  };
+}
+
+function needsLazySelectionOutline(object) {
+  const meta = object?.kloudy;
+  return Boolean(meta?.mesh_path && !meta.outline_path && !meta.outline_path_failed && selectionOutlineResourceForObject(object));
+}
+
+function refreshSelectionOutlineHelperForObject(object) {
+  if (!canvas || !object) return;
+  const helper = selectedShapeOutlineHelpers.get(object);
+  if (helper) {
+    canvas.remove(helper);
+    selectedShapeOutlineHelpers.delete(object);
+  }
+  const selected = selectedVinylObjects();
+  if (selected.length === 1 && selected[0] === object) {
+    syncSelectionOutlineHelpers(new Set([object]));
+    requestCanvasRender();
+  }
+}
+
+function ensureSelectionOutlinePath(object) {
+  if (!needsLazySelectionOutline(object)) return;
+  const resolved = selectionOutlineResourceForObject(object);
+  const cacheKey = resourceCacheKey(resolved);
+  if (selectionOutlinePathPromises.has(cacheKey)) return;
+  const promise = loadResourceOutlinePathForResolved(resolved)
+    .then((outlinePath) => {
+      vinylObjects().forEach((candidate) => {
+        const meta = candidate?.kloudy;
+        if (
+          meta?.resource_family === resolved.family
+          && Number(meta.resource_index) === Number(resolved.index)
+          && Number(meta.type) === Number(resolved.typeCode)
+        ) {
+          meta.outline_path = outlinePath || "";
+          meta.outline_path_failed = !outlinePath;
+        }
+      });
+      const selected = selectedVinylObjects();
+      refreshSelectionOutlineHelperForObject(selected.length === 1 ? selected[0] : object);
+    })
+    .catch((err) => {
+      console.warn("Selection outline load failed.", err);
+      object.kloudy.outline_path_failed = true;
+      refreshSelectionOutlineHelperForObject(object);
+    })
+    .finally(() => selectionOutlinePathPromises.delete(cacheKey));
+  selectionOutlinePathPromises.set(cacheKey, promise);
+}
+
 function makeSelectionOutlineHelper(object) {
-  const helper = object?.kloudy?.outline_path
-    ? new fabric.Path(object.kloudy.outline_path, { originX: "center", originY: "center" })
+  const usesResourcePath = Boolean(object?.kloudy?.outline_path);
+  const helper = usesResourcePath
+    ? makeCachedFabricPath(object.kloudy.outline_path, { originX: "center", originY: "center" }, objectPathCacheKey(object, "selection-outline"))
     : new fabric.Rect({
       originX: "center",
       originY: "center",
       width: Math.max(1, Number(object?.width) || 1),
       height: Math.max(1, Number(object?.height) || 1),
     });
-  const clipPath = object?.kloudy?.mesh_path
-    ? new fabric.Path(object.kloudy.mesh_path, { originX: "center", originY: "center" })
-    : new fabric.Rect({
-      originX: "center",
-      originY: "center",
-      width: Math.max(1, Number(object?.width) || 1),
-      height: Math.max(1, Number(object?.height) || 1),
+  const clipPath = usesResourcePath && object?.kloudy?.mesh_path
+    ? makeCachedFabricPath(object.kloudy.mesh_path, { originX: "center", originY: "center" }, objectPathCacheKey(object, "selection-clip"))
+    : null;
+  if (clipPath) {
+    clipPath.set({
+      fill: "#000",
+      stroke: null,
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+      objectCaching: false,
     });
-  clipPath.set({
-    fill: "#000",
-    stroke: null,
-    strokeWidth: 0,
-    selectable: false,
-    evented: false,
-    objectCaching: false,
-  });
+  }
   helper.set({
     fill: "rgba(0,0,0,0)",
     opacity: 1,
     stroke: selectedShapeHalo(object).color,
-    strokeWidth: 3,
+    strokeWidth: 1,
     strokeLineJoin: "round",
     strokeLineCap: "round",
     strokeUniform: true,
@@ -1048,26 +1173,35 @@ function makeSelectionOutlineHelper(object) {
   });
   helper.kloudySelectionOutlineHelper = true;
   helper.kloudySelectionOutlineOwner = object;
+  helper.kloudySelectionOutlineUsesResourcePath = usesResourcePath;
   return helper;
 }
 
-function selectionOutlineScaledValue(objectScale) {
+function selectionOutlineScaledValue(objectScale, scaleBasis = 1) {
   const scale = Number(objectScale) || 1;
   const sign = scale < 0 ? -1 : 1;
-  const absoluteScale = Math.max(0.000001, Math.abs(scale));
+  const basis = Math.max(0.000001, Math.abs(Number(scaleBasis) || 1));
+  const absoluteScale = Math.max(0.000001, Math.abs(scale) / basis);
   // The selected rim is clipped by the shape itself, so it must not be expanded.
   return sign * absoluteScale;
+}
+
+function selectionOutlineStrokeWidthForZoom(zoom = canvas?.getZoom?.() || 1) {
+  return SELECTION_OUTLINE_SCREEN_WIDTH / Math.max(0.001, Number(zoom) || 1);
 }
 
 function syncSelectionOutlineHelper(object, helper) {
   if (!object || !helper) return;
   const zoom = Math.max(0.001, canvas?.getZoom?.() || 1);
-  const strokeWidth = Math.max(1.25, 1.25 + 1.25 * editorVisualScaleForZoom(zoom));
+  const strokeWidth = selectionOutlineStrokeWidthForZoom(zoom);
+  const scaleBasis = helper.kloudySelectionOutlineUsesResourcePath
+    ? Math.max(0.000001, Number(object?.kloudy?.render_scale) || 1)
+    : 1;
   helper.set({
     left: object.left,
     top: object.top,
-    scaleX: selectionOutlineScaledValue(object.scaleX),
-    scaleY: selectionOutlineScaledValue(object.scaleY),
+    scaleX: selectionOutlineScaledValue(object.scaleX, scaleBasis),
+    scaleY: selectionOutlineScaledValue(object.scaleY, scaleBasis),
     angle: object.angle,
     skewX: object.skewX,
     skewY: object.skewY,
@@ -1089,6 +1223,10 @@ function syncSelectionOutlineHelpers(selectedSet) {
     }
   });
   selectedSet.forEach((object) => {
+    if (needsLazySelectionOutline(object)) {
+      ensureSelectionOutlinePath(object);
+      return;
+    }
     let helper = selectedShapeOutlineHelpers.get(object);
     if (!helper) {
       helper = makeSelectionOutlineHelper(object);
@@ -1342,10 +1480,16 @@ function invalidateLayerStats() {
   layerStatsCache = null;
 }
 
+function objectEditorVisible(object) {
+  return object?.__kloudyHybridHidden
+    ? object.__kloudyHybridOriginalVisible !== false
+    : object?.visible !== false;
+}
+
 function getLayerStats(force = false) {
   if (!force && layerStatsCache) return layerStatsCache;
   const objects = vinylObjects();
-  const visible = objects.filter((obj) => obj.visible !== false && (obj.opacity ?? 1) > 0).length;
+  const visible = objects.filter((obj) => objectEditorVisible(obj) && (obj.opacity ?? 1) > 0).length;
   layerStatsCache = { objects, count: objects.length, visible };
   return layerStatsCache;
 }
@@ -1657,12 +1801,9 @@ async function loadResourcePath(typeCode) {
 }
 
 async function loadResourcePathForResolved(resolved) {
-  const cacheKey = `${resolved.family}:${resolved.index}:${resolved.typeCode || ""}`;
+  const cacheKey = resourceCacheKey(resolved);
   if (resourceCache.has(cacheKey)) return resourceCache.get(cacheKey);
-  const url = await resolveVinylResourceUrl(resolved.family, resolved.index, "");
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Missing shape resource: ${url}`);
-  const payload = await response.json();
+  const payload = await loadResourcePayloadForResolved(resolved);
   const vertices = payload.Vertices || [];
   const indices = payload.Indices || [];
   const chunks = [];
@@ -1678,17 +1819,29 @@ async function loadResourcePathForResolved(resolved) {
   return d;
 }
 
+function resourceCacheKey(resolved) {
+  return `${resolved.family}:${resolved.index}:${resolved.typeCode || ""}`;
+}
+
+async function loadResourcePayloadForResolved(resolved) {
+  const cacheKey = resourceCacheKey(resolved);
+  if (resourcePayloadCache.has(cacheKey)) return resourcePayloadCache.get(cacheKey);
+  const url = await resolveVinylResourceUrl(resolved.family, resolved.index, "");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Missing shape resource: ${url}`);
+  const payload = await response.json();
+  resourcePayloadCache.set(cacheKey, payload);
+  return payload;
+}
+
 function edgeKey(a, b) {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
 async function loadResourceOutlinePathForResolved(resolved) {
-  const cacheKey = `${resolved.family}:${resolved.index}:${resolved.typeCode || ""}`;
+  const cacheKey = resourceCacheKey(resolved);
   if (resourceOutlineCache.has(cacheKey)) return resourceOutlineCache.get(cacheKey);
-  const url = await resolveVinylResourceUrl(resolved.family, resolved.index, "");
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Missing shape resource: ${url}`);
-  const payload = await response.json();
+  const payload = await loadResourcePayloadForResolved(resolved);
   const vertices = payload.Vertices || [];
   const indices = payload.Indices || [];
   const edges = new Map();
@@ -1714,6 +1867,196 @@ async function loadResourceOutlinePathForResolved(resolved) {
   return d;
 }
 
+function decodeVertexAlphas(payload, count) {
+  const raw = payload?.VerticesAlpha;
+  const alphas = new Uint8Array(Math.max(0, Number(count) || 0));
+  alphas.fill(255);
+  if (typeof raw === "string" && raw.length) {
+    try {
+      const decoded = atob(raw);
+      const limit = Math.min(decoded.length, alphas.length);
+      for (let i = 0; i < limit; i += 1) alphas[i] = decoded.charCodeAt(i) & 0xff;
+    } catch (_err) {
+      // Treat malformed alpha payloads as fully opaque mesh data.
+    }
+    return alphas;
+  }
+  if (Array.isArray(raw)) {
+    const limit = Math.min(raw.length, alphas.length);
+    for (let i = 0; i < limit; i += 1) {
+      const value = raw[i];
+      const alpha = typeof value === "number"
+        ? value
+        : (Array.isArray(value) ? value[value.length - 1] : (value?.A ?? value?.Alpha ?? value?.alpha));
+      if (Number.isFinite(Number(alpha))) {
+        alphas[i] = Math.max(0, Math.min(255, Math.round(Number(alpha))));
+      }
+    }
+  }
+  return alphas;
+}
+
+function payloadHasPartialAlpha(payload) {
+  const vertices = payload?.Vertices || [];
+  const alphas = decodeVertexAlphas(payload, vertices.length);
+  return alphas.some((alpha) => alpha < 255);
+}
+
+function shouldUseAlphaMeshImage(resolved, payload) {
+  return Boolean(resolved?.family && ALPHA_MESH_IMAGE_FAMILIES.has(String(resolved.family)) && payloadHasPartialAlpha(payload));
+}
+
+function resourceRenderComplexity(payload) {
+  const vertices = Array.isArray(payload?.Vertices) ? payload.Vertices.length : 0;
+  const triangles = Array.isArray(payload?.Indices) ? Math.floor(payload.Indices.length / 3) : 0;
+  return Math.max(vertices, triangles);
+}
+
+function resourceVertexBounds(vertices) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const vertex of vertices || []) {
+    const x = Number(vertex?.X);
+    const y = Number(vertex?.Y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { minX: -0.5, minY: -0.5, width: 1, height: 1 };
+  }
+  return {
+    minX,
+    minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+function alphaMeshRasterMetrics(bounds) {
+  const maxDimension = Math.max(bounds.width, bounds.height, 1);
+  const targetMax = Math.min(
+    ALPHA_MESH_RASTER_MAX_SIZE,
+    Math.max(ALPHA_MESH_RASTER_MIN_SIZE, Math.ceil(maxDimension * ALPHA_MESH_RASTER_SCALE)),
+  );
+  const scale = targetMax / maxDimension;
+  return {
+    scale,
+    width: Math.max(1, Math.ceil(bounds.width * scale)),
+    height: Math.max(1, Math.ceil(bounds.height * scale)),
+  };
+}
+
+function trianglePixelPoints(vertices, indices, offset, bounds, scale) {
+  const points = [];
+  for (let i = 0; i < 3; i += 1) {
+    const vertex = vertices[indices[offset + i]];
+    if (!vertex) return null;
+    const x = Number(vertex.X);
+    const y = Number(vertex.Y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    points.push({
+      x: (x - bounds.minX) * scale,
+      y: (y - bounds.minY) * scale,
+    });
+  }
+  return points;
+}
+
+function addTrianglePath(ctx, points) {
+  ctx.moveTo(points[0].x, points[0].y);
+  ctx.lineTo(points[1].x, points[1].y);
+  ctx.lineTo(points[2].x, points[2].y);
+  ctx.closePath();
+}
+
+function rasterizeAlphaTriangle(imageData, width, height, points, alphas) {
+  const [p0, p1, p2] = points;
+  const minX = Math.max(0, Math.floor(Math.min(p0.x, p1.x, p2.x)));
+  const maxX = Math.min(width - 1, Math.ceil(Math.max(p0.x, p1.x, p2.x)));
+  const minY = Math.max(0, Math.floor(Math.min(p0.y, p1.y, p2.y)));
+  const maxY = Math.min(height - 1, Math.ceil(Math.max(p0.y, p1.y, p2.y)));
+  const denom = ((p1.y - p2.y) * (p0.x - p2.x)) + ((p2.x - p1.x) * (p0.y - p2.y));
+  if (!Number.isFinite(denom) || Math.abs(denom) < 0.00001) return;
+  const data = imageData.data;
+  for (let y = minY; y <= maxY; y += 1) {
+    const py = y + 0.5;
+    for (let x = minX; x <= maxX; x += 1) {
+      const px = x + 0.5;
+      const w0 = (((p1.y - p2.y) * (px - p2.x)) + ((p2.x - p1.x) * (py - p2.y))) / denom;
+      const w1 = (((p2.y - p0.y) * (px - p2.x)) + ((p0.x - p2.x) * (py - p2.y))) / denom;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -0.0001 || w1 < -0.0001 || w2 < -0.0001) continue;
+      const alpha = Math.max(0, Math.min(255, Math.round((w0 * alphas[0]) + (w1 * alphas[1]) + (w2 * alphas[2]))));
+      if (alpha <= 0) continue;
+      const idx = ((y * width) + x) * 4;
+      if (alpha <= data[idx + 3]) continue;
+      data[idx] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
+      data[idx + 3] = alpha;
+    }
+  }
+}
+
+function renderAlphaMeshImagePayload(payload) {
+  const vertices = payload?.Vertices || [];
+  const indices = payload?.Indices || [];
+  const alphas = decodeVertexAlphas(payload, vertices.length);
+  const bounds = resourceVertexBounds(vertices);
+  const metrics = alphaMeshRasterMetrics(bounds);
+  const element = document.createElement("canvas");
+  element.width = metrics.width;
+  element.height = metrics.height;
+  const ctx = element.getContext("2d", { willReadFrequently: true });
+  const partial = [];
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  for (let i = 0; i + 2 < indices.length; i += 3) {
+    const points = trianglePixelPoints(vertices, indices, i, bounds, metrics.scale);
+    if (!points) continue;
+    const triAlphas = [
+      alphas[indices[i]] ?? 255,
+      alphas[indices[i + 1]] ?? 255,
+      alphas[indices[i + 2]] ?? 255,
+    ];
+    const minAlpha = Math.min(...triAlphas);
+    const maxAlpha = Math.max(...triAlphas);
+    if (maxAlpha <= 0) continue;
+    if (minAlpha >= 255) {
+      addTrianglePath(ctx, points);
+    } else {
+      partial.push({ points, alphas: triAlphas });
+    }
+  }
+  ctx.fill();
+  if (partial.length) {
+    const imageData = ctx.getImageData(0, 0, metrics.width, metrics.height);
+    partial.forEach((triangle) => rasterizeAlphaTriangle(imageData, metrics.width, metrics.height, triangle.points, triangle.alphas));
+    ctx.putImageData(imageData, 0, 0);
+  }
+  return {
+    element,
+    renderScale: 1 / metrics.scale,
+  };
+}
+
+async function loadAlphaMeshFabricImageForResolved(resolved, payload) {
+  const cacheKey = resourceCacheKey(resolved);
+  let rendered = alphaMeshImageCache.get(cacheKey);
+  if (!rendered) {
+    rendered = renderAlphaMeshImagePayload(payload);
+    alphaMeshImageCache.set(cacheKey, rendered);
+  }
+  const image = new fabric.Image(rendered.element);
+  image.kloudyRenderScale = rendered.renderScale;
+  return image;
+}
+
 function loadFabricImage(url) {
   return new Promise((resolve, reject) => {
     fabric.Image.fromURL(url, (image) => {
@@ -1721,6 +2064,335 @@ function loadFabricImage(url) {
       else resolve(image);
     }, { crossOrigin: "anonymous" });
   });
+}
+
+function compileHybridShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const message = gl.getShaderInfoLog(shader) || "unknown shader error";
+    gl.deleteShader(shader);
+    throw new Error(message);
+  }
+  return shader;
+}
+
+function createHybridProgram(gl) {
+  const vertex = compileHybridShader(gl, gl.VERTEX_SHADER, `
+    attribute vec2 a_position;
+    attribute float a_alpha;
+    uniform mat3 u_world;
+    uniform mat3 u_view;
+    uniform vec2 u_resolution;
+    varying float v_alpha;
+    void main() {
+      vec3 world = u_world * vec3(a_position, 1.0);
+      vec3 screen = u_view * world;
+      vec2 clip = vec2((screen.x / u_resolution.x) * 2.0 - 1.0, 1.0 - (screen.y / u_resolution.y) * 2.0);
+      gl_Position = vec4(clip, 0.0, 1.0);
+      v_alpha = a_alpha;
+    }
+  `);
+  const fragment = compileHybridShader(gl, gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    uniform vec4 u_color;
+    varying float v_alpha;
+    void main() {
+      gl_FragColor = vec4(u_color.rgb, u_color.a * v_alpha);
+    }
+  `);
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  gl.deleteShader(vertex);
+  gl.deleteShader(fragment);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const message = gl.getProgramInfoLog(program) || "unknown program error";
+    gl.deleteProgram(program);
+    throw new Error(message);
+  }
+  return {
+    program,
+    attributes: {
+      position: gl.getAttribLocation(program, "a_position"),
+      alpha: gl.getAttribLocation(program, "a_alpha"),
+    },
+    uniforms: {
+      world: gl.getUniformLocation(program, "u_world"),
+      view: gl.getUniformLocation(program, "u_view"),
+      resolution: gl.getUniformLocation(program, "u_resolution"),
+      color: gl.getUniformLocation(program, "u_color"),
+    },
+  };
+}
+
+function initHybridRenderer() {
+  if (hybridRenderer || hybridDisabledReason) return hybridRenderer;
+  const element = $("hybridRenderCanvas");
+  if (!element) {
+    hybridDisabledReason = "missing canvas";
+    return null;
+  }
+  const gl = element.getContext("webgl", {
+    alpha: true,
+    antialias: true,
+    depth: false,
+    stencil: false,
+    preserveDrawingBuffer: true,
+  });
+  if (!gl) {
+    hybridDisabledReason = "WebGL unavailable";
+    return null;
+  }
+  try {
+    const program = createHybridProgram(gl);
+    gl.useProgram(program.program);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    hybridRenderer = { element, gl, ...program };
+  } catch (err) {
+    hybridDisabledReason = err?.message || String(err);
+    console.warn("Hybrid renderer disabled.", err);
+    hybridRenderer = null;
+  }
+  return hybridRenderer;
+}
+
+function resizeHybridRenderer() {
+  const renderer = initHybridRenderer();
+  if (!renderer || !canvas) return false;
+  const width = Math.max(1, Number(canvas.width) || 1);
+  const height = Math.max(1, Number(canvas.height) || 1);
+  if (renderer.element.width !== width || renderer.element.height !== height) {
+    renderer.element.width = width;
+    renderer.element.height = height;
+  }
+  renderer.gl.viewport(0, 0, width, height);
+  return true;
+}
+
+function pointFromPayloadVertex(vertex) {
+  if (Array.isArray(vertex)) {
+    return {
+      x: Number(vertex[0]),
+      y: Number(vertex[1]),
+      alpha: Number.isFinite(Number(vertex[2])) ? Math.max(0, Math.min(1, Number(vertex[2]))) : 1,
+    };
+  }
+  return {
+    x: Number(vertex?.X ?? vertex?.x),
+    y: Number(vertex?.Y ?? vertex?.y),
+    alpha: Number.isFinite(Number(vertex?.A ?? vertex?.Alpha ?? vertex?.alpha))
+      ? Math.max(0, Math.min(1, Number(vertex?.A ?? vertex?.Alpha ?? vertex?.alpha) / 255))
+      : 1,
+  };
+}
+
+function payloadTriangleIndices(indices) {
+  if (!Array.isArray(indices)) return [];
+  if (indices.length && Array.isArray(indices[0])) return indices.flat();
+  return indices;
+}
+
+function hybridResourceKeyFromObject(object) {
+  const meta = object?.kloudy;
+  if (!meta?.resource_family || !meta?.resource_index) return null;
+  return `${meta.resource_family}:${Number(meta.resource_index)}:${Number(meta.type) || ""}`;
+}
+
+function hybridResolvedFromObject(object) {
+  const meta = object?.kloudy;
+  if (!meta?.resource_family || !meta?.resource_index) return null;
+  return {
+    family: String(meta.resource_family),
+    index: Number(meta.resource_index),
+    typeCode: Number(meta.type),
+    shapeWord: Number(meta.type_word ?? (Number(meta.type) & 0xffff)),
+  };
+}
+
+function hybridMeshForObject(object) {
+  const renderer = initHybridRenderer();
+  const key = hybridResourceKeyFromObject(object);
+  if (!renderer || !key) return null;
+  if (hybridMeshCache.has(key)) return hybridMeshCache.get(key);
+  const resolved = hybridResolvedFromObject(object);
+  const payload = resolved ? resourcePayloadCache.get(resourceCacheKey(resolved)) : null;
+  const vertices = payload?.Vertices || payload?.vertices || [];
+  const rawIndices = payload?.Indices || payload?.indices || payload?.triangles || [];
+  if (!vertices.length || !rawIndices.length) return null;
+  const decodedAlphas = decodeVertexAlphas(payload, vertices.length);
+  const indices = payloadTriangleIndices(rawIndices);
+  const packed = [];
+  for (const rawIndex of indices) {
+    const index = Number(rawIndex);
+    const point = pointFromPayloadVertex(vertices[index]);
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    const decoded = decodedAlphas[index];
+    const alpha = decoded === undefined ? point.alpha : Math.max(0, Math.min(1, decoded / 255));
+    packed.push(point.x, point.y, alpha);
+  }
+  if (packed.length < 9) return null;
+  const gl = renderer.gl;
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(packed), gl.STATIC_DRAW);
+  const mesh = { buffer, count: packed.length / 3 };
+  hybridMeshCache.set(key, mesh);
+  return mesh;
+}
+
+function hybridMat3FromFabric(matrix) {
+  const m = Array.isArray(matrix) ? matrix : [1, 0, 0, 1, 0, 0];
+  return new Float32Array([
+    Number(m[0]) || 0, Number(m[1]) || 0, 0,
+    Number(m[2]) || 0, Number(m[3]) || 0, 0,
+    Number(m[4]) || 0, Number(m[5]) || 0, 1,
+  ]);
+}
+
+function hybridObjectColor(object) {
+  const color = hexToRgb(object.fill || "#ffffff", (object.opacity ?? 1) * 255);
+  return [
+    Math.max(0, Math.min(1, color[0] / 255)),
+    Math.max(0, Math.min(1, color[1] / 255)),
+    Math.max(0, Math.min(1, color[2] / 255)),
+    Math.max(0, Math.min(1, color[3] / 255)),
+  ];
+}
+
+function hybridLayerEligible(object) {
+  const meta = object?.kloudy;
+  return Boolean(
+    object
+    && meta
+    && !object.kloudyGuide
+    && !object.kloudyMaskOutline
+    && !object.kloudyMaskCutout
+    && !meta.mask
+    && meta.resource_family
+    && objectEditorVisible(object)
+    && (object.opacity ?? 1) > 0
+    && !hybridFabricVisibleObjects.has(object)
+  );
+}
+
+function hybridHasUnsupportedLayers(objects = vinylObjects()) {
+  if (overlayImage && overlayImage.visible !== false) return true;
+  return objects.some((object) => object?.kloudy?.mask);
+}
+
+function hybridShouldUse(objects = vinylObjects()) {
+  if (hybridDisabledReason) return false;
+  if (!objects || objects.length < HYBRID_RENDER_MIN_LAYERS) return false;
+  if (hybridHasUnsupportedLayers(objects)) return false;
+  return Boolean(initHybridRenderer());
+}
+
+function hybridSetFabricLowerVisible(visible) {
+  if (!canvas?.lowerCanvasEl) return;
+  if (visible) {
+    canvas.lowerCanvasEl.style.visibility = hybridLowerVisibility;
+    return;
+  }
+  if (!hybridRenderActive) hybridLowerVisibility = canvas.lowerCanvasEl.style.visibility || "";
+  canvas.lowerCanvasEl.style.visibility = "hidden";
+}
+
+function hideHybridFabricBulkObjects(objects = vinylObjects()) {
+  if (hybridHiddenObjects.length) return;
+  const keepVisible = new Set(selectedVinylObjects());
+  hybridFabricVisibleObjects = keepVisible;
+  objects.forEach((object) => {
+    if (!hybridLayerEligible(object)) return;
+    if (keepVisible.has(object)) return;
+    object.__kloudyHybridHidden = true;
+    object.__kloudyHybridOriginalVisible = object.visible;
+    object.visible = false;
+    hybridHiddenObjects.push(object);
+  });
+}
+
+function restoreHybridFabricBulkObjects() {
+  hybridHiddenObjects.forEach((object) => {
+    object.visible = object.__kloudyHybridOriginalVisible !== false;
+    delete object.__kloudyHybridHidden;
+    delete object.__kloudyHybridOriginalVisible;
+  });
+  hybridHiddenObjects = [];
+  hybridFabricVisibleObjects = new Set();
+}
+
+function hybridRenderNow() {
+  if (!resizeHybridRenderer()) return false;
+  const objects = vinylObjects();
+  if (!hybridShouldUse(objects)) return false;
+  const renderer = hybridRenderer;
+  const gl = renderer.gl;
+  gl.viewport(0, 0, renderer.element.width, renderer.element.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(renderer.program);
+  gl.uniform2f(renderer.uniforms.resolution, renderer.element.width, renderer.element.height);
+  gl.uniformMatrix3fv(renderer.uniforms.view, false, hybridMat3FromFabric(canvas.viewportTransform));
+  gl.enableVertexAttribArray(renderer.attributes.position);
+  gl.enableVertexAttribArray(renderer.attributes.alpha);
+  for (const object of objects) {
+    if (!hybridLayerEligible(object)) continue;
+    const mesh = hybridMeshForObject(object);
+    if (!mesh) continue;
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
+    gl.vertexAttribPointer(renderer.attributes.position, 2, gl.FLOAT, false, 12, 0);
+    gl.vertexAttribPointer(renderer.attributes.alpha, 1, gl.FLOAT, false, 12, 8);
+    gl.uniformMatrix3fv(renderer.uniforms.world, false, hybridMat3FromFabric(object.calcTransformMatrix()));
+    gl.uniform4fv(renderer.uniforms.color, new Float32Array(hybridObjectColor(object)));
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+  }
+  return true;
+}
+
+function requestHybridRender() {
+  if (hybridRenderFrame) return;
+  hybridRenderFrame = requestAnimationFrame(() => {
+    hybridRenderFrame = null;
+    hybridRenderNow();
+    canvas?.renderTop?.();
+  });
+}
+
+function beginHybridRender(reason = "interaction") {
+  const objects = vinylObjects();
+  if (!hybridShouldUse(objects)) return false;
+  clearTimeout(hybridRenderSettleTimer);
+  hybridRenderSettleTimer = null;
+  hybridRenderActive = true;
+  hybridRenderer.element.hidden = false;
+  hideHybridFabricBulkObjects(objects);
+  requestHybridRender();
+  setText("hudMode", `${currentHudMode(selectedVinylObjects().length)} / GPU preview`);
+  return true;
+}
+
+function endHybridRenderNow() {
+  clearTimeout(hybridRenderSettleTimer);
+  hybridRenderSettleTimer = null;
+  if (!hybridRenderActive) return;
+  hybridRenderActive = false;
+  hybridSetFabricLowerVisible(true);
+  restoreHybridFabricBulkObjects();
+  if (hybridRenderer?.element) hybridRenderer.element.hidden = true;
+  canvas?.requestRenderAll?.();
+  updateHud();
+}
+
+function settleHybridRender(delay = HYBRID_RENDER_SETTLE_MS) {
+  if (!hybridRenderActive) return;
+  clearTimeout(hybridRenderSettleTimer);
+  hybridRenderSettleTimer = setTimeout(() => endHybridRenderNow(), delay);
 }
 
 async function resolveVinylResourceUrl(family, index, suffix = "") {
@@ -1852,32 +2524,43 @@ async function makeFabricObject(shape, name = null) {
     }
     : null;
   const resolved = typeResolved || explicitResource;
+  const payload = resolved ? await loadResourcePayloadForResolved(resolved) : null;
   const d = resolved ? await loadResourcePathForResolved(resolved) : await loadResourcePath(typeCode);
   const color = normalizeColor(shape.color);
   const data = shape.data || [0, 0, 1, 1, 0, 0, 0];
-  const outlinePath = resolved ? await loadResourceOutlinePathForResolved(resolved).catch(() => "") : "";
-  const gradientResource = isGradientResource(resolved);
-  const shapePathForBounds = gradientResource ? new fabric.Path(d, { originX: "center", originY: "center" }) : null;
-  const object = gradientResource
-    ? await loadFabricImage(await resolveVinylResourceUrl(resolved.family, resolved.index, ".png"))
-    : new fabric.Path(d);
-  const useBitmapCache = gradientResource;
+  const alphaMeshResource = shouldUseAlphaMeshImage(resolved, payload);
+  const imageTintResource = alphaMeshResource || isGradientResource(resolved);
+  const pathCacheKey = resolved ? `mesh:${resourceCacheKey(resolved)}` : `mesh:${typeCode}`;
+  const renderComplexity = resourceRenderComplexity(payload);
+  const shapePathForBounds = imageTintResource ? makeCachedFabricPath(d, { originX: "center", originY: "center" }, pathCacheKey) : null;
+  const object = alphaMeshResource
+    ? await loadAlphaMeshFabricImageForResolved(resolved, payload)
+    : imageTintResource
+      ? await loadFabricImage(await resolveVinylResourceUrl(resolved.family, resolved.index, ".png"))
+      : makeCachedFabricPath(d, {}, pathCacheKey);
   object.set({
     originX: "center",
     originY: "center",
     ...fabricPropsFromFh6Data(data),
     stroke: null,
     strokeWidth: 0,
-    objectCaching: useBitmapCache,
-    noScaleCache: useBitmapCache,
-    perPixelTargetFind: true,
-    targetFindTolerance: VINYL_HIT_TOLERANCE,
+    objectCaching: true,
+    noScaleCache: true,
+    perPixelTargetFind: false,
+    targetFindTolerance: 0,
     hoverCursor: "pointer",
     moveCursor: "move",
     lockScalingFlip: false,
     centeredScaling: false,
   });
-  if (shapePathForBounds) {
+  if (alphaMeshResource) {
+    const renderScale = Number(object.kloudyRenderScale) || 1;
+    object.set({
+      scaleX: object.scaleX * renderScale,
+      scaleY: object.scaleY * renderScale,
+    });
+  }
+  if (shapePathForBounds && !alphaMeshResource) {
     object.set({
       width: Math.max(1, Number(shapePathForBounds.width) || Number(object.width) || 1),
       height: Math.max(1, Number(shapePathForBounds.height) || Number(object.height) || 1),
@@ -1898,11 +2581,15 @@ async function makeFabricObject(shape, name = null) {
     extra: data.slice(5),
     mask: Boolean(shape.mask || data[6]),
     maskOriginalColor: Boolean(shape.mask || data[6]) ? color.slice() : null,
+    alpha_mesh_image: alphaMeshResource,
+    render_scale: alphaMeshResource ? (Number(object.kloudyRenderScale) || 1) : 1,
+    render_complexity: renderComplexity,
     locked: Boolean(shape.editor_locked),
     group_id: shape.editor_group_id ? String(shape.editor_group_id) : null,
     group_name: shape.editor_group_name ? String(shape.editor_group_name) : null,
     mesh_path: d || null,
-    outline_path: outlinePath || null,
+    outline_path: shape.outline_path || null,
+    outline_path_failed: false,
     scaleSigns: {
       x: (Number(data[2]) || 1) < 0 ? -1 : 1,
       y: (Number(data[3]) || 1) < 0 ? -1 : 1,
@@ -2372,15 +3059,18 @@ function fh6DataFromObject(object, preferredSigns = null) {
   const x = matrix[4];
   const y = -matrix[5];
   const signX = preferredSigns?.x < 0 ? -1 : 1;
-  const sx = signX * (Math.hypot(a, b) || 1);
-  const theta = Math.atan2(b / sx, a / sx);
+  const renderScale = Math.max(0.000001, Number(object?.kloudy?.render_scale) || 1);
+  const rawSx = signX * (Math.hypot(a, b) || 1);
+  const theta = Math.atan2(b / rawSx, a / rawSx);
   const det = a * d - b * c;
-  const sy = det / sx || 1;
+  const rawSy = det / rawSx || 1;
   const cos = Math.cos(-theta);
   const sin = Math.sin(-theta);
   const localC = cos * c - sin * d;
-  const skew = sy ? -(localC / sy) : 0;
+  const skew = rawSy ? -(localC / rawSy) : 0;
   const rotation = ((-theta * 180 / Math.PI) % 360 + 360) % 360;
+  const sx = rawSx / renderScale;
+  const sy = rawSy / renderScale;
   return [x, y, sx, sy, rotation, skew];
 }
 
@@ -2419,7 +3109,7 @@ function objectToShape(object, options = {}) {
     legacy_offset: Array.isArray(meta.legacy_offset) ? meta.legacy_offset.slice(0, 2) : null,
   };
   if (includeEditorMeta) {
-    shape.editor_hidden = object.visible === false;
+    shape.editor_hidden = !objectEditorVisible(object);
     shape.editor_locked = Boolean(meta.locked);
     shape.editor_group_id = meta.group_id || null;
     shape.editor_group_name = meta.group_name || null;
@@ -2626,7 +3316,12 @@ function requestCanvasRender() {
   if (!canvas || canvasRenderFrame) return;
   canvasRenderFrame = requestAnimationFrame(() => {
     canvasRenderFrame = null;
-    canvas.requestRenderAll();
+    if (hybridRenderActive) {
+      hybridRenderNow();
+      canvas.renderTop?.();
+    } else {
+      canvas.requestRenderAll();
+    }
   });
 }
 
@@ -2644,7 +3339,12 @@ function finishCanvasPan() {
   canvas.setViewportTransform(canvas.viewportTransform);
   syncCanvasObjectCoords();
   updateVisualGridLayer();
-  canvas.requestRenderAll();
+  if (hybridRenderActive) {
+    requestHybridRender();
+    settleHybridRender();
+  } else {
+    canvas.requestRenderAll();
+  }
 }
 
 function scheduleCanvasGeometrySync() {
@@ -2678,6 +3378,7 @@ function initCanvas() {
     moveCursor: "move",
     freeDrawingCursor: "default",
   });
+  initHybridRenderer();
   styleAllTransformControls();
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
@@ -2706,12 +3407,17 @@ function initCanvas() {
       invalidateLayerStats();
       styleObjectTransformControls(event.target);
       event.target.setCoords();
+      if (hybridRenderActive) requestHybridRender();
     }
   });
   canvas.on("object:removed", (event) => {
-    if (event.target?.kloudy) invalidateLayerStats();
+    if (event.target?.kloudy) {
+      invalidateLayerStats();
+      if (hybridRenderActive) requestHybridRender();
+    }
   });
   canvas.on("object:modified", (event) => {
+    settleHybridRender(80);
     if (event.target?.kloudyOverlay) {
       constrainSourceOverlayTransform();
       clearSnapOverlay();
@@ -2739,6 +3445,7 @@ function initCanvas() {
       snapSourceOverlayToGuides(event);
       return;
     }
+    beginHybridRender("move");
     leaveGuideModeForLayerEdit();
     const target = interactiveVinylTarget(event.target);
     if (target !== event.target) mirrorMaskProxyToOwner(event.target);
@@ -2748,6 +3455,7 @@ function initCanvas() {
     if (target) syncSelectedShapeOutlines(undefined, { relayer: false });
     syncMaskPreviewForTarget(target);
     scheduleLiveOverlayColor(target);
+    if (hybridRenderActive) requestHybridRender();
   });
   ["object:scaling", "object:skewing"].forEach((eventName) => {
     canvas.on(eventName, (event) => {
@@ -2756,6 +3464,7 @@ function initCanvas() {
         snapSourceOverlayToGuides(event);
         return;
       }
+      beginHybridRender(eventName);
       leaveGuideModeForLayerEdit();
       const target = interactiveVinylTarget(event.target);
       if (target !== event.target) mirrorMaskProxyToOwner(event.target);
@@ -2763,6 +3472,7 @@ function initCanvas() {
       if (target) syncSelectedShapeOutlines(undefined, { relayer: false });
       syncMaskPreviewForTarget(target);
       scheduleLiveOverlayColor(target);
+      if (hybridRenderActive) requestHybridRender();
     });
   });
   canvas.on("object:rotating", (event) => {
@@ -2770,6 +3480,7 @@ function initCanvas() {
       constrainSourceOverlayTransform();
       return;
     }
+    beginHybridRender("rotate");
     leaveGuideModeForLayerEdit();
     const target = interactiveVinylTarget(event.target);
     if (target !== event.target) mirrorMaskProxyToOwner(event.target);
@@ -2778,18 +3489,25 @@ function initCanvas() {
     if (target) syncSelectedShapeOutlines(undefined, { relayer: false });
     syncMaskPreviewForTarget(target);
     scheduleLiveOverlayColor(target);
+    if (hybridRenderActive) requestHybridRender();
   });
   canvas.on("mouse:wheel", (opt) => {
     const delta = opt.e.deltaY;
     let zoom = canvas.getZoom();
     zoom *= 0.999 ** delta;
     zoom = Math.min(Math.max(zoom, 0.04), 8);
+    beginHybridRender("zoom");
     canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
     styleActiveTransformControls();
     syncSelectedShapeOutlines();
     scheduleVisualGridLayerUpdate();
     updateHud(canvas.getPointer(opt.e));
-    requestCanvasRender();
+    if (hybridRenderActive) {
+      requestHybridRender();
+      settleHybridRender();
+    } else {
+      requestCanvasRender();
+    }
     opt.e.preventDefault();
     opt.e.stopPropagation();
   });
@@ -2856,6 +3574,7 @@ function initCanvas() {
       canvas.selection = false;
       canvas.skipTargetFind = true;
       transformAnchorSnapshot = null;
+      beginHybridRender("pan");
     } else if (interactiveVinylTarget(opt.target)?.kloudy || opt.target?.type === "activeSelection" || opt.target?.type === "activeselection") {
       const target = interactiveVinylTarget(opt.target);
       captureTransformAnchorSnapshot(target, opt);
@@ -2867,6 +3586,7 @@ function initCanvas() {
   });
   canvas.on("mouse:move", (opt) => {
     if (isPanning && lastPan) {
+      beginHybridRender("pan");
       const vpt = canvas.viewportTransform;
       vpt[4] += opt.e.clientX - lastPan.x;
       vpt[5] += opt.e.clientY - lastPan.y;
@@ -2902,6 +3622,7 @@ function initCanvas() {
     clearSnapOverlay();
     finishCanvasPan();
     isPanning = false;
+    settleHybridRender();
     canvas.selection = !shapeEyedropperActive && activeToolMode !== "guides" && activeToolMode !== "source";
     canvas.skipTargetFind = vBoxSelectActive;
     canvas.defaultCursor = vBoxSelectActive ? "crosshair" : "default";
@@ -2919,6 +3640,7 @@ function resizeCanvas() {
   if (width !== lastCanvasSize.width || height !== lastCanvasSize.height) {
     canvas.setDimensions({ width, height });
     lastCanvasSize = { width, height };
+    resizeHybridRenderer();
   }
   syncCanvasObjectCoords();
   updateVisualGridLayer();
@@ -5043,6 +5765,7 @@ async function loadPayload(payload) {
 }
 
 function clearVinylObjects(options = {}) {
+  endHybridRenderNow();
   selectedShapeOutlineObjects.forEach(restoreSelectionOutline);
   selectedShapeOutlineObjects.clear();
   selectedShapeOutlineHelpers.forEach((helper) => canvas.remove(helper));
@@ -6000,9 +6723,8 @@ function applyMaskVisual(obj) {
       globalCompositeOperation: "source-over",
       selectable: !obj.kloudy?.locked,
       evented: !obj.kloudy?.locked,
-      perPixelTargetFind: $("boxVisibleOnly")?.checked ?? true,
-      targetFindTolerance: ($("boxVisibleOnly")?.checked ?? true) ? VINYL_HIT_TOLERANCE : 0,
     });
+    applyObjectHitTestMode(obj);
     obj.kloudy.maskOriginalColor = null;
   }
   syncMaskPreviewOutlines();
@@ -8738,8 +9460,7 @@ async function duplicateSelected() {
       if (obj.__kloudySelectionOutline) clone.set({ shadow: obj.__kloudySelectionOutline.shadow || null });
       delete clone.__kloudySelectionOutline;
       applyMaskVisual(clone);
-      clone.perPixelTargetFind = $("boxVisibleOnly")?.checked || $("pixelSelect")?.checked || false;
-      clone.targetFindTolerance = clone.perPixelTargetFind ? VINYL_HIT_TOLERANCE : 0;
+      applyObjectHitTestMode(clone, $("boxVisibleOnly")?.checked || $("pixelSelect")?.checked || false);
       clone.hoverCursor = "pointer";
       clone.moveCursor = "move";
       styleObjectTransformControls(clone);
@@ -9038,13 +9759,7 @@ function setPixelSelection(enabled) {
   canvas.perPixelTargetFind = enabled;
   canvas.targetFindTolerance = enabled ? VINYL_HIT_TOLERANCE : 0;
   vinylObjects().forEach((obj) => {
-    if (obj.kloudy?.mask) {
-      obj.perPixelTargetFind = false;
-      obj.targetFindTolerance = 12;
-      return;
-    }
-    obj.perPixelTargetFind = enabled;
-    obj.targetFindTolerance = enabled ? VINYL_HIT_TOLERANCE : 0;
+    applyObjectHitTestMode(obj, enabled);
   });
 }
 

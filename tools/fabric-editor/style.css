@@ -357,8 +357,22 @@ small,
   will-change: background-position, background-size, opacity;
 }
 
-.canvasStage .canvas-container {
+.hybridRenderCanvas {
+  position: absolute;
+  inset: 0;
   z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hybridRenderCanvas[hidden] {
+  display: none;
+}
+
+.canvasStage .canvas-container {
+  position: relative !important;
+  z-index: 2;
 }
 
 #canvas {
