@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.56
+- Centered the supporter badge, version pill, and live status banner over the main Create/Generate panels.
+- Made the live status banner scroll continuously with a tighter repeat gap.
+- Added a Browse outputs search field that filters vinyls by name within the selected output source.
+
 ## 3.0.55
 - Improved Fabric editor rendering for transparent Community Vinyls 1, 2, and 3.
 - Made selected-shape outlines thinner and steadier across zoom levels.

@@ -14,6 +14,13 @@ Item {
     property bool threeColumns: Theme.logical(width) >= 1180
     property bool compactHeight: Theme.logical(height) < 720
     property bool checkpointsManual: false
+    readonly property bool headerAlignmentAvailable: threeColumns
+                                                     && sourceSetupCard.width > 0
+                                                     && previewCard.width > 0
+    readonly property real headerSourceCenterX: sourceSetupCard.x + sourceSetupCard.width / 2
+    readonly property real headerPreviewCenterX: previewCard.x + previewCard.width / 2
+    readonly property real headerBannerLeftX: sourceSetupCard.x
+    readonly property real headerBannerRightX: previewCard.x + previewCard.width
 
     function checkpointTextFor(layerText) {
         var target = parseInt(layerText)
@@ -55,12 +62,14 @@ Item {
     }
 
     GridLayout {
+        id: pageGrid
         anchors.fill: parent
         columns: root.threeColumns ? 3 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
 
         HoverCard {
+            id: sourceSetupCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.threeColumns ? Theme.px(390) : -1
@@ -296,6 +305,7 @@ Item {
         }
 
         HoverCard {
+            id: previewCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.threeColumns ? Theme.px(610) : -1

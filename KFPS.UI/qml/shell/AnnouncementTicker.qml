@@ -55,10 +55,10 @@ GlassPanel {
 
     Timer {
         id: restartTimer
-        interval: 160
+        interval: 80
         repeat: false
         onTriggered: {
-            tickerText.x = Theme.px(2)
+            tickerTrack.x = 0
             scrollAnimation.restart()
         }
     }
@@ -98,42 +98,58 @@ GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            readonly property real tickerGap: Theme.px(root.compact ? 28 : 36)
+            readonly property real tickerStep: Math.max(1, tickerMeasure.width + tickerGap)
+            readonly property int tickerCopies: Math.min(32, Math.max(3, Math.ceil(width / tickerStep) + 2))
+            readonly property int tickerDuration: Math.max(3600, Math.round(tickerStep * 18))
+            onTickerStepChanged: root.restartScroll()
+            onTickerCopiesChanged: root.restartScroll()
 
             Text {
-                id: tickerText
-                visible: !Theme.reducedMotion && !root.paused
-                x: Theme.px(2)
-                y: Math.round((tickerViewport.height - height) / 2)
+                id: tickerMeasure
+                visible: false
                 text: root.effectiveText
-                color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.compact ? 10.2 : 11.4)
                 font.weight: Font.DemiBold
-                verticalAlignment: Text.AlignVCenter
                 renderType: Text.NativeRendering
             }
 
-            SequentialAnimation {
+            Item {
+                id: tickerTrack
+                visible: !Theme.reducedMotion && !root.paused
+                x: 0
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: Math.max(parent.width, tickerViewport.tickerStep * tickerViewport.tickerCopies)
+
+                Repeater {
+                    model: tickerViewport.tickerCopies
+
+                    Text {
+                        x: index * tickerViewport.tickerStep
+                        y: Math.round((tickerViewport.height - height) / 2)
+                        text: root.effectiveText
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(root.compact ? 10.2 : 11.4)
+                        font.weight: Font.DemiBold
+                        verticalAlignment: Text.AlignVCenter
+                        renderType: Text.NativeRendering
+                    }
+                }
+            }
+
+            NumberAnimation {
                 id: scrollAnimation
                 loops: Animation.Infinite
                 running: root.visible && !Theme.reducedMotion && !root.paused
-                PauseAnimation { duration: 2400 }
-                NumberAnimation {
-                    target: tickerText
-                    property: "x"
-                    to: -tickerText.width
-                    duration: Math.max(9000, Math.round((tickerText.width + tickerViewport.width) * 16))
-                    easing.type: Easing.Linear
-                }
-                ScriptAction { script: tickerText.x = tickerViewport.width }
-                PauseAnimation { duration: 500 }
-                NumberAnimation {
-                    target: tickerText
-                    property: "x"
-                    to: Theme.px(2)
-                    duration: Math.max(2400, Math.round(tickerViewport.width * 8))
-                    easing.type: Easing.Linear
-                }
+                target: tickerTrack
+                property: "x"
+                from: 0
+                to: -tickerViewport.tickerStep
+                duration: tickerViewport.tickerDuration
+                easing.type: Easing.Linear
             }
 
             Text {

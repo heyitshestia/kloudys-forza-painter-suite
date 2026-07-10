@@ -115,21 +115,60 @@ ApplicationWindow {
                 property real controlsTopMargin: announcementTicker.visible
                                                  ? Theme.px(window.shortWindow ? 42 : 54)
                                                  : Theme.px(window.shortWindow ? 10 : 16)
+                readonly property bool pageHeaderAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
+                readonly property real headerSafeMargin: Theme.px(14)
+                readonly property real headerFallbackBannerWidth: Math.max(
+                    Theme.px(window.compactHeader ? 420 : 540),
+                    Math.min(
+                        Theme.px(supporterPromo.visible ? 760 : (window.compactHeader ? 720 : 900)),
+                        width - Theme.px(window.compactHeader ? 320 : 680)
+                    )
+                )
+                readonly property real headerFallbackBannerX: Theme.clamp(
+                    (width - headerFallbackBannerWidth) / 2 + (supporterPromo.visible ? -Theme.px(220) : -Theme.px(80)),
+                    Theme.px(12),
+                    Math.max(Theme.px(12), width - headerFallbackBannerWidth - Theme.px(12))
+                )
+                readonly property real headerBannerLeft: pageHeaderX("headerBannerLeftX", headerFallbackBannerX)
+                readonly property real headerBannerRight: pageHeaderX("headerBannerRightX", headerFallbackBannerX + headerFallbackBannerWidth)
+                readonly property real headerAlignedBannerWidth: Math.max(
+                    Theme.px(window.compactHeader ? 420 : 540),
+                    headerBannerRight - headerBannerLeft
+                )
+                readonly property real headerBannerWidth: pageHeaderAlignmentAvailable ? headerAlignedBannerWidth : headerFallbackBannerWidth
+                readonly property real headerBannerX: pageHeaderAlignmentAvailable
+                                                      ? Theme.clamp(headerBannerLeft + ((headerBannerRight - headerBannerLeft - headerBannerWidth) / 2),
+                                                                    Theme.px(12),
+                                                                    Math.max(Theme.px(12), width - headerBannerWidth - Theme.px(12)))
+                                                      : headerFallbackBannerX
+                readonly property real headerSourceCenterX: pageHeaderX("headerSourceCenterX", Math.max(headerSafeMargin, headerBannerX + headerBannerWidth * 0.28))
+                readonly property real headerPreviewCenterX: pageHeaderX("headerPreviewCenterX", Math.max(headerSafeMargin, (window.width / 2) - workspace.x))
+
+                function pageHeaderX(name, fallback) {
+                    if (!pageHeaderAlignmentAvailable)
+                        return fallback
+                    var item = pageLoader.item
+                    if (!item || item[name] === undefined)
+                        return fallback
+                    var value = Number(item[name])
+                    if (!isFinite(value))
+                        return fallback
+                    return workspaceLayout.x + pageLoader.x + value
+                }
+
+                function centeredHeaderX(centerX, itemWidth) {
+                    return Theme.clamp(centerX - itemWidth / 2,
+                                       headerSafeMargin,
+                                       Math.max(headerSafeMargin, width - itemWidth - headerSafeMargin))
+                }
 
                 AnnouncementTicker {
                     id: announcementTicker
                     compact: window.compactHeader
                     anchors.top: parent.top
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: supporterPromo.visible ? -Theme.px(220) : -Theme.px(80)
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
-                    width: Math.max(
-                               Theme.px(window.compactHeader ? 420 : 540),
-                               Math.min(
-                                   Theme.px(supporterPromo.visible ? 760 : (window.compactHeader ? 720 : 900)),
-                                   parent.width - Theme.px(window.compactHeader ? 320 : 680)
-                               )
-                           )
+                    x: workspace.headerBannerX
+                    width: workspace.headerBannerWidth
                     z: 24
                 }
 
@@ -148,7 +187,9 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin
-                    x: Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
+                    x: workspace.pageHeaderAlignmentAvailable
+                       ? workspace.centeredHeaderX(workspace.headerPreviewCenterX, width)
+                       : Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
                     z: 20
                 }
 
@@ -156,13 +197,15 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin + Theme.px(2)
-                    x: Math.max(
-                           Theme.px(14),
-                           Math.min(
-                               versionPill.x - width - Theme.px(14),
-                               Math.max(Theme.px(14), (versionPill.x - width) / 2)
-                           )
-                    )
+                    x: workspace.pageHeaderAlignmentAvailable
+                       ? workspace.centeredHeaderX(workspace.headerSourceCenterX, width)
+                       : Math.max(
+                             Theme.px(14),
+                             Math.min(
+                                 versionPill.x - width - Theme.px(14),
+                                 Math.max(Theme.px(14), (versionPill.x - width) / 2)
+                             )
+                         )
                     z: 20
                 }
 
@@ -177,6 +220,7 @@ ApplicationWindow {
                 }
 
                 ColumnLayout {
+                    id: workspaceLayout
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top

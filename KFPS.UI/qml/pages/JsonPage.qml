@@ -461,132 +461,181 @@ Item {
                                 }
                             }
 
-                            GridView {
-                                id: files
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(8)
+
+                                KfpsTextField {
+                                    id: outputSearch
+                                    Layout.fillWidth: true
+                                    dense: true
+                                    placeholderText: "Search current source by vinyl name"
+                                    Component.onCompleted: text = jsonService.searchQuery
+                                    onTextEdited: {
+                                        jsonService.setSearchQuery(text)
+                                        files.positionViewAtBeginning()
+                                    }
+                                    Connections {
+                                        target: jsonService
+                                        function onChanged() {
+                                            if (outputSearch.text !== jsonService.searchQuery)
+                                                outputSearch.text = jsonService.searchQuery
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.maximumWidth: Theme.px(140)
+                                    text: jsonService.searchSummary
+                                    color: Theme.subtle
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(9.4)
+                                    horizontalAlignment: Text.AlignRight
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 clip: true
-                                model: jsonService.fileModel
-                                boundsBehavior: Flickable.StopAtBounds
-                                maximumFlickVelocity: 100000
-                                flickDeceleration: 12000
-                                property int columns: Math.max(1, Math.floor(width / Theme.px(root.compactHeight ? 148 : 180)))
-                                cellWidth: Math.max(Theme.px(138), width / columns)
-                                cellHeight: Theme.px(root.compactHeight ? 158 : 186)
 
-                                delegate: Rectangle {
-                                    id: fileCard
-                                    required property string displayName
-                                    required property string path
-                                    required property int layers
-                                    required property string modifiedLabel
-                                    required property string previewUrl
-                                    required property string detailText
-                                    required property string folder
-                                    required property int index
+                                GridView {
+                                    id: files
+                                    anchors.fill: parent
+                                    clip: true
+                                    model: jsonService.fileModel
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    maximumFlickVelocity: 100000
+                                    flickDeceleration: 12000
+                                    property int columns: Math.max(1, Math.floor(width / Theme.px(root.compactHeight ? 148 : 180)))
+                                    cellWidth: Math.max(Theme.px(138), width / columns)
+                                    cellHeight: Theme.px(root.compactHeight ? 158 : 186)
 
-                                    width: files.cellWidth - Theme.px(8)
-                                    height: files.cellHeight - Theme.px(8)
-                                    radius: Theme.px(16)
-                                    color: jsonService.selectedPath === path ? Theme.primarySoft : (cardHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
-                                    border.width: Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
-                                    border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
-                                    antialiasing: true
+                                    delegate: Rectangle {
+                                        id: fileCard
+                                        required property string displayName
+                                        required property string path
+                                        required property int layers
+                                        required property string modifiedLabel
+                                        required property string previewUrl
+                                        required property string detailText
+                                        required property string folder
+                                        required property int index
 
-                                    Column {
-                                        anchors.fill: parent
-                                        anchors.margins: Theme.px(8)
-                                        spacing: Theme.px(6)
+                                        width: files.cellWidth - Theme.px(8)
+                                        height: files.cellHeight - Theme.px(8)
+                                        radius: Theme.px(16)
+                                        color: jsonService.selectedPath === path ? Theme.primarySoft : (cardHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
+                                        border.width: Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
+                                        border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
+                                        antialiasing: true
 
-                                        Rectangle {
-                                            width: parent.width
-                                            height: Math.max(Theme.px(72), fileCard.height - Theme.px(root.compactHeight ? 70 : 78))
-                                            radius: Theme.px(12)
-                                            color: Theme.previewSurface
-                                            border.width: Math.max(1, Theme.px(1))
-                                            border.color: Theme.border
-                                            clip: true
+                                        Column {
+                                            anchors.fill: parent
+                                            anchors.margins: Theme.px(8)
+                                            spacing: Theme.px(6)
 
-                                            Image {
-                                                anchors.fill: parent
-                                                anchors.margins: Theme.px(5)
-                                                source: fileCard.previewUrl
-                                                fillMode: Image.PreserveAspectFit
-                                                asynchronous: true
-                                                smooth: true
-                                                mipmap: true
+                                            Rectangle {
+                                                width: parent.width
+                                                height: Math.max(Theme.px(72), fileCard.height - Theme.px(root.compactHeight ? 70 : 78))
+                                                radius: Theme.px(12)
+                                                color: Theme.previewSurface
+                                                border.width: Math.max(1, Theme.px(1))
+                                                border.color: Theme.border
+                                                clip: true
+
+                                                Image {
+                                                    anchors.fill: parent
+                                                    anchors.margins: Theme.px(5)
+                                                    source: fileCard.previewUrl
+                                                    fillMode: Image.PreserveAspectFit
+                                                    asynchronous: true
+                                                    smooth: true
+                                                    mipmap: true
+                                                }
+
+                                                EmptyState {
+                                                    visible: !fileCard.previewUrl
+                                                    anchors.centerIn: parent
+                                                    iconName: "json"
+                                                    title: ""
+                                                    message: "No preview"
+                                                }
                                             }
 
-                                            EmptyState {
-                                                visible: !fileCard.previewUrl
-                                                anchors.centerIn: parent
-                                                iconName: "json"
-                                                title: ""
-                                                message: "No preview"
+                                            Text {
+                                                width: parent.width
+                                                text: fileCard.displayName
+                                                color: Theme.text
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.px(10.4)
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideMiddle
+                                                maximumLineCount: 1
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                text: fileCard.detailText
+                                                color: Theme.subtle
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.px(9.2)
+                                                elide: Text.ElideRight
                                             }
                                         }
 
-                                        Text {
-                                            width: parent.width
-                                            text: fileCard.displayName
-                                            color: Theme.text
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.px(10.4)
-                                            font.weight: Font.DemiBold
-                                            elide: Text.ElideMiddle
-                                            maximumLineCount: 1
+                                        HoverHandler {
+                                            id: cardHover
+                                            cursorShape: Qt.PointingHandCursor
                                         }
 
-                                        Text {
-                                            width: parent.width
-                                            text: fileCard.detailText
-                                            color: Theme.subtle
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.px(9.2)
-                                            elide: Text.ElideRight
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            acceptedButtons: Qt.LeftButton
+                                            onClicked: mouse => {
+                                                mouse.accepted = true
+                                                jsonService.selectFile(fileCard.index)
+                                            }
+                                            onDoubleClicked: mouse => {
+                                                mouse.accepted = true
+                                                jsonService.selectFile(fileCard.index)
+                                                root.infoCardName = fileCard.displayName
+                                                root.infoCardDetail = fileCard.detailText
+                                                root.infoCardFolder = fileCard.folder
+                                                root.infoCardPath = fileCard.path
+                                                root.infoCardPreview = fileCard.previewUrl
+                                                jsonInfoPopup.open()
+                                            }
                                         }
                                     }
 
-                                    HoverHandler {
-                                        id: cardHover
-                                        cursorShape: Qt.PointingHandCursor
+                                    WheelHandler {
+                                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                                        target: null
+                                        onWheel: event => {
+                                            var delta = event.pixelDelta.y
+                                            if (delta === 0)
+                                                delta = (event.angleDelta.y / 120.0) * Theme.px(96)
+                                            if (delta === 0)
+                                                return
+                                            files.contentY = Math.max(0, Math.min(files.contentY - delta, Math.max(0, files.contentHeight - files.height)))
+                                            event.accepted = true
+                                        }
                                     }
 
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        acceptedButtons: Qt.LeftButton
-                                        onClicked: mouse => {
-                                            mouse.accepted = true
-                                            jsonService.selectFile(fileCard.index)
-                                        }
-                                        onDoubleClicked: mouse => {
-                                            mouse.accepted = true
-                                            jsonService.selectFile(fileCard.index)
-                                            root.infoCardName = fileCard.displayName
-                                            root.infoCardDetail = fileCard.detailText
-                                            root.infoCardFolder = fileCard.folder
-                                            root.infoCardPath = fileCard.path
-                                            root.infoCardPreview = fileCard.previewUrl
-                                            jsonInfoPopup.open()
-                                        }
-                                    }
+                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                 }
 
-                                WheelHandler {
-                                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                                    target: null
-                                    onWheel: event => {
-                                        var delta = event.pixelDelta.y
-                                        if (delta === 0)
-                                            delta = (event.angleDelta.y / 120.0) * Theme.px(96)
-                                        if (delta === 0)
-                                            return
-                                        files.contentY = Math.max(0, Math.min(files.contentY - delta, Math.max(0, files.contentHeight - files.height)))
-                                        event.accepted = true
-                                    }
+                                EmptyState {
+                                    visible: files.count === 0
+                                    anchors.centerIn: parent
+                                    iconName: "json"
+                                    title: jsonService.searchQuery.length > 0 ? "No matching vinyls" : "No outputs"
+                                    message: jsonService.searchQuery.length > 0
+                                             ? "No vinyl name in this source matches the search."
+                                             : "This output source has no JSON files yet."
                                 }
-
-                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                             }
 
                             GlassPanel {

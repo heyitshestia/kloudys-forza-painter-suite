@@ -24,6 +24,9 @@ class JsonService(QObject):
         self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
         self._recent_model = DictListModel(["name","path","folder","age","source"])
         self._source = 0; self._selected_group = -1; self._selected_path = ""; self._selected_display_name = ""; self._preview_url = ""; self._layers = "—"; self._folder = "—"
+        self._search_query = ""
+        self._all_file_rows: list[dict] = []
+        self._visible_file_rows: list[dict] = []
         self._groups: list[dict] = []
         self._ensure_logo(); self.refresh(); self.refreshRecent()
 
@@ -47,6 +50,21 @@ class JsonService(QObject):
     def selectedLayers(self): return self._layers
     @Property(str, notify=changed)
     def selectedFolder(self): return self._folder
+    @Property(str, notify=changed)
+    def searchQuery(self): return self._search_query
+    @Property(int, notify=changed)
+    def outputCount(self): return len(self._all_file_rows)
+    @Property(int, notify=changed)
+    def visibleOutputCount(self): return len(self._visible_file_rows)
+    @Property(str, notify=changed)
+    def searchSummary(self):
+        total = len(self._all_file_rows)
+        visible = len(self._visible_file_rows)
+        if self._search_query:
+            noun = "match" if visible == 1 else "matches"
+            return f"{visible} of {total} {noun}"
+        noun = "vinyl" if total == 1 else "vinyls"
+        return f"{total} {noun}"
 
     def _source_roots(self):
         return [self.paths.generated_root, self.paths.editor_json_root, self.paths.exported_root, self.paths.library_root]
@@ -70,6 +88,17 @@ class JsonService(QObject):
     @Slot(int)
     def setSource(self, index): self._source = max(0,min(len(self._source_roots()) - 1,index)); self._selected_group=-1; self.clearSelection(); self.refresh(); self.changed.emit()
 
+    @Slot(str)
+    def setSearchQuery(self, value):
+        query = str(value or "").strip()
+        if query == self._search_query:
+            return
+        self._search_query = query
+        self._apply_search_filter()
+
+    @Slot()
+    def clearSearch(self): self.setSearchQuery("")
+
     @Slot()
     def refresh(self):
         root = self._root(); root.mkdir(parents=True, exist_ok=True)
@@ -86,14 +115,40 @@ class JsonService(QObject):
         groups.sort(key=lambda g:g["modified"], reverse=True)
         self._groups=groups
         self._group_model.replace([{k:g[k] for k in ("name","displayName","detailText","path","count","modifiedLabel")} for g in groups])
-        rows = [self._row_for_json(path) for path in self._sorted_visible_files(groups)]
+        self._all_file_rows = [self._row_for_json(path) for path in self._sorted_visible_files(groups)]
+        self._apply_search_filter()
+
+    def _apply_search_filter(self):
+        query = self._search_query.casefold()
+        if query:
+            rows = [row for row in self._all_file_rows if self._row_matches_search(row, query)]
+        else:
+            rows = list(self._all_file_rows)
+        self._visible_file_rows = rows
         self._file_model.replace(rows)
-        if self._selected_path and any(str(row["path"]) == self._selected_path for row in rows):
-            self.selectPath(self._selected_path)
+        selected = self._selected_path
+        if selected and any(self._same_path(row.get("path"), selected) for row in rows):
+            self.changed.emit()
         elif rows:
-            self.selectPath(str(rows[0]["path"]))
+            self._select_path(str(rows[0]["path"]), log=False)
         else:
             self.clearSelection()
+
+    @staticmethod
+    def _same_path(left, right):
+        try:
+            return str(Path(str(left)).resolve()).casefold() == str(Path(str(right)).resolve()).casefold()
+        except Exception:
+            return str(left).casefold() == str(right).casefold()
+
+    @staticmethod
+    def _row_matches_search(row, query):
+        terms = [term for term in re.split(r"\s+", query) if term]
+        name = str(row.get("displayName") or "")
+        file_name = str(row.get("name") or "")
+        stem = Path(file_name).stem
+        haystack = " ".join([name, file_name, stem]).casefold()
+        return all(term in haystack for term in terms)
 
     def _files(self, root: Path, generated: bool):
         out=[]
@@ -245,10 +300,15 @@ class JsonService(QObject):
 
     @Slot(str)
     def selectPath(self,value):
+        self._select_path(value, log=True)
+
+    def _select_path(self, value, log=True):
         path=Path(value)
         if not path.is_file():return
         source_name=self._source_names()[self._source]
-        self._selected_path=str(path.resolve()); self._selected_display_name=self._display_name_for_json(path); self._layers=str(self._count(path)); self._folder=str(path.parent); self._preview_url=self.preview.preview_for_json(path, source_name); self.changed.emit(); self.log.append(f"Selected JSON: {self._selected_path}")
+        self._selected_path=str(path.resolve()); self._selected_display_name=self._display_name_for_json(path); self._layers=str(self._count(path)); self._folder=str(path.parent); self._preview_url=self.preview.preview_for_json(path, source_name); self.changed.emit()
+        if log:
+            self.log.append(f"Selected JSON: {self._selected_path}")
 
     @Slot()
     def clearSelection(self): self._selected_path=""; self._selected_display_name=""; self._preview_url=""; self._layers="—"; self._folder="—"; self.changed.emit()

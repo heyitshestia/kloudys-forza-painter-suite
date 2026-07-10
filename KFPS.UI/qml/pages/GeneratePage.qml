@@ -16,6 +16,11 @@ Item {
     property int seenPreviewRevision: generationService.previewRevision
     property bool preferSourcePreview: false
     property string activePreviewUrl: preferSourcePreview ? sourceService.url : (generationService.previewUrl || sourceService.url)
+    readonly property bool headerAlignmentAvailable: Boolean(pageLayoutLoader.item && pageLayoutLoader.item.headerAlignmentAvailable)
+    readonly property real headerSourceCenterX: headerAlignmentAvailable ? pageLayoutLoader.item.headerSourceCenterX : 0
+    readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLayoutLoader.item.headerPreviewCenterX : 0
+    readonly property real headerBannerLeftX: headerAlignmentAvailable ? pageLayoutLoader.item.headerBannerLeftX : 0
+    readonly property real headerBannerRightX: headerAlignmentAvailable ? pageLayoutLoader.item.headerBannerRightX : 0
 
     function notePreviewRevision() {
         if (seenPreviewRevision === generationService.previewRevision)
@@ -82,6 +87,7 @@ Item {
     }
 
     Loader {
+        id: pageLayoutLoader
         anchors.fill: parent
         sourceComponent: root.wide ? wideComp : compactComp
     }
@@ -108,11 +114,19 @@ Item {
     Component {
         id: wideComp
         GridLayout {
+            readonly property bool headerAlignmentAvailable: columns >= 2
+                                                         && sourceControlsCard.width > 0
+                                                         && livePreviewCard.width > 0
+            readonly property real headerSourceCenterX: sourceControlsCard.x + sourceControlsCard.width / 2
+            readonly property real headerPreviewCenterX: livePreviewCard.x + livePreviewCard.width / 2
+            readonly property real headerBannerLeftX: sourceControlsCard.x
+            readonly property real headerBannerRightX: livePreviewCard.x + livePreviewCard.width
             columns: Theme.logical(root.width) >= 1060 ? 3 : 2
             columnSpacing: Theme.px(10)
             rowSpacing: Theme.px(10)
 
             HoverCard {
+                id: sourceControlsCard
                 Layout.preferredWidth: Theme.px(286)
                 Layout.fillHeight: true
                 padding: Theme.px(16)
@@ -323,6 +337,7 @@ Item {
             }
 
             HoverCard {
+                id: livePreviewCard
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: Theme.px(450)
