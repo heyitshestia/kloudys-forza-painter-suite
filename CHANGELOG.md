@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.61
+- Moved generator seed controls behind Manual generator overrides so normal runs keep the default seed behavior.
+- Added hover help for generation options, including guidance that KFPS chooses most options automatically and that 2x Mode is the normal-user option for slower, deeper matching.
+
 ## 3.0.60
 - Extended the centered supporter badge, version pill, and live status banner alignment from Create/Generate to the other app tabs.
 - Reserved the right-side page title area so header banners and pills stay clear across wider tab layouts.

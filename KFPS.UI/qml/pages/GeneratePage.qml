@@ -21,6 +21,10 @@ Item {
     readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLayoutLoader.item.headerPreviewCenterX : 0
     readonly property real headerBannerLeftX: headerAlignmentAvailable ? pageLayoutLoader.item.headerBannerLeftX : 0
     readonly property real headerBannerRightX: headerAlignmentAvailable ? pageLayoutLoader.item.headerBannerRightX : 0
+    readonly property string detailHeatmapTip: "Usually leave this off.\nKFPS automatically uses detail-focused processing when the preset or source needs it.\nManual use is mostly for controlled testing."
+    readonly property string lumaPrepTip: "Usually leave this off.\nKFPS automatically prepares brightness and transparency when a preset benefits from it.\nTurning it on manually can make some images worse."
+    readonly property string edgeRepairTip: "Usually leave this off.\nKFPS automatically handles cleanup when appropriate.\nManual edge repair is only for sources with obvious cutout holes or broken edges."
+    readonly property string sampleBoostTip: "This is the only option most users should touch.\n2x mode makes the generator spend about twice as much work looking for better shape matches.\nIt can improve detail or smoother edges, but it takes longer."
 
     function notePreviewRevision() {
         if (seenPreviewRevision === generationService.previewRevision)
@@ -204,6 +208,7 @@ Item {
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
+                                    Layout.columnSpan: 2
                                     Label {
                                         text: "Layers"
                                     }
@@ -214,19 +219,6 @@ Item {
                                         currentIndex: 3
                                         onActivated: checkpoints.text = root.checkpointTextFor(currentText)
                                         onDoubleTapped: root.openCustomLayerDialog(layers, checkpoints)
-                                    }
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Label {
-                                        text: "Seed"
-                                    }
-                                    KfpsTextField {
-                                        id: seed
-                                        Layout.fillWidth: true
-                                        text: "0"
-                                        inputMethodHints: Qt.ImhDigitsOnly
-                                        placeholderText: "Random"
                                     }
                                 }
                             }
@@ -255,6 +247,7 @@ Item {
                                     text: "Automatic Detail Heatmap"
                                     checked: false
                                     dense: true
+                                    toolTipText: root.detailHeatmapTip
                                 }
                                 KfpsCheckBox {
                                     id: luma
@@ -262,6 +255,7 @@ Item {
                                     text: "Luma Prep"
                                     checked: false
                                     dense: true
+                                    toolTipText: root.lumaPrepTip
                                 }
                                 KfpsCheckBox {
                                     id: repair
@@ -269,6 +263,7 @@ Item {
                                     text: "Edge Repair"
                                     checked: false
                                     dense: true
+                                    toolTipText: root.edgeRepairTip
                                 }
                                 KfpsCheckBox {
                                     id: boost
@@ -276,6 +271,7 @@ Item {
                                     text: "2x Mode"
                                     checked: false
                                     dense: true
+                                    toolTipText: root.sampleBoostTip
                                 }
                             }
 
@@ -285,20 +281,32 @@ Item {
                                 Label {
                                     text: "Manual generator overrides"
                                 }
-                                KfpsTextField {
-                                    id: maxRes
+                                GridLayout {
                                     Layout.fillWidth: true
-                                    placeholderText: "Max resolution"
-                                }
-                                KfpsTextField {
-                                    id: randomSamples
-                                    Layout.fillWidth: true
-                                    placeholderText: "Random samples"
-                                }
-                                KfpsTextField {
-                                    id: mutatedSamples
-                                    Layout.fillWidth: true
-                                    placeholderText: "Mutated samples"
+                                    columns: 2
+                                    columnSpacing: Theme.px(6)
+                                    rowSpacing: Theme.px(5)
+                                    KfpsTextField {
+                                        id: maxRes
+                                        Layout.fillWidth: true
+                                        placeholderText: "Max res"
+                                    }
+                                    KfpsTextField {
+                                        id: randomSamples
+                                        Layout.fillWidth: true
+                                        placeholderText: "Random"
+                                    }
+                                    KfpsTextField {
+                                        id: mutatedSamples
+                                        Layout.fillWidth: true
+                                        placeholderText: "Mutated"
+                                    }
+                                    KfpsTextField {
+                                        id: seed
+                                        Layout.fillWidth: true
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        placeholderText: "Seed"
+                                    }
                                 }
                             }
                         }
@@ -313,7 +321,7 @@ Item {
                             text: generationService.running ? "Generating…" : "Generate Final Vinyl"
                             iconName: "generate"
                             enabled: !generationService.running
-                            onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.currentText, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", parseInt(seed.text) || 0)
+                            onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.currentText, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -653,16 +661,11 @@ Item {
                             KfpsComboBox {
                                 id: cl
                                 Layout.fillWidth: true
+                                Layout.columnSpan: 2
                                 model: root.layerOptions
                                 currentIndex: 3
                                 onActivated: cc.text = root.checkpointTextFor(currentText)
                                 onDoubleTapped: root.openCustomLayerDialog(cl, cc)
-                            }
-                            KfpsTextField {
-                                id: cseed
-                                Layout.fillWidth: true
-                                text: "0"
-                                placeholderText: "Seed"
                             }
                         }
                         KfpsTextField {
@@ -676,39 +679,55 @@ Item {
                             KfpsCheckBox {
                                 id: cHeat
                                 text: "Detail Heatmap"
+                                toolTipText: root.detailHeatmapTip
                             }
                             KfpsCheckBox {
                                 id: cLuma
                                 text: "Luma Prep"
+                                toolTipText: root.lumaPrepTip
                             }
                             KfpsCheckBox {
                                 id: cRepair
                                 text: "Edge Repair"
                                 checked: false
+                                toolTipText: root.edgeRepairTip
                             }
                             KfpsCheckBox {
                                 id: cBoost
                                 text: "2x Mode"
                                 checked: false
+                                toolTipText: root.sampleBoostTip
                             }
                         }
                         ColumnLayout {
                             visible: settings.manualOverrides
                             Layout.fillWidth: true
-                            KfpsTextField {
-                                id: cMax
+                            GridLayout {
                                 Layout.fillWidth: true
-                                placeholderText: "Max resolution"
-                            }
-                            KfpsTextField {
-                                id: cRandom
-                                Layout.fillWidth: true
-                                placeholderText: "Random samples"
-                            }
-                            KfpsTextField {
-                                id: cMutated
-                                Layout.fillWidth: true
-                                placeholderText: "Mutated samples"
+                                columns: 2
+                                columnSpacing: Theme.px(6)
+                                rowSpacing: Theme.px(5)
+                                KfpsTextField {
+                                    id: cMax
+                                    Layout.fillWidth: true
+                                    placeholderText: "Max res"
+                                }
+                                KfpsTextField {
+                                    id: cRandom
+                                    Layout.fillWidth: true
+                                    placeholderText: "Random"
+                                }
+                                KfpsTextField {
+                                    id: cMutated
+                                    Layout.fillWidth: true
+                                    placeholderText: "Mutated"
+                                }
+                                KfpsTextField {
+                                    id: cseed
+                                    Layout.fillWidth: true
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                    placeholderText: "Seed"
+                                }
                             }
                         }
                         Item {
@@ -718,7 +737,7 @@ Item {
                             Layout.fillWidth: true
                             text: generationService.running ? "Generating…" : "Generate Final Vinyl"
                             enabled: !generationService.running
-                            onClicked: generationService.startQueue(sourceService.queuedPaths, cp.currentIndex, cl.currentText, cc.text, cLuma.checked, cHeat.checked, cRepair.checked, cBoost.checked, settings.manualOverrides, settings.manualOverrides ? cMax.text : "", settings.manualOverrides ? cRandom.text : "", settings.manualOverrides ? cMutated.text : "", parseInt(cseed.text) || 0)
+                            onClicked: generationService.startQueue(sourceService.queuedPaths, cp.currentIndex, cl.currentText, cc.text, cLuma.checked, cHeat.checked, cRepair.checked, cBoost.checked, settings.manualOverrides, settings.manualOverrides ? cMax.text : "", settings.manualOverrides ? cRandom.text : "", settings.manualOverrides ? cMutated.text : "", settings.manualOverrides ? (parseInt(cseed.text) || 0) : 0)
                         }
                         RowLayout {
                             Layout.fillWidth: true

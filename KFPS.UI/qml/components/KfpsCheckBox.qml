@@ -9,6 +9,7 @@ CheckBox {
     objectName: "KfpsCheckBox:" + root.text
 
     property bool dense: false
+    property string toolTipText: ""
 
     spacing: Theme.px(9)
     leftPadding: 0
@@ -63,4 +64,9 @@ CheckBox {
         maximumLineCount: 2
         elide: Text.ElideRight
     }
+
+    ToolTip.delay: 450
+    ToolTip.timeout: 14000
+    ToolTip.visible: root.hovered && root.toolTipText.length > 0
+    ToolTip.text: root.toolTipText
 }

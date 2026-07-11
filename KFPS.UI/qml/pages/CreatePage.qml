@@ -21,6 +21,10 @@ Item {
     readonly property real headerPreviewCenterX: previewCard.x + previewCard.width / 2
     readonly property real headerBannerLeftX: sourceSetupCard.x
     readonly property real headerBannerRightX: previewCard.x + previewCard.width
+    readonly property string detailHeatmapTip: "Usually leave this off.\nKFPS automatically uses detail-focused processing when the preset or source needs it.\nManual use is mostly for controlled testing."
+    readonly property string lumaPrepTip: "Usually leave this off.\nKFPS automatically prepares brightness and transparency when a preset benefits from it.\nTurning it on manually can make some images worse."
+    readonly property string edgeRepairTip: "Usually leave this off.\nKFPS automatically handles cleanup when appropriate.\nManual edge repair is only for sources with obvious cutout holes or broken edges."
+    readonly property string sampleBoostTip: "This is the only option most users should touch.\n2x mode makes the generator spend about twice as much work looking for better shape matches.\nIt can improve detail or smoother edges, but it takes longer."
 
     function checkpointTextFor(layerText) {
         var target = parseInt(layerText)
@@ -161,6 +165,7 @@ Item {
 
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.columnSpan: 2
                         spacing: Theme.px(3)
                         Label { text: "Template layers" }
                         KfpsTextField {
@@ -171,20 +176,6 @@ Item {
                             placeholderText: "1–3000"
                             inputMethodHints: Qt.ImhDigitsOnly
                             onEditingFinished: if (!root.checkpointsManual) checkpoints.text = root.checkpointTextFor(text)
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.px(3)
-                        Label { text: "Seed" }
-                        KfpsTextField {
-                            id: seed
-                            Layout.fillWidth: true
-                            text: "0"
-                            dense: root.compactHeight
-                            placeholderText: "0 = default"
-                            inputMethodHints: Qt.ImhDigitsOnly
                         }
                     }
                 }
@@ -230,10 +221,10 @@ Item {
                             columnSpacing: Theme.px(6)
                             rowSpacing: Theme.px(1)
 
-                            KfpsCheckBox { id: heat; Layout.fillWidth: true; text: "Detail heatmap"; dense: true }
-                            KfpsCheckBox { id: luma; Layout.fillWidth: true; text: "Luma prep"; dense: true }
-                            KfpsCheckBox { id: repair; Layout.fillWidth: true; text: "Edge repair"; dense: true }
-                            KfpsCheckBox { id: boost; Layout.fillWidth: true; text: "2× mode"; dense: true }
+                            KfpsCheckBox { id: heat; Layout.fillWidth: true; text: "Detail heatmap"; dense: true; toolTipText: root.detailHeatmapTip }
+                            KfpsCheckBox { id: luma; Layout.fillWidth: true; text: "Luma prep"; dense: true; toolTipText: root.lumaPrepTip }
+                            KfpsCheckBox { id: repair; Layout.fillWidth: true; text: "Edge repair"; dense: true; toolTipText: root.edgeRepairTip }
+                            KfpsCheckBox { id: boost; Layout.fillWidth: true; text: "2× mode"; dense: true; toolTipText: root.sampleBoostTip }
                         }
                     }
                 }
@@ -241,7 +232,7 @@ Item {
                 GlassPanel {
                     visible: settings.manualOverrides
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 82 : 96) : 0
+                    Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 112 : 128) : 0
                     soft: true
 
                     ColumnLayout {
@@ -261,11 +252,19 @@ Item {
 
                         GridLayout {
                             Layout.fillWidth: true
-                            columns: 3
+                            columns: 2
                             columnSpacing: Theme.px(6)
+                            rowSpacing: Theme.px(5)
                             KfpsTextField { id: maxRes; Layout.fillWidth: true; dense: true; placeholderText: "Max res" }
                             KfpsTextField { id: randomSamples; Layout.fillWidth: true; dense: true; placeholderText: "Random" }
                             KfpsTextField { id: mutatedSamples; Layout.fillWidth: true; dense: true; placeholderText: "Mutated" }
+                            KfpsTextField {
+                                id: seed
+                                Layout.fillWidth: true
+                                dense: true
+                                placeholderText: "Seed"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                            }
                         }
                     }
                 }
@@ -277,7 +276,7 @@ Item {
                     text: generationService.running ? "Generating…" : "Generate Final Vinyl"
                     iconName: "generate"
                     enabled: !generationService.running
-                    onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.text, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", parseInt(seed.text) || 0)
+                    onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.text, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
                 }
 
                 GridLayout {
