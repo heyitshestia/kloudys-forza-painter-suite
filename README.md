@@ -71,6 +71,48 @@ The editor is designed around practical vinyl work:
 - Save editor projects separately from FH6 export JSON.
 - Export JSON back into the KFPS import workflow.
 
+## Community Contributions
+
+A very, very big thank you to LanceMuscles for insights into the deep and almost forgotten lore of Forza Horizon image-to-vinyl generation.
+
+Many more thanks to River, Elu, Wolfie, WKD_Will, Big Nut, Korinthian, Catinus, Soypoka, Slasher, Melon, Eddie, Frozander, Kuroshine, slaigh., Asayunon, and Astral_Cat for suggestions, testing, tips, and solutions.
+
+Thank you to dcinside.com and minnn for the detailed guide coverage and feedback.
+
+## Credits
+
+This project builds on earlier Forza Painter work and keeps license notices in [LICENSE](LICENSE), [LICENSE.geometrize-gpu](LICENSE.geometrize-gpu), [LICENSE.custom-importer](LICENSE.custom-importer), and [LICENSE.fabricjs](LICENSE.fabricjs).
+
+### Special Thanks: ForzaLiveryStudio
+
+A particularly big thank you to [Arstz/ForzaLiveryStudio](https://github.com/Arstz/ForzaLiveryStudio) and everyone who worked on it. KFPS' offline save-library direction was informed by studying the public ForzaLiveryStudio project, especially its documented `C_group`, `C_livery`, header, and save-file-first approach. KFPS does not vendor ForzaLiveryStudio code; this is a direct credit for public research, documentation, and ideas that made the offline route clearer.
+
+Additional ForzaLiveryStudio thanks:
+
+- [Arstz](https://github.com/Arstz): project author/maintainer, C++/Qt editor work, proprietary Forza binary import/export direction, documentation, and overall architecture.
+- [Fr4g3z](https://github.com/Fr4g3z): format reversing help and editor/tooling contributions including color sampling and quality-of-life work.
+- [RPINerd](https://github.com/RPINerd): Linux build documentation and build-fix contributions.
+- [Zloysvin](https://github.com/Zloysvin): README/project documentation work, shape naming, and upstream project support.
+- Pengyss: non-uniform group transform algorithm credited by the upstream project.
+- Mixbob: in-game testing and feedback credited by the upstream project.
+- Eaterrius: resource/token support credited by the upstream project.
+- Everyone whose liveries and vinyl groups helped decode the format.
+
+| Person / project | Link | Contribution |
+| --- | --- | --- |
+| AE / A-Dawg#0001 | https://github.com/forza-painter/forza-painter | Original Forza Painter project, MIT-licensed import workflow, memory-writing/import foundation, and geometry-to-vinyl approach. |
+| BVZRays / bvz rays | https://github.com/bvzrays/forza-painter-fh6 | FH6-focused desktop work, importer/locator behavior, UI/package workflow ideas, and upstream FH6 experimentation. |
+| Arstz / ForzaLiveryStudio | https://github.com/Arstz/ForzaLiveryStudio | Public Forza save-format editor/research project whose documentation and save-file-first approach helped inform KFPS offline library work. |
+| Fabric.js | https://fabricjs.com/ | Canvas editing library used by the bundled browser editor. |
+| zjl88858 / forza-painter-geometrize-gpu | https://github.com/zjl88858/forza-painter-geometrize-gpu | GPU/OpenCL generator lineage used by the bundled generator workflow. |
+| Community FH5 shape-code spreadsheet | https://docs.google.com/spreadsheets/d/1zmdme-c1ZqxTw8dd-ooYhJV8aOSYc1LkZlmIfELRbqo/edit#gid=0 | Shape-code ordering and names used as the starting point for FH6 registry work. |
+| Frozander | Discord | Practical page/offset observations that helped validate FH6 shape registry inference. |
+| Community testers | Discord | Templates, screenshots, crash reports, save/reload checks, and import validation. |
+| Sam Twidale | https://samcodes.co.uk/ | `geometrize-lib` author; original geometry approximation work credited by upstream license notices. |
+| Michael Fogleman | https://github.com/fogleman/primitive | `primitive` author; original primitive-based image approximation library credited by upstream license notices. |
+| Sanguk Ko / ree9622 | https://github.com/ree9622 | Korean localization contributor in upstream history. |
+| heyitshestia / Kloudy | https://github.com/heyitshestia/kloudys-forza-painter-suite | KFPS suite workflow, native QML app, presets, finalization, JSON browser, updater, packaging, FH6 safety adjustments, layer culling, editor integration, and FH6 handmade/import tooling. |
+
 ## Download
 
 For normal use, download the latest release zip:
@@ -383,49 +425,6 @@ These examples show prepared source art next to high-layer final preview output 
 | <img src="docs/examples/kfps-showcase/character-detail-source.png" width="360" alt="Character source"> | <img src="docs/examples/kfps-showcase/character-detail-final.png" width="360" alt="Character final preview"> |
 | <img src="docs/examples/kfps-showcase/painted-moon-source.png" width="360" alt="Painted moon source"> | <img src="docs/examples/kfps-showcase/painted-moon-final.png" width="360" alt="Painted moon final preview"> |
 | <img src="docs/examples/kfps-showcase/white-line-art-source.png" width="360" alt="White line art source"> | <img src="docs/examples/kfps-showcase/white-line-art-final.png" width="360" alt="White line art final preview"> |
-
-
-## Community Contributions
-
-A very, very big thank you to LanceMuscles for insights into the deep and almost forgotten lore of Forza Horizon image-to-vinyl generation.
-
-Many more thanks to River, Elu, Wolfie, WKD_Will, Big Nut, Korinthian, Catinus, Soypoka, Slasher, Melon, Eddie, Frozander, Kuroshine, slaigh., Asayunon, and Astral_Cat for suggestions, testing, tips, and solutions.
-
-Thank you to dcinside.com and minnn for the detailed guide coverage and feedback.
-
-## Credits
-
-This project builds on earlier Forza Painter work and keeps license notices in [LICENSE](LICENSE), [LICENSE.geometrize-gpu](LICENSE.geometrize-gpu), [LICENSE.custom-importer](LICENSE.custom-importer), and [LICENSE.fabricjs](LICENSE.fabricjs).
-
-### Special Thanks: ForzaLiveryStudio
-
-A particularly big thank you to [Arstz/ForzaLiveryStudio](https://github.com/Arstz/ForzaLiveryStudio) and everyone who worked on it. KFPS' offline save-library direction was informed by studying the public ForzaLiveryStudio project, especially its documented `C_group`, `C_livery`, header, and save-file-first approach. KFPS does not vendor ForzaLiveryStudio code; this is a direct credit for public research, documentation, and ideas that made the offline route clearer.
-
-Additional ForzaLiveryStudio thanks:
-
-- [Arstz](https://github.com/Arstz): project author/maintainer, C++/Qt editor work, proprietary Forza binary import/export direction, documentation, and overall architecture.
-- [Fr4g3z](https://github.com/Fr4g3z): format reversing help and editor/tooling contributions including color sampling and quality-of-life work.
-- [RPINerd](https://github.com/RPINerd): Linux build documentation and build-fix contributions.
-- [Zloysvin](https://github.com/Zloysvin): README/project documentation work, shape naming, and upstream project support.
-- Pengyss: non-uniform group transform algorithm credited by the upstream project.
-- Mixbob: in-game testing and feedback credited by the upstream project.
-- Eaterrius: resource/token support credited by the upstream project.
-- Everyone whose liveries and vinyl groups helped decode the format.
-
-| Person / project | Link | Contribution |
-| --- | --- | --- |
-| AE / A-Dawg#0001 | https://github.com/forza-painter/forza-painter | Original Forza Painter project, MIT-licensed import workflow, memory-writing/import foundation, and geometry-to-vinyl approach. |
-| BVZRays / bvz rays | https://github.com/bvzrays/forza-painter-fh6 | FH6-focused desktop work, importer/locator behavior, UI/package workflow ideas, and upstream FH6 experimentation. |
-| Arstz / ForzaLiveryStudio | https://github.com/Arstz/ForzaLiveryStudio | Public Forza save-format editor/research project whose documentation and save-file-first approach helped inform KFPS offline library work. |
-| Fabric.js | https://fabricjs.com/ | Canvas editing library used by the bundled browser editor. |
-| zjl88858 / forza-painter-geometrize-gpu | https://github.com/zjl88858/forza-painter-geometrize-gpu | GPU/OpenCL generator lineage used by the bundled generator workflow. |
-| Community FH5 shape-code spreadsheet | https://docs.google.com/spreadsheets/d/1zmdme-c1ZqxTw8dd-ooYhJV8aOSYc1LkZlmIfELRbqo/edit#gid=0 | Shape-code ordering and names used as the starting point for FH6 registry work. |
-| Frozander | Discord | Practical page/offset observations that helped validate FH6 shape registry inference. |
-| Community testers | Discord | Templates, screenshots, crash reports, save/reload checks, and import validation. |
-| Sam Twidale | https://samcodes.co.uk/ | `geometrize-lib` author; original geometry approximation work credited by upstream license notices. |
-| Michael Fogleman | https://github.com/fogleman/primitive | `primitive` author; original primitive-based image approximation library credited by upstream license notices. |
-| Sanguk Ko / ree9622 | https://github.com/ree9622 | Korean localization contributor in upstream history. |
-| heyitshestia / Kloudy | https://github.com/heyitshestia/kloudys-forza-painter-suite | KFPS suite workflow, native QML app, presets, finalization, JSON browser, updater, packaging, FH6 safety adjustments, layer culling, editor integration, and FH6 handmade/import tooling. |
 
 ## Theme Showcase
 
