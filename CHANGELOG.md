@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.58
+- Added background FD6 JSON detection for manual imports.
+- Converted FD6 ellipse and rectangle shape JSONs into KFPS type-code JSONs without modifying the original file.
+- Manual FD6 imports now appear in Exported with KFPS metadata and shape counts.
+
 ## 3.0.57
 - Improved Fabric editor responsiveness for large vinyl projects by moving pan, zoom, and transform previews onto the GPU hybrid path sooner.
 - Kept layer visibility and selection state intact during GPU preview, then restored the normal Fabric render after interaction settles.

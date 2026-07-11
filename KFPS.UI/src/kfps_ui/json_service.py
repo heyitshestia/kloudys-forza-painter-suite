@@ -15,6 +15,15 @@ from .preview_service import PreviewService
 from .qt_utils import safe_file_part
 
 
+FD6_FORMAT = "fd6.shapes"
+KFPS_RECTANGLE_TYPE = 1048677
+KFPS_ELLIPSE_TYPE = 1048678
+KFPS_RECTANGLE_WORD = 0x0065
+KFPS_ELLIPSE_WORD = 0x0066
+FD6_RECTANGLE_DIVISOR = 127.0
+FD6_ELLIPSE_DIVISOR = 63.0
+
+
 class JsonService(QObject):
     changed = Signal()
 
@@ -313,14 +322,204 @@ class JsonService(QObject):
     @Slot()
     def clearSelection(self): self._selected_path=""; self._selected_display_name=""; self._preview_url=""; self._layers="—"; self._folder="—"; self.changed.emit()
 
+    @staticmethod
+    def _safe_float(value, default=0.0):
+        try:
+            if value is None or isinstance(value, bool):
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _is_fd6_payload(payload):
+        return isinstance(payload, dict) and str(payload.get("format") or "").strip().lower() == FD6_FORMAT
+
+    @staticmethod
+    def _fd6_color(value):
+        if isinstance(value, dict):
+            raw = [value.get("r"), value.get("g"), value.get("b"), value.get("a", 255)]
+        elif isinstance(value, (list, tuple)):
+            raw = list(value[:4])
+            if len(raw) == 3:
+                raw.append(255)
+        else:
+            return None
+        if len(raw) != 4:
+            return None
+        try:
+            nums = [float(item) for item in raw]
+        except (TypeError, ValueError):
+            return None
+        if all(0.0 <= item <= 1.0 for item in nums):
+            nums = [item * 255.0 for item in nums]
+        return [max(0, min(255, int(round(item)))) for item in nums]
+
+    @classmethod
+    def _fd6_shape_bounds(cls, shape):
+        if not isinstance(shape, dict):
+            return None
+        kind = str(shape.get("type") or "").strip().lower()
+        x = cls._safe_float(shape.get("x"), None)
+        y = cls._safe_float(shape.get("y"), None)
+        if x is None or y is None:
+            return None
+        if kind == "circle":
+            r = abs(cls._safe_float(shape.get("r"), 0.0))
+            return x - r, y - r, x + r, y + r
+        if kind in {"ellipse", "rotated_ellipse"}:
+            rx = abs(cls._safe_float(shape.get("rx"), 0.0))
+            ry = abs(cls._safe_float(shape.get("ry"), 0.0))
+            radius = max(rx, ry) if kind == "rotated_ellipse" else None
+            return (x - radius, y - radius, x + radius, y + radius) if radius else (x - rx, y - ry, x + rx, y + ry)
+        if kind in {"rectangle", "rotated_rectangle"}:
+            hw = abs(cls._safe_float(shape.get("hw"), 0.0))
+            hh = abs(cls._safe_float(shape.get("hh"), 0.0))
+            radius = (hw * hw + hh * hh) ** 0.5 if kind == "rotated_rectangle" else None
+            return (x - radius, y - radius, x + radius, y + radius) if radius else (x - hw, y - hh, x + hw, y + hh)
+        return None
+
+    @classmethod
+    def _fd6_conversion_center(cls, payload, shapes):
+        size = payload.get("image_size") if isinstance(payload, dict) else None
+        if isinstance(size, (list, tuple)) and len(size) >= 2:
+            width = cls._safe_float(size[0], 0.0)
+            height = cls._safe_float(size[1], 0.0)
+            if width > 0 and height > 0:
+                return width / 2.0, height / 2.0, "image_center"
+        bounds = [item for item in (cls._fd6_shape_bounds(shape) for shape in shapes) if item]
+        if bounds:
+            min_x = min(item[0] for item in bounds); min_y = min(item[1] for item in bounds)
+            max_x = max(item[2] for item in bounds); max_y = max(item[3] for item in bounds)
+            return (min_x + max_x) / 2.0, (min_y + max_y) / 2.0, "bounds_center"
+        return 0.0, 0.0, "zero"
+
+    @staticmethod
+    def _round_fd6(value):
+        rounded = round(float(value), 6)
+        return 0.0 if rounded == -0.0 else rounded
+
+    @classmethod
+    def _convert_fd6_payload(cls, payload, source):
+        shapes = payload.get("shapes") if isinstance(payload, dict) else None
+        if not isinstance(shapes, list) or not shapes:
+            raise ValueError("FD6 JSON must contain a non-empty shapes list.")
+        center_x, center_y, origin = cls._fd6_conversion_center(payload, shapes)
+        converted = []
+        skipped = 0
+        for index, shape in enumerate(shapes):
+            if not isinstance(shape, dict):
+                skipped += 1
+                continue
+            kind = str(shape.get("type") or "").strip().lower()
+            color = cls._fd6_color(shape.get("color"))
+            if not color or color[3] <= 0:
+                skipped += 1
+                continue
+            x = cls._safe_float(shape.get("x"), None)
+            y = cls._safe_float(shape.get("y"), None)
+            angle = cls._safe_float(shape.get("angle"), 0.0)
+            type_code = None
+            type_word = None
+            scale_x = None
+            scale_y = None
+            resource_index = None
+            if kind == "circle":
+                radius = abs(cls._safe_float(shape.get("r"), 0.0))
+                scale_x = radius / FD6_ELLIPSE_DIVISOR
+                scale_y = radius / FD6_ELLIPSE_DIVISOR
+                type_code = KFPS_ELLIPSE_TYPE
+                type_word = KFPS_ELLIPSE_WORD
+                resource_index = 2
+            elif kind in {"ellipse", "rotated_ellipse"}:
+                scale_x = abs(cls._safe_float(shape.get("rx"), 0.0)) / FD6_ELLIPSE_DIVISOR
+                scale_y = abs(cls._safe_float(shape.get("ry"), 0.0)) / FD6_ELLIPSE_DIVISOR
+                type_code = KFPS_ELLIPSE_TYPE
+                type_word = KFPS_ELLIPSE_WORD
+                resource_index = 2
+            elif kind in {"rectangle", "rotated_rectangle"}:
+                scale_x = abs(cls._safe_float(shape.get("hw"), 0.0)) * 2.0 / FD6_RECTANGLE_DIVISOR
+                scale_y = abs(cls._safe_float(shape.get("hh"), 0.0)) * 2.0 / FD6_RECTANGLE_DIVISOR
+                type_code = KFPS_RECTANGLE_TYPE
+                type_word = KFPS_RECTANGLE_WORD
+                resource_index = 1
+            if x is None or y is None or type_code is None or not scale_x or not scale_y:
+                skipped += 1
+                continue
+            converted.append({
+                "type": type_code,
+                "type_word": type_word,
+                "data": [
+                    cls._round_fd6(x - center_x),
+                    cls._round_fd6(-(y - center_y)),
+                    cls._round_fd6(scale_x),
+                    cls._round_fd6(scale_y),
+                    cls._round_fd6((360.0 - angle) % 360.0),
+                    0,
+                    0,
+                ],
+                "color": color,
+                "resource_family": "Primitives",
+                "resource_index": resource_index,
+                "source_format": FD6_FORMAT,
+                "fd6_type": kind,
+                "fd6_source_index": index,
+            })
+        if not converted:
+            raise ValueError("FD6 JSON did not contain any supported visible shapes.")
+        display_name = f"{Path(source).stem} (FD6 converted)"
+        metadata = {
+            "title": display_name,
+            "display_name": display_name,
+            "source_format": FD6_FORMAT,
+            "source_file": Path(source).name,
+            "fd6_source_image": payload.get("source_image") or "",
+            "fd6_profile": payload.get("profile") or "",
+            "fd6_generated_at": payload.get("generated_at") or "",
+            "fd6_sticker_mode": bool(payload.get("sticker_mode", False)),
+            "fd6_origin": origin,
+            "fd6_offset": [cls._round_fd6(center_x), cls._round_fd6(center_y)],
+            "conversion": "fd6.shapes->kfps.typecode.v1",
+            "target_game": "fh6",
+            "layers": len(converted),
+            "layer_count": len(converted),
+            "shape_count": len(converted),
+            "skipped_shapes": skipped,
+        }
+        return {"format": "kfps.fd6.converted.v1", "metadata": metadata, "shapes": converted}, len(converted), skipped
+
+    @staticmethod
+    def _unique_json_target(root, name):
+        stem = safe_file_part(Path(name).stem, "manual-json")
+        suffix = Path(name).suffix or ".json"
+        target = root / f"{stem}{suffix}"
+        n = 2
+        while target.exists():
+            target = root / f"{stem} ({n}){suffix}"
+            n += 1
+        return target
+
     @Slot()
     def browseManual(self):
         src=self.desktop.chooseJson()
         if not src:return
         try:
-            root=self.paths.exported_root; root.mkdir(parents=True,exist_ok=True); source=Path(src); target=root/source.name; n=2
-            while target.exists(): target=root/f"{source.stem} ({n}){source.suffix}"; n+=1
-            shutil.copy2(source,target); self.setSource(2); self.refresh(); self.selectPath(str(target)); self.log.append(f"Copied manual JSON to Exported: {target}")
+            root=self.paths.exported_root; root.mkdir(parents=True,exist_ok=True); source=Path(src)
+            payload = None
+            try:
+                payload = json.loads(source.read_text(encoding="utf-8-sig"))
+            except Exception:
+                payload = None
+            if self._is_fd6_payload(payload):
+                converted, count, skipped = self._convert_fd6_payload(payload, source)
+                target = self._unique_json_target(root, f"{source.stem}.fd6-converted.json")
+                target.write_text(json.dumps(converted, indent=2) + "\n", encoding="utf-8")
+                self.setSource(2); self.refresh(); self.selectPath(str(target))
+                suffix = f"; skipped {skipped}" if skipped else ""
+                self.log.append(f"Converted FD6 JSON to KFPS Exported: {target} ({count} shapes{suffix})")
+            else:
+                target=self._unique_json_target(root, source.name)
+                shutil.copy2(source,target); self.setSource(2); self.refresh(); self.selectPath(str(target)); self.log.append(f"Copied manual JSON to Exported: {target}")
         except Exception as exc:self.log.append(f"Manual JSON copy failed: {exc}","error")
 
     @Slot()
