@@ -9,10 +9,16 @@ Item {
     anchors.fill: parent
     property bool wide: Theme.logical(width) >= 1020
     property bool medium: Theme.logical(width) >= 760
+    readonly property bool headerAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
+    readonly property real headerSourceCenterX: headerAlignmentAvailable ? pageLoader.item.headerSourceCenterX : 0
+    readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLoader.item.headerPreviewCenterX : 0
+    readonly property real headerBannerLeftX: headerAlignmentAvailable ? pageLoader.item.headerBannerLeftX : 0
+    readonly property real headerBannerRightX: headerAlignmentAvailable ? pageLoader.item.headerBannerRightX : 0
 
     Component.onCompleted: helpService.setCategory("all")
 
     Loader {
+        id: pageLoader
         anchors.fill: parent
         sourceComponent: root.wide ? wideComponent : compactComponent
     }
@@ -495,10 +501,16 @@ Item {
     Component {
         id: wideComponent
         GridLayout {
+            readonly property bool headerAlignmentAvailable: searchCard.width > 0 && articleCard.width > 0
+            readonly property real headerSourceCenterX: searchCard.x + searchCard.width / 2
+            readonly property real headerPreviewCenterX: articleCard.x + articleCard.width / 2
+            readonly property real headerBannerLeftX: searchCard.x
+            readonly property real headerBannerRightX: articleCard.x + articleCard.width
             columns: 3
             columnSpacing: Theme.px(10)
 
             HoverCard {
+                id: searchCard
                 Layout.preferredWidth: Theme.px(292)
                 Layout.fillHeight: true
                 padding: Theme.px(15)
@@ -513,6 +525,7 @@ Item {
             }
 
             HoverCard {
+                id: articleCard
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 padding: Theme.px(18)

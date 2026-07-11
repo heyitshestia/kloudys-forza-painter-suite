@@ -7,6 +7,13 @@ import "../components"
 Item {
     id: root
     anchors.fill: parent
+    readonly property bool headerAlignmentAvailable: Theme.logical(width) > 900
+                                                     && removeBackgroundCard.width > 0
+                                                     && compressCard.width > 0
+    readonly property real headerSourceCenterX: workflowGrid.x + removeBackgroundCard.x + removeBackgroundCard.width / 2
+    readonly property real headerPreviewCenterX: workflowGrid.x + compressCard.x + compressCard.width / 2
+    readonly property real headerBannerLeftX: workflowGrid.x + removeBackgroundCard.x
+    readonly property real headerBannerRightX: workflowGrid.x + compressCard.x + compressCard.width
 
     FastScrollView {
         id: scroll
@@ -26,12 +33,14 @@ Item {
             }
 
             GridLayout {
+                id: workflowGrid
                 Layout.fillWidth: true
                 columns: Theme.logical(root.width) > 900 ? 3 : 1
                 columnSpacing: Theme.px(12)
                 rowSpacing: Theme.px(12)
 
                 WorkflowCard {
+                    id: removeBackgroundCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.px(250)
                     number: ""
@@ -43,6 +52,7 @@ Item {
                 }
 
                 WorkflowCard {
+                    id: compressCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.px(250)
                     number: ""

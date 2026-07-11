@@ -118,6 +118,14 @@ ApplicationWindow {
                                                  : Theme.px(window.shortWindow ? 10 : 16)
                 readonly property bool pageHeaderAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
                 readonly property real headerSafeMargin: Theme.px(14)
+                readonly property real headerRightReserve: Math.max(
+                    headerControls.visible ? headerControls.width + Theme.px(30) : 0,
+                    supporterPromo.visible ? supporterPromo.width + Theme.px(30) : 0
+                )
+                readonly property real headerRightLimit: Math.max(
+                    headerSafeMargin,
+                    width - headerRightReserve - headerSafeMargin
+                )
                 readonly property real headerFallbackBannerWidth: Math.max(
                     Theme.px(window.compactHeader ? 420 : 540),
                     Math.min(
@@ -131,7 +139,10 @@ ApplicationWindow {
                     Math.max(Theme.px(12), width - headerFallbackBannerWidth - Theme.px(12))
                 )
                 readonly property real headerBannerLeft: pageHeaderX("headerBannerLeftX", headerFallbackBannerX)
-                readonly property real headerBannerRight: pageHeaderX("headerBannerRightX", headerFallbackBannerX + headerFallbackBannerWidth)
+                readonly property real headerRawBannerRight: pageHeaderX("headerBannerRightX", headerFallbackBannerX + headerFallbackBannerWidth)
+                readonly property real headerBannerRight: pageHeaderAlignmentAvailable
+                                                          ? Math.min(headerRawBannerRight, headerRightLimit)
+                                                          : headerRawBannerRight
                 readonly property real headerAlignedBannerWidth: Math.max(
                     Theme.px(window.compactHeader ? 420 : 540),
                     headerBannerRight - headerBannerLeft
@@ -160,7 +171,7 @@ ApplicationWindow {
                 function centeredHeaderX(centerX, itemWidth) {
                     return Theme.clamp(centerX - itemWidth / 2,
                                        headerSafeMargin,
-                                       Math.max(headerSafeMargin, width - itemWidth - headerSafeMargin))
+                                       Math.max(headerSafeMargin, width - headerRightReserve - itemWidth - headerSafeMargin))
                 }
 
                 AnnouncementTicker {
@@ -174,6 +185,7 @@ ApplicationWindow {
                 }
 
                 HeaderControls {
+                    id: headerControls
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.right: parent.right

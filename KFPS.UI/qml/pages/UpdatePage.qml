@@ -13,6 +13,11 @@ Item {
     readonly property string latestLabel: versionService.latestVersion && versionService.latestVersion.length > 0
                                          ? versionService.latestVersion
                                          : "checking"
+    readonly property bool headerAlignmentAvailable: Theme.logical(width) >= 900 && updateCard.width > 0
+    readonly property real headerSourceCenterX: pageColumn.x + updateCard.x + updateCard.width * 0.28
+    readonly property real headerPreviewCenterX: pageColumn.x + updateCard.x + updateCard.width * 0.72
+    readonly property real headerBannerLeftX: pageColumn.x + updateCard.x
+    readonly property real headerBannerRightX: pageColumn.x + updateCard.x + updateCard.width
 
     FastScrollView {
         id: scroll
@@ -22,6 +27,7 @@ Item {
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
+            id: pageColumn
             width: scroll.availableWidth
             height: Math.max(scroll.availableHeight, implicitHeight)
             spacing: Theme.px(18)

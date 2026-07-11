@@ -9,8 +9,14 @@ Item {
 
     anchors.fill: parent
     property bool wide: Theme.logical(width) >= 1000
+    readonly property bool headerAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
+    readonly property real headerSourceCenterX: headerAlignmentAvailable ? pageLoader.item.headerSourceCenterX : 0
+    readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLoader.item.headerPreviewCenterX : 0
+    readonly property real headerBannerLeftX: headerAlignmentAvailable ? pageLoader.item.headerBannerLeftX : 0
+    readonly property real headerBannerRightX: headerAlignmentAvailable ? pageLoader.item.headerBannerRightX : 0
 
     Loader {
+        id: pageLoader
         anchors.fill: parent
         sourceComponent: root.wide ? wideComponent : compactComponent
     }
@@ -262,10 +268,16 @@ Item {
         id: wideComponent
 
         GridLayout {
+            readonly property bool headerAlignmentAvailable: sourceCard.width > 0 && previewCard.width > 0
+            readonly property real headerSourceCenterX: sourceCard.x + sourceCard.width / 2
+            readonly property real headerPreviewCenterX: previewCard.x + previewCard.width / 2
+            readonly property real headerBannerLeftX: sourceCard.x
+            readonly property real headerBannerRightX: previewCard.x + previewCard.width
             columns: 3
             columnSpacing: Theme.px(10)
 
             HoverCard {
+                id: sourceCard
                 Layout.preferredWidth: Theme.px(260)
                 Layout.minimumWidth: Theme.px(230)
                 Layout.fillHeight: true
@@ -277,6 +289,7 @@ Item {
             }
 
             HoverCard {
+                id: previewCard
                 Layout.fillWidth: true
                 Layout.minimumWidth: Theme.px(360)
                 Layout.fillHeight: true

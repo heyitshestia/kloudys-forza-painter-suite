@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.60
+- Extended the centered supporter badge, version pill, and live status banner alignment from Create/Generate to the other app tabs.
+- Reserved the right-side page title area so header banners and pills stay clear across wider tab layouts.
+
 ## 3.0.59
 - Added an in-app Credits page from the sidebar footer with detailed community, ForzaLiveryStudio, upstream project, and license acknowledgements.
 - Reduced the live scrolling status banner by 5 px on each side to tighten its header alignment.

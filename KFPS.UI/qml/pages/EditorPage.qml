@@ -11,6 +11,13 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
+    readonly property bool headerAlignmentAvailable: root.wide
+                                                     && actionCard.width > 0
+                                                     && selectedProjectCard.width > 0
+    readonly property real headerSourceCenterX: actionCard.x + actionCard.width / 2
+    readonly property real headerPreviewCenterX: selectedProjectCard.x + selectedProjectCard.width / 2
+    readonly property real headerBannerLeftX: actionCard.x
+    readonly property real headerBannerRightX: selectedProjectCard.x + selectedProjectCard.width
 
     GridLayout {
         anchors.fill: parent
@@ -19,6 +26,7 @@ Item {
         rowSpacing: Theme.px(12)
 
         HoverCard {
+            id: actionCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(330) : -1
@@ -143,6 +151,7 @@ Item {
         }
 
         HoverCard {
+            id: selectedProjectCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(620) : -1

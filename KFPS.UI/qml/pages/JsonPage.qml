@@ -20,6 +20,13 @@ Item {
     property string infoCardFolder: ""
     property string infoCardPath: ""
     property string infoCardPreview: ""
+    readonly property bool headerAlignmentAvailable: root.wide
+                                                     && importSetupCard.width > 0
+                                                     && browseOutputsCard.width > 0
+    readonly property real headerSourceCenterX: importSetupCard.x + importSetupCard.width / 2
+    readonly property real headerPreviewCenterX: browseOutputsCard.x + browseOutputsCard.width / 2
+    readonly property real headerBannerLeftX: importSetupCard.x
+    readonly property real headerBannerRightX: browseOutputsCard.x + browseOutputsCard.width
 
     Connections {
         target: supporterService
@@ -54,6 +61,7 @@ Item {
         rowSpacing: Theme.px(12)
 
         HoverCard {
+            id: importSetupCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(360) : -1
@@ -395,6 +403,7 @@ Item {
         }
 
         HoverCard {
+            id: browseOutputsCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.columnSpan: root.wide ? 2 : 1

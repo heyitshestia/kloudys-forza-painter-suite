@@ -8,8 +8,14 @@ Item {
     id: root
     anchors.fill: parent
     property bool wide: Theme.logical(width) >= 930
+    readonly property bool headerAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
+    readonly property real headerSourceCenterX: headerAlignmentAvailable ? pageLoader.item.headerSourceCenterX : 0
+    readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLoader.item.headerPreviewCenterX : 0
+    readonly property real headerBannerLeftX: headerAlignmentAvailable ? pageLoader.item.headerBannerLeftX : 0
+    readonly property real headerBannerRightX: headerAlignmentAvailable ? pageLoader.item.headerBannerRightX : 0
 
     Loader {
+        id: pageLoader
         anchors.fill: parent
         sourceComponent: root.wide ? wideComponent : compactComponent
     }
@@ -17,10 +23,16 @@ Item {
     Component {
         id: wideComponent
         GridLayout {
+            readonly property bool headerAlignmentAvailable: reportDetailsCard.width > 0 && reportPreviewCard.width > 0
+            readonly property real headerSourceCenterX: reportDetailsCard.x + reportDetailsCard.width / 2
+            readonly property real headerPreviewCenterX: reportPreviewCard.x + reportPreviewCard.width / 2
+            readonly property real headerBannerLeftX: reportDetailsCard.x
+            readonly property real headerBannerRightX: reportPreviewCard.x + reportPreviewCard.width
             columns: 2
             columnSpacing: Theme.px(10)
 
             HoverCard {
+                id: reportDetailsCard
                 Layout.preferredWidth: Math.max(Theme.px(410), parent.width * 0.44)
                 Layout.fillHeight: true
                 padding: Theme.px(18)
@@ -124,6 +136,7 @@ Item {
             }
 
             HoverCard {
+                id: reportPreviewCard
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 padding: Theme.px(18)

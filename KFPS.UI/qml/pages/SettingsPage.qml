@@ -12,6 +12,13 @@ Item {
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
     property real pendingUiScale: settings.uiScale
+    readonly property bool headerAlignmentAvailable: root.wide
+                                                     && interfaceCard.width > 0
+                                                     && foldersCard.width > 0
+    readonly property real headerSourceCenterX: interfaceCard.x + interfaceCard.width / 2
+    readonly property real headerPreviewCenterX: foldersCard.x + foldersCard.width / 2
+    readonly property real headerBannerLeftX: interfaceCard.x
+    readonly property real headerBannerRightX: foldersCard.x + foldersCard.width
 
     function roundedUiScale(value) {
         return Math.max(0.8, Math.min(1.35, Math.round(value * 20) / 20))
@@ -32,6 +39,7 @@ Item {
         rowSpacing: Theme.px(12)
 
         HoverCard {
+            id: interfaceCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(390) : -1
@@ -244,6 +252,7 @@ Item {
         }
 
         HoverCard {
+            id: foldersCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(520) : -1

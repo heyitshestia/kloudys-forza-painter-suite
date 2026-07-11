@@ -10,6 +10,13 @@ Item {
     anchors.fill: parent
     property bool wide: Theme.logical(width) >= 980
     property bool compact: Theme.logical(width) < 760
+    readonly property bool headerAlignmentAvailable: root.wide
+                                                     && communityCard.width > 0
+                                                     && specialThanksCard.width > 0
+    readonly property real headerSourceCenterX: communityGrid.x + communityCard.x + communityCard.width / 2
+    readonly property real headerPreviewCenterX: communityGrid.x + specialThanksCard.x + specialThanksCard.width / 2
+    readonly property real headerBannerLeftX: communityGrid.x + communityCard.x
+    readonly property real headerBannerRightX: communityGrid.x + specialThanksCard.x + specialThanksCard.width
 
     readonly property var projectCredits: [
         {
@@ -188,12 +195,14 @@ Item {
             }
 
             GridLayout {
+                id: communityGrid
                 Layout.fillWidth: true
                 columns: root.wide ? 2 : 1
                 columnSpacing: Theme.px(12)
                 rowSpacing: Theme.px(12)
 
                 HoverCard {
+                    id: communityCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.max(communityContent.implicitHeight, flsOverviewContent.implicitHeight) + Theme.px(32)
                     Layout.alignment: Qt.AlignTop
@@ -274,6 +283,7 @@ Item {
                 }
 
                 HoverCard {
+                    id: specialThanksCard
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.max(communityContent.implicitHeight, flsOverviewContent.implicitHeight) + Theme.px(32)
                     Layout.alignment: Qt.AlignTop
