@@ -22,6 +22,7 @@ class AppController(QObject):
         "tools": "Tools",
         "reports": "Reports",
         "update": "Update",
+        "credits": "Credits",
     }
 
     SUBTITLES = {
@@ -35,6 +36,7 @@ class AppController(QObject):
         "tools": "External source-prep links. Check each website's privacy policy before uploading artwork.",
         "reports": "Create a local diagnostic report for support.",
         "update": "Check and apply app updates.",
+        "credits": "Project lineage, community thanks, upstream research, and license notices.",
     }
 
     # Keep the primary workflow free from the bottom log panel so all visible

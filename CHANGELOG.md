@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.59
+- Added an in-app Credits page from the sidebar footer with detailed community, ForzaLiveryStudio, upstream project, and license acknowledgements.
+- Reduced the live scrolling status banner by 5 px on each side to tighten its header alignment.
+
 ## 3.0.58
 - Added background FD6 JSON detection for manual imports.
 - Converted FD6 ellipse and rectangle shape JSONs into KFPS type-code JSONs without modifying the original file.

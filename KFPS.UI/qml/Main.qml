@@ -103,6 +103,7 @@ ApplicationWindow {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 onRoute: page => appController.navigate(page)
+                onCreditsRequested: appController.navigate("credits")
                 z: 10
             }
 
@@ -167,8 +168,8 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
-                    x: workspace.headerBannerX
-                    width: workspace.headerBannerWidth
+                    x: workspace.headerBannerX + Theme.px(5)
+                    width: Math.max(Theme.px(1), workspace.headerBannerWidth - Theme.px(10))
                     z: 24
                 }
 
@@ -251,7 +252,8 @@ ApplicationWindow {
                             learn: "HelpPage",
                             reports: "ReportsPage",
                             update: "UpdatePage",
-                            settings: "SettingsPage"
+                            settings: "SettingsPage",
+                            credits: "CreditsPage"
                         }[appController.currentPage]) + ".qml"
                         opacity: 1
 

@@ -20,6 +20,7 @@ Item {
         { page: "settings", label: "Settings", icon: "settings" }
     ]
     signal route(string page)
+    signal creditsRequested()
     property int logoTapCount: 0
     property bool insaneActive: false
 
@@ -36,6 +37,8 @@ Item {
             return "update"
         if (page === "settings" || page === "reports")
             return "settings"
+        if (page === "credits")
+            return "credits"
         return "create"
     }
 
@@ -267,15 +270,15 @@ Item {
         }
 
         GlassPanel {
-            visible: !root.compact
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(root.denseNavigation ? 76 : 90)
+            Layout.preferredHeight: Theme.px(root.compact ? 48 : (root.denseNavigation ? 104 : 116))
             soft: true
 
             Column {
+                visible: !root.compact
                 anchors.fill: parent
                 anchors.margins: Theme.px(11)
-                spacing: Theme.px(4)
+                spacing: Theme.px(6)
 
                 Text {
                     width: parent.width
@@ -302,6 +305,31 @@ Item {
                     maximumLineCount: 2
                     elide: Text.ElideRight
                 }
+
+                GhostButton {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    dense: true
+                    text: "Credits"
+                    iconName: "heart"
+                    accentText: appController.currentPage === "credits"
+                    minimumWidth: Theme.px(88)
+                    maximumTextWidth: Theme.px(64)
+                    textPixelSize: Theme.px(9.6)
+                    onClicked: root.creditsRequested()
+                }
+            }
+
+            GhostButton {
+                visible: root.compact
+                anchors.centerIn: parent
+                dense: true
+                text: "Credits"
+                iconName: "heart"
+                accentText: appController.currentPage === "credits"
+                minimumWidth: Theme.px(78)
+                maximumTextWidth: Theme.px(58)
+                textPixelSize: Theme.px(9.3)
+                onClicked: root.creditsRequested()
             }
         }
     }

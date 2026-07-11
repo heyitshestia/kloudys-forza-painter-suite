@@ -18,6 +18,7 @@ GlassPanel {
         if (page === "images") return "source-check"
         if (page === "reports") return "reports"
         if (page === "update") return "update"
+        if (page === "credits") return "heart"
         return "home"
     }
 
