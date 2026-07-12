@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.63
+- Queued existing JSON thumbnail URLs one at a time too, preventing generated, exported, and library source switches from loading every cached thumbnail at once.
+- Reworked the Update tab into a wide side-by-side layout with update controls beside patch notes.
+
 ## 3.0.62
 - Deferred missing JSON thumbnail rendering into a throttled background queue so large output folders stay responsive at startup.
 - Moved patch notes from Settings into the Update tab, keeping Settings focused on local folders and maintenance shortcuts.

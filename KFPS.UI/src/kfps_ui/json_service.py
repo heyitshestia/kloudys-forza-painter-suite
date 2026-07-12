@@ -220,7 +220,7 @@ class JsonService(QObject):
             "path": str(path),
             "layers": layers,
             "modifiedLabel": modified_label,
-            "previewUrl": self._existing_preview_for_json(path, self._source_names()[self._source]),
+            "previewUrl": "",
             "detailText": f"{detail}  •  {modified_label}",
             "folder": str(path.parent),
         }

@@ -109,5 +109,24 @@ class ServiceTests(unittest.TestCase):
    preview.release.set()
    self.assertLess(elapsed,0.5)
    self.assertEqual(svc.outputCount,1)
+ def test_json_refresh_queues_existing_thumbnail_urls(self):
+  class ExistingPreview:
+   def __init__(self):
+    self.release=threading.Event()
+   def existing_preview_for_json(self,path,source=""):
+    return "file:///cached.png"
+   def preview_for_json(self,path,source=""):
+    self.release.wait(1);return "file:///cached.png"
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);finals=app_root/"imgs"/"generated"/"Many"/"finals";finals.mkdir(parents=True)
+   for index in range(3):
+    (finals/f"Many.{index + 1}v2.json").write_text(json.dumps({"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=ExistingPreview();svc=JsonService(paths,preview,DummyDesktop(finals/"Many.1v2.json"),DummyLog())
+   try:
+    self.assertEqual(3, svc.outputCount)
+    self.assertTrue(all(not row.get("previewUrl") for row in svc.fileModel.rows))
+   finally:
+    preview.release.set()
 
 if __name__=="__main__":unittest.main()
