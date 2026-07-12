@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import re
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from .app_paths import AppPaths
 from .desktop_service import DesktopService
@@ -26,6 +27,7 @@ FD6_ELLIPSE_DIVISOR = 63.0
 
 class JsonService(QObject):
     changed = Signal()
+    _previewReady = Signal(int, str, str)
 
     def __init__(self, paths: AppPaths, preview: PreviewService, desktop: DesktopService, log: LogService, demo=False, parent=None):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
@@ -37,6 +39,12 @@ class JsonService(QObject):
         self._all_file_rows: list[dict] = []
         self._visible_file_rows: list[dict] = []
         self._groups: list[dict] = []
+        self._preview_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="json-preview")
+        self._preview_queue: list[tuple[str, str]] = []
+        self._preview_queued: set[str] = set()
+        self._preview_running = False
+        self._preview_generation = 0
+        self._previewReady.connect(self._apply_preview_result)
         self._ensure_logo(); self.refresh(); self.refreshRecent()
 
 
@@ -139,9 +147,10 @@ class JsonService(QObject):
         if selected and any(self._same_path(row.get("path"), selected) for row in rows):
             self.changed.emit()
         elif rows:
-            self._select_path(str(rows[0]["path"]), log=False)
+            self._select_path(str(rows[0]["path"]), log=False, queue_preview=False)
         else:
             self.clearSelection()
+        self._start_preview_queue(rows)
 
     @staticmethod
     def _same_path(left, right):
@@ -211,7 +220,7 @@ class JsonService(QObject):
             "path": str(path),
             "layers": layers,
             "modifiedLabel": modified_label,
-            "previewUrl": self.preview.preview_for_json(path, self._source_names()[self._source]),
+            "previewUrl": self._existing_preview_for_json(path, self._source_names()[self._source]),
             "detailText": f"{detail}  •  {modified_label}",
             "folder": str(path.parent),
         }
@@ -311,13 +320,104 @@ class JsonService(QObject):
     def selectPath(self,value):
         self._select_path(value, log=True)
 
-    def _select_path(self, value, log=True):
+    def _select_path(self, value, log=True, queue_preview=True):
         path=Path(value)
         if not path.is_file():return
         source_name=self._source_names()[self._source]
-        self._selected_path=str(path.resolve()); self._selected_display_name=self._display_name_for_json(path); self._layers=str(self._count(path)); self._folder=str(path.parent); self._preview_url=self.preview.preview_for_json(path, source_name); self.changed.emit()
+        self._selected_path=str(path.resolve()); self._selected_display_name=self._display_name_for_json(path); self._layers=str(self._count(path)); self._folder=str(path.parent); self._preview_url=self._existing_preview_for_json(path, source_name); self.changed.emit()
+        if queue_preview and not self._preview_url:
+            self._enqueue_preview_path(path, source_name, priority=True)
         if log:
             self.log.append(f"Selected JSON: {self._selected_path}")
+
+    def _existing_preview_for_json(self, path, source_name):
+        existing = getattr(self.preview, "existing_preview_for_json", None)
+        if callable(existing):
+            return existing(path, source_name)
+        return ""
+
+    @staticmethod
+    def _preview_key(path):
+        try:
+            return str(Path(path).resolve()).casefold()
+        except Exception:
+            return str(path).casefold()
+
+    def _start_preview_queue(self, rows):
+        self._preview_generation += 1
+        self._preview_queue = []
+        self._preview_queued = set()
+        source_name = self._source_names()[self._source]
+        for row in rows:
+            if row.get("previewUrl"):
+                continue
+            self._enqueue_preview_path(row.get("path"), source_name, priority=False, start=False, check_existing=False)
+        self._pump_preview_queue()
+
+    def _enqueue_preview_path(self, path, source_name=None, priority=False, start=True, check_existing=True):
+        if not path:
+            return
+        path = Path(path)
+        if not path.is_file():
+            return
+        source_name = source_name or self._source_names()[self._source]
+        if check_existing:
+            existing = self._existing_preview_for_json(path, source_name)
+            if existing:
+                self._update_preview_url(str(path), existing)
+                return
+        key = self._preview_key(path)
+        if key in self._preview_queued:
+            return
+        item = (str(path), source_name)
+        if priority:
+            self._preview_queue.insert(0, item)
+        else:
+            self._preview_queue.append(item)
+        self._preview_queued.add(key)
+        if start:
+            self._pump_preview_queue()
+
+    def _pump_preview_queue(self):
+        if self._preview_running or not self._preview_queue:
+            return
+        path, source_name = self._preview_queue.pop(0)
+        self._preview_queued.discard(self._preview_key(path))
+        generation = self._preview_generation
+        self._preview_running = True
+        future = self._preview_executor.submit(self.preview.preview_for_json, path, source_name)
+        future.add_done_callback(lambda done, gen=generation, item=path: self._previewReady.emit(gen, item, self._preview_result(done)))
+
+    @staticmethod
+    def _preview_result(future):
+        try:
+            return str(future.result() or "")
+        except Exception:
+            return ""
+
+    @Slot(int, str, str)
+    def _apply_preview_result(self, generation, path, preview_url):
+        self._preview_running = False
+        if generation == self._preview_generation and preview_url:
+            self._update_preview_url(path, preview_url)
+        QTimer.singleShot(180, self._pump_preview_queue)
+
+    def _update_preview_url(self, path, preview_url):
+        if not preview_url:
+            return
+        for row in self._all_file_rows:
+            if self._same_path(row.get("path"), path):
+                row["previewUrl"] = preview_url
+        visible_index = -1
+        for index, row in enumerate(self._visible_file_rows):
+            if self._same_path(row.get("path"), path):
+                row["previewUrl"] = preview_url
+                visible_index = index
+        if visible_index >= 0:
+            self._file_model.set_row_value(visible_index, "previewUrl", preview_url)
+        if self._selected_path and self._same_path(self._selected_path, path):
+            self._preview_url = preview_url
+            self.changed.emit()
 
     @Slot()
     def clearSelection(self): self._selected_path=""; self._selected_display_name=""; self._preview_url=""; self._layers="—"; self._folder="—"; self.changed.emit()

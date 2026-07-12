@@ -49,6 +49,18 @@ class DictListModel(QAbstractListModel):
             self.endRemoveRows()
         self.countChanged.emit()
 
+    def set_row_value(self, index: int, role_name: str, value: Any) -> bool:
+        if not 0 <= index < len(self._rows) or role_name not in self._roles:
+            return False
+        if self._rows[index].get(role_name) == value:
+            return True
+        self._rows[index][role_name] = value
+        role_id = next((role for role, name in self._role_ids.items() if name == role_name), None)
+        if role_id is not None:
+            model_index = self.index(index, 0)
+            self.dataChanged.emit(model_index, model_index, [role_id])
+        return True
+
     def row(self, index: int) -> dict[str, Any] | None:
         return dict(self._rows[index]) if 0 <= index < len(self._rows) else None
 

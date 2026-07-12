@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.62
+- Deferred missing JSON thumbnail rendering into a throttled background queue so large output folders stay responsive at startup.
+- Moved patch notes from Settings into the Update tab, keeping Settings focused on local folders and maintenance shortcuts.
+
 ## 3.0.61
 - Moved generator seed controls behind Manual generator overrides so normal runs keep the default seed behavior.
 - Added hover help for generation options, including guidance that KFPS chooses most options automatically and that 2x Mode is the normal-user option for slower, deeper matching.

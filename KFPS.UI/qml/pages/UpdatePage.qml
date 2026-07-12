@@ -263,6 +263,104 @@ Item {
                             lineHeight: 1.25
                         }
                     }
+
+                    GlassPanel {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.px(240)
+                        soft: true
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(14)
+                            spacing: Theme.px(8)
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(10)
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Patch notes"
+                                    color: Theme.primaryBright
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(13)
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+
+                                GhostButton {
+                                    dense: true
+                                    text: "Refresh"
+                                    iconName: "refresh"
+                                    minimumWidth: Theme.px(84)
+                                    onClicked: changelogService.refresh()
+                                }
+                            }
+
+                            FastListView {
+                                id: updatePatchNotes
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                model: changelogService.model
+                                spacing: Theme.px(7)
+
+                                delegate: Item {
+                                    required property string version
+                                    required property string summary
+                                    required property string details
+
+                                    width: updatePatchNotes.width
+                                    height: Theme.px(62)
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        spacing: Theme.px(3)
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Theme.px(10)
+
+                                            Text {
+                                                Layout.preferredWidth: Theme.px(68)
+                                                Layout.minimumWidth: Layout.preferredWidth
+                                                text: version
+                                                color: Theme.success
+                                                font.family: Theme.monoFamily
+                                                font.pixelSize: Theme.px(10.2)
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: summary
+                                                color: Theme.text
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.px(10.8)
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: details
+                                            color: Theme.muted
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(9.8)
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            wrapMode: Text.Wrap
+                                            lineHeight: 1.15
+                                        }
+                                    }
+                                }
+
+                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            }
+                        }
+                    }
                 }
             }
 

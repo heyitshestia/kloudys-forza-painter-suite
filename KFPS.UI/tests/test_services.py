@@ -1,4 +1,4 @@
-import json, os, sys, tempfile, unittest
+import json, os, sys, tempfile, threading, time, unittest
 from pathlib import Path
 UI=Path(__file__).resolve().parents[1];ROOT=UI.parent
 sys.path.insert(0,str(UI/"src"));sys.path.insert(0,str(ROOT));os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
@@ -93,5 +93,21 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(rect["data"],[-20.0,20.0,1.0,2.0,0.0,0,0])
    self.assertEqual(rect["color"],[128,64,0,255])
    self.assertTrue(any("Converted FD6 JSON" in message for message,level in log.messages))
+ def test_json_refresh_does_not_render_thumbnails_synchronously(self):
+  class BlockingPreview:
+   def __init__(self):
+    self.entered=threading.Event();self.release=threading.Event()
+   def existing_preview_for_json(self,path,source=""):
+    return ""
+   def preview_for_json(self,path,source=""):
+    self.entered.set();self.release.wait(1);return ""
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"generated"/"Many"/"finals"/"Many.1v2.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=BlockingPreview();started=time.monotonic();svc=JsonService(paths,preview,DummyDesktop(target),DummyLog());elapsed=time.monotonic()-started
+   preview.release.set()
+   self.assertLess(elapsed,0.5)
+   self.assertEqual(svc.outputCount,1)
 
 if __name__=="__main__":unittest.main()

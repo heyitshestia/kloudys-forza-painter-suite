@@ -266,7 +266,7 @@ Item {
                 SectionHeading {
                     Layout.fillWidth: true
                     title: "Folders"
-                    subtitle: "Upper half: important folders. Lower half: bundled changelog."
+                    subtitle: "Important local folders and shortcuts."
                 }
 
                 GlassPanel {
@@ -344,77 +344,6 @@ Item {
                     }
                 }
 
-                GlassPanel {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 190 : 250)
-                    soft: true
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(10)
-                        spacing: Theme.px(7)
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text {
-                                Layout.fillWidth: true
-                                text: "Changelog"
-                                color: Theme.primaryBright
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.px(12.2)
-                                font.weight: Font.DemiBold
-                                elide: Text.ElideRight
-                            }
-                            GhostButton {
-                                dense: true
-                                text: "Refresh"
-                                minimumWidth: Theme.px(74)
-                                onClicked: changelogService.refresh()
-                            }
-                        }
-
-                        FastListView {
-                            id: settingsChangelog
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-                            model: changelogService.model
-                            spacing: Theme.px(3)
-
-                            delegate: Item {
-                                required property string version
-                                required property string summary
-                                width: settingsChangelog.width
-                                height: Theme.px(39)
-
-                                Column {
-                                    anchors.fill: parent
-                                    spacing: Theme.px(1)
-                                    Text {
-                                        width: parent.width
-                                        text: version
-                                        color: Theme.success
-                                        font.family: Theme.monoFamily
-                                        font.pixelSize: Theme.px(9.8)
-                                        font.weight: Font.DemiBold
-                                        elide: Text.ElideRight
-                                    }
-                                    Text {
-                                        width: parent.width
-                                        text: summary
-                                        color: Theme.muted
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.px(10.1)
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                            }
-
-                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                        }
-                    }
-                }
             }
         }
 

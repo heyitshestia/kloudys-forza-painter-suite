@@ -12,6 +12,7 @@ class PreviewService:
     def __init__(self, paths: AppPaths):
         self.paths = paths
         self.cache = paths.runtime_root / "qml-json-previews"
+        self._renderer_stamp = None
 
     def preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)
@@ -25,13 +26,22 @@ class PreviewService:
             return self._render_cached(path, "editor") or self._nearby_url(path)
         return self._nearby_url(path) or self._render_cached(path, "general")
 
+    def existing_preview_for_json(self, json_path: str | Path, source: str = "") -> str:
+        path = Path(json_path)
+        if not path.is_file(): return ""
+        source = (source or self._source_for_path(path)).lower()
+        if source == "generated":
+            for candidate in self._nearby(path, exact=True):
+                if candidate.is_file(): return file_url(candidate)
+            return self._cached_url(path, "generated") or self._nearby_url(path)
+        if source == "editor":
+            return self._cached_url(path, "editor") or self._nearby_url(path)
+        return self._nearby_url(path) or self._cached_url(path, "general")
+
     def _render_cached(self, path: Path, namespace: str) -> str:
         try:
             from json_preview_renderer import render_json_preview
-            renderer_path = Path(render_json_preview.__code__.co_filename)
-            renderer_stamp = renderer_path.stat().st_mtime_ns if renderer_path.is_file() else 0
-            fingerprint = f"{namespace}|{path.resolve()}|{path.stat().st_mtime_ns}|{path.stat().st_size}|{renderer_stamp}"
-            target = self.cache / (hashlib.sha256(fingerprint.encode()).hexdigest()[:20] + ".png")
+            target = self._cache_target(path, namespace)
             if not target.exists():
                 data = render_json_preview(path, max_size=900)
                 if data:
@@ -39,6 +49,29 @@ class PreviewService:
             return file_url(target) if target.exists() else ""
         except Exception:
             return ""
+
+    def _cached_url(self, path: Path, namespace: str) -> str:
+        try:
+            target = self._cache_target(path, namespace)
+            return file_url(target) if target.exists() else ""
+        except Exception:
+            return ""
+
+    def _cache_target(self, path: Path, namespace: str) -> Path:
+        renderer_stamp = self._json_preview_renderer_stamp()
+        fingerprint = f"{namespace}|{path.resolve()}|{path.stat().st_mtime_ns}|{path.stat().st_size}|{renderer_stamp}"
+        return self.cache / (hashlib.sha256(fingerprint.encode()).hexdigest()[:20] + ".png")
+
+    def _json_preview_renderer_stamp(self) -> int:
+        if self._renderer_stamp is not None:
+            return self._renderer_stamp
+        try:
+            from json_preview_renderer import render_json_preview
+            renderer_path = Path(render_json_preview.__code__.co_filename)
+            self._renderer_stamp = renderer_path.stat().st_mtime_ns if renderer_path.is_file() else 0
+        except Exception:
+            self._renderer_stamp = 0
+        return self._renderer_stamp
 
     def _nearby_url(self, path: Path) -> str:
         for candidate in self._nearby(path):
