@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 UI_ROOT = Path(__file__).resolve().parent
@@ -13,12 +15,12 @@ for item in (str(SRC), str(ROOT)):
     if item not in sys.path:
         sys.path.insert(0, item)
 
-from PySide6.QtCore import QCoreApplication, QPointF, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QPointF, Qt, QTimer, QUrl
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
@@ -29,7 +31,8 @@ from kfps_ui.desktop_service import DesktopService
 from kfps_ui.editor_service import EditorService
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.help_service import HelpService
-from kfps_ui.json_service import JsonService
+from kfps_ui.json_service import JsonService, build_startup_json_index_cache
+from kfps_ui.json_thumbnail_worker import worker_command, worker_environment
 from kfps_ui.log_service import LogService
 from kfps_ui.preview_service import PreviewService
 from kfps_ui.report_service import ReportService
@@ -55,11 +58,196 @@ def parse_args():
     parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--allow-unsupported-python", action="store_true")
+    parser.add_argument("--skip-startup-index", action="store_true")
+    parser.add_argument("--skip-startup-thumbnails", action="store_true")
+    parser.add_argument("--thumbnail-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-app-root", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-ui-root", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-runtime-root", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-cache-file", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-max-seconds", type=float, default=0.0, help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-max-items", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-preferred-source", help=argparse.SUPPRESS)
     return parser.parse_args()
+
+
+def _startup_thumbnail_seconds() -> float:
+    raw = os.environ.get("KFPS_STARTUP_THUMBNAIL_SECONDS", "5")
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        seconds = 5.0
+    return max(0.0, min(300.0, seconds))
+
+
+def _run_startup_thumbnail_worker(app: QApplication, paths: AppPaths, progress, max_seconds: float) -> int:
+    cmd = worker_command(paths, cache_file=paths.runtime_root / "json-browser-index.v1.json", max_seconds=max_seconds, app_executable=sys.executable)
+    kwargs = {
+        "cwd": str(UI_ROOT),
+        "env": worker_environment(paths),
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.DEVNULL,
+        "text": True,
+    }
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    started = time.monotonic()
+    proc = subprocess.Popen(cmd, **kwargs)
+    progress("Rendering missing thumbnails in a separate room...", 5, 100)
+    hard_limit = max_seconds + 12.0 if max_seconds > 0 else 0.0
+    while proc.poll() is None:
+        elapsed = time.monotonic() - started
+        if hard_limit and elapsed >= hard_limit:
+            proc.kill()
+            proc.communicate(timeout=2)
+            progress("Thumbnail worker got stuck making tiny posters. Opening anyway.", 100, 100)
+            return 0
+        if max_seconds > 0:
+            done = min(95, 5 + int((min(elapsed, max_seconds) / max_seconds) * 90.0))
+        else:
+            done = 50
+        progress("Rendering missing thumbnails in a separate room...", done, 100)
+        app.processEvents()
+        time.sleep(0.05)
+    stdout, stderr = proc.communicate(timeout=2)
+    if proc.returncode != 0:
+        progress("Thumbnail worker misplaced its notes. Opening with the cache we have.", 100, 100)
+        return 0
+    try:
+        return max(0, int((stdout or "0").strip().splitlines()[-1]))
+    except (IndexError, TypeError, ValueError):
+        return 0
+
+
+def run_startup_output_index(
+    app: QApplication,
+    paths: AppPaths,
+    preview: PreviewService,
+    show_splash: bool = True,
+    warm_thumbnails: bool = False,
+    thumbnail_seconds: float = 45.0,
+) -> None:
+    splash = None
+    title = None
+    detail = None
+    bar = None
+    splash_started = time.monotonic()
+    bits = [
+        "Counting rectangles with a clipboard held upside down.",
+        "Asking the JSON pile to stand in one suspiciously straight line.",
+        "Putting tiny name tags on vinyl files.",
+        "Checking under the sofa for missing layer counts.",
+        "Polishing the progress bar with a napkin.",
+    ]
+
+    if show_splash:
+        splash = QWidget()
+        splash.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        splash.setFixedSize(520, 220)
+        splash.setStyleSheet("""
+            QWidget {
+                background: #190516;
+                border: 3px solid #ff4bac;
+                color: #ffd6ee;
+                font-family: Segoe UI;
+            }
+            QLabel#Title {
+                color: #ff5fba;
+                font-size: 23px;
+                font-weight: 800;
+            }
+            QLabel#Detail {
+                color: #ffeaf6;
+                font-size: 12px;
+            }
+            QLabel#Footnote {
+                color: #c68aaa;
+                font-size: 10px;
+            }
+            QProgressBar {
+                border: 2px solid #713055;
+                border-radius: 0px;
+                background: #080208;
+                color: #ffffff;
+                text-align: center;
+                height: 22px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: #ff3da6;
+            }
+        """)
+        layout = QVBoxLayout(splash)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
+        title = QLabel("PLEASE STAND BY: THE JSONS ARE PUTTING ON SHOES")
+        title.setObjectName("Title")
+        title.setWordWrap(True)
+        detail = QLabel(bits[0])
+        detail.setObjectName("Detail")
+        detail.setWordWrap(True)
+        bar = QProgressBar()
+        bar.setRange(0, 100)
+        bar.setValue(3)
+        foot = QLabel("Crude loading rectangle v1. It has one job and a questionable attitude.")
+        foot.setObjectName("Footnote")
+        foot.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(bar)
+        layout.addWidget(foot)
+        splash.show()
+        app.processEvents()
+
+    def progress(message: str, done: int, total: int):
+        if not splash:
+            return
+        pct = int(max(0, min(100, (float(done) / max(1, float(total))) * 100.0)))
+        if detail:
+            detail.setText(f"{message}\n{bits[done % len(bits)]}")
+        if bar:
+            bar.setValue(max(3, pct))
+        app.processEvents()
+
+    try:
+        build_startup_json_index_cache(paths, preview=preview, progress=progress)
+        progress("Output library has been bullied into a cache file.", 100, 100)
+        if warm_thumbnails:
+            count = _run_startup_thumbnail_worker(app, paths, progress, thumbnail_seconds)
+            noun = "thumbnail" if count == 1 else "thumbnails"
+            progress(f"Thumbnail cache warmed with {count} new {noun}.", 100, 100)
+    except Exception:
+        progress("Index preflight tripped over its own shoelaces. Opening anyway.", 100, 100)
+    finally:
+        if splash:
+            while time.monotonic() - splash_started < 5.0:
+                app.processEvents()
+                time.sleep(0.05)
+            splash.close()
+            app.processEvents()
 
 
 def main():
     args = parse_args()
+    if args.thumbnail_worker:
+        from kfps_ui.json_thumbnail_worker import main as thumbnail_worker_main
+        worker_args = [
+            "--app-root",
+            str(args.thumbnail_worker_app_root or ""),
+            "--ui-root",
+            str(args.thumbnail_worker_ui_root or ""),
+            "--runtime-root",
+            str(args.thumbnail_worker_runtime_root or ""),
+            "--max-seconds",
+            str(args.thumbnail_worker_max_seconds or 0.0),
+        ]
+        if args.thumbnail_worker_cache_file:
+            worker_args.extend(["--cache-file", str(args.thumbnail_worker_cache_file)])
+        if args.thumbnail_worker_max_items:
+            worker_args.extend(["--max-items", str(args.thumbnail_worker_max_items)])
+        if args.thumbnail_worker_preferred_source is not None:
+            worker_args.extend(["--preferred-source", str(args.thumbnail_worker_preferred_source)])
+        return thumbnail_worker_main(worker_args)
     if sys.version_info[:2] != (3, 12) and not args.allow_unsupported_python:
         raise SystemExit("KFPS requires 64-bit Python 3.12. Use the bundled runtime.")
     if not os.environ.get("KFPS_QML_GRAPHICS"):
@@ -80,12 +268,29 @@ def main():
     if args.ui_scale is not None:
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
 
+    preview = PreviewService(paths)
+    should_preindex = not args.skip_startup_index and not args.demo and os.environ.get("KFPS_SKIP_STARTUP_INDEX", "").strip() != "1"
+    show_splash = should_preindex and not (args.screenshot or args.screenshot_dir or os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen")
+    should_warm_thumbnails = (
+        show_splash
+        and not args.skip_startup_thumbnails
+        and os.environ.get("KFPS_SKIP_STARTUP_THUMBNAILS", "").strip() != "1"
+    )
+    if should_preindex:
+        run_startup_output_index(
+            app,
+            paths,
+            preview,
+            show_splash=show_splash,
+            warm_thumbnails=should_warm_thumbnails,
+            thumbnail_seconds=_startup_thumbnail_seconds(),
+        )
+
     logs = LogService()
     desktop = DesktopService(paths, logs)
     version = VersionService(paths.app_root / "VERSION", demo=args.demo)
     announcements = AnnouncementService(demo=args.demo)
     runtime = RuntimeService(demo=args.demo)
-    preview = PreviewService(paths)
     source = SourceImageService(paths, desktop, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
     supporter = SupporterService(paths.app_root)

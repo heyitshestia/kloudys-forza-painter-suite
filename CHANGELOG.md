@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.64
+- Added startup output indexing with a short loading splash so large JSON libraries are cached before the Outputs page opens.
+- Moved missing JSON thumbnail rendering into a separate worker process and merged newly rendered previews into the open Outputs grid.
+- Prioritized thumbnail warming for the currently selected output source, including Library, and added visible thumbnail warm status text.
+
 ## 3.0.63
 - Queued existing JSON thumbnail URLs one at a time too, preventing generated, exported, and library source switches from loading every cached thumbnail at once.
 - Reworked the Update tab into a wide side-by-side layout with update controls beside patch notes.

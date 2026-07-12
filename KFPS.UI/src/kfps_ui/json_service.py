@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import os
 import re
 import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from .app_paths import AppPaths
 from .desktop_service import DesktopService
+from .json_thumbnail_worker import worker_command, worker_environment
 from .log_service import LogService
 from .models import DictListModel
 from .preview_service import PreviewService
@@ -23,11 +28,205 @@ KFPS_RECTANGLE_WORD = 0x0065
 KFPS_ELLIPSE_WORD = 0x0066
 FD6_RECTANGLE_DIVISOR = 127.0
 FD6_ELLIPSE_DIVISOR = 63.0
+JSON_INDEX_CACHE_VERSION = 1
+
+
+class _StartupJsonIndexBuilder:
+    def __init__(self, paths: AppPaths, preview: PreviewService | None = None, progress=None):
+        self.paths = paths
+        self.preview = preview
+        self.progress = progress
+
+    def source_roots(self):
+        return [self.paths.generated_root, self.paths.editor_json_root, self.paths.exported_root, self.paths.library_root]
+
+    def source_names(self):
+        return ["generated", "editor", "exported", "library"]
+
+    @staticmethod
+    def source_label(source):
+        labels = ["Generated finals", "Editor exports", "Game exports", "Library"]
+        return labels[source] if 0 <= source < len(labels) else "Outputs"
+
+    def cache_key(self, source):
+        root = self.source_roots()[source]
+        try:
+            return str(root.resolve()).casefold()
+        except Exception:
+            return str(root).casefold()
+
+    def report(self, message, done, total):
+        if callable(self.progress):
+            self.progress(message, done, total)
+
+    def build_payload(self):
+        sources = {}
+        total_rows = 0
+        roots = self.source_roots()
+        for source, root in enumerate(roots):
+            self.report(f"Politely interrogating {self.source_label(source)}...", source, len(roots))
+            index = self.build_source(source, root)
+            rows = index.get("rows", [])
+            total_rows += len(rows)
+            sources[str(source)] = self.source_payload(source, index)
+            self.report(f"{self.source_label(source)} filed {len(rows)} JSONs without eating the clipboard.", source + 1, len(roots))
+        return {"version": JSON_INDEX_CACHE_VERSION, "createdAt": time.time(), "sources": sources}, total_rows
+
+    def build_source(self, source, root):
+        root.mkdir(parents=True, exist_ok=True)
+        groups = []
+        if source == 0:
+            for folder in root.iterdir():
+                if folder.is_dir():
+                    files = self.files(folder, generated=True)
+                    if files:
+                        groups.append(self.group(folder.name, folder, files))
+                    if len(groups) % 25 == 0:
+                        time.sleep(0)
+        else:
+            grouped = {}
+            for path in self.files(root, generated=False):
+                grouped.setdefault(path.parent, []).append(path)
+            for index, (folder, files) in enumerate(grouped.items()):
+                name = str(folder.relative_to(root)) if folder != root else root.name
+                groups.append(self.group(name, folder, files))
+                if index % 25 == 0:
+                    time.sleep(0)
+        groups.sort(key=lambda item: item["modified"], reverse=True)
+        rows = [self.row_for_json(source, path) for path in self.sorted_visible_files(source, groups)]
+        return {
+            "root": self.cache_key(source),
+            "groups": groups,
+            "rows": rows,
+            "source": source,
+            "scannedAt": time.time(),
+        }
+
+    @staticmethod
+    def files(root: Path, generated: bool):
+        out = []
+        for path in root.rglob("*.json"):
+            low = path.name.lower()
+            if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")):
+                continue
+            if generated and not (path.parent.name.lower() == "finals" and low.endswith("v2.json")):
+                continue
+            out.append(path)
+        return out
+
+    def group(self, name, folder, files):
+        modified = max(path.stat().st_mtime for path in files)
+        display_name = name
+        detail_text = f"{len(files)} JSON" if len(files) == 1 else f"{len(files)} JSONs"
+        if files:
+            meta, layers, title = JsonService._json_summary(files[0])
+            title = meta.get("display_name") or meta.get("title")
+            if title:
+                display_name = str(title)
+            if isinstance(layers, int):
+                detail_text = JsonService._count_detail_text(layers, meta)
+        return {
+            "name": name,
+            "displayName": display_name,
+            "detailText": detail_text,
+            "path": str(folder),
+            "files": sorted(files, key=lambda path: path.stat().st_mtime, reverse=True),
+            "count": len(files),
+            "modified": modified,
+            "modifiedLabel": JsonService._age(modified),
+        }
+
+    def sorted_visible_files(self, source, groups):
+        if source == 0:
+            files = []
+            for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
+                files.extend(sorted(self.dedupe_generated_files(group["files"]), key=lambda path: (JsonService._count(path), path.name.casefold())))
+            return files
+        files = [path for group in groups for path in group["files"]]
+        return sorted(files, key=lambda path: (path.stat().st_mtime * -1, path.name.casefold()))
+
+    @staticmethod
+    def dedupe_generated_files(files):
+        selected = {}
+        for path in files:
+            key = JsonService._count(path)
+            previous = selected.get(key)
+            if previous is None or path.stat().st_mtime >= previous.stat().st_mtime:
+                selected[key] = path
+        return list(selected.values())
+
+    def row_for_json(self, source, path):
+        stat = path.stat()
+        modified_label = JsonService._age(stat.st_mtime)
+        meta, layers, display_name = JsonService._json_summary(path)
+        detail = JsonService._count_detail_text(layers, meta)
+        return {
+            "name": path.name,
+            "displayName": display_name,
+            "path": str(path),
+            "layers": layers,
+            "modifiedLabel": modified_label,
+            "previewUrl": self.existing_preview(path, self.source_names()[source]),
+            "countDetail": detail,
+            "detailText": f"{detail}  •  {modified_label}",
+            "folder": str(path.parent),
+            "mtime": stat.st_mtime,
+            "mtimeNs": stat.st_mtime_ns,
+            "size": stat.st_size,
+            "source": source,
+        }
+
+    def existing_preview(self, path, source_name):
+        existing = getattr(self.preview, "existing_preview_for_json", None)
+        if callable(existing):
+            try:
+                return str(existing(path, source_name) or "")
+            except Exception:
+                return ""
+        return ""
+
+    def source_payload(self, source, index):
+        return {
+            "root": index.get("root") or self.cache_key(source),
+            "scannedAt": index.get("scannedAt") or time.time(),
+            "rows": [
+                {
+                    "name": row.get("name", ""),
+                    "displayName": row.get("displayName", ""),
+                    "path": row.get("path", ""),
+                    "layers": int(row.get("layers") or 0),
+                    "previewUrl": row.get("previewUrl", ""),
+                    "countDetail": row.get("countDetail", ""),
+                    "folder": row.get("folder", ""),
+                    "mtimeNs": int(row.get("mtimeNs") or 0),
+                    "size": int(row.get("size") or 0),
+                }
+                for row in index.get("rows", [])
+            ],
+            "groups": [
+                {
+                    "name": group.get("name", ""),
+                    "displayName": group.get("displayName", ""),
+                    "detailText": group.get("detailText", ""),
+                    "path": group.get("path", ""),
+                    "files": [str(path) for path in group.get("files", [])],
+                }
+                for group in index.get("groups", [])
+            ],
+        }
+
+
+def build_startup_json_index_cache(paths: AppPaths, preview: PreviewService | None = None, progress=None):
+    builder = _StartupJsonIndexBuilder(paths, preview=preview, progress=progress)
+    payload, total_rows = builder.build_payload()
+    JsonService._write_index_cache_payload(paths.runtime_root / "json-browser-index.v1.json", payload)
+    return total_rows
 
 
 class JsonService(QObject):
     changed = Signal()
-    _previewReady = Signal(int, str, str)
+    _previewReady = Signal(str, str, str)
+    _indexReady = Signal(int, int, object, str)
 
     def __init__(self, paths: AppPaths, preview: PreviewService, desktop: DesktopService, log: LogService, demo=False, parent=None):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
@@ -39,13 +238,28 @@ class JsonService(QObject):
         self._all_file_rows: list[dict] = []
         self._visible_file_rows: list[dict] = []
         self._groups: list[dict] = []
+        self._source_index_cache: dict[int, dict] = {}
+        self._source_scan_generation: dict[int, int] = {}
+        self._indexing_sources: set[int] = set()
+        self._index_status = "Output index idle"
+        self._cache_save_pending = False
+        self._thumbnail_process = None
+        self._thumbnail_cache_mtime_ns = 0
+        self._thumbnail_warm_pending = False
+        self._thumbnail_status = ""
+        self._thumbnail_active = False
+        self._thumbnail_poll_timer = QTimer(self)
+        self._thumbnail_poll_timer.setInterval(900)
+        self._thumbnail_poll_timer.timeout.connect(self._poll_thumbnail_worker)
+        self._index_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="json-index")
         self._preview_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="json-preview")
         self._preview_queue: list[tuple[str, str]] = []
         self._preview_queued: set[str] = set()
+        self._preview_empty: set[str] = set()
         self._preview_running = False
-        self._preview_generation = 0
         self._previewReady.connect(self._apply_preview_result)
-        self._ensure_logo(); self.refresh(); self.refreshRecent()
+        self._indexReady.connect(self._apply_source_index_result)
+        self._ensure_logo(); self._load_index_cache(); self._load_source(force=False); self.refreshRecent(); QTimer.singleShot(150, self.warmIndex); QTimer.singleShot(1800, self._schedule_thumbnail_warm)
 
 
     @Property(QObject, constant=True)
@@ -69,6 +283,16 @@ class JsonService(QObject):
     def selectedFolder(self): return self._folder
     @Property(str, notify=changed)
     def searchQuery(self): return self._search_query
+    @Property(bool, notify=changed)
+    def indexing(self): return bool(self._indexing_sources)
+    @Property(bool, notify=changed)
+    def currentSourceIndexing(self): return self._source in self._indexing_sources
+    @Property(str, notify=changed)
+    def indexStatus(self): return self._index_status
+    @Property(str, notify=changed)
+    def thumbnailStatus(self): return self._thumbnail_status
+    @Property(bool, notify=changed)
+    def thumbnailActive(self): return self._thumbnail_active
     @Property(int, notify=changed)
     def outputCount(self): return len(self._all_file_rows)
     @Property(int, notify=changed)
@@ -77,6 +301,8 @@ class JsonService(QObject):
     def searchSummary(self):
         total = len(self._all_file_rows)
         visible = len(self._visible_file_rows)
+        if total == 0 and self.currentSourceIndexing:
+            return "Indexing..."
         if self._search_query:
             noun = "match" if visible == 1 else "matches"
             return f"{visible} of {total} {noun}"
@@ -91,6 +317,530 @@ class JsonService(QObject):
 
     def _root(self): return self._source_roots()[self._source]
 
+    def _source_label(self, source):
+        labels = ["Generated finals", "Editor exports", "Game exports", "Library"]
+        return labels[source] if 0 <= source < len(labels) else "Outputs"
+
+    def _source_cache_key(self, source):
+        root = self._source_roots()[source]
+        try:
+            return str(root.resolve()).casefold()
+        except Exception:
+            return str(root).casefold()
+
+    def _empty_source_index(self, source):
+        return {"root": self._source_cache_key(source), "groups": [], "rows": [], "rowsByKey": {}, "source": source}
+
+    def _current_source_index(self):
+        return self._source_index_cache.get(self._source) or self._empty_source_index(self._source)
+
+    def _build_source_index(self, source, root, cache_key):
+        root.mkdir(parents=True, exist_ok=True)
+        retained_previews = self._retained_preview_urls(source)
+        groups = []
+        if source == 0:
+            for folder in root.iterdir():
+                if folder.is_dir():
+                    files = self._files(folder, generated=True)
+                    if files: groups.append(self._group(folder.name, folder, files))
+                    if len(groups) % 25 == 0:
+                        time.sleep(0)
+        else:
+            grouped = {}
+            for path in self._files(root, generated=False): grouped.setdefault(path.parent, []).append(path)
+            for index, (folder, files) in enumerate(grouped.items()):
+                groups.append(self._group(str(folder.relative_to(root)) if folder != root else root.name, folder, files))
+                if index % 25 == 0:
+                    time.sleep(0)
+        groups.sort(key=lambda g:g["modified"], reverse=True)
+        rows = [self._row_for_json(source, path, retained_previews=retained_previews) for path in self._sorted_visible_files(source, groups)]
+        rows_by_key = {self._preview_key(row["path"]): row for row in rows}
+        return {"root": cache_key, "groups": groups, "rows": rows, "rowsByKey": rows_by_key, "source": source, "scannedAt": time.time()}
+
+    def _retained_preview_urls(self, source):
+        retained = {}
+        cached = self._source_index_cache.get(source, {})
+        rows_by_key = cached.get("rowsByKey", {}) if isinstance(cached, dict) else {}
+        for key, row in list(rows_by_key.items()):
+            if not isinstance(row, dict):
+                continue
+            preview_url = str(row.get("previewUrl") or "")
+            if not preview_url:
+                continue
+            retained[key] = (
+                int(row.get("mtimeNs") or -1),
+                int(row.get("size") or -1),
+                preview_url,
+            )
+        return retained
+
+    def _load_source(self, force=False):
+        if force:
+            self._request_source_scan(self._source, force=True)
+        elif self._source not in self._source_index_cache:
+            self._request_source_scan(self._source, force=False)
+        cached = self._current_source_index()
+        groups = cached.get("groups", [])
+        self._groups = groups
+        self._group_model.replace([{k:g[k] for k in ("name","displayName","detailText","path","count","modifiedLabel")} for g in groups])
+        self._all_file_rows = list(cached.get("rows", []))
+        self._apply_search_filter()
+
+    @Slot()
+    def warmIndex(self):
+        for source in range(len(self._source_roots())):
+            self._request_source_scan(source, force=False)
+
+    def _request_source_scan(self, source, force=False):
+        if not 0 <= source < len(self._source_roots()):
+            return
+        if not force and source in self._indexing_sources:
+            return
+        if not force and self._source_index_cache.get(source, {}).get("backgroundFresh"):
+            return
+        generation = self._source_scan_generation.get(source, 0) + 1
+        self._source_scan_generation[source] = generation
+        self._indexing_sources.add(source)
+        self._index_status = f"Indexing {self._source_label(source)}..."
+        self.changed.emit()
+        root = self._source_roots()[source]
+        cache_key = self._source_cache_key(source)
+        future = self._index_executor.submit(self._build_source_index, source, root, cache_key)
+        future.add_done_callback(lambda done, item=source, gen=generation: self._emit_source_index_result(item, gen, done))
+
+    def _emit_source_index_result(self, source, generation, future):
+        try:
+            index = future.result()
+            error = ""
+        except Exception as exc:
+            index = None
+            error = str(exc)
+        self._indexReady.emit(source, generation, index, error)
+
+    @Slot(int, int, object, str)
+    def _apply_source_index_result(self, source, generation, index, error):
+        if generation != self._source_scan_generation.get(source):
+            return
+        self._indexing_sources.discard(source)
+        if index and not error:
+            old_rows = list(self._all_file_rows) if source == self._source else []
+            index["backgroundFresh"] = True
+            self._source_index_cache[source] = index
+            self._index_status = f"Indexed {self._source_label(source)} ({len(index.get('rows', []))} JSONs)"
+            if source == self._source:
+                new_rows = index.get("rows", [])
+                if not old_rows or self._row_path_signature(old_rows) != self._row_path_signature(new_rows):
+                    self._load_source(force=False)
+            self._refresh_recent_from_cache()
+            self._schedule_index_cache_save()
+        else:
+            self._index_status = f"{self._source_label(source)} index failed"
+            if error:
+                self.log.append(f"{self._source_label(source)} index failed: {error}", "error")
+        if not self._indexing_sources and not error:
+            self._index_status = "Output index ready"
+            self._cache_save_pending = False
+            self._save_index_cache_async()
+            self._schedule_thumbnail_warm(1200)
+        self.changed.emit()
+
+    @staticmethod
+    def _row_path_signature(rows):
+        return tuple(str(row.get("path") or "") for row in rows)
+
+    def _index_cache_file(self):
+        return self.paths.runtime_root / "json-browser-index.v1.json"
+
+    def _load_index_cache(self):
+        cache_file = self._index_cache_file()
+        try:
+            payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(payload, dict) or payload.get("version") != JSON_INDEX_CACHE_VERSION:
+            return
+        sources = payload.get("sources")
+        if not isinstance(sources, dict):
+            return
+        loaded = 0
+        for source in range(len(self._source_roots())):
+            index = self._source_index_from_cache(source, sources.get(str(source)))
+            if index:
+                self._source_index_cache[source] = index
+                loaded += len(index.get("rows", []))
+        if loaded:
+            self._index_status = f"Loaded cached output index ({loaded} JSONs)"
+        try:
+            self._thumbnail_cache_mtime_ns = cache_file.stat().st_mtime_ns
+        except OSError:
+            self._thumbnail_cache_mtime_ns = 0
+
+    def _source_index_from_cache(self, source, payload):
+        if not isinstance(payload, dict):
+            return None
+        cache_key = self._source_cache_key(source)
+        if payload.get("root") != cache_key:
+            return None
+        valid_rows = []
+        valid_keys = set()
+        for raw in payload.get("rows", []):
+            if not isinstance(raw, dict):
+                continue
+            path = Path(str(raw.get("path") or ""))
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            if int(raw.get("mtimeNs") or -1) != stat.st_mtime_ns or int(raw.get("size") or -1) != stat.st_size:
+                continue
+            modified_label = self._age(stat.st_mtime)
+            count_detail = str(raw.get("countDetail") or "").strip() or f"{int(raw.get('layers') or 0)} layers"
+            row = {
+                "name": str(raw.get("name") or path.name),
+                "displayName": str(raw.get("displayName") or path.name),
+                "path": str(path),
+                "layers": int(raw.get("layers") or 0),
+                "modifiedLabel": modified_label,
+                "previewUrl": str(raw.get("previewUrl") or ""),
+                "countDetail": count_detail,
+                "detailText": f"{count_detail}  •  {modified_label}",
+                "folder": str(raw.get("folder") or path.parent),
+                "mtime": stat.st_mtime,
+                "mtimeNs": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "source": source,
+            }
+            valid_rows.append(row)
+            valid_keys.add(self._preview_key(path))
+        if not valid_rows:
+            return None
+        try:
+            scanned_at = float(payload.get("scannedAt") or 0)
+        except (TypeError, ValueError):
+            scanned_at = 0.0
+        groups = []
+        row_by_key = {self._preview_key(row["path"]): row for row in valid_rows}
+        for raw in payload.get("groups", []):
+            if not isinstance(raw, dict):
+                continue
+            files = []
+            for item in raw.get("files", []):
+                path = Path(str(item))
+                if self._preview_key(path) in valid_keys:
+                    files.append(path)
+            if not files:
+                continue
+            modified = max((row_by_key[self._preview_key(path)].get("mtime", 0) for path in files), default=0)
+            groups.append({
+                "name": str(raw.get("name") or Path(str(raw.get("path") or "")).name),
+                "displayName": str(raw.get("displayName") or raw.get("name") or "JSONs"),
+                "detailText": str(raw.get("detailText") or f"{len(files)} JSONs"),
+                "path": str(raw.get("path") or files[0].parent),
+                "files": sorted(files, key=lambda p: row_by_key[self._preview_key(p)].get("mtime", 0), reverse=True),
+                "count": len(files),
+                "modified": modified,
+                "modifiedLabel": self._age(modified),
+            })
+        rows_by_key = {self._preview_key(row["path"]): row for row in valid_rows}
+        return {
+            "root": cache_key,
+            "groups": groups,
+            "rows": valid_rows,
+            "rowsByKey": rows_by_key,
+            "source": source,
+            "loadedFromDisk": True,
+            "scannedAt": scanned_at,
+            "backgroundFresh": bool(scanned_at and time.time() - scanned_at < 300),
+        }
+
+    def _index_cache_payload(self):
+        sources = {}
+        for source, index in self._source_index_cache.items():
+            rows = []
+            for row in index.get("rows", []):
+                rows.append({
+                    "name": row.get("name", ""),
+                    "displayName": row.get("displayName", ""),
+                    "path": row.get("path", ""),
+                    "layers": int(row.get("layers") or 0),
+                    "previewUrl": row.get("previewUrl", ""),
+                    "countDetail": row.get("countDetail", ""),
+                    "folder": row.get("folder", ""),
+                    "mtimeNs": int(row.get("mtimeNs") or 0),
+                    "size": int(row.get("size") or 0),
+                })
+            groups = []
+            for group in index.get("groups", []):
+                groups.append({
+                    "name": group.get("name", ""),
+                    "displayName": group.get("displayName", ""),
+                    "detailText": group.get("detailText", ""),
+                    "path": group.get("path", ""),
+                    "files": [str(path) for path in group.get("files", [])],
+                })
+            sources[str(source)] = {
+                "root": index.get("root") or self._source_cache_key(source),
+                "scannedAt": index.get("scannedAt") or time.time(),
+                "rows": rows,
+                "groups": groups,
+            }
+        return {"version": JSON_INDEX_CACHE_VERSION, "createdAt": time.time(), "sources": sources}
+
+    def _schedule_index_cache_save(self):
+        if self._cache_save_pending:
+            return
+        self._cache_save_pending = True
+        QTimer.singleShot(700, self._save_index_cache_async)
+
+    def _save_index_cache_async(self):
+        self._cache_save_pending = False
+        payload = self._index_cache_payload()
+        target = self._index_cache_file()
+        self._index_executor.submit(self._write_index_cache_payload, target, payload)
+
+    @staticmethod
+    def _write_index_cache_payload(target, payload):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            tmp.replace(target)
+        except Exception:
+            pass
+
+    def _thumbnail_worker_enabled(self):
+        if self.demo:
+            return False
+        if os.environ.get("KFPS_SKIP_BACKGROUND_THUMBNAILS", "").strip() == "1":
+            return False
+        if os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen":
+            return False
+        return True
+
+    def _set_thumbnail_status(self, message="", active=False):
+        message = str(message or "")
+        active = bool(active)
+        if self._thumbnail_status == message and self._thumbnail_active == active:
+            return
+        self._thumbnail_status = message
+        self._thumbnail_active = active
+        self.changed.emit()
+
+    @staticmethod
+    def _env_float(name, default, minimum=0.0, maximum=300.0):
+        try:
+            value = float(os.environ.get(name, default))
+        except (TypeError, ValueError):
+            value = float(default)
+        return max(minimum, min(maximum, value))
+
+    @staticmethod
+    def _env_int(name, default, minimum=0, maximum=1000):
+        try:
+            value = int(os.environ.get(name, default))
+        except (TypeError, ValueError):
+            value = int(default)
+        return max(minimum, min(maximum, value))
+
+    @Slot()
+    def _schedule_thumbnail_warm(self, delay_ms=0):
+        if not self._thumbnail_worker_enabled() or self._thumbnail_warm_pending:
+            return
+        self._thumbnail_warm_pending = True
+        QTimer.singleShot(max(0, int(delay_ms or 0)), self._start_thumbnail_worker)
+
+    def _start_thumbnail_worker(self):
+        self._thumbnail_warm_pending = False
+        if not self._thumbnail_worker_enabled():
+            return
+        if self._thumbnail_process and self._thumbnail_process.poll() is None:
+            if not self._thumbnail_poll_timer.isActive():
+                self._thumbnail_poll_timer.start()
+            return
+        cache_file = self._index_cache_file()
+        if not cache_file.is_file():
+            self._set_thumbnail_status("Thumbnail cache is waiting for the output index.", False)
+            return
+        if not self._cache_source_has_missing_preview_urls(self._source):
+            self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnails are ready.", False)
+            if not self._cache_has_missing_preview_urls():
+                return
+        if not self._cache_has_missing_preview_urls():
+            return
+        seconds = self._env_float("KFPS_BACKGROUND_THUMBNAIL_SECONDS", 5.0, 1.0, 120.0)
+        max_items = self._env_int("KFPS_BACKGROUND_THUMBNAIL_ITEMS", 40, 1, 500)
+        cmd = worker_command(
+            paths=self.paths,
+            cache_file=cache_file,
+            max_seconds=seconds,
+            max_items=max_items,
+            app_executable=sys.executable,
+            preferred_source=self._source,
+        )
+        kwargs = {
+            "cwd": str(self.paths.ui_root),
+            "env": worker_environment(self.paths),
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.DEVNULL,
+            "text": True,
+        }
+        flags = 0
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            flags |= subprocess.CREATE_NO_WINDOW
+        if hasattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS"):
+            flags |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
+        if flags:
+            kwargs["creationflags"] = flags
+        try:
+            self._thumbnail_process = subprocess.Popen(cmd, **kwargs)
+            self._set_thumbnail_status(f"Warming {self._source_label(self._source)} thumbnails...", True)
+            self._thumbnail_poll_timer.start()
+        except Exception as exc:
+            self._thumbnail_process = None
+            self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnail worker failed to start.", False)
+            self.log.append(f"Output thumbnail worker failed to start: {exc}", "warning")
+
+    def _cache_has_missing_preview_urls(self):
+        return self._cache_source_has_missing_preview_urls(None)
+
+    def _cache_source_has_missing_preview_urls(self, wanted_source):
+        try:
+            payload = json.loads(self._index_cache_file().read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        sources = payload.get("sources") if isinstance(payload, dict) else None
+        if not isinstance(sources, dict):
+            return False
+        for source_key, source in sources.items():
+            if wanted_source is not None and str(source_key) != str(int(wanted_source)):
+                continue
+            rows = source.get("rows") if isinstance(source, dict) else None
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict) or row.get("previewUrl"):
+                    continue
+                path = Path(str(row.get("path") or ""))
+                if path.is_file():
+                    return True
+        return False
+
+    def _restart_thumbnail_warm_for_current_source(self):
+        if not self._thumbnail_worker_enabled() or not self._cache_source_has_missing_preview_urls(self._source):
+            if self._thumbnail_worker_enabled():
+                self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnails are ready.", False)
+            return
+        proc = self._thumbnail_process
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.communicate(timeout=0.6)
+            except Exception:
+                try:
+                    proc.kill()
+                    proc.communicate(timeout=0.6)
+                except Exception:
+                    pass
+            self._thumbnail_process = None
+        self._merge_preview_urls_from_cache(force=True)
+        self._schedule_thumbnail_warm(100)
+
+    def _poll_thumbnail_worker(self):
+        self._merge_preview_urls_from_cache()
+        proc = self._thumbnail_process
+        if not proc:
+            self._thumbnail_poll_timer.stop()
+            return
+        if proc.poll() is None:
+            return
+        try:
+            stdout, stderr = proc.communicate(timeout=0.2)
+        except Exception:
+            stdout, stderr = "", ""
+        self._thumbnail_process = None
+        count = 0
+        try:
+            count = max(0, int((stdout or "0").strip().splitlines()[-1]))
+        except (IndexError, TypeError, ValueError):
+            count = 0
+        merged = self._merge_preview_urls_from_cache(force=True)
+        label = self._source_label(self._source)
+        if proc.returncode != 0:
+            self._set_thumbnail_status(f"{label} thumbnail worker exited with code {proc.returncode}.", False)
+            self.log.append(f"{label} thumbnail worker exited with code {proc.returncode}.", "warning")
+            self._thumbnail_poll_timer.stop()
+            return
+        if count > 0 or merged > 0:
+            shown = max(count, merged)
+            noun = "thumbnail" if shown == 1 else "thumbnails"
+            self._set_thumbnail_status(f"Warmed {shown} {label} {noun}.", False)
+        else:
+            self._set_thumbnail_status(f"No new {label} thumbnails this pass.", False)
+        if proc.returncode == 0 and count > 0 and self._cache_has_missing_preview_urls():
+            self._schedule_thumbnail_warm(1600)
+            return
+        self._thumbnail_poll_timer.stop()
+
+    def _merge_preview_urls_from_cache(self, force=False):
+        cache_file = self._index_cache_file()
+        try:
+            stat = cache_file.stat()
+        except OSError:
+            return 0
+        if not force and self._thumbnail_cache_mtime_ns == stat.st_mtime_ns:
+            return 0
+        self._thumbnail_cache_mtime_ns = stat.st_mtime_ns
+        try:
+            payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        except Exception:
+            return 0
+        sources = payload.get("sources") if isinstance(payload, dict) else None
+        if not isinstance(sources, dict):
+            return 0
+        previews_by_key = {}
+        for source, cached in self._source_index_cache.items():
+            source_payload = sources.get(str(source))
+            rows = source_payload.get("rows") if isinstance(source_payload, dict) else None
+            if not isinstance(rows, list):
+                continue
+            rows_by_key = cached.get("rowsByKey", {})
+            for raw in rows:
+                if not isinstance(raw, dict):
+                    continue
+                preview_url = str(raw.get("previewUrl") or "")
+                if not preview_url:
+                    continue
+                path = Path(str(raw.get("path") or ""))
+                key = self._preview_key(path)
+                row = rows_by_key.get(key)
+                if not row or row.get("previewUrl") == preview_url:
+                    continue
+                if int(raw.get("mtimeNs") or -1) != int(row.get("mtimeNs") or -2):
+                    continue
+                if int(raw.get("size") or -1) != int(row.get("size") or -2):
+                    continue
+                row["previewUrl"] = preview_url
+                previews_by_key[key] = preview_url
+                self._preview_empty.discard(key)
+        if not previews_by_key:
+            return 0
+        for row in self._all_file_rows:
+            key = self._preview_key(row.get("path"))
+            if key in previews_by_key:
+                row["previewUrl"] = previews_by_key[key]
+        for index, row in enumerate(self._visible_file_rows):
+            key = self._preview_key(row.get("path"))
+            preview_url = previews_by_key.get(key)
+            if preview_url:
+                row["previewUrl"] = preview_url
+                self._file_model.set_row_value(index, "previewUrl", preview_url)
+        if self._selected_path:
+            selected_key = self._preview_key(self._selected_path)
+            if selected_key in previews_by_key:
+                self._preview_url = previews_by_key[selected_key]
+        self.changed.emit()
+        return len(previews_by_key)
+
     def _ensure_logo(self):
         src = self.paths.app_root / "assets" / "app" / "KFPS Logo.json"
         if not src.is_file(): return
@@ -103,7 +853,13 @@ class JsonService(QObject):
             except Exception: pass
 
     @Slot(int)
-    def setSource(self, index): self._source = max(0,min(len(self._source_roots()) - 1,index)); self._selected_group=-1; self.clearSelection(); self.refresh(); self.changed.emit()
+    def setSource(self, index):
+        self._source = max(0,min(len(self._source_roots()) - 1,index))
+        self._selected_group=-1
+        self.clearSelection()
+        self._load_source(force=False)
+        self._restart_thumbnail_warm_for_current_source()
+        self.changed.emit()
 
     @Slot(str)
     def setSearchQuery(self, value):
@@ -118,22 +874,7 @@ class JsonService(QObject):
 
     @Slot()
     def refresh(self):
-        root = self._root(); root.mkdir(parents=True, exist_ok=True)
-        groups = []
-        if self._source == 0:
-            for folder in root.iterdir():
-                if folder.is_dir():
-                    files = self._files(folder, generated=True)
-                    if files: groups.append(self._group(folder.name, folder, files))
-        else:
-            grouped = {}
-            for path in self._files(root, generated=False): grouped.setdefault(path.parent, []).append(path)
-            for folder, files in grouped.items(): groups.append(self._group(str(folder.relative_to(root)) if folder != root else root.name, folder, files))
-        groups.sort(key=lambda g:g["modified"], reverse=True)
-        self._groups=groups
-        self._group_model.replace([{k:g[k] for k in ("name","displayName","detailText","path","count","modifiedLabel")} for g in groups])
-        self._all_file_rows = [self._row_for_json(path) for path in self._sorted_visible_files(groups)]
-        self._apply_search_filter()
+        self._load_source(force=True)
 
     def _apply_search_filter(self):
         query = self._search_query.casefold()
@@ -150,7 +891,6 @@ class JsonService(QObject):
             self._select_path(str(rows[0]["path"]), log=False, queue_preview=False)
         else:
             self.clearSelection()
-        self._start_preview_queue(rows)
 
     @staticmethod
     def _same_path(left, right):
@@ -182,23 +922,22 @@ class JsonService(QObject):
         display_name = name
         detail_text = f"{len(files)} JSON" if len(files) == 1 else f"{len(files)} JSONs"
         if files:
-            meta = self._metadata_for_json(files[0])
+            meta, layers, title = self._json_summary(files[0])
             title = meta.get("display_name") or meta.get("title")
-            layers = self._metadata_count(meta, files[0])
             if title:
                 display_name = str(title)
             if isinstance(layers, int):
                 detail_text = self._count_detail_text(layers, meta)
         return {"name":name,"displayName":display_name,"detailText":detail_text,"path":str(folder),"files":sorted(files,key=lambda p:p.stat().st_mtime,reverse=True),"count":len(files),"modified":modified,"modifiedLabel":self._age(modified)}
 
-    def _sorted_visible_files(self, groups):
-        if self._source == 0:
+    def _sorted_visible_files(self, source, groups):
+        if source == 0:
             files = []
             for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
                 files.extend(sorted(self._dedupe_generated_files(group["files"]), key=lambda path: (self._count(path), path.name.casefold())))
             return files
         files = [path for group in groups for path in group["files"]]
-        return sorted(files, key=lambda path: (path.stat().st_mtime * -1, self._display_name_for_json(path).casefold(), self._count(path), path.name.casefold()))
+        return sorted(files, key=lambda path: (path.stat().st_mtime * -1, path.name.casefold()))
 
     def _dedupe_generated_files(self, files):
         selected = {}
@@ -209,25 +948,34 @@ class JsonService(QObject):
                 selected[key] = path
         return list(selected.values())
 
-    def _row_for_json(self, path):
-        layers = self._count(path)
-        modified_label = self._age(path.stat().st_mtime)
-        meta = self._metadata_for_json(path)
+    def _row_for_json(self, source, path, retained_previews=None):
+        stat = path.stat()
+        modified_label = self._age(stat.st_mtime)
+        meta, layers, display_name = self._json_summary(path)
         detail = self._count_detail_text(layers, meta)
+        preview_url = ""
+        if retained_previews:
+            cached = retained_previews.get(self._preview_key(path))
+            if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                preview_url = cached[2]
         return {
             "name": path.name,
-            "displayName": self._display_name_for_json(path, meta),
+            "displayName": display_name,
             "path": str(path),
             "layers": layers,
             "modifiedLabel": modified_label,
-            "previewUrl": "",
+            "previewUrl": preview_url,
+            "countDetail": detail,
             "detailText": f"{detail}  •  {modified_label}",
             "folder": str(path.parent),
+            "mtime": stat.st_mtime,
+            "mtimeNs": stat.st_mtime_ns,
+            "size": stat.st_size,
+            "source": source,
         }
 
     @staticmethod
     def _age(ts):
-        import time
         seconds=max(0,int(time.time()-ts))
         if seconds<60:return "just now"
         if seconds<3600:return f"{seconds//60}m ago"
@@ -238,8 +986,11 @@ class JsonService(QObject):
     def selectGroup(self,index):
         if not 0<=index<len(self._groups): return
         self._selected_group=index; rows=[]
+        cached = self._source_index_cache.get(self._source, {})
+        rows_by_key = cached.get("rowsByKey", {})
         for path in self._groups[index]["files"]:
-            rows.append(self._row_for_json(path))
+            row = rows_by_key.get(self._preview_key(path))
+            rows.append(row if row else self._row_for_json(self._source, path))
         self._file_model.replace(rows)
         if rows:
             self.selectPath(str(rows[0]["path"]))
@@ -260,33 +1011,7 @@ class JsonService(QObject):
         return 0
 
     @classmethod
-    def _metadata_for_json(cls, path):
-        manifest = path.with_suffix(".manifest.json")
-        try:
-            if manifest.is_file():
-                data = json.loads(manifest.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    result = dict(data)
-                    result.setdefault("layers", cls._count(path))
-                    result.setdefault("layer_count", result.get("layers"))
-                    result.setdefault("shape_count", result.get("layers"))
-                    return result
-        except Exception:
-            pass
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("metadata"), dict):
-                result = dict(data["metadata"])
-                result.setdefault("layers", cls._count(path))
-                result.setdefault("layer_count", result.get("layers"))
-                result.setdefault("shape_count", result.get("layers"))
-                return result
-        except Exception:
-            pass
-        return {}
-
-    @classmethod
-    def _metadata_count(cls, meta, path):
+    def _metadata_count_value(cls, meta):
         for key in ("shape_count", "layer_count", "layers"):
             value = meta.get(key)
             if isinstance(value, int):
@@ -296,7 +1021,54 @@ class JsonService(QObject):
                     return int(value)
             except (TypeError, ValueError):
                 pass
-        return cls._count(path)
+        return None
+
+    @classmethod
+    def _json_summary(cls, path):
+        meta = {}
+        layers = None
+        manifest = path.with_suffix(".manifest.json")
+        try:
+            if manifest.is_file():
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    meta = dict(data)
+                    layers = cls._metadata_count_value(meta)
+        except Exception:
+            pass
+        if layers is None:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    layers = len(data)
+                elif isinstance(data, dict):
+                    if isinstance(data.get("metadata"), dict):
+                        meta = dict(data["metadata"])
+                        layers = cls._metadata_count_value(meta)
+                    if layers is None:
+                        for key in ("shapes","layers","items"):
+                            if isinstance(data.get(key),list):
+                                layers = len(data[key])
+                                break
+            except Exception:
+                pass
+        if layers is None:
+            match = re.search(r"\.(\d+)v2\.json$",path.name.lower())
+            layers = int(match.group(1)) if match else 0
+        meta.setdefault("layers", layers)
+        meta.setdefault("layer_count", layers)
+        meta.setdefault("shape_count", layers)
+        name = meta.get("display_name") or meta.get("title")
+        return meta, int(layers), (str(name) if name else path.name)
+
+    @classmethod
+    def _metadata_for_json(cls, path):
+        return cls._json_summary(path)[0]
+
+    @classmethod
+    def _metadata_count(cls, meta, path):
+        value = cls._metadata_count_value(meta)
+        return value if value is not None else cls._count(path)
 
     @staticmethod
     def _count_detail_text(layers, meta):
@@ -323,8 +1095,13 @@ class JsonService(QObject):
     def _select_path(self, value, log=True, queue_preview=True):
         path=Path(value)
         if not path.is_file():return
-        source_name=self._source_names()[self._source]
-        self._selected_path=str(path.resolve()); self._selected_display_name=self._display_name_for_json(path); self._layers=str(self._count(path)); self._folder=str(path.parent); self._preview_url=self._existing_preview_for_json(path, source_name); self.changed.emit()
+        source_name,row=self._source_name_for_preview_path(path)
+        self._selected_path=str(path.resolve())
+        self._selected_display_name=str(row.get("displayName") if row else self._display_name_for_json(path))
+        self._layers=str(row.get("layers") if row else self._count(path))
+        self._folder=str(row.get("folder") if row else path.parent)
+        self._preview_url=str(row.get("previewUrl") if row and row.get("previewUrl") else self._existing_preview_for_json(path, source_name))
+        self.changed.emit()
         if queue_preview and not self._preview_url:
             self._enqueue_preview_path(path, source_name, priority=True)
         if log:
@@ -343,16 +1120,28 @@ class JsonService(QObject):
         except Exception:
             return str(path).casefold()
 
-    def _start_preview_queue(self, rows):
-        self._preview_generation += 1
-        self._preview_queue = []
-        self._preview_queued = set()
-        source_name = self._source_names()[self._source]
-        for row in rows:
-            if row.get("previewUrl"):
-                continue
-            self._enqueue_preview_path(row.get("path"), source_name, priority=False, start=False, check_existing=False)
-        self._pump_preview_queue()
+    def _source_name_for_preview_path(self, path):
+        key = self._preview_key(path)
+        for source, cached in self._source_index_cache.items():
+            row = cached.get("rowsByKey", {}).get(key)
+            if row:
+                return self._source_names()[source], row
+        return self._source_names()[self._source], None
+
+    @Slot(str)
+    def requestPreview(self, value):
+        if not value:
+            return
+        path = Path(value)
+        if not path.is_file():
+            return
+        key = self._preview_key(path)
+        if key in self._preview_empty:
+            return
+        source_name, row = self._source_name_for_preview_path(path)
+        if row and row.get("previewUrl"):
+            return
+        self._enqueue_preview_path(path, source_name, priority=False, start=True, check_existing=True)
 
     def _enqueue_preview_path(self, path, source_name=None, priority=False, start=True, check_existing=True):
         if not path:
@@ -360,14 +1149,18 @@ class JsonService(QObject):
         path = Path(path)
         if not path.is_file():
             return
+        key = self._preview_key(path)
+        if key in self._preview_empty and not priority:
+            return
         source_name = source_name or self._source_names()[self._source]
         if check_existing:
             existing = self._existing_preview_for_json(path, source_name)
             if existing:
                 self._update_preview_url(str(path), existing)
                 return
-        key = self._preview_key(path)
         if key in self._preview_queued:
+            return
+        if not priority and len(self._preview_queue) >= 48:
             return
         item = (str(path), source_name)
         if priority:
@@ -382,11 +1175,9 @@ class JsonService(QObject):
         if self._preview_running or not self._preview_queue:
             return
         path, source_name = self._preview_queue.pop(0)
-        self._preview_queued.discard(self._preview_key(path))
-        generation = self._preview_generation
         self._preview_running = True
         future = self._preview_executor.submit(self.preview.preview_for_json, path, source_name)
-        future.add_done_callback(lambda done, gen=generation, item=path: self._previewReady.emit(gen, item, self._preview_result(done)))
+        future.add_done_callback(lambda done, item=path, source=source_name: self._previewReady.emit(item, source, self._preview_result(done)))
 
     @staticmethod
     def _preview_result(future):
@@ -395,16 +1186,23 @@ class JsonService(QObject):
         except Exception:
             return ""
 
-    @Slot(int, str, str)
-    def _apply_preview_result(self, generation, path, preview_url):
+    @Slot(str, str, str)
+    def _apply_preview_result(self, path, source_name, preview_url):
         self._preview_running = False
-        if generation == self._preview_generation and preview_url:
+        self._preview_queued.discard(self._preview_key(path))
+        if preview_url:
             self._update_preview_url(path, preview_url)
+        else:
+            self._preview_empty.add(self._preview_key(path))
         QTimer.singleShot(180, self._pump_preview_queue)
 
     def _update_preview_url(self, path, preview_url):
         if not preview_url:
             return
+        for cached in self._source_index_cache.values():
+            for row in cached.get("rows", []):
+                if self._same_path(row.get("path"), path):
+                    row["previewUrl"] = preview_url
         for row in self._all_file_rows:
             if self._same_path(row.get("path"), path):
                 row["previewUrl"] = preview_url
@@ -624,12 +1422,24 @@ class JsonService(QObject):
 
     @Slot()
     def refreshRecent(self):
+        self._refresh_recent_from_cache()
+        self.warmIndex()
+
+    def _refresh_recent_from_cache(self):
         rows=[]
-        for source,root in (("Generated",self.paths.generated_root),("Editor",self.paths.editor_json_root),("Exported",self.paths.exported_root)):
-            if not root.exists():continue
-            for path in self._files(root, generated=source=="Generated"):
-                try:rows.append({"name":path.name,"path":str(path),"folder":str(path.parent),"age":self._age(path.stat().st_mtime),"source":source,"mtime":path.stat().st_mtime})
-                except OSError:pass
+        for source, label in ((0, "Generated"), (1, "Editor"), (2, "Exported")):
+            index = self._source_index_cache.get(source)
+            if not index:
+                continue
+            for row in index.get("rows", []):
+                rows.append({
+                    "name": row.get("displayName") or row.get("name") or Path(str(row.get("path") or "")).name,
+                    "path": row.get("path", ""),
+                    "folder": row.get("folder", ""),
+                    "age": self._age(float(row.get("mtime") or 0)),
+                    "source": label,
+                    "mtime": float(row.get("mtime") or 0),
+                })
         rows.sort(key=lambda r:r["mtime"],reverse=True)
         if self.demo and not rows:
             rows=[

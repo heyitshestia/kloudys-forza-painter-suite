@@ -462,7 +462,7 @@ Item {
 
                                 Text {
                                     Layout.maximumWidth: Theme.px(300)
-                                    text: jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName
+                                    text: jsonService.thumbnailStatus.length > 0 ? jsonService.thumbnailStatus : (jsonService.indexing ? jsonService.indexStatus : (jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName))
                                     color: Theme.muted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(9.6)
@@ -561,7 +561,7 @@ Item {
                                                     fillMode: Image.PreserveAspectFit
                                                     asynchronous: true
                                                     smooth: true
-                                                    mipmap: true
+                                                    mipmap: false
                                                 }
 
                                                 EmptyState {
@@ -640,10 +640,12 @@ Item {
                                     visible: files.count === 0
                                     anchors.centerIn: parent
                                     iconName: "json"
-                                    title: jsonService.searchQuery.length > 0 ? "No matching vinyls" : "No outputs"
-                                    message: jsonService.searchQuery.length > 0
+                                    title: jsonService.currentSourceIndexing ? "Indexing outputs" : (jsonService.searchQuery.length > 0 ? "No matching vinyls" : "No outputs")
+                                    message: jsonService.currentSourceIndexing
+                                             ? "Scanning this source in the background. Cached results will appear automatically."
+                                             : (jsonService.searchQuery.length > 0
                                              ? "No vinyl name in this source matches the search."
-                                             : "This output source has no JSON files yet."
+                                             : "This output source has no JSON files yet.")
                                 }
                             }
 
@@ -740,7 +742,7 @@ Item {
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     smooth: true
-                    mipmap: true
+                    mipmap: false
                 }
 
                 EmptyState {
