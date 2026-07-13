@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.65
+- Added silent one-device supporter-key registration through an isolated Cloudflare Worker while keeping public KFPS features available during activation problems.
+- Protected the random local device identity and permanent offline activation receipt with Windows DPAPI, with no recurring online check after successful registration.
+- Added signed duplicate handling, device release and owner-reset recovery, narrow in-app repair messaging, and Windows key compatibility coverage.
+- Added the encrypted Ko-fi webhook inbox and HMAC-authenticated activation administration API used by the separate local Operations Console.
+
 ## 3.0.64
 - Added startup output indexing with a short loading splash so large JSON libraries are cached before the Outputs page opens.
 - Moved missing JSON thumbnail rendering into a separate worker process and merged newly rendered previews into the open Outputs grid.

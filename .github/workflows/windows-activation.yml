@@ -1,0 +1,48 @@
+name: Windows activation compatibility
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/windows-activation.yml"
+      - "requirements.txt"
+      - "KFPS.UI/src/kfps_ui/activation_*.py"
+      - "KFPS.UI/src/kfps_ui/supporter_service.py"
+      - "KFPS.UI/tests/test_activation*.py"
+  pull_request:
+    paths:
+      - ".github/workflows/windows-activation.yml"
+      - "requirements.txt"
+      - "KFPS.UI/src/kfps_ui/activation_*.py"
+      - "KFPS.UI/src/kfps_ui/supporter_service.py"
+      - "KFPS.UI/tests/test_activation*.py"
+
+jobs:
+  key-compatibility:
+    name: Key compatibility (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2022
+          - windows-2025
+
+    steps:
+      - name: Check out KFPS
+        uses: actions/checkout@v4
+
+      - name: Set up 64-bit Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+          cache: "pip"
+
+      - name: Install activation dependencies
+        run: python -m pip install "PySide6>=6.7,<7" "pywin32>=306"
+
+      - name: Run app key and DPAPI tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s KFPS.UI/tests -p "test_activation*.py" -v

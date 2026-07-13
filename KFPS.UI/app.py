@@ -294,8 +294,12 @@ def main():
     source = SourceImageService(paths, desktop, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
     supporter = SupporterService(paths.app_root)
-    if is_supporter_theme(settings.theme) and not supporter.unlocked:
-        settings.theme = DEFAULT_THEME
+    def enforce_available_theme():
+        if is_supporter_theme(settings.theme) and not supporter.unlocked:
+            settings.theme = DEFAULT_THEME
+
+    enforce_available_theme()
+    supporter.changed.connect(enforce_available_theme)
     cgroup_library = CGroupLibraryService(paths, preview, jsons, logs, supporter=supporter, demo=args.demo)
     generation = GenerationService(paths, logs)
     transfer = TransferService(paths, logs, jsons)

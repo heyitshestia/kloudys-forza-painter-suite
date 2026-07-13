@@ -12,6 +12,9 @@ Item {
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
     property real pendingUiScale: settings.uiScale
+    readonly property bool activationNeedsRepair: [
+        "duplicate", "not_eligible", "network_error", "service_error", "deactivated"
+    ].indexOf(supporterService.activationState) >= 0
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && interfaceCard.width > 0
                                                      && foldersCard.width > 0
@@ -116,7 +119,7 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 106 : 124)
+                    Layout.preferredHeight: Theme.px(root.compactHeight ? 132 : 150)
                     soft: true
 
                     ColumnLayout {
@@ -126,8 +129,10 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: supporterService.unlocked ? "Local unlock active" : "Local unlock"
-                            color: supporterService.unlocked ? Theme.primaryBright : Theme.muted
+                            text: supporterService.activationStateLabel
+                            color: supporterService.unlocked
+                                   ? Theme.primaryBright
+                                   : (supporterService.keyValid ? Theme.warning : Theme.muted)
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(12.2)
                             font.weight: Font.DemiBold
@@ -137,11 +142,12 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: supporterService.status
+                                  + "\nOne-time anonymous registration sends no name, email, hardware details, artwork, or file paths. Activated devices need no recurring check."
                             color: supporterService.unlocked ? Theme.muted : Theme.subtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.8)
                             wrapMode: Text.Wrap
-                            maximumLineCount: 2
+                            maximumLineCount: 4
                             elide: Text.ElideRight
                         }
 
@@ -164,11 +170,24 @@ Item {
                             GhostButton {
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
-                                enabled: supporterService.unlocked
-                                text: "Remove"
+                                enabled: supporterService.keyValid
+                                         && (supporterService.activationState !== "active"
+                                             || supporterService.canDeactivate)
+                                         && (!root.activationNeedsRepair || supporterService.canRepair)
+                                text: supporterService.activationState === "active"
+                                      ? (supporterService.canDeactivate ? "Release Device" : "Releasing...")
+                                      : (root.activationNeedsRepair
+                                         ? (supporterService.activationState === "deactivated" ? "Register Again" : "Retry")
+                                         : "Remove")
                                 onClicked: {
-                                    supporterService.removeKey()
-                                    settings.theme = Theme.defaultThemeName
+                                    if (supporterService.activationState === "active") {
+                                        supporterService.deactivateDevice()
+                                    } else if (root.activationNeedsRepair) {
+                                        supporterService.repairActivation()
+                                    } else {
+                                        supporterService.removeKey()
+                                        settings.theme = Theme.defaultThemeName
+                                    }
                                 }
                             }
                         }
@@ -178,7 +197,8 @@ Item {
                 GlassPanel {
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 96 : 116) : 0
-                    visible: Theme.activeThemeName === Theme.defaultThemeName && !supporterService.unlocked
+                    visible: Theme.activeThemeName === Theme.defaultThemeName
+                             && supporterService.activationState === "no_key"
                     strong: true
                     glow: true
 
@@ -199,7 +219,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "One-click FH6 save-library exports and supporter themes are available through the local unlock."
+                            text: "One-click FH6 save-library exports and supporter themes are available with a supporter key."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.6)

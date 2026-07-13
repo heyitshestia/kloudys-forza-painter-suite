@@ -17,6 +17,8 @@ ApplicationWindow {
     title: appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    Component.onCompleted: supporterService.startActivation()
+
     onActiveChanged: {
         if (active) {
             supporterService.refresh()
@@ -230,6 +232,17 @@ ApplicationWindow {
                     anchors.topMargin: Theme.px(window.shortWindow ? -2 : 2)
                     anchors.rightMargin: Theme.px(16)
                     z: 80
+                }
+
+                SupporterActivationNotice {
+                    id: activationNotice
+                    compact: window.compactHeader
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: Theme.px(16)
+                    anchors.bottomMargin: Theme.px(14)
+                                          + (bottom.visible ? window.consoleHeight + Theme.px(10) : 0)
+                    z: 120
                 }
 
                 ColumnLayout {

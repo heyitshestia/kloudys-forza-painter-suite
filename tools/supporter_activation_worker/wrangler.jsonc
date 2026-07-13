@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kfps-supporter-activation",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "ACTIVATION_KEY_ID": "activation-rsa-2026-01"
+  },
+  "secrets": {
+    "required": [
+      "ACTIVATION_PRIVATE_KEY_PEM",
+      "ADMIN_HMAC_SECRET",
+      "KOFI_VERIFICATION_TOKEN",
+      "KOFI_INBOX_PUBLIC_KEY_PEM"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kfps-activation",
+      "database_id": "eb249814-25ac-4ae8-927f-be438132b1eb",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

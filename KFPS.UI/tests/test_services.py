@@ -50,7 +50,7 @@ class ServiceTests(unittest.TestCase):
  def test_supporter_unlock_install_handles_stale_temp_source(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"runtime"/"supporter"/"supporter.tmp";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root);payload={"supporter_name":"Test","entitlements":["supporter_theme"]}
+   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Test","entitlements":["supporter_theme"]}
    self.assertTrue(svc._install_key(source,payload,"Local unlock verified.",remove_source=True))
    self.assertTrue((app_root/"supporter.kfpskey").exists())
    self.assertFalse(source.exists())
@@ -58,14 +58,14 @@ class ServiceTests(unittest.TestCase):
  def test_supporter_unlock_install_preserves_personal_key_name(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"downloads"/"Alice Custom.kfpskey";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root);payload={"supporter_name":"Alice","entitlements":["supporter_theme"]}
+   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Alice","entitlements":["supporter_theme"]}
    self.assertTrue(svc._install_key(source,payload,"Local unlock verified."))
    self.assertTrue((app_root/"Alice Custom.kfpskey").exists())
    self.assertTrue(svc.unlocked)
  def test_supporter_unlock_reload_accepts_root_key_drop(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);key=app_root/"Manual Drop.kfpskey";key.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root);payload={"supporter_name":"Manual","entitlements":["supporter_theme"]}
+   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Manual","entitlements":["supporter_theme"]}
    svc._validate_file=lambda path:(True,payload,"Local unlock verified.") if path==key else (False,None,"wrong key")
    svc.reload()
    self.assertTrue(svc.unlocked)

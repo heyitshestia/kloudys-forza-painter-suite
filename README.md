@@ -40,6 +40,12 @@ KFPS is free, and support is completely optional. If the suite saved you time an
 
 https://ko-fi.com/O7O020EQNQ
 
+## Supporter Key Activation
+
+A valid supporter key registers automatically to one Windows device the first time KFPS finds it. The one-time HTTPS request contains only an opaque key identifier, proof that the signed key is genuine, a random device token, and a request nonce. It does not send the supporter's name, email, Windows account, hardware serial numbers, artwork, or file paths.
+
+After registration, KFPS protects a permanent local receipt with Windows protected storage and does not require recurring activation checks. Use `Settings > Release Device` before moving the key to another computer. If a copied key is already registered elsewhere, public KFPS features remain available and the app shows a support code for reset assistance.
+
 ## Why It Is Useful
 
 - One standalone folder can handle updates, generation, previews, imports, exports, library scans, and manual JSON editing from the native app.
