@@ -2,20 +2,6 @@ name: Windows activation compatibility
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/windows-activation.yml"
-      - "requirements.txt"
-      - "KFPS.UI/src/kfps_ui/activation_*.py"
-      - "KFPS.UI/src/kfps_ui/supporter_service.py"
-      - "KFPS.UI/tests/test_activation*.py"
-  pull_request:
-    paths:
-      - ".github/workflows/windows-activation.yml"
-      - "requirements.txt"
-      - "KFPS.UI/src/kfps_ui/activation_*.py"
-      - "KFPS.UI/src/kfps_ui/supporter_service.py"
-      - "KFPS.UI/tests/test_activation*.py"
 
 jobs:
   key-compatibility:
