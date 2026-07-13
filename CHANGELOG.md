@@ -1,19 +1,19 @@
 # Kloudy's FH6 Painter Changelog
 
 ## 3.0.67
-- Fixed restored supporter keys remaining locally revoked after restarting KFPS, even after registration was reset.
-- Locally revoked clients now verify signed restore status once per launch and request a fresh receipt automatically; offline and untrusted responses remain unable to clear revocation.
+- Improved supporter access recovery after registration changes.
+- Restored supporter access now returns automatically on the next connected launch.
 
 ## 3.0.66
-- Added a signed startup activation-status check so revoked supporter keys remove their protected offline receipt while network and invalid-response failures leave existing access intact.
-- Persisted verified revocations across restarts and prevented offline activation repair from restoring migration-grace access.
-- Added an authenticated administration action for clearing duplicate-attempt counters and timestamps without resetting the registered device.
+- Improved supporter access reliability across restarts and temporary service interruptions.
+- Hardened supporter checks against malformed or unavailable service responses.
+- Added owner-side maintenance tools for resolving registration issues.
 
 ## 3.0.65
-- Added silent one-device supporter-key registration through an isolated Cloudflare Worker while keeping public KFPS features available during activation problems.
-- Protected the random local device identity and permanent offline activation receipt with Windows DPAPI, with no recurring online check after successful registration.
-- Added signed duplicate handling, device release and owner-reset recovery, narrow in-app repair messaging, and Windows key compatibility coverage.
-- Added the encrypted Ko-fi webhook inbox and HMAC-authenticated activation administration API used by the separate local Operations Console.
+- Added automatic one-device supporter access while keeping public KFPS features available during service problems.
+- Added secure local supporter access for reliable offline use.
+- Added device-transfer recovery, clearer in-app guidance, and broader Windows compatibility coverage.
+- Added automated Ko-fi purchase synchronization to the separate local supporter-management tool.
 
 ## 3.0.64
 - Added startup output indexing with a short loading splash so large JSON libraries are cached before the Outputs page opens.
