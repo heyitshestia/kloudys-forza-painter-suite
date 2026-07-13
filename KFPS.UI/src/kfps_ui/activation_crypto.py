@@ -208,3 +208,26 @@ def verify_activation_decision(
     if payload.get("status") not in {"already_activated", "not_eligible", "deactivated"}:
         return None, "Activation decision status is not recognized."
     return payload, ""
+
+
+def verify_activation_status(
+    envelope: object,
+    *,
+    key_id: str,
+    device_id: str,
+    nonce: str,
+) -> tuple[dict[str, Any] | None, str]:
+    payload, error = _signed_payload(
+        envelope,
+        expected_type="kfps.supporter.activation-status",
+        expected_schema="kfps.activation.status.v1",
+    )
+    if payload is None:
+        return None, error
+    if payload.get("key_id") != key_id or payload.get("device_id") != device_id or payload.get("nonce") != nonce:
+        return None, "Activation status does not match the current request."
+    if payload.get("status") not in {"active", "revoked"}:
+        return None, "Activation status is not recognized."
+    if not isinstance(payload.get("checked_at"), str):
+        return None, "Activation status is missing its check time."
+    return payload, ""

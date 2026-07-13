@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.66
+- Added a signed startup activation-status check so revoked supporter keys remove their protected offline receipt while network and invalid-response failures leave existing access intact.
+- Persisted verified revocations across restarts and prevented offline activation repair from restoring migration-grace access.
+- Added an authenticated administration action for clearing duplicate-attempt counters and timestamps without resetting the registered device.
+
 ## 3.0.65
 - Added silent one-device supporter-key registration through an isolated Cloudflare Worker while keeping public KFPS features available during activation problems.
 - Protected the random local device identity and permanent offline activation receipt with Windows DPAPI, with no recurring online check after successful registration.

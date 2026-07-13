@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAdminSignatureForTesting } from "../src/admin_auth";
-import { bytesToBase64Url, sha256Hex } from "../src/protocol";
+import { base64UrlToBytes, bytesToBase64Url, sha256Hex } from "../src/protocol";
 
 const ADMIN_SECRET = "test-admin-secret-that-is-longer-than-thirty-two-characters";
 
@@ -47,6 +47,24 @@ async function deactivate(keyId: string, proof: string, device: string): Promise
       nonce: bytesToBase64Url(randomBytes(32)),
     }),
   });
+}
+
+async function statusCheck(keyId: string, proof: string, device: string): Promise<Response> {
+  return SELF.fetch("https://activation.test/v1/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      protocol: 1,
+      key_id: keyId,
+      key_proof: proof,
+      device_id: device,
+      nonce: bytesToBase64Url(randomBytes(32)),
+    }),
+  });
+}
+
+function signedPayload(envelope: { payload: string }): Record<string, unknown> {
+  return JSON.parse(new TextDecoder().decode(base64UrlToBytes(envelope.payload))) as Record<string, unknown>;
 }
 
 async function adminFetch(path: string, method = "GET", body = ""): Promise<Response> {
@@ -145,6 +163,39 @@ describe("activation worker", () => {
     expect(await response.json()).toEqual({ error: "not_eligible" });
   });
 
+  it("returns signed active and revoked startup status only for the matching proof", async () => {
+    const license = await makeLicense();
+    const wrong = await makeLicense();
+    const device = deviceId("7");
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO licenses(key_id, signature_sha256, device_id, activated_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4, ?4)",
+    ).bind(license.keyId, license.proofHash, device, now).run();
+
+    const activeResponse = await statusCheck(license.keyId, license.proof, device);
+    expect(activeResponse.status).toBe(200);
+    const activeBody = await activeResponse.json() as { status: string; decision: { type: string; payload: string } };
+    expect(activeBody.status).toBe("active");
+    expect(activeBody.decision.type).toBe("kfps.supporter.activation-status");
+    expect(signedPayload(activeBody.decision)).toEqual(expect.objectContaining({
+      schema: "kfps.activation.status.v1",
+      status: "active",
+      key_id: license.keyId,
+      device_id: device,
+    }));
+
+    await env.DB.prepare("UPDATE licenses SET status = 'revoked' WHERE key_id = ?1").bind(license.keyId).run();
+    const revokedResponse = await statusCheck(license.keyId, license.proof, device);
+    expect(revokedResponse.status).toBe(200);
+    const revokedBody = await revokedResponse.json() as { status: string; decision: { type: string; payload: string } };
+    expect(revokedBody.status).toBe("revoked");
+    expect(signedPayload(revokedBody.decision)).toEqual(expect.objectContaining({ status: "revoked" }));
+
+    const invalid = await statusCheck(license.keyId, wrong.proof, device);
+    expect(invalid.status).toBe(403);
+    expect(await invalid.json()).toEqual({ error: "not_eligible" });
+  });
+
   it("signs a denial only for a known revoked proof", async () => {
     const license = await makeLicense();
     const now = new Date().toISOString();
@@ -159,7 +210,7 @@ describe("activation worker", () => {
     }));
   });
 
-  it("requires authenticated admin requests and supports import, list, and reset", async () => {
+  it("requires authenticated admin requests and supports import, conflict clearing, list, and reset", async () => {
     const unauthorized = await SELF.fetch("https://activation.test/v1/admin/licenses");
     expect(unauthorized.status).toBe(401);
 
@@ -175,6 +226,22 @@ describe("activation worker", () => {
     expect(listPayload.licenses).toEqual(expect.arrayContaining([
       expect.objectContaining({ key_id: license.keyId, registered: true }),
     ]));
+
+    expect((await activate(license.keyId, license.proof, deviceId("3"))).status).toBe(409);
+    const clearBody = JSON.stringify({ action: "clear_conflicts", key_id: license.keyId });
+    const cleared = await adminFetch("/v1/admin/licenses/mutate", "POST", clearBody);
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({
+      license: expect.objectContaining({
+        key_id: license.keyId,
+        status: "active",
+        registered: true,
+        device_id_prefix: deviceId("1").slice(0, 12),
+        conflict_count: 0,
+        first_conflict_at: null,
+        last_conflict_at: null,
+      }),
+    });
 
     const resetBody = JSON.stringify({ action: "reset", key_id: license.keyId });
     const reset = await adminFetch("/v1/admin/licenses/mutate", "POST", resetBody);

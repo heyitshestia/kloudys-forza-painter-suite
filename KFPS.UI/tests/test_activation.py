@@ -29,6 +29,7 @@ from kfps_ui.activation_crypto import (
     derive_activation_key_id,
     verify_activation_decision,
     verify_activation_receipt,
+    verify_activation_status,
 )
 from kfps_ui.activation_storage import (
     ActivationStorageError,
@@ -87,6 +88,9 @@ class FakeClient(QObject):
 
     def deactivate(self, **payload):
         self.requests.append(("deactivate", payload))
+
+    def status(self, **payload):
+        self.requests.append(("status", payload))
 
 
 class PendingReply(QObject):
@@ -206,7 +210,7 @@ class ActivationTests(unittest.TestCase):
             with self.assertRaises(ActivationStorageError):
                 store.load_or_create_identity()
 
-    def test_receipt_and_duplicate_decision_are_bound_to_request_values(self):
+    def test_receipt_decision_and_status_are_bound_to_request_values(self):
         key_id = "1" * 64
         device_id = "2" * 64
         nonce = b64url_encode(b"n" * 32)
@@ -224,11 +228,21 @@ class ActivationTests(unittest.TestCase):
             "schema": "kfps.activation.decision.v1",
             "status": "already_activated",
         })
+        status = sign_test_envelope("kfps.supporter.activation-status", {
+            "checked_at": "2026-07-13T12:00:02.000Z",
+            "device_id": device_id,
+            "key_id": key_id,
+            "nonce": nonce,
+            "schema": "kfps.activation.status.v1",
+            "status": "revoked",
+        })
         with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
             self.assertIsNotNone(verify_activation_receipt(receipt, key_id=key_id, device_id=device_id)[0])
             self.assertIsNone(verify_activation_receipt(receipt, key_id="3" * 64, device_id=device_id)[0])
             self.assertIsNotNone(verify_activation_decision(decision, key_id=key_id, device_id=device_id, nonce=nonce)[0])
             self.assertIsNone(verify_activation_decision(decision, key_id=key_id, device_id=device_id, nonce="wrong")[0])
+            self.assertIsNotNone(verify_activation_status(status, key_id=key_id, device_id=device_id, nonce=nonce)[0])
+            self.assertIsNone(verify_activation_status(status, key_id=key_id, device_id=device_id, nonce="wrong")[0])
 
     def test_service_registers_silently_and_accepts_a_signed_receipt(self):
         with tempfile.TemporaryDirectory() as td:
@@ -374,7 +388,7 @@ class ActivationTests(unittest.TestCase):
             self.assertTrue(service.problemVisible)
             self.assertNotIn("409", service.supportCode)
 
-    def test_valid_receipt_makes_no_request_and_survives_failed_manual_repair(self):
+    def test_valid_receipt_checks_status_once_and_survives_network_and_repair_failures(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             key = fake_key(root / "Test.kfpskey")
@@ -394,12 +408,26 @@ class ActivationTests(unittest.TestCase):
             with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
                 service._evaluate_local_activation()
                 service.startActivation()
-                APP.processEvents()
-                self.assertEqual(service.activationState, "active")
-                self.assertEqual(client.requests, [])
-                service.repairActivation()
                 self.assertTrue(wait_for_request(client))
-                request = client.requests[0][1]
+                self.assertEqual(client.requests[0][0], "status")
+                status_request = client.requests[0][1]
+                client.completed.emit({
+                    "operation": "status",
+                    "nonce": status_request["nonce"],
+                    "http_status": 503,
+                    "network_error": "",
+                    "parse_error": "",
+                    "body": {"error": "service_error"},
+                })
+                self.assertEqual(service.activationState, "active")
+                self.assertTrue(service.unlocked)
+                self.assertIn("receipt", store.key_state(key.key_id))
+                service.startActivation()
+                APP.processEvents()
+                self.assertEqual(len(client.requests), 1)
+                service.repairActivation()
+                self.assertTrue(wait_for_request(client, 2))
+                request = client.requests[1][1]
                 client.completed.emit({
                     "operation": "activate",
                     "nonce": request["nonce"],
@@ -410,6 +438,120 @@ class ActivationTests(unittest.TestCase):
                 })
                 self.assertEqual(service.activationState, "active")
                 self.assertTrue(service.unlocked)
+
+    def test_signed_revoked_startup_status_removes_and_invalidates_the_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            key = fake_key(root / "Test.kfpskey")
+            client = FakeClient()
+            store = ActivationStore(root / "private-state", PlaintextTestProtector())
+            _secret, device_id = store.load_or_create_identity()
+            receipt = sign_test_envelope("kfps.supporter.activation", {
+                "activated_at": "2026-07-13T12:00:00.000Z",
+                "device_id": device_id,
+                "key_id": key.key_id,
+                "schema": "kfps.activation.v1",
+            })
+            store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt)})
+            service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            service._payload = key.payload
+            service._key = key
+            with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
+                service._evaluate_local_activation()
+                service.startActivation()
+                self.assertTrue(wait_for_request(client))
+                self.assertEqual(client.requests[0][0], "status")
+                request = client.requests[0][1]
+                decision = sign_test_envelope("kfps.supporter.activation-status", {
+                    "checked_at": "2026-07-13T12:00:01.000Z",
+                    "device_id": request["device_id"],
+                    "key_id": request["key_id"],
+                    "nonce": request["nonce"],
+                    "schema": "kfps.activation.status.v1",
+                    "status": "revoked",
+                })
+                client.completed.emit({
+                    "operation": "status",
+                    "nonce": request["nonce"],
+                    "http_status": 200,
+                    "network_error": "",
+                    "parse_error": "",
+                    "body": {"status": "revoked", "decision": decision},
+                })
+                self.assertEqual(service.activationState, "revoked")
+                self.assertFalse(service.unlocked)
+                self.assertTrue(service.problemVisible)
+                saved = store.key_state(key.key_id)
+                self.assertNotIn("receipt", saved)
+                self.assertIn("revocation", saved)
+
+                restarted = SupporterService(root, store=store, client=FakeClient(), endpoint="http://127.0.0.1:8787", enforce_activation=True)
+                restarted._payload = key.payload
+                restarted._key = key
+                restarted._evaluate_local_activation()
+                self.assertEqual(restarted.activationState, "revoked")
+                self.assertFalse(restarted.unlocked)
+
+                restarted.startActivation()
+                restarted.repairActivation()
+                self.assertTrue(wait_for_request(restarted._client))
+                repair_request = restarted._client.requests[0][1]
+                restarted._client.completed.emit({
+                    "operation": "activate",
+                    "nonce": repair_request["nonce"],
+                    "http_status": 0,
+                    "network_error": "offline",
+                    "parse_error": "",
+                    "body": None,
+                })
+                self.assertEqual(restarted.activationState, "network_error")
+                self.assertFalse(restarted.unlocked)
+                self.assertNotIn("receipt", store.key_state(key.key_id))
+
+    def test_unsigned_or_wrongly_bound_revocation_never_removes_a_receipt(self):
+        for response_kind in ("unsigned", "wrong_nonce"):
+            with self.subTest(response_kind=response_kind), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                key = fake_key(root / "Test.kfpskey")
+                client = FakeClient()
+                store = ActivationStore(root / "private-state", PlaintextTestProtector())
+                _secret, device_id = store.load_or_create_identity()
+                receipt = sign_test_envelope("kfps.supporter.activation", {
+                    "activated_at": "2026-07-13T12:00:00.000Z",
+                    "device_id": device_id,
+                    "key_id": key.key_id,
+                    "schema": "kfps.activation.v1",
+                })
+                store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt)})
+                service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+                service._payload = key.payload
+                service._key = key
+                with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
+                    service._evaluate_local_activation()
+                    service.startActivation()
+                    self.assertTrue(wait_for_request(client))
+                    request = client.requests[0][1]
+                    decision = None
+                    if response_kind == "wrong_nonce":
+                        decision = sign_test_envelope("kfps.supporter.activation-status", {
+                            "checked_at": "2026-07-13T12:00:01.000Z",
+                            "device_id": request["device_id"],
+                            "key_id": request["key_id"],
+                            "nonce": b64url_encode(b"wrong-status-nonce"),
+                            "schema": "kfps.activation.status.v1",
+                            "status": "revoked",
+                        })
+                    client.completed.emit({
+                        "operation": "status",
+                        "nonce": request["nonce"],
+                        "http_status": 200,
+                        "network_error": "",
+                        "parse_error": "",
+                        "body": {"status": "revoked", "decision": decision},
+                    })
+                    self.assertEqual(service.activationState, "active")
+                    self.assertTrue(service.unlocked)
+                    self.assertIn("receipt", store.key_state(key.key_id))
 
     def test_signed_deactivation_releases_local_access(self):
         with tempfile.TemporaryDirectory() as td:
@@ -430,7 +572,6 @@ class ActivationTests(unittest.TestCase):
             service._key = key
             with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
                 service._evaluate_local_activation()
-                service.startActivation()
                 service.deactivateDevice()
                 self.assertTrue(wait_for_request(client))
                 request = client.requests[0][1]

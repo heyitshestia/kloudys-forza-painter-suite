@@ -123,6 +123,25 @@ export async function signDecision(
   });
 }
 
+export async function signStatus(
+  privateKeyPem: string,
+  kid: string,
+  status: "active" | "revoked",
+  keyId: string,
+  deviceId: string,
+  nonce: string,
+  checkedAt: string,
+): Promise<SignedEnvelope> {
+  return signEnvelope(privateKeyPem, kid, "kfps.supporter.activation-status", {
+    checked_at: checkedAt,
+    device_id: deviceId,
+    key_id: keyId,
+    nonce,
+    schema: "kfps.activation.status.v1",
+    status,
+  });
+}
+
 export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;

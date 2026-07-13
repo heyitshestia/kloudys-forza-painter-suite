@@ -43,6 +43,9 @@ class ActivationClient(QObject):
     def deactivate(self, *, key_id: str, key_proof: str, device_id: str, nonce: str):
         self._send("deactivate", key_id=key_id, key_proof=key_proof, device_id=device_id, nonce=nonce)
 
+    def status(self, *, key_id: str, key_proof: str, device_id: str, nonce: str):
+        self._send("status", key_id=key_id, key_proof=key_proof, device_id=device_id, nonce=nonce)
+
     def _send(self, operation: str, *, key_id: str, key_proof: str, device_id: str, nonce: str):
         if not self.configured:
             self.completed.emit({

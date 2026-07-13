@@ -13,7 +13,7 @@ Item {
     property bool compactHeight: Theme.logical(height) < 720
     property real pendingUiScale: settings.uiScale
     readonly property bool activationNeedsRepair: [
-        "duplicate", "not_eligible", "network_error", "service_error", "deactivated"
+        "duplicate", "not_eligible", "network_error", "service_error", "deactivated", "revoked"
     ].indexOf(supporterService.activationState) >= 0
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && interfaceCard.width > 0

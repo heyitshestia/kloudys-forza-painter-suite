@@ -24,10 +24,11 @@ Public activation routes:
 ```text
 GET  /v1/health
 POST /v1/activate
+POST /v1/status
 POST /v1/deactivate
 ```
 
-Requests are schema checked and size bounded. A valid first device receives a permanent signed receipt. A valid second device receives a signed duplicate decision. Unknown IDs and wrong proofs receive a generic unsigned denial and do not increase duplicate counters.
+Requests are schema checked and size bounded. A valid first device receives a signed receipt. At startup, a matching key proof receives a signed active or revoked status bound to its device ID and fresh nonce. A valid second device receives a signed duplicate decision. Unknown IDs and wrong proofs receive a generic unsigned denial and do not increase duplicate counters.
 
 ## Encrypted Ko-fi Inbox
 
@@ -95,7 +96,7 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-Tests cover atomic activation claims, same-device repair, simultaneous claims, signed duplicate/revoked decisions, invalid-proof privacy, admin authentication, import/list/reset, Ko-fi token rejection, encrypted-at-rest storage, duplicate webhooks, list/ack flow, and long-field encryption bounds.
+Tests cover atomic activation claims, same-device repair, simultaneous claims, signed startup status and duplicate/revoked decisions, invalid-proof privacy, admin authentication, import/list/reset/conflict clearing, Ko-fi token rejection, encrypted-at-rest storage, duplicate webhooks, list/ack flow, and long-field encryption bounds.
 
 ## Production
 
@@ -129,7 +130,8 @@ C:\Users\Hestia\Desktop\KFPS Activation Admin\DEPLOYMENT.md
 - Never add readable customer identity to D1.
 - Never classify network/server failures as duplicate activation.
 - Never delete an activation allowlist row during reset; clear its device assignment.
+- Clear duplicate counters independently from registration, revocation, and restore actions.
 - Back up D1 and both private RSA keys separately in encrypted storage.
 - Keep this service isolated from unrelated KFPS application updates.
 
-Reset and revocation cannot remotely erase permanent receipts already issued to offline devices. They control future registration and reassignment.
+Revocation removes a protected receipt the next time that KFPS starts and verifies a signed revoked status. A computer kept offline cannot receive that status. Registration reset remains separate and does not revoke an existing receipt.

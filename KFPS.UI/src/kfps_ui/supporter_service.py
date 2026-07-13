@@ -19,6 +19,7 @@ from .activation_crypto import (
     read_supporter_key,
     verify_activation_decision,
     verify_activation_receipt,
+    verify_activation_status,
 )
 from .activation_storage import (
     ActivationStorageError,
@@ -67,6 +68,7 @@ class SupporterService(QObject):
         self._reload_in_progress = False
         self._started = False
         self._inflight_operation = ""
+        self._status_checked_key_id = ""
         self._clock = clock or time.time
         self._endpoint = activation_endpoint() if endpoint is None else str(endpoint).strip()
         self._enforce_activation = enforcement_enabled() if enforce_activation is None else bool(enforce_activation)
@@ -179,6 +181,24 @@ class SupporterService(QObject):
                 False,
             )
             return
+
+        revocation = self._key_state.get("revocation")
+        revocation_nonce = self._key_state.get("revocation_nonce")
+        if isinstance(revocation, dict) and isinstance(revocation_nonce, str):
+            verified, _error = verify_activation_status(
+                revocation,
+                key_id=self._key.key_id,
+                device_id=self._device_id,
+                nonce=revocation_nonce,
+            )
+            if verified is not None and verified.get("status") == "revoked":
+                self._set_activation(
+                    "revoked",
+                    "This supporter key was revoked. Its offline activation receipt was removed.",
+                    False,
+                    problem=True,
+                )
+                return
 
         receipt_text = self._key_state.get("receipt")
         if isinstance(receipt_text, str) and receipt_text:
@@ -326,7 +346,9 @@ class SupporterService(QObject):
     def _schedule_activation_check(self):
         if not self._started or not self._enforce_activation or self._key is None or self._inflight_operation:
             return
-        if self._activation_state == "active" or self._key_state.get("manual_deactivated"):
+        if self._key_state.get("manual_deactivated") or self._activation_state == "revoked":
+            return
+        if self._activation_state == "active" and self._status_checked_key_id == self._key.key_id:
             return
         next_retry = self._number(self._key_state.get("next_retry_at")) or 0
         delay_seconds = max(0.0, next_retry - float(self._clock()))
@@ -345,12 +367,19 @@ class SupporterService(QObject):
         if self._key is None or not self._enforce_activation:
             return
         previous = self._snapshot()
+        was_revoked = self._activation_state == "revoked"
         self._problem_dismissed = False
         self._key_state.pop("decision", None)
         self._key_state.pop("decision_nonce", None)
+        self._key_state.pop("revocation", None)
+        self._key_state.pop("revocation_nonce", None)
         self._key_state.pop("last_error_kind", None)
         self._key_state.pop("next_retry_at", None)
         self._key_state["manual_deactivated"] = False
+        if was_revoked:
+            self._key_state["grace_started_at"] = (
+                float(self._clock()) - MIGRATION_GRACE_DAYS * 86400 - 1
+            )
         try:
             self._save_key_state()
         except ActivationStorageError as exc:
@@ -371,8 +400,11 @@ class SupporterService(QObject):
         if not self._started or not self._enforce_activation or self._key is None or not self._device_id or self._inflight_operation:
             return
         if self._activation_state == "active" and not force:
+            if self._status_checked_key_id != self._key.key_id and self._client.configured:
+                self._status_checked_key_id = self._key.key_id
+                self._send_activation_request("status")
             return
-        if self._key_state.get("manual_deactivated") and not force:
+        if (self._key_state.get("manual_deactivated") or self._activation_state == "revoked") and not force:
             return
         next_retry = self._number(self._key_state.get("next_retry_at")) or 0
         if not force and next_retry > float(self._clock()):
@@ -396,7 +428,14 @@ class SupporterService(QObject):
             self._set_activation("local_storage_error", str(exc), False, problem=True)
             self._emit_if_changed(previous)
             return
-        sender = self._client.deactivate if operation == "deactivate" else self._client.activate
+        sender = {
+            "activate": self._client.activate,
+            "deactivate": self._client.deactivate,
+            "status": self._client.status,
+        }.get(operation)
+        if sender is None:
+            self._inflight_operation = ""
+            return
         sender(
             key_id=self._key.key_id,
             key_proof=self._key.key_proof,
@@ -418,6 +457,29 @@ class SupporterService(QObject):
         body = result.get("body")
         network_error = str(result.get("network_error") or "")
         parse_error = str(result.get("parse_error") or "")
+
+        if operation == "status":
+            if status == 200 and isinstance(body, dict) and body.get("status") in {"active", "revoked"}:
+                decision = body.get("decision")
+                verified, _error = verify_activation_status(
+                    decision,
+                    key_id=self._key.key_id if self._key else "",
+                    device_id=self._device_id,
+                    nonce=nonce,
+                )
+                if verified is not None and verified.get("status") == "revoked":
+                    self._key_state.pop("receipt", None)
+                    self._clear_retry_and_decision()
+                    self._key_state["revocation"] = decision
+                    self._key_state["revocation_nonce"] = nonce
+                    self._problem_dismissed = False
+                    if self._save_response_state(previous):
+                        self._evaluate_local_activation()
+                    self._emit_if_changed(previous)
+                    return
+            # Startup status checks are advisory unless a signed revocation is verified.
+            self._emit_if_changed(previous)
+            return
 
         if operation == "activate" and status == 200 and isinstance(body, dict) and body.get("status") == "active":
             receipt = body.get("receipt")
@@ -485,7 +547,15 @@ class SupporterService(QObject):
         self._record_transient_error(error_kind, previous)
 
     def _clear_retry_and_decision(self):
-        for key in ("decision", "decision_nonce", "last_error_kind", "next_retry_at", "retry_attempt"):
+        for key in (
+            "decision",
+            "decision_nonce",
+            "revocation",
+            "revocation_nonce",
+            "last_error_kind",
+            "next_retry_at",
+            "retry_attempt",
+        ):
             self._key_state.pop(key, None)
 
     def _save_response_state(self, previous: tuple) -> bool:
@@ -541,6 +611,7 @@ class SupporterService(QObject):
             "service_error": "Activation response error",
             "local_storage_error": "Local activation error",
             "deactivated": "Activation released",
+            "revoked": "Supporter key revoked",
         }
         return labels.get(self._activation_state, "Supporter activation")
 
@@ -578,6 +649,8 @@ class SupporterService(QObject):
             return "Supporter key could not be verified"
         if self._activation_state == "local_storage_error":
             return "Activation could not be saved"
+        if self._activation_state == "revoked":
+            return "Supporter key revoked"
         if self._activation_state in {"network_error", "service_error", "service_unconfigured"}:
             return "Supporter activation needs attention"
         return "Supporter activation needs attention"
@@ -594,6 +667,7 @@ class SupporterService(QObject):
         category = {
             "duplicate": "409",
             "not_eligible": "403",
+            "revoked": "REVOKED",
             "invalid_key": "KEY",
             "local_storage_error": "LOCAL",
             "network_error": "NET",
@@ -718,6 +792,7 @@ class SupporterService(QObject):
         self._key = None
         self._device_id = ""
         self._key_state = {}
+        self._status_checked_key_id = ""
         if failures:
             self._set_activation("local_storage_error", f"Could not remove unlock file: {failures[0]}", False, problem=True)
         else:

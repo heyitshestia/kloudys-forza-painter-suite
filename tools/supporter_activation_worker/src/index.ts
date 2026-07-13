@@ -1,6 +1,6 @@
 import { authenticateAdmin } from "./admin_auth";
 import { encryptKofiEvent, parseKofiPayload, validKofiToken } from "./kofi_inbox";
-import { base64UrlToBytes, sha256Hex, signDecision, signReceipt } from "./protocol";
+import { base64UrlToBytes, sha256Hex, signDecision, signReceipt, signStatus } from "./protocol";
 
 export interface Env {
   DB: D1Database;
@@ -33,6 +33,8 @@ interface LicenseRow {
   created_at: string;
   updated_at: string;
 }
+
+type AdminLicenseAction = "reset" | "revoke" | "restore" | "clear_conflicts";
 
 const JSON_HEADERS = {
   "Cache-Control": "no-store",
@@ -188,6 +190,37 @@ async function handleDeactivate(request: Request, env: Env): Promise<Response> {
     return signedDecision(env, activation, "not_eligible", now, 403);
   }
   return errorResponse(403, "not_eligible");
+}
+
+async function handleStatus(request: Request, env: Env): Promise<Response> {
+  if ((request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+    return errorResponse(415, "content_type_required");
+  }
+  let activation: ActivationRequest;
+  try {
+    activation = parseActivationRequest(await readBody(request, MAX_PUBLIC_BODY));
+  } catch {
+    return errorResponse(400, "invalid_request");
+  }
+
+  const proofHash = await sha256Hex(base64UrlToBytes(activation.key_proof));
+  const row = await env.DB.prepare(
+    "SELECT status, signature_sha256 FROM licenses WHERE key_id = ?1 LIMIT 1",
+  ).bind(activation.key_id).first<Pick<LicenseRow, "status" | "signature_sha256">>();
+  if (!row || row.signature_sha256 !== proofHash) return errorResponse(403, "not_eligible");
+
+  const checkedAt = new Date().toISOString();
+  const status = row.status === "revoked" ? "revoked" : "active";
+  const decision = await signStatus(
+    env.ACTIVATION_PRIVATE_KEY_PEM,
+    env.ACTIVATION_KEY_ID,
+    status,
+    activation.key_id,
+    activation.device_id,
+    activation.nonce,
+    checkedAt,
+  );
+  return jsonResponse({ status, decision });
 }
 
 async function handleKofiWebhook(request: Request, env: Env): Promise<Response> {
@@ -359,7 +392,7 @@ async function handleAdminImport(request: Request, env: Env, rawBody: string, re
 async function handleAdminMutation(
   env: Env,
   keyId: string,
-  action: "reset" | "revoke" | "restore",
+  action: AdminLicenseAction,
   requestId: string,
 ): Promise<Response> {
   if (!(await recordAdminMutation(env, requestId, action, keyId))) return errorResponse(409, "admin_request_replayed");
@@ -372,6 +405,15 @@ async function handleAdminMutation(
               activated_at = NULL,
               reset_count = reset_count + 1,
               last_reset_at = ?2,
+              updated_at = ?2
+        WHERE key_id = ?1`,
+    ).bind(keyId, now);
+  } else if (action === "clear_conflicts") {
+    statement = env.DB.prepare(
+      `UPDATE licenses
+          SET conflict_count = 0,
+              first_conflict_at = NULL,
+              last_conflict_at = NULL,
               updated_at = ?2
         WHERE key_id = ?1`,
     ).bind(keyId, now);
@@ -398,14 +440,14 @@ async function handleAdminMutationRequest(env: Env, rawBody: string, requestId: 
     || !hasExactKeys(payload, ["action", "key_id"])
     || typeof payload.key_id !== "string"
     || !HEX_64.test(payload.key_id)
-    || !["reset", "revoke", "restore"].includes(String(payload.action))
+    || !["reset", "revoke", "restore", "clear_conflicts"].includes(String(payload.action))
   ) {
     return errorResponse(400, "invalid_request");
   }
   return handleAdminMutation(
     env,
     payload.key_id,
-    payload.action as "reset" | "revoke" | "restore",
+    payload.action as AdminLicenseAction,
     requestId,
   );
 }
@@ -439,6 +481,7 @@ export default {
     }
     try {
       if (request.method === "POST" && url.pathname === "/v1/activate") return await handleActivate(request, env);
+      if (request.method === "POST" && url.pathname === "/v1/status") return await handleStatus(request, env);
       if (request.method === "POST" && url.pathname === "/v1/deactivate") return await handleDeactivate(request, env);
       if (request.method === "POST" && url.pathname === "/v1/kofi/webhook") return await handleKofiWebhook(request, env);
       if (url.pathname.startsWith("/v1/admin/")) return await handleAdmin(request, env, url.pathname);
