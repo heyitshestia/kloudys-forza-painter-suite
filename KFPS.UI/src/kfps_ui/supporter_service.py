@@ -346,9 +346,9 @@ class SupporterService(QObject):
     def _schedule_activation_check(self):
         if not self._started or not self._enforce_activation or self._key is None or self._inflight_operation:
             return
-        if self._key_state.get("manual_deactivated") or self._activation_state == "revoked":
+        if self._key_state.get("manual_deactivated"):
             return
-        if self._activation_state == "active" and self._status_checked_key_id == self._key.key_id:
+        if self._activation_state in {"active", "revoked"} and self._status_checked_key_id == self._key.key_id:
             return
         next_retry = self._number(self._key_state.get("next_retry_at")) or 0
         delay_seconds = max(0.0, next_retry - float(self._clock()))
@@ -399,7 +399,7 @@ class SupporterService(QObject):
     def _maybe_activate(self, force: bool = False):
         if not self._started or not self._enforce_activation or self._key is None or not self._device_id or self._inflight_operation:
             return
-        if self._activation_state == "active" and not force:
+        if self._activation_state in {"active", "revoked"} and not force:
             if self._status_checked_key_id != self._key.key_id and self._client.configured:
                 self._status_checked_key_id = self._key.key_id
                 self._send_activation_request("status")
@@ -477,7 +477,22 @@ class SupporterService(QObject):
                         self._evaluate_local_activation()
                     self._emit_if_changed(previous)
                     return
-            # Startup status checks are advisory unless a signed revocation is verified.
+                if verified is not None and verified.get("status") == "active" and self._activation_state == "revoked":
+                    self._clear_retry_and_decision()
+                    self._key_state["grace_started_at"] = (
+                        float(self._clock()) - MIGRATION_GRACE_DAYS * 86400 - 1
+                    )
+                    self._problem_dismissed = False
+                    if self._save_response_state(previous):
+                        self._set_activation(
+                            "pending",
+                            "This supporter key was restored. Registration is being repaired.",
+                            False,
+                        )
+                        self._send_activation_request("activate")
+                    self._emit_if_changed(previous)
+                    return
+            # Status checks change local access only when a signed revoke/restore is verified.
             self._emit_if_changed(previous)
             return
 

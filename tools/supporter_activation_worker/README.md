@@ -134,4 +134,4 @@ C:\Users\Hestia\Desktop\KFPS Activation Admin\DEPLOYMENT.md
 - Back up D1 and both private RSA keys separately in encrypted storage.
 - Keep this service isolated from unrelated KFPS application updates.
 
-Revocation removes a protected receipt the next time that KFPS starts and verifies a signed revoked status. A computer kept offline cannot receive that status. Registration reset remains separate and does not revoke an existing receipt.
+Revocation removes a protected receipt the next time that KFPS starts and verifies a signed revoked status. A computer kept offline cannot receive that status. Restore changes the server row back to active; on the next connected launch, a locally revoked client verifies that signed state and requests a fresh receipt automatically. Registration reset remains separate: it clears the assigned device but does not change revoked/active status by itself.

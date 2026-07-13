@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.67
+- Fixed restored supporter keys remaining locally revoked after restarting KFPS, even after registration was reset.
+- Locally revoked clients now verify signed restore status once per launch and request a fresh receipt automatically; offline and untrusted responses remain unable to clear revocation.
+
 ## 3.0.66
 - Added a signed startup activation-status check so revoked supporter keys remove their protected offline receipt while network and invalid-response failures leave existing access intact.
 - Persisted verified revocations across restarts and prevented offline activation repair from restoring migration-grace access.
