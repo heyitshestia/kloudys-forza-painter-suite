@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.68
+- Replaced the bundled Galatea Genesis generator with the fully compatible Genesis V2 engine.
+- Improved detail and edge retention at normal 1,000-2,000 shape workloads while reaching comparable quality with fewer shapes.
+- Added export-quantized scoring, multiscale residual search, adaptive source handling, and safer transparent-edge behavior without changing the KFPS generation workflow.
+
 ## 3.0.67
 - Improved supporter access recovery after registration changes.
 - Restored supporter access now returns automatically on the next connected launch.
