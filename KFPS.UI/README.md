@@ -23,7 +23,7 @@ The current geometry baseline standardizes centered button content, field alignm
 powershell -ExecutionPolicy Bypass -File tools\native_launcher\build_launcher.ps1
 ```
 
-The shipped executable is intentionally small. It only finds the bundled Python runtime and launches `KFPS.UI\app.py` from loose source files. Copy the output `KFPS.exe` beside the `KloudysFH6Painter` folder, and keep the same launcher payload inside `KloudysFH6Painter\KFPS.exe` so the updater can repair the parent launcher.
+The shipped executable is intentionally small. It prefers the packaged `python/` runtime, then validates `KFPS_PYTHON`, `py -3.12`, and common system Python locations before launching `KFPS.UI\app.py`. External runtimes must be 64-bit Python 3.12 with every package in `requirements.txt`. Copy the output `KFPS.exe` beside the `KloudysFH6Painter` folder, and keep the same launcher payload inside `KloudysFH6Painter\KFPS.exe` so the updater can repair the parent launcher. A flat source archive remains blocked even if a Python directory is manually added.
 
 ## Structure
 

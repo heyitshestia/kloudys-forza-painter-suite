@@ -121,7 +121,7 @@ Additional ForzaLiveryStudio thanks:
 
 ## Download
 
-For normal use, download the latest release zip:
+For normal use, download the latest bundled release zip:
 
 ```text
 KFPS-<version>-bundled.zip
@@ -137,11 +137,19 @@ KloudysFH6Painter/
 
 The standalone release includes bundled Python 3.12, bundled Python dependencies, the current KFPS generator executable, the app files, the editor files, and update scripts. You should not need to install Python manually when using the full standalone release.
 
+An optional `KFPS-<version>-binary.zip` omits the `python/` directory. It requires a system-installed 64-bit Python 3.12 and the packages in `KloudysFH6Painter/requirements.txt`:
+
+```powershell
+py -3.12 -m pip install -r KloudysFH6Painter\requirements.txt
+```
+
+`KFPS.exe` prefers the packaged runtime when present. Otherwise it validates `KFPS_PYTHON`, the Windows `py -3.12` launcher, and common system Python locations. Both release types require the exact outer `KFPS.exe` + `Images/` + `KloudysFH6Painter/` layout shown above; a GitHub source download is not a release package.
+
 ## First-Time Setup
 
 1. Extract the release zip into a normal writable folder such as `Desktop`.
 2. Open `KFPS.exe`.
-3. Use Settings to verify the bundled runtime if the app reports a problem.
+3. If using the binary release, install its Python requirements before opening KFPS. Use Settings to verify the active runtime if the app reports a problem.
 4. Open the `Update` tab only when the app says a newer version is available.
 5. Start from the Create workflow buttons.
 

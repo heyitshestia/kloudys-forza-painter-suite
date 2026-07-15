@@ -71,7 +71,7 @@ Kloudys Painter Standalone/
     KFPS.UI/
     KFPS.exe
     KloudysGalateaGenesis.exe
-    python/
+    python/                 (bundled release only)
     settings/
     tools/
 ```
@@ -82,7 +82,7 @@ Important folders:
 | --- | --- |
 | `Images/` | Put source images here. The source-image chooser opens this folder first. |
 | `KloudysFH6Painter/` | The app files. Do not randomly move individual files out of this folder. |
-| `KloudysFH6Painter/python/` | Bundled Python runtime in standalone releases. |
+| `KloudysFH6Painter/python/` | Packaged Python runtime in the bundled release. This folder is intentionally absent from the binary release. |
 | `KloudysFH6Painter/tools/fabric-editor/` | Bundled offline JSON editor opened from the Editor page. |
 | `KloudysFH6Painter/imgs/generated/` | Generated runs. Created after using the app. |
 | `KloudysFH6Painter/runtime/` | Logs, cache, update backups, custom presets. Created by the app. |
@@ -95,7 +95,13 @@ For first use, open:
 KFPS.exe
 ```
 
-The full standalone release includes bundled Python and dependencies. If KFPS reports a runtime problem, open Settings and use the runtime check buttons there.
+The full bundled release includes Python and dependencies. The smaller binary release uses a system-installed 64-bit Python 3.12 after validating every required KFPS package. Install those packages with:
+
+```powershell
+py -3.12 -m pip install -r KloudysFH6Painter\requirements.txt
+```
+
+If Python is installed in a custom location, set `KFPS_PYTHON` to its `python.exe` path. KFPS always prefers `KloudysFH6Painter/python/` when that packaged runtime is present. If KFPS reports a runtime problem, open Settings and use the runtime check buttons there.
 
 Use the Update page only when KFPS says a newer version is available. The updater preserves generated output and runtime data while replacing program files.
 
@@ -899,7 +905,7 @@ Do this in order:
 
 1. Open `KFPS.exe`.
 2. Open Settings if the app reports a runtime problem.
-3. Use the runtime check buttons to confirm bundled Python and dependencies.
+3. Use the runtime check buttons to confirm the packaged or system Python and dependencies.
 4. Run `03_update_from_github.bat` only if the app itself cannot open far enough to update.
 
 If KFPS will not open:
@@ -910,11 +916,11 @@ If KFPS will not open:
 
 ### No Usable Python 3.12 Found
 
-Use a full standalone release. It includes bundled 64-bit Python 3.12. If you downloaded source code instead of a release zip, download the bundled release.
+The simplest fix is the bundled release, which includes 64-bit Python 3.12. For the binary release, install 64-bit Python 3.12 and run `py -3.12 -m pip install -r KloudysFH6Painter\requirements.txt`. If Python is installed somewhere unusual, set `KFPS_PYTHON` to its `python.exe`. If you downloaded source code instead of a release zip, download a release and preserve its outer folder structure.
 
 ### Dependencies Missing
 
-Use Settings to check the bundled runtime. If dependencies are missing from a bundled release, update or redownload the release zip.
+Use Settings to check the active runtime. If dependencies are missing from a bundled release, update or redownload it. For the binary release, rerun the requirements command above against the same Python 3.12 installation KFPS uses.
 
 ### Preview Unavailable
 

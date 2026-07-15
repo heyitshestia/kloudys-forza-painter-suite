@@ -38,6 +38,7 @@ from kfps_ui.preview_service import PreviewService
 from kfps_ui.report_service import ReportService
 from kfps_ui.runtime_service import RuntimeService
 from kfps_ui.settings_service import SettingsService
+from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
 from kfps_ui.supporter_service import SupporterService
 from kfps_ui.theme_catalog import DEFAULT_THEME, is_supporter_theme
@@ -58,6 +59,7 @@ def parse_args():
     parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--allow-unsupported-python", action="store_true")
+    parser.add_argument("--allow-source-download", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--skip-startup-index", action="store_true")
     parser.add_argument("--skip-startup-thumbnails", action="store_true")
     parser.add_argument("--thumbnail-worker", action="store_true", help=argparse.SUPPRESS)
@@ -227,6 +229,58 @@ def run_startup_output_index(
             app.processEvents()
 
 
+def run_source_download_blocker(
+    app: QApplication,
+    paths: AppPaths,
+    status: SourceDownloadGuardStatus,
+    args,
+    app_icon: QIcon,
+) -> int:
+    engine = QQmlApplicationEngine()
+    ctx = engine.rootContext()
+    ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
+    ctx.setContextProperty("screenshotMode", bool(args.screenshot or args.screenshot_dir))
+    ctx.setContextProperty("sourceDownloadUrl", status.latest_release_url)
+    ctx.setContextProperty("sourceDownloadReason", status.reason)
+    ctx.setContextProperty("sourceDownloadDetails", status.details)
+    ctx.setContextProperty("sourceDownloadOverrideHint", status.override_hint)
+
+    qml = paths.qml_root / "SourceDownloadBlocker.qml"
+    engine.addImportPath(str(paths.qml_root))
+    engine.load(QUrl.fromLocalFile(str(qml)))
+    if not engine.rootObjects():
+        return 2
+
+    window = engine.rootObjects()[0]
+    if not app_icon.isNull() and hasattr(window, "setIcon"):
+        window.setIcon(app_icon)
+    window.setWidth(max(980, args.width))
+    window.setHeight(max(620, args.height))
+
+    screenshot_target = None
+    if args.screenshot:
+        screenshot_target = Path(args.screenshot)
+    elif args.screenshot_dir:
+        screenshot_target = Path(args.screenshot_dir) / "wrong-download.png"
+    if screenshot_target:
+        screenshot_target.parent.mkdir(parents=True, exist_ok=True)
+
+        def capture_blocker():
+            try:
+                image = window.grabWindow() if hasattr(window, "grabWindow") else app.primaryScreen().grabWindow(int(window.winId()))
+                image.save(str(screenshot_target))
+            finally:
+                QTimer.singleShot(50, app.quit)
+
+        def settle_blocker_capture():
+            if hasattr(window, "grabWindow"):
+                window.grabWindow()
+            QTimer.singleShot(350, capture_blocker)
+
+        QTimer.singleShot(5000, settle_blocker_capture)
+    return app.exec()
+
+
 def main():
     args = parse_args()
     if args.thumbnail_worker:
@@ -264,6 +318,9 @@ def main():
     app_icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
+    source_guard = evaluate_source_download_guard(paths.app_root, allow=args.allow_source_download)
+    if source_guard.blocked:
+        return run_source_download_blocker(app, paths, source_guard, args, app_icon)
     settings = SettingsService(paths.settings_file)
     if args.ui_scale is not None:
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))

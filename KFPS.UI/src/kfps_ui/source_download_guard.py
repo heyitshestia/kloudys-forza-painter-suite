@@ -65,16 +65,12 @@ def evaluate_source_download_guard(app_root: Path, *, allow: bool = False) -> So
     if _looks_like_release_layout(app_root):
         return SourceDownloadGuardStatus(blocked=False)
 
-    bundled_python = app_root / "python" / "python.exe"
-    if bundled_python.is_file():
-        return SourceDownloadGuardStatus(blocked=False)
-
     if not _looks_like_source_archive(app_root):
         return SourceDownloadGuardStatus(blocked=False)
 
     details = [
         "This folder looks like the GitHub main/source download, not the KFPS release package.",
-        "GitHub source downloads do not include the bundled Python runtime, Python dependencies, or the supported release layout.",
+        "GitHub source downloads do not provide the supported release layout or a packaged Python runtime.",
         "Download the latest release instead, then choose the bundled zip with Python included.",
     ]
     return SourceDownloadGuardStatus(

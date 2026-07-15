@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.74
+- Made the advanced no-Python release launch through a validated system-installed 64-bit Python 3.12 when no packaged runtime is present.
+- Kept bundled Python as the first choice, added the `KFPS_PYTHON` custom-path override, and rejected wrong-version or dependency-incomplete runtimes with clear recovery instructions.
+- Activated the full-window wrong-download guard before normal app startup, including for source archives where a Python folder was added manually.
+- Added repeatable launcher and release-layout regression tests covering bundled, system, custom, missing-dependency, source-blocked, and emergency-bypass paths.
+
 ## 3.0.73
 - Added plain-language hover help to every interactive native app control and custom click target.
 - Reworked all 22 Help topics for first-time users, including complete FH6 template setup and clear online/offline workflow guidance.
