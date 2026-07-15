@@ -1,0 +1,32 @@
+{
+  "format": "kfps_fh6_rtti_registry_v1",
+  "updated_utc": "2026-07-15T00:00:00Z",
+  "profiles": [
+    {
+      "game": "fh6",
+      "module_size": 187719680,
+      "descriptor_offset": 165857600,
+      "vtable_offsets": [
+        109116416
+      ],
+      "update_code": "91173565759607",
+      "base_class_count": 4,
+      "game_build": "3.382.893.0",
+      "created_utc": "2026-07-06T16:17:49Z",
+      "calibrator_version": "1.0.0",
+      "evidence": {
+        "workflow": "six_step_template_calibration",
+        "confidence": "high",
+        "scan_count": 5,
+        "distinct_counts": [
+          3000,
+          2997,
+          2994,
+          2991,
+          2988
+        ]
+      },
+      "profile_id": "fh6-7323ec5e269cc22304c3"
+    }
+  ]
+}

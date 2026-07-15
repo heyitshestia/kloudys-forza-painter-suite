@@ -12,6 +12,7 @@ from pathlib import Path
 import psutil
 
 from game_profiles import PROFILES, get_profile
+from fh6_rtti_registry import load_runtime_profiles
 from native import dereference_pointer, get_base_address, read_int, read_process_memory
 
 
@@ -30,6 +31,8 @@ FH6_CALIBRATED_RTTI_PROFILE = {
     "descriptor_offset": 0x9E2C940,
     "vtable_offsets": [0x680FC00],
     "base_class_count": 4,
+    "module_size": 187719680,
+    "game_build": "3.382.893.0",
 }
 
 FH6_GROUP_GRAPH_ACCEPT_CAP = 5
@@ -732,7 +735,39 @@ def find_table_at_known_group_delta(pid, profile, count_address, layer_count):
     }
 
 
-def load_update_code_patterns():
+def load_shared_rtti_profiles(refresh=True):
+    fallback = {
+        "game": "fh6",
+        "module_size": FH6_CALIBRATED_RTTI_PROFILE["module_size"],
+        "descriptor_offset": FH6_CALIBRATED_RTTI_PROFILE["descriptor_offset"],
+        "vtable_offsets": FH6_CALIBRATED_RTTI_PROFILE["vtable_offsets"],
+        "update_code": FH6_CALIBRATED_RTTI_PROFILE["update_code"].decode("ascii"),
+        "base_class_count": FH6_CALIBRATED_RTTI_PROFILE["base_class_count"],
+        "game_build": FH6_CALIBRATED_RTTI_PROFILE["game_build"],
+        "created_utc": "2026-07-06T16:17:49Z",
+        "calibrator_version": "1.0.0",
+        "evidence": {
+            "workflow": "six_step_template_calibration",
+            "confidence": "legacy",
+            "scan_count": 5,
+            "distinct_counts": [3000, 2997, 2994, 2991, 2988],
+        },
+    }
+    profiles, status = load_runtime_profiles(ROOT, fallback, refresh=refresh)
+    refresh_status = status.get("refresh") or {}
+    if refresh_status.get("updated"):
+        print(
+            f"Updated shared FH6 locator profiles ({refresh_status.get('profile_count', 0)} available).",
+            flush=True,
+        )
+    elif refresh_status.get("result") == "error":
+        print("Shared FH6 locator update unavailable; using cached or built-in profiles.", flush=True)
+    if status.get("load_errors"):
+        print("Ignored an invalid local FH6 locator profile file.", flush=True)
+    return profiles
+
+
+def load_update_code_patterns(calibrated_profiles=None):
     paths = [
         ROOT / "update-codes.dat",
         ROOT / "forza-codes.dat",
@@ -747,10 +782,14 @@ def load_update_code_patterns():
             if item:
                 patterns.append(item)
         break
-    patterns.extend([
-        FH6_CALIBRATED_RTTI_PROFILE["update_code"],
-        b".?AVCLiveryGroup@@",
-    ])
+    profiles = calibrated_profiles if calibrated_profiles is not None else load_shared_rtti_profiles()
+    for profile in profiles:
+        update_code = str(profile.get("update_code") or "").encode("ascii", "ignore").strip()
+        if update_code:
+            patterns.append(update_code)
+    if not profiles:
+        patterns.append(FH6_CALIBRATED_RTTI_PROFILE["update_code"])
+    patterns.append(b".?AVCLiveryGroup@@")
     seen = set()
     unique = []
     for pattern in patterns:
@@ -813,39 +852,55 @@ def find_first_pattern_in_typed_regions(pid, patterns, region_type):
     return None, None
 
 
-def locate_calibrated_clivery_group_rtti(pid, profile):
+def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None):
     if getattr(profile, "key", "") != "fh6":
         return None
     module_base = get_base_address(pid)
-    descriptor_address = module_base + FH6_CALIBRATED_RTTI_PROFILE["descriptor_offset"]
-    vtables = [module_base + offset for offset in FH6_CALIBRATED_RTTI_PROFILE["vtable_offsets"]]
-    update_code = FH6_CALIBRATED_RTTI_PROFILE["update_code"]
-    try:
-        found_code = read_process_memory(pid, descriptor_address + 0x10, len(update_code)).rstrip(b"\x00 ")
-    except Exception:
-        found_code = b""
-    if not found_code:
-        print("Calibrated FH6 locator profile could not be verified; trying fallback locator.", flush=True)
-        return None
-    if found_code != update_code.rstrip(b"\x00 "):
-        print("Calibrated FH6 locator profile did not match this game build; trying fallback locator.", flush=True)
-        return None
-    print("Using calibrated FH6 group locator profile.", flush=True)
-    return {
-        "descriptor_address": descriptor_address,
-        "descriptor_offset": FH6_CALIBRATED_RTTI_PROFILE["descriptor_offset"],
-        "info_addresses": [],
-        "vtables": vtables,
-        "source": "calibrated_profile",
-        "update_code": update_code.decode("ascii", "replace"),
-    }
+    profiles = calibrated_profiles if calibrated_profiles is not None else load_shared_rtti_profiles()
+    for candidate in profiles:
+        try:
+            descriptor_offset = int(candidate["descriptor_offset"])
+            vtable_offsets = [int(offset) for offset in candidate["vtable_offsets"]]
+            update_code = str(candidate["update_code"]).encode("ascii", "strict").strip()
+        except (KeyError, TypeError, ValueError, UnicodeEncodeError):
+            continue
+        descriptor_address = module_base + descriptor_offset
+        try:
+            found_code = read_process_memory(pid, descriptor_address + 0x10, len(update_code)).rstrip(b"\x00 ")
+        except Exception:
+            continue
+        if not found_code or found_code != update_code.rstrip(b"\x00 "):
+            continue
+        source = str(candidate.get("_registry_source") or "profile")
+        print(f"Using verified FH6 group locator profile ({source}).", flush=True)
+        return {
+            "descriptor_address": descriptor_address,
+            "descriptor_offset": descriptor_offset,
+            "info_addresses": [],
+            "vtables": [module_base + offset for offset in vtable_offsets],
+            "source": "calibrated_profile",
+            "registry_source": source,
+            "profile_id": candidate.get("profile_id"),
+            "update_code": update_code.decode("ascii", "replace"),
+        }
+    print("No shared FH6 locator profile matched this game build; trying fallback locator.", flush=True)
+    return None
 
 
 def locate_clivery_group_rtti(pid, profile=None):
-    calibrated = locate_calibrated_clivery_group_rtti(pid, profile) if profile is not None else None
+    calibrated_profiles = (
+        load_shared_rtti_profiles()
+        if profile is not None and getattr(profile, "key", "") == "fh6"
+        else []
+    )
+    calibrated = (
+        locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles)
+        if profile is not None
+        else None
+    )
     if calibrated:
         return calibrated
-    patterns = load_update_code_patterns()
+    patterns = load_update_code_patterns(calibrated_profiles)
     print(f"Loaded {len(patterns)} FH6 group locator pattern(s).", flush=True)
     descriptor_match, descriptor_pattern = find_first_pattern_in_typed_regions(pid, patterns, MEM_IMAGE)
     descriptor_address = descriptor_match - 0x10 if descriptor_match else None

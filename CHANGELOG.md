@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.70
+- Added automatic FH6 locator-profile updates through a validated shared RTTI.dat registry, while retaining cached, packaged, built-in, and slower fallback paths.
+- Added the distributable six-step calibrator workflow for trusted maintainers to publish new game-build profiles through their own authenticated GitHub accounts.
+- Added strict six-scan, privacy, bounds, cache, and live-memory checks so invalid or unavailable profile updates are ignored without blocking live import or export.
+
 ## 3.0.69
 - Upgraded the bundled Galatea Genesis generator to V3 while retaining its existing command, JSON, checkpoint, preview, and resume compatibility.
 - Added final-visible color reoptimization so overlapping shapes preserve more local contrast, shading, and fine detail.
