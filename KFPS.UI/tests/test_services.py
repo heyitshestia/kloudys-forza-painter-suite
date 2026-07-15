@@ -4,6 +4,7 @@ UI=Path(__file__).resolve().parents[1];ROOT=UI.parent
 sys.path.insert(0,str(UI/"src"));sys.path.insert(0,str(ROOT));os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from PySide6.QtCore import QCoreApplication
 from kfps_ui.app_paths import AppPaths
+from kfps_ui.generation_service import GenerationService
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
 from kfps_ui.json_thumbnail_worker import warm_thumbnail_cache
 from kfps_ui.log_service import LogService
@@ -41,6 +42,17 @@ def shutdown_json_service(svc):
  svc._index_executor.shutdown(wait=True, cancel_futures=True)
 
 class ServiceTests(unittest.TestCase):
+ def test_manual_generator_defaults_follow_the_selected_preset(self):
+  with tempfile.TemporaryDirectory() as td:
+   root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog())
+   expected=[
+    {"maxResolution":"1250","randomSamples":"200000","mutatedSamples":"15000","seed":"0"},
+    {"maxResolution":"1000","randomSamples":"220000","mutatedSamples":"15000","seed":"0"},
+    {"maxResolution":"1075","randomSamples":"240000","mutatedSamples":"15000","seed":"0"},
+   ]
+   for index,values in enumerate(expected):
+    svc.setSelectedPresetIndex(index)
+    self.assertEqual(values,svc.manualOverrideDefaults)
  def test_report_is_local_markdown(self):
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);(root/"VERSION").write_text("3.0.12");paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");log=LogService();svc=ReportService(paths,log,DummyVersion());text=svc.build("Bug","Test","Details",True,False,False);self.assertIn("# KFPS Report",text);self.assertNotIn("Visible runtime log",text)

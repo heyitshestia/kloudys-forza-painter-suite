@@ -133,7 +133,14 @@ def warm_thumbnail_cache(
         if not isinstance(rows, list):
             continue
         for row in rows:
-            if not isinstance(row, dict) or row.get("previewUrl"):
+            if not isinstance(row, dict):
+                continue
+            path = Path(str(row.get("path") or ""))
+            needs_preview = not bool(row.get("previewUrl"))
+            if not needs_preview and source_name == "generated":
+                checker = getattr(preview, "generated_preview_needs_persistence", None)
+                needs_preview = bool(callable(checker) and checker(path))
+            if not needs_preview:
                 continue
             if max_items and updated >= max_items:
                 _write_payload(cache_file, payload)
@@ -141,7 +148,6 @@ def warm_thumbnail_cache(
             if max_seconds and time.monotonic() - started >= max_seconds:
                 _write_payload(cache_file, payload)
                 return updated
-            path = Path(str(row.get("path") or ""))
             if not path.is_file():
                 continue
             try:

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.71
+- Prefilled manual generator override fields with the selected preset's normal values and added a clear label above every field.
+- Kept displayed override defaults synchronized with automatic and manual preset changes while retaining seed 0 as normal randomized behavior.
+- Restored generated vinyl previews to each run's previews folder, including migration from existing thumbnail-cache previews when available.
+
 ## 3.0.70
 - Added automatic FH6 locator-profile updates through a validated shared RTTI.dat registry, while retaining cached, packaged, built-in, and slower fallback paths.
 - Added the distributable six-step calibrator workflow for trusted maintainers to publish new game-build profiles through their own authenticated GitHub accounts.

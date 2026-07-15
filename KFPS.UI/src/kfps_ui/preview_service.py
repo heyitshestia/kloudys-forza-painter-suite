@@ -41,9 +41,15 @@ class PreviewService:
     def _render_cached(self, path: Path, namespace: str) -> str:
         try:
             from json_preview_renderer import render_json_preview
-            target = self._cache_target(path, namespace)
+            target = self._generated_preview_target(path) if namespace == "generated" else self._cache_target(path, namespace)
             if not target.exists():
-                data = render_json_preview(path, max_size=900)
+                data = None
+                if namespace == "generated":
+                    legacy_cache = self._cache_target(path, namespace)
+                    if legacy_cache.is_file():
+                        data = legacy_cache.read_bytes()
+                if not data:
+                    data = render_json_preview(path, max_size=900)
                 if data:
                     target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
             return file_url(target) if target.exists() else ""
@@ -52,10 +58,28 @@ class PreviewService:
 
     def _cached_url(self, path: Path, namespace: str) -> str:
         try:
+            if namespace == "generated":
+                target = self._generated_preview_target(path)
+                if target.exists():
+                    return file_url(target)
             target = self._cache_target(path, namespace)
             return file_url(target) if target.exists() else ""
         except Exception:
             return ""
+
+    def generated_preview_needs_persistence(self, path: str | Path) -> bool:
+        path = Path(path)
+        if not path.is_file() or self._source_for_path(path) != "generated":
+            return False
+        return not any(candidate.is_file() for candidate in self._nearby(path, exact=True))
+
+    def _generated_preview_target(self, path: Path) -> Path:
+        parent = path.parent
+        run = parent.parent if parent.name.lower() in {"finals", "checkpoints"} else parent
+        stem = path.stem
+        tagged = re.match(r"^(?P<base>.+)\.(?P<tag>(?:\d+|final)v2|\d+)$", stem, re.IGNORECASE)
+        name = f"{tagged.group('base')}.preview.{tagged.group('tag')}.png" if tagged else f"{stem}.preview.png"
+        return run / "previews" / name
 
     def _cache_target(self, path: Path, namespace: str) -> Path:
         renderer_stamp = self._json_preview_renderer_stamp()
@@ -96,9 +120,11 @@ class PreviewService:
     def _nearby(self, path: Path, exact: bool = False):
         stem = path.stem
         candidates = [path.with_suffix(".png")]
+        if self._source_for_path(path) == "generated":
+            candidates.append(self._generated_preview_target(path))
         parent = path.parent
         run = parent.parent if parent.name.lower() in {"finals", "checkpoints"} else parent
-        layer_match = re.match(r"^(?P<base>.+)\.(?P<layer>\d+v2)$", stem, re.IGNORECASE)
+        layer_match = re.match(r"^(?P<base>.+)\.(?P<layer>(?:\d+|final)v2)$", stem, re.IGNORECASE)
         if layer_match:
             base = layer_match.group("base")
             layer = layer_match.group("layer")

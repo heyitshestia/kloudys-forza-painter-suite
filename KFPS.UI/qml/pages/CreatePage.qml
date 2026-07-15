@@ -25,6 +25,18 @@ Item {
     readonly property string lumaPrepTip: "Usually leave this off.\nKFPS automatically prepares brightness and transparency when a preset benefits from it.\nTurning it on manually can make some images worse."
     readonly property string edgeRepairTip: "Usually leave this off.\nKFPS automatically handles cleanup when appropriate.\nManual edge repair is only for sources with obvious cutout holes or broken edges."
     readonly property string sampleBoostTip: "This is the only option most users should touch.\n2x mode makes the generator spend about twice as much work looking for better shape matches.\nIt can improve detail or smoother edges, but it takes longer."
+    property int manualDefaultsPresetIndex: -1
+
+    function syncManualOverrideDefaults(force) {
+        if (!force && manualDefaultsPresetIndex === generationService.selectedPresetIndex)
+            return
+        var defaults = generationService.manualOverrideDefaults
+        maxRes.text = String(defaults.maxResolution || "1250")
+        randomSamples.text = String(defaults.randomSamples || "200000")
+        mutatedSamples.text = String(defaults.mutatedSamples || "15000")
+        seed.text = String(defaults.seed || "0")
+        manualDefaultsPresetIndex = generationService.selectedPresetIndex
+    }
 
     function checkpointTextFor(layerText) {
         var target = parseInt(layerText)
@@ -53,9 +65,17 @@ Item {
         return Theme.borderStrong
     }
 
-    Component.onCompleted: Qt.callLater(function () {
-        root.forceActiveFocus(Qt.OtherFocusReason)
-    })
+    Component.onCompleted: {
+        root.syncManualOverrideDefaults(true)
+        Qt.callLater(function () {
+            root.forceActiveFocus(Qt.OtherFocusReason)
+        })
+    }
+
+    Connections {
+        target: generationService
+        function onChanged() { root.syncManualOverrideDefaults(false) }
+    }
 
     Connections {
         target: sourceService
@@ -232,7 +252,8 @@ Item {
                 GlassPanel {
                     visible: settings.manualOverrides
                     Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 112 : 128) : 0
+                    Layout.minimumHeight: visible ? Theme.px(root.compactHeight ? 132 : 140) : 0
+                    Layout.preferredHeight: visible ? Theme.px(root.compactHeight ? 138 : 146) : 0
                     soft: true
 
                     ColumnLayout {
@@ -255,15 +276,36 @@ Item {
                             columns: 2
                             columnSpacing: Theme.px(6)
                             rowSpacing: Theme.px(5)
-                            KfpsTextField { id: maxRes; Layout.fillWidth: true; dense: true; placeholderText: "Max res" }
-                            KfpsTextField { id: randomSamples; Layout.fillWidth: true; dense: true; placeholderText: "Random" }
-                            KfpsTextField { id: mutatedSamples; Layout.fillWidth: true; dense: true; placeholderText: "Mutated" }
-                            KfpsTextField {
-                                id: seed
+
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                dense: true
-                                placeholderText: "Seed"
-                                inputMethodHints: Qt.ImhDigitsOnly
+                                spacing: Theme.px(2)
+                                Label { text: "Max resolution"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
+                                KfpsTextField { id: maxRes; Layout.fillWidth: true; dense: true; placeholderText: "Max res" }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(2)
+                                Label { text: "Random samples"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
+                                KfpsTextField { id: randomSamples; Layout.fillWidth: true; dense: true; placeholderText: "Random" }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(2)
+                                Label { text: "Mutated samples"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
+                                KfpsTextField { id: mutatedSamples; Layout.fillWidth: true; dense: true; placeholderText: "Mutated" }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(2)
+                                Label { text: "Seed"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
+                                KfpsTextField {
+                                    id: seed
+                                    Layout.fillWidth: true
+                                    dense: true
+                                    placeholderText: "Seed"
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                }
                             }
                         }
                     }

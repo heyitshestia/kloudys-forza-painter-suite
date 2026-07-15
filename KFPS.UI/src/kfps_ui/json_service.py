@@ -718,9 +718,15 @@ class JsonService(QObject):
             if not isinstance(rows, list):
                 continue
             for row in rows:
-                if not isinstance(row, dict) or row.get("previewUrl"):
+                if not isinstance(row, dict):
                     continue
                 path = Path(str(row.get("path") or ""))
+                if row.get("previewUrl"):
+                    if str(source_key) != "0":
+                        continue
+                    checker = getattr(self.preview, "generated_preview_needs_persistence", None)
+                    if not callable(checker) or not checker(path):
+                        continue
                 if path.is_file():
                     return True
         return False

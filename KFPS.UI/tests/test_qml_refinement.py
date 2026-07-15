@@ -97,6 +97,14 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('text: "2x Mode"', generate)
         self.assertIn("columns: 2", generate)
 
+    def test_create_manual_overrides_are_prefilled_from_the_selected_preset(self):
+        create = self.read("pages/CreatePage.qml")
+        self.assertIn("function syncManualOverrideDefaults", create)
+        self.assertIn("generationService.manualOverrideDefaults", create)
+        self.assertIn("root.syncManualOverrideDefaults(true)", create)
+        for label in ("Max resolution", "Random samples", "Mutated samples", "Seed"):
+            self.assertIn(f'text: "{label}"', create)
+
     def test_positive_geometry_literals_are_scaled(self):
         offenders: list[str] = []
         geometry = re.compile(

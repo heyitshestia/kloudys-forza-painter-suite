@@ -25,23 +25,47 @@ class GenerationService(QObject):
         self._full_log_path = ""; self._full_log_handle = None
         self._queue = []; self._queue_total = 0; self._queue_index = 0
         self._preview_timer = QTimer(self); self._preview_timer.setInterval(1000); self._preview_timer.timeout.connect(self.refreshPreview)
+        self._preset_values = []
         self._presets = self._load_presets()
         self._selected_preset_index = 0 if self._presets else -1
 
     def _load_presets(self):
         fallback = ["1. Shaded Character Art", "2. Flat Colors", "3. Smooth Gradients"]
+        self._preset_values = [
+            {"maxResolution": "1250", "randomSamples": "200000", "mutatedSamples": "15000"},
+            {"maxResolution": "1000", "randomSamples": "220000", "mutatedSamples": "15000"},
+            {"maxResolution": "1075", "randomSamples": "240000", "mutatedSamples": "15000"},
+        ]
         try:
             from generator_backend import load_settings
             rows = load_settings()
-            labels = [str(item.get("label") or item.get("name")) for item in rows if item.get("label") or item.get("name")]
-            return labels or fallback
+            available = [item for item in rows if item.get("label") or item.get("name")]
+            if available:
+                self._preset_values = [dict(item.get("values") or {}) for item in available]
+                return [str(item.get("label") or item.get("name")) for item in available]
+            return fallback
         except Exception:
             return fallback
+
+    def _selected_preset_values(self):
+        index = self._selected_preset_index
+        if 0 <= index < len(self._preset_values):
+            return self._preset_values[index]
+        return {}
 
     @Property("QStringList", constant=True)
     def presets(self): return self._presets
     @Property(int, notify=changed)
     def selectedPresetIndex(self): return self._selected_preset_index
+    @Property("QVariantMap", notify=changed)
+    def manualOverrideDefaults(self):
+        values = self._selected_preset_values()
+        return {
+            "maxResolution": str(values.get("maxResolution") or "1250"),
+            "randomSamples": str(values.get("randomSamples") or "200000"),
+            "mutatedSamples": str(values.get("mutatedSamples") or "15000"),
+            "seed": "0",
+        }
     @Property(bool, notify=changed)
     def running(self): return self._running
     @Property(str, notify=changed)
