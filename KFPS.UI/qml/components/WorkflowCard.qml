@@ -14,6 +14,7 @@ HoverCard {
     signal action()
 
     clickable: true
+    toolTipText: description
     padding: Theme.px(compactContent ? 14 : 18)
     implicitHeight: Theme.px(compactContent ? 154 : 170)
     Layout.minimumHeight: implicitHeight
@@ -75,6 +76,7 @@ HoverCard {
                 dense: root.compactContent
                 minimumWidth: Theme.px(root.compactContent ? 142 : 156)
                 maximumTextWidth: Theme.px(root.compactContent ? 126 : 148)
+                toolTipText: root.toolTipText
                 onClicked: root.action()
             }
         }

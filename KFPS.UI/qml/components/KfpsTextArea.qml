@@ -9,6 +9,8 @@ TextArea {
     objectName: "KfpsTextArea:" + root.placeholderText
 
     property real minimumHeight: Theme.px(80)
+    property string toolTipText: ""
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : placeholderText
 
     implicitHeight: Theme.px(120)
     implicitWidth: Theme.px(240)
@@ -29,6 +31,12 @@ TextArea {
     font.hintingPreference: Font.PreferFullHinting
     wrapMode: TextEdit.Wrap
     selectByMouse: true
+    hoverEnabled: true
+
+    KfpsToolTip {
+        visible: root.hovered && !root.activeFocus && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     background: Item {
         Rectangle {

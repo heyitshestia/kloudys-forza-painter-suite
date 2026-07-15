@@ -107,6 +107,7 @@ Item {
         spacing: Theme.px(4)
 
         Item {
+            id: logoArea
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.px(root.denseNavigation ? (root.compact ? 74 : 82) : (root.compact ? 93 : 102))
             Layout.minimumHeight: Layout.preferredHeight
@@ -223,6 +224,12 @@ Item {
                 enabled: Theme.supporterTheme
                 onTapped: root.registerLogoTap()
             }
+
+            HoverHandler { id: logoHover }
+            KfpsToolTip {
+                visible: logoHover.hovered
+                text: "KFPS logo."
+            }
         }
 
         Rectangle {
@@ -251,6 +258,7 @@ Item {
                 compact: root.compact
                 dense: root.denseNavigation
                 active: root.primaryPage(appController.currentPage) === modelData.page
+                toolTipText: "Open " + modelData.label + "."
                 onClicked: root.route(modelData.page)
             }
 
@@ -315,6 +323,7 @@ Item {
                     minimumWidth: Theme.px(88)
                     maximumTextWidth: Theme.px(64)
                     textPixelSize: Theme.px(9.6)
+                    toolTipText: "Open the full credits and acknowledgements page."
                     onClicked: root.creditsRequested()
                 }
             }
@@ -329,6 +338,7 @@ Item {
                 minimumWidth: Theme.px(78)
                 maximumTextWidth: Theme.px(58)
                 textPixelSize: Theme.px(9.3)
+                toolTipText: "Open the full credits and acknowledgements page."
                 onClicked: root.creditsRequested()
             }
         }

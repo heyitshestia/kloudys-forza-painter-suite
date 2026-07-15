@@ -1,4 +1,5 @@
 import QtQuick 6.7
+import QtQuick.Controls 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 
@@ -8,11 +9,18 @@ Item {
     property string iconName: "images"
     property string title: "Action"
     property string subtitle: ""
+    property string toolTipText: ""
     property bool dense: false
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : title
     signal clicked
 
     implicitHeight: Theme.px(dense ? 35 : 48)
     Layout.minimumHeight: implicitHeight
+
+    KfpsToolTip {
+        visible: hover.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     Rectangle {
         anchors.fill: parent

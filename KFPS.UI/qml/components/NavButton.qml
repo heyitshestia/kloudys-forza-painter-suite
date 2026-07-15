@@ -10,10 +10,12 @@ Button {
     objectName: "NavButton:" + root.text
 
     property string iconName: "home"
+    property string toolTipText: ""
     property bool active: false
     property bool compact: false
     property bool dense: false
     readonly property real activeLipDepth: Theme.px(dense ? 2.0 : 3.2)
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real capTravel: down ? Theme.px(dense ? 1.1 : 2.0) : 0
 
     implicitHeight: Theme.px(compact ? Metrics.compactNavButtonHeight : (dense ? 42 : Metrics.navButtonHeight))
@@ -34,6 +36,11 @@ Button {
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
+
+    KfpsToolTip {
+        visible: root.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     background: Item {
         Rectangle {

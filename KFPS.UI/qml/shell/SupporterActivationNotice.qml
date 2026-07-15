@@ -63,6 +63,7 @@ GlassPanel {
                 dense: true
                 text: "Dismiss"
                 minimumWidth: Theme.px(70)
+                toolTipText: "Hide this supporter-key message until the state changes or KFPS restarts."
                 onClicked: supporterService.dismissProblem()
             }
         }
@@ -97,12 +98,14 @@ GlassPanel {
                 enabled: supporterService.canRepair
                 text: "Retry"
                 iconName: "refresh"
+                toolTipText: "Try supporter-key registration or repair again."
                 onClicked: supporterService.repairActivation()
             }
 
             GhostButton {
                 dense: true
                 text: "Copy Code"
+                toolTipText: "Copy the support code so it can be included in a help request."
                 onClicked: supporterService.copySupportCode()
             }
         }

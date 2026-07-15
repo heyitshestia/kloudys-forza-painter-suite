@@ -79,6 +79,7 @@ Item {
                     model: supporterService.availableThemes
                     currentIndex: Math.max(0, supporterService.availableThemes.indexOf(settings.theme))
                     enabled: supporterService.unlocked || supporterService.availableThemes.length > 1
+                    toolTipText: "Choose the app's color and surface style. Extra themes become available with a supporter key."
                     onActivated: settings.theme = currentText
                 }
 
@@ -103,6 +104,7 @@ Item {
                     to: 1.35
                     stepSize: 0.05
                     value: root.pendingUiScale
+                    toolTipText: "Make the whole KFPS interface smaller or larger. The setting is saved when you release the slider."
                     onMoved: root.pendingUiScale = root.roundedUiScale(value)
                     onPressedChanged: {
                         if (!pressed)
@@ -158,8 +160,9 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
-                                text: supporterService.unlocked ? "Replace Unlock" : "Import Unlock"
+                                text: supporterService.unlocked ? "Replace Key" : "Add Supporter Key"
                                 iconName: "settings"
+                                toolTipText: "Choose a supporter key file. KFPS registers a valid key automatically when needed."
                                 onClicked: {
                                     if (supporterService.importKey()) {
                                         settings.theme = supporterService.preferredTheme
@@ -179,6 +182,11 @@ Item {
                                       : (root.activationNeedsRepair
                                          ? (supporterService.activationState === "deactivated" ? "Register Again" : "Retry")
                                          : "Remove")
+                                toolTipText: supporterService.activationState === "active"
+                                             ? "Release this device so the supporter key can be registered on another computer."
+                                             : (root.activationNeedsRepair
+                                                ? "Try the supporter-key registration again after checking the connection."
+                                                : "Remove the supporter key from this KFPS installation.")
                                 onClicked: {
                                     if (supporterService.activationState === "active") {
                                         supporterService.deactivateDevice()
@@ -231,8 +239,9 @@ Item {
                         PrimaryButton {
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            text: "Open Ko-fi Unlock"
+                            text: "Get Supporter Key"
                             iconName: "heart"
+                            toolTipText: "Open the KFPS supporter page in your web browser."
                             onClicked: desktop.openUrl("https://ko-fi.com/s/2d1507698d")
                         }
                     }
@@ -242,6 +251,7 @@ Item {
                     Layout.fillWidth: true
                     text: "Manual generator overrides"
                     checked: settings.manualOverrides
+                    toolTipText: "Show advanced generator values on Create. Normal users should leave this off; presets fill these values automatically."
                     onToggled: settings.manualOverrides = checked
                 }
 
@@ -249,6 +259,7 @@ Item {
                     Layout.fillWidth: true
                     text: "Reduce nonessential motion"
                     checked: settings.reducedMotion
+                    toolTipText: "Turn off decorative and nonessential animation while keeping all app functions available."
                     onToggled: settings.reducedMotion = checked
                 }
 
@@ -257,6 +268,7 @@ Item {
                     text: "Ambient branch and petals"
                     checked: settings.ambientMotion
                     enabled: !settings.reducedMotion
+                    toolTipText: "Show or hide the animated branch and petals in the app background."
                     onToggled: settings.ambientMotion = checked
                 }
 
@@ -264,6 +276,7 @@ Item {
                     Layout.fillWidth: true
                     text: "Glass shadows and effects"
                     checked: settings.glassEffects
+                    toolTipText: "Enable or disable decorative glass shadows and effects. Turning them off may help slower graphics hardware."
                     onToggled: settings.glassEffects = checked
                 }
 
@@ -313,6 +326,7 @@ Item {
                                 iconName: "folder"
                                 title: "Application root"
                                 subtitle: desktop.appRoot
+                                toolTipText: "Open the main KFPS installation folder in File Explorer."
                                 onClicked: desktop.openRoot()
                             }
 
@@ -322,6 +336,7 @@ Item {
                                 iconName: "images"
                                 title: "Source images"
                                 subtitle: desktop.sourceImagesFolder
+                                toolTipText: "Open the folder where KFPS keeps copied source images."
                                 onClicked: desktop.openSourceImages()
                             }
 
@@ -331,6 +346,7 @@ Item {
                                 iconName: "json"
                                 title: "Generated outputs"
                                 subtitle: desktop.generatedFolder
+                                toolTipText: "Open generated jobs, final JSON files, previews, checkpoints, and reports."
                                 onClicked: desktop.openGenerated()
                             }
 
@@ -340,6 +356,7 @@ Item {
                                 iconName: "transfer"
                                 title: "Exported JSONs"
                                 subtitle: desktop.exportedFolder
+                                toolTipText: "Open JSON files exported from a running game or local game save."
                                 onClicked: desktop.openExported()
                             }
 
@@ -349,6 +366,7 @@ Item {
                                 iconName: "editor"
                                 title: "Editor projects"
                                 subtitle: desktop.editorProjectsFolder
+                                toolTipText: "Open saved manual-editor project files."
                                 onClicked: desktop.openProjects()
                             }
 
@@ -358,6 +376,7 @@ Item {
                                 iconName: "reports"
                                 title: "Saved reports"
                                 subtitle: desktop.reportsFolder
+                                toolTipText: "Open locally saved diagnostic and feedback reports."
                                 onClicked: desktop.openReports()
                             }
                         }
@@ -387,15 +406,17 @@ Item {
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "Create Diagnostic Report"
+                    text: "Create Report"
                     iconName: "reports"
+                    toolTipText: "Open the report builder to describe a bug or suggestion."
                     onClicked: appController.navigate("reports")
                 }
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "Open Runtime Logs"
+                    text: "Open Logs"
                     iconName: "folder"
+                    toolTipText: "Open the folder containing KFPS runtime log files."
                     onClicked: desktop.openRuntime()
                 }
 

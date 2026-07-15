@@ -18,10 +18,50 @@ ApplicationWindow {
                                          ? sourceDownloadUrl
                                          : "https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/latest"
 
+    component GuardToolTip: ToolTip {
+        id: tip
+
+        readonly property real textWidth: Math.min(480, Math.max(80, tipMetrics.advanceWidth))
+
+        delay: 450
+        timeout: 14000
+        leftPadding: 11
+        rightPadding: 11
+        topPadding: 8
+        bottomPadding: 8
+        implicitWidth: textWidth + leftPadding + rightPadding
+        implicitHeight: tipLabel.implicitHeight + topPadding + bottomPadding
+
+        TextMetrics {
+            id: tipMetrics
+            text: tip.text
+            font.family: Qt.platform.os === "windows" ? "Segoe UI Variable Text" : "Inter"
+            font.pixelSize: 13
+        }
+
+        contentItem: Text {
+            id: tipLabel
+            width: tip.textWidth
+            text: tip.text
+            color: "#ffffff"
+            font: tipMetrics.font
+            wrapMode: Text.Wrap
+            lineHeight: 1.2
+        }
+
+        background: Rectangle {
+            radius: 6
+            color: "#2f1018"
+            border.width: 1
+            border.color: "#ff707d"
+        }
+    }
+
     component GuardButton: Button {
         id: control
 
         property bool primary: false
+        property string toolTipText: text
 
         implicitWidth: Math.max(primary ? 190 : 112, buttonLabel.implicitWidth + 30)
         implicitHeight: 42
@@ -30,6 +70,11 @@ ApplicationWindow {
         font.family: Qt.platform.os === "windows" ? "Segoe UI Variable Text" : "Inter"
         font.pixelSize: 14
         font.bold: primary
+
+        GuardToolTip {
+            visible: control.hovered && control.toolTipText.length > 0
+            text: control.toolTipText
+        }
 
         contentItem: Text {
             id: buttonLabel
@@ -205,6 +250,11 @@ ApplicationWindow {
             selectionColor: "#ff9ca6"
             font.family: Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace"
             font.pixelSize: 15
+            hoverEnabled: true
+            GuardToolTip {
+                visible: releaseField.hovered && !releaseField.activeFocus
+                text: "This is the official latest-release page. Click Select Link to highlight the full address."
+            }
             leftPadding: 14
             rightPadding: 14
             background: Rectangle {
@@ -222,11 +272,13 @@ ApplicationWindow {
             GuardButton {
                 text: "Open Latest Release"
                 primary: true
+                toolTipText: "Open the official KFPS latest-release page in your web browser."
                 onClicked: Qt.openUrlExternally(window.releaseUrl)
             }
 
             GuardButton {
                 text: "Select Link"
+                toolTipText: "Highlight the full release address so you can copy it."
                 onClicked: {
                     releaseField.forceActiveFocus()
                     releaseField.selectAll()
@@ -237,6 +289,7 @@ ApplicationWindow {
 
             GuardButton {
                 text: "Close"
+                toolTipText: "Close this unsupported KFPS source download."
                 onClicked: Qt.quit()
             }
         }

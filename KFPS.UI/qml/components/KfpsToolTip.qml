@@ -1,0 +1,49 @@
+import QtQuick 6.7
+import QtQuick.Controls 6.7
+import Kfps.Theme 1.0
+
+ToolTip {
+    id: root
+
+    readonly property real maximumTextWidth: Theme.px(420)
+    readonly property real preferredTextWidth: Math.min(
+                                                    maximumTextWidth,
+                                                    Math.max(Theme.px(80), tipMetrics.advanceWidth))
+
+    delay: 450
+    timeout: 14000
+    leftPadding: Theme.px(11)
+    rightPadding: Theme.px(11)
+    topPadding: Theme.px(8)
+    bottomPadding: Theme.px(8)
+    implicitWidth: preferredTextWidth + leftPadding + rightPadding
+    implicitHeight: tipText.implicitHeight + topPadding + bottomPadding
+
+    TextMetrics {
+        id: tipMetrics
+        text: root.text
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.px(10.8)
+    }
+
+    contentItem: Text {
+        id: tipText
+        width: root.preferredTextWidth
+        text: root.text
+        color: Theme.text
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.px(10.8)
+        font.letterSpacing: 0
+        wrapMode: Text.Wrap
+        lineHeight: 1.2
+        renderType: Text.NativeRendering
+    }
+
+    background: Rectangle {
+        radius: Theme.px(6)
+        color: Theme.surfaceRaised
+        border.width: Math.max(1, Theme.px(1))
+        border.color: Theme.primary
+        opacity: 0.98
+    }
+}

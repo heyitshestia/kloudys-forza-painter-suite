@@ -48,9 +48,10 @@ GlassPanel {
             GhostButton {
                 visible: root.mode === "changelog"
                 dense: true
-                text: "Refresh"
+                text: "Refresh Notes"
                 iconName: "refresh"
                 minimumWidth: Theme.px(84)
+                toolTipText: "Reload the local patch notes shown in this panel."
                 onClicked: changelogService.refresh()
             }
 
@@ -59,6 +60,7 @@ GlassPanel {
                 dense: true
                 text: "Clear"
                 minimumWidth: Theme.px(62)
+                toolTipText: "Clear the visible runtime log from this panel. Log files on disk are not deleted."
                 onClicked: logs.clear()
             }
 
@@ -68,6 +70,7 @@ GlassPanel {
                 text: root.compactActions ? "Logs" : "Open logs folder"
                 iconName: "folder"
                 minimumWidth: Theme.px(root.compactActions ? 72 : 126)
+                toolTipText: "Open the folder containing KFPS runtime log files."
                 onClicked: desktop.openRuntime()
             }
 
@@ -76,6 +79,7 @@ GlassPanel {
                 text: root.collapsed ? "⌃" : "⌄"
                 minimumWidth: Theme.px(36)
                 maximumTextWidth: Theme.px(20)
+                toolTipText: root.collapsed ? "Expand this panel." : "Collapse this panel."
                 onClicked: root.toggle()
             }
         }

@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.73
+- Added plain-language hover help to every interactive native app control and custom click target.
+- Reworked all 22 Help topics for first-time users, including complete FH6 template setup and clear online/offline workflow guidance.
+- Simplified unclear action labels across Create, Outputs, Editor, Reports, Settings, and Update.
+- Kept the supporter badge, version pill, and announcement banner aligned consistently across tabs and fixed wrapped Update notes.
+
 ## 3.0.72
 - Hardened generation saving so every completed V2 checkpoint writes a verified, atomic final JSON and matching preview image.
 - Kept checkpoint finalization running if the app window closes or Genesis exits unexpectedly, preserving every usable completed checkpoint.

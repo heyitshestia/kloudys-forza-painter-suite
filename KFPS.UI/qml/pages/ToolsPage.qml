@@ -46,6 +46,7 @@ Item {
                     number: ""
                     title: "Remove background"
                     description: "Use this when an image still has a solid or messy background. Cleaner transparency usually means fewer wasted shapes."
+                    toolTipText: "Open PhotoRoom's background remover in your web browser. KFPS does not upload the image itself."
                     iconName: "cutout"
                     buttonText: "Open PhotoRoom"
                     onAction: desktop.openUrl("https://www.photoroom.com/tools/background-remover")
@@ -58,6 +59,7 @@ Item {
                     number: ""
                     title: "Upscale small sources"
                     description: "Use this for tiny logos or low-resolution references before running detailed presets. Do not upscale already large images."
+                    toolTipText: "Open the external image upscaler in your web browser. KFPS does not upload the image itself."
                     iconName: "upscale"
                     buttonText: "Open Upscaler"
                     onAction: desktop.openUrl("https://hcodx.com/tools/image-upscaler")
@@ -69,6 +71,7 @@ Item {
                     number: ""
                     title: "Resize or compress"
                     description: "Use this when a source is much too large, saved in an awkward format, or needs a cleaner PNG/WebP export."
+                    toolTipText: "Open Squoosh in your web browser to resize, convert, or compress a copy of the source."
                     iconName: "compress"
                     buttonText: "Open Squoosh"
                     onAction: desktop.openUrl("https://squoosh.app")

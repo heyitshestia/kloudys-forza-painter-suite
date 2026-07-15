@@ -10,6 +10,7 @@ Button {
     objectName: "GhostButton:" + root.text
 
     property string iconName: ""
+    property string toolTipText: ""
     property bool accentText: false
     property bool showArrow: false
     property bool dense: false
@@ -18,6 +19,7 @@ Button {
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
 
     readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(6) : 0
     readonly property real lipDepth: Theme.px(dense ? 1.8 : 2.8)
@@ -49,6 +51,11 @@ Button {
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
+
+    KfpsToolTip {
+        visible: root.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     background: Item {
         Rectangle {

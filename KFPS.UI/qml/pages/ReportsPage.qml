@@ -60,6 +60,7 @@ Item {
                                 id: reportType
                                 Layout.fillWidth: true
                                 model: ["Bug", "Suggestion"]
+                                toolTipText: "Choose Bug for something broken or Suggestion for an improvement idea."
                             }
                         }
                         ColumnLayout {
@@ -71,6 +72,7 @@ Item {
                                 id: reportTitle
                                 Layout.fillWidth: true
                                 placeholderText: "A useful one-line title"
+                                toolTipText: "Summarize the problem or suggestion in one short sentence."
                             }
                         }
                     }
@@ -83,6 +85,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         placeholderText: "What did you click? What happened? What should have happened? Include the last relevant log line."
+                        toolTipText: "Describe what you did, what happened, what you expected, and the last step that worked."
                     }
 
                     GlassPanel {
@@ -100,16 +103,19 @@ Item {
                                 id: includeContext
                                 text: "App version and selected theme"
                                 checked: true
+                                toolTipText: "Add the KFPS version and active visual theme to help identify the build."
                             }
                             KfpsCheckBox {
                                 id: includeLog
                                 text: "Visible runtime log (may contain filenames)"
                                 checked: false
+                                toolTipText: "Add the log currently shown in KFPS. Review it first because filenames may appear."
                             }
                             KfpsCheckBox {
                                 id: includePaths
                                 text: "Local paths (may contain your Windows username)"
                                 checked: false
+                                toolTipText: "Add full local file paths. Leave this off when you do not want your Windows username included."
                             }
                         }
                     }
@@ -120,15 +126,17 @@ Item {
                             Layout.fillWidth: true
                         }
                         PrimaryButton {
-                            text: "Preview report"
+                            text: "Preview Report"
                             iconName: "reports"
                             minimumWidth: Theme.px(132)
+                            toolTipText: "Build the report preview without saving a file."
                             onClicked: reportService.previewReport(reportType.currentText, reportTitle.text, reportDetails.text, includeContext.checked, includeLog.checked, includePaths.checked)
                         }
                         GhostButton {
-                            text: "Save local report"
+                            text: "Save Report"
                             iconName: "folder"
                             minimumWidth: Theme.px(142)
+                            toolTipText: "Save this report as a local text file. Nothing is uploaded automatically."
                             onClicked: reportService.saveReport(reportType.currentText, reportTitle.text, reportDetails.text, includeContext.checked, includeLog.checked, includePaths.checked)
                         }
                     }
@@ -153,9 +161,10 @@ Item {
                             subtitle: "This is exactly what will be saved locally."
                         }
                         GhostButton {
-                            text: "Open saved reports"
+                            text: "Open Reports"
                             iconName: "folder"
                             minimumWidth: Theme.px(148)
+                            toolTipText: "Open the folder containing locally saved reports."
                             onClicked: desktop.openReports()
                         }
                     }
@@ -173,10 +182,12 @@ Item {
                             text: reportService.preview
                             readOnly: true
                             font.family: Theme.monoFamily
+                            toolTipText: "Review the exact report text that will be saved. You can select and copy it."
                         }
                     }
 
                     Text {
+                        id: reportPathText
                         Layout.fillWidth: true
                         text: reportService.latestPath
                         visible: text.length > 0
@@ -184,8 +195,10 @@ Item {
                         font.family: Theme.monoFamily
                         font.pixelSize: Theme.px(9.5)
                         elide: Text.ElideMiddle
-                        ToolTip.visible: pathHover.hovered
-                        ToolTip.text: text
+                        KfpsToolTip {
+                            visible: pathHover.hovered
+                            text: "Saved report: " + reportPathText.text
+                        }
                         HoverHandler {
                             id: pathHover
                         }
@@ -224,41 +237,49 @@ Item {
                             id: compactType
                             Layout.fillWidth: true
                             model: ["Bug", "Suggestion"]
+                            toolTipText: "Choose Bug for something broken or Suggestion for an improvement idea."
                         }
                         KfpsTextField {
                             id: compactTitle
                             Layout.fillWidth: true
                             placeholderText: "Report title"
+                            toolTipText: "Summarize the problem or suggestion in one short sentence."
                         }
                         KfpsTextArea {
                             id: compactDetails
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             placeholderText: "Describe the problem or suggestion in detail."
+                            toolTipText: "Describe what you did, what happened, what you expected, and the last step that worked."
                         }
                         KfpsCheckBox {
                             id: compactContext
                             text: "Include app version and theme"
                             checked: true
+                            toolTipText: "Add the KFPS version and active visual theme to help identify the build."
                         }
                         KfpsCheckBox {
                             id: compactLog
                             text: "Include visible runtime log"
+                            toolTipText: "Add the log currently shown in KFPS. Review it first because filenames may appear."
                         }
                         KfpsCheckBox {
                             id: compactPaths
                             text: "Include local paths"
+                            toolTipText: "Add full local file paths. Leave this off when you do not want your Windows username included."
                         }
                         RowLayout {
                             Layout.fillWidth: true
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 text: "Preview"
+                                toolTipText: "Build the report preview without saving a file."
                                 onClicked: reportService.previewReport(compactType.currentText, compactTitle.text, compactDetails.text, compactContext.checked, compactLog.checked, compactPaths.checked)
                             }
                             GhostButton {
                                 Layout.fillWidth: true
                                 text: "Save"
+                                toolTipText: "Save this report as a local text file. Nothing is uploaded automatically."
                                 onClicked: reportService.saveReport(compactType.currentText, compactTitle.text, compactDetails.text, compactContext.checked, compactLog.checked, compactPaths.checked)
                             }
                         }
@@ -285,8 +306,9 @@ Item {
                                 Layout.fillWidth: true
                             }
                             GhostButton {
-                                text: "Open reports"
+                                text: "Open Reports"
                                 iconName: "folder"
+                                toolTipText: "Open the folder containing locally saved reports."
                                 onClicked: desktop.openReports()
                             }
                         }
@@ -296,6 +318,7 @@ Item {
                             text: reportService.preview
                             readOnly: true
                             font.family: Theme.monoFamily
+                            toolTipText: "Review the exact report text that will be saved. You can select and copy it."
                         }
                     }
                 }

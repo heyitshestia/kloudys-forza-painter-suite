@@ -250,9 +250,12 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.px(78)
-                                text: root.hasUpdate ? "Update to v" + root.latestLabel : "Run updater from GitHub"
+                                text: root.hasUpdate ? "Update to v" + root.latestLabel : "Run Updater"
                                 iconName: "update"
                                 textPixelSize: Theme.px(18)
+                                toolTipText: root.hasUpdate
+                                             ? "Download and install the latest KFPS files while preserving personal data."
+                                             : "Run the updater to repair or refresh this installation from GitHub."
                                 onClicked: confirm.open()
                             }
 
@@ -262,8 +265,9 @@ Item {
 
                                 GhostButton {
                                     Layout.preferredWidth: Theme.px(190)
-                                    text: "Check again"
+                                    text: "Check Now"
                                     iconName: "refresh"
+                                    toolTipText: "Check GitHub again for a newer KFPS version."
                                     onClicked: versionService.checkNow()
                                 }
 
@@ -307,9 +311,10 @@ Item {
 
                                     GhostButton {
                                         dense: true
-                                        text: "Refresh"
+                                        text: "Refresh Notes"
                                         iconName: "refresh"
                                         minimumWidth: Theme.px(84)
+                                        toolTipText: "Reload the local patch notes shown here."
                                         onClicked: changelogService.refresh()
                                     }
                                 }
@@ -328,10 +333,13 @@ Item {
                                         required property string details
 
                                         width: updatePatchNotes.width
-                                        height: Theme.px(62)
+                                        height: Math.max(Theme.px(48), patchNoteContent.implicitHeight + Theme.px(4))
 
                                         ColumnLayout {
-                                            anchors.fill: parent
+                                            id: patchNoteContent
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
                                             spacing: Theme.px(3)
 
                                             RowLayout {
@@ -346,7 +354,8 @@ Item {
                                                     font.family: Theme.monoFamily
                                                     font.pixelSize: Theme.px(10.2)
                                                     font.weight: Font.DemiBold
-                                                    elide: Text.ElideRight
+                                                    wrapMode: Text.WordWrap
+                                                    lineHeight: 1.15
                                                 }
 
                                                 Text {
@@ -362,13 +371,12 @@ Item {
 
                                             Text {
                                                 Layout.fillWidth: true
+                                                visible: details.length > 0
                                                 text: details
                                                 color: Theme.muted
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.px(9.8)
-                                                maximumLineCount: 2
-                                                elide: Text.ElideRight
-                                                wrapMode: Text.Wrap
+                                                wrapMode: Text.WordWrap
                                                 lineHeight: 1.15
                                             }
                                         }

@@ -87,7 +87,7 @@ Item {
                     SectionHeading {
                         Layout.fillWidth: true
                         title: "1. Import setup"
-                        subtitle: "Online uses the live probe. Offline scans supported save folders."
+                        subtitle: "Online edits the running game. Offline edits supported local save files."
                     }
                 }
 
@@ -106,6 +106,7 @@ Item {
                             Layout.fillWidth: true
                             dense: root.compactHeight
                             model: ["FH6", "FH5", "FM8"]
+                            toolTipText: "Choose the game whose live editor or local save files you want to use."
                         }
                     }
 
@@ -120,6 +121,7 @@ Item {
                             text: "3000"
                             placeholderText: "Layer count"
                             inputMethodHints: Qt.ImhDigitsOnly
+                            toolTipText: "For online transfer, enter the exact number of editable layers in the template currently open in the game."
                         }
                     }
                 }
@@ -133,6 +135,7 @@ Item {
                            ? ["Generated finals", "Editor exports", "Game exports", "Library"]
                            : ["Generated finals", "Editor exports", "Game exports"]
                     currentIndex: jsonService.sourceIndex
+                    toolTipText: "Choose which KFPS folder or scanned game library is shown in the output browser."
                     onActivated: jsonService.setSource(currentIndex)
                 }
 
@@ -190,9 +193,10 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + " saves..." : "Scan " + game.currentText + " save library"
+                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves"
                                 iconName: "folder"
                                 dense: root.compactHeight
+                                toolTipText: "Find vinyl groups in the selected game's local save files and add them to the Library view."
                                 enabled: !cgroupLibraryService.running
                                 onClicked: cgroupLibraryService.scanSaves(game.currentText)
                             }
@@ -200,9 +204,10 @@ Item {
                             GhostButton {
                                 Layout.preferredWidth: Theme.px(116)
                                 minimumWidth: 0
-                                text: "Open"
+                                text: "Folder"
                                 iconName: "folder"
                                 dense: root.compactHeight
+                                toolTipText: "Open KFPS's scanned game-library folder in File Explorer."
                                 onClicked: desktop.openFolder(cgroupLibraryService.libraryFolder)
                             }
                         }
@@ -211,14 +216,17 @@ Item {
                             Layout.fillWidth: true
                             minimumWidth: 0
                             text: cgroupLibraryService.running
-                                  ? "Installing / scanning..."
+                                  ? "Working..."
                                   : (game.currentText === "FH6"
-                                     ? "FH6 Offline Import Selected JSON"
+                                     ? "Offline Import to FH6"
                                      : (game.currentText === "FM8"
-                                        ? "FM8 Offline Import Selected JSON"
-                                        : "Offline Import FH5 Disabled"))
+                                        ? "Offline Import to FM8"
+                                        : "FH5 Offline Import Unavailable"))
                             iconName: "transfer"
                             dense: root.compactHeight
+                            toolTipText: game.currentText === "FH5"
+                                         ? "FH5 local save-file importing is not available. Use online import with FH5 running."
+                                         : "Write the selected JSON into the selected game's local save library without opening the game."
                             enabled: !cgroupLibraryService.running
                                      && (game.currentText === "FH6" || game.currentText === "FM8")
                                      && jsonService.selectedPath.length > 0
@@ -235,18 +243,20 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Browse JSON"
+                        text: "Add JSON"
                         iconName: "folder"
                         dense: root.compactHeight
+                        toolTipText: "Choose a JSON file manually. KFPS detects supported formats and keeps the original file unchanged."
                         onClicked: jsonService.browseManual()
                     }
 
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Refresh"
+                        text: "Refresh Outputs"
                         iconName: "refresh"
                         dense: root.compactHeight
+                        toolTipText: "Scan the selected output source again and update the list."
                         onClicked: jsonService.refresh()
                     }
 
@@ -254,9 +264,10 @@ Item {
                         id: clearUnused
                         Layout.columnSpan: 2
                         Layout.fillWidth: true
-                        text: "Clear unused layers"
+                        text: "Clear Extra Template Layers"
                         checked: true
                         dense: true
+                        toolTipText: "After online import, hide placeholder layers that were not replaced by JSON shapes. Leave this on for normal use."
                     }
                 }
 
@@ -387,15 +398,19 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: jsonService.sourceIndex === 3 ? "Library entries are already in game" : (transferService.running ? "Working…" : "Online Import Selected JSON")
+                    text: jsonService.sourceIndex === 3 ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Game")
                     iconName: "transfer"
+                    toolTipText: jsonService.sourceIndex === 3
+                                 ? "Library items already came from game save files and cannot be imported through live memory from this view."
+                                 : "Replace layers in the template currently open in the running game with the selected JSON."
                     enabled: !transferService.running && jsonService.selectedPath.length > 0 && jsonService.sourceIndex !== 3
                     onClicked: transferService.importJson(game.currentText, jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
                 }
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "Online Export Current Group"
+                    text: "Online Export from Game"
+                    toolTipText: "Read the vinyl group currently open in the running game and save it as a KFPS JSON."
                     enabled: !transferService.running
                     onClicked: transferService.exportJson(game.currentText, parseInt(layerCount.text) || 0)
                 }
@@ -479,6 +494,7 @@ Item {
                                     Layout.fillWidth: true
                                     dense: true
                                     placeholderText: "Search current source by vinyl name"
+                                    toolTipText: "Filter the current output source by vinyl name. Empty the box to show everything again."
                                     Component.onCompleted: text = jsonService.searchQuery
                                     onTextEdited: {
                                         jsonService.setSearchQuery(text)
@@ -597,6 +613,11 @@ Item {
                                         HoverHandler {
                                             id: cardHover
                                             cursorShape: Qt.PointingHandCursor
+                                        }
+
+                                        KfpsToolTip {
+                                            visible: cardHover.hovered
+                                            text: "Click to select this vinyl. Double-click to open its preview and file details."
                                         }
 
                                         MouseArea {
@@ -721,6 +742,7 @@ Item {
                 GhostButton {
                     Layout.preferredWidth: Theme.px(110)
                     text: "Close"
+                    toolTipText: "Close the vinyl preview and return to Outputs."
                     onClicked: jsonInfoPopup.close()
                 }
             }
@@ -940,6 +962,11 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                             }
 
+                            KfpsToolTip {
+                                visible: creatorHover.hovered
+                                text: "Select this FM8 creator profile for private offline-library filtering."
+                            }
+
                             TapHandler {
                                 onTapped: event => {
                                     event.accepted = true
@@ -1016,6 +1043,9 @@ Item {
                 GhostButton {
                     Layout.preferredWidth: Theme.px(132)
                     text: root.fm8CreatorConfirmStep === 1 ? "Cancel" : "Back"
+                    toolTipText: root.fm8CreatorConfirmStep === 1
+                                 ? "Cancel this scan without choosing a profile."
+                                 : "Return to the FM8 profile list."
                     onClicked: {
                         if (root.fm8CreatorConfirmStep === 1) {
                             cgroupLibraryService.cancelFm8CreatorPrompt()
@@ -1030,8 +1060,11 @@ Item {
 
                 PrimaryButton {
                     Layout.preferredWidth: Theme.px(root.fm8CreatorConfirmStep === 1 ? 180 : 260)
-                    text: root.fm8CreatorConfirmStep === 1 ? "Continue" : "Yes, This Is My Profile"
+                    text: root.fm8CreatorConfirmStep === 1 ? "Continue" : "Confirm My Profile"
                     iconName: "check"
+                    toolTipText: root.fm8CreatorConfirmStep === 1
+                                 ? "Review the selected profile before saving it."
+                                 : "Confirm the selected creator is your local FM8 profile."
                     enabled: root.fm8PendingCreator.length > 0
                     onClicked: {
                         if (root.fm8CreatorConfirmStep === 1) {

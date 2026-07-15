@@ -134,6 +134,7 @@ Item {
                     Layout.fillWidth: true
                     text: sourceService.count > 0 ? "Change source image(s)" : "Choose source image(s)"
                     iconName: "images"
+                    toolTipText: "Choose one or more images to turn into Forza vinyl shapes. PNG files with a transparent background usually work best."
                     onClicked: sourceService.choose()
                 }
 
@@ -163,6 +164,7 @@ Item {
                     id: preset
                     Layout.fillWidth: true
                     model: generationService.presets
+                    toolTipText: "Choose how KFPS interprets the artwork. A suitable preset is selected automatically when you choose an image."
                     currentIndex: generationService.selectedPresetIndex
                     onActivated: generationService.setSelectedPresetIndex(currentIndex)
                     Component.onCompleted: currentIndex = generationService.selectedPresetIndex
@@ -200,6 +202,7 @@ Item {
                             dense: root.compactHeight
                             placeholderText: "1–3000"
                             inputMethodHints: Qt.ImhDigitsOnly
+                            toolTipText: "Set the maximum number of shapes the finished vinyl may use. This cannot exceed the open game template."
                             onEditingFinished: if (!root.checkpointsManual) checkpoints.text = root.checkpointTextFor(text)
                         }
                     }
@@ -215,6 +218,7 @@ Item {
                         dense: root.compactHeight
                         text: "500,1000,1250,1500,2000"
                         placeholderText: "500,1000,1500,2000"
+                        toolTipText: "Enter comma-separated shape counts. KFPS saves a finished JSON and preview at each count it reaches."
                         onTextEdited: root.checkpointsManual = true
                     }
                 }
@@ -286,19 +290,19 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(2)
                                 Label { text: "Max resolution"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
-                                KfpsTextField { id: maxRes; Layout.fillWidth: true; dense: true; placeholderText: "Max res" }
+                                KfpsTextField { id: maxRes; Layout.fillWidth: true; dense: true; placeholderText: "Max res"; toolTipText: "Advanced: limit the working image resolution. Leave the preset value unless you are testing performance or fine detail." }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(2)
                                 Label { text: "Random samples"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
-                                KfpsTextField { id: randomSamples; Layout.fillWidth: true; dense: true; placeholderText: "Random" }
+                                KfpsTextField { id: randomSamples; Layout.fillWidth: true; dense: true; placeholderText: "Random"; toolTipText: "Advanced: set how many fresh shape candidates are tested per search step. Higher values take longer." }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(2)
                                 Label { text: "Mutated samples"; color: Theme.muted; font.pixelSize: Theme.px(9.2) }
-                                KfpsTextField { id: mutatedSamples; Layout.fillWidth: true; dense: true; placeholderText: "Mutated" }
+                                KfpsTextField { id: mutatedSamples; Layout.fillWidth: true; dense: true; placeholderText: "Mutated"; toolTipText: "Advanced: set how many variations of promising candidates are tested. Higher values take longer." }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -310,6 +314,7 @@ Item {
                                     dense: true
                                     placeholderText: "Seed"
                                     inputMethodHints: Qt.ImhDigitsOnly
+                                    toolTipText: "Advanced: use the same number to repeat the same randomized search. Use 0 for the normal automatic seed."
                                 }
                             }
                         }
@@ -320,8 +325,9 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: generationService.running ? "Generating…" : "Generate Final Vinyl"
+                    text: generationService.running ? "Generating…" : "Generate Vinyl"
                     iconName: "generate"
+                    toolTipText: "Start generating every queued image with the selected layer budget, checkpoints, and options."
                     enabled: !generationService.running
                     onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.text, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
                 }
@@ -334,7 +340,8 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Graceful stop"
+                        text: "Stop safely"
+                        toolTipText: "Finish the current work and save all completed checkpoints before stopping."
                         enabled: generationService.running
                         onClicked: generationService.gracefulStop()
                     }
@@ -342,7 +349,8 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Force stop"
+                        text: "Stop now"
+                        toolTipText: "End generation immediately. Completed checkpoints are kept, but the current unfinished step is lost."
                         enabled: generationService.running
                         onClicked: forceDialog.open()
                     }
@@ -373,10 +381,11 @@ Item {
                     }
 
                     GhostButton {
-                        text: "Refresh"
+                        text: "Refresh Preview"
                         iconName: "refresh"
                         dense: true
                         minimumWidth: Theme.px(82)
+                        toolTipText: "Reload the source or latest generated preview from disk."
                         onClicked: generationService.refreshPreview()
                     }
                 }
@@ -621,6 +630,7 @@ Item {
                     text: "Open Outputs"
                     iconName: "json"
                     showArrow: true
+                    toolTipText: "Open the Outputs page to inspect, edit, import, or export saved vinyl JSON files."
                     onClicked: appController.navigate("outputs")
                 }
             }
@@ -629,8 +639,8 @@ Item {
 
     MessageDialog {
         id: forceDialog
-        title: "Force stop generation?"
-        text: "Force Stop ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Graceful Stop does not work."
+        title: "Stop generation now?"
+        text: "Stop Now ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Stop Safely does not work."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: generationService.forceStop()
     }

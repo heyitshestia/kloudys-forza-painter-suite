@@ -39,7 +39,7 @@ class ChangelogService(QObject):
                     "version": version,
                     "date": "Current" if i == 0 else "",
                     "summary": bullets[0],
-                    "details": "\n".join(bullets),
+                    "details": "\n".join(f"- {bullet}" for bullet in bullets[1:]),
                 })
         except Exception:
             rows = [{"version": "—", "date": "", "summary": "Changelog is unavailable in this package.", "details": ""}]

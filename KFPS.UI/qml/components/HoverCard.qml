@@ -1,4 +1,5 @@
 import QtQuick 6.7
+import QtQuick.Controls 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 
@@ -9,9 +10,15 @@ Item {
     property bool clickable: false
     property bool strong: false
     property bool soft: false
+    property string toolTipText: ""
     property real padding: Theme.px(18)
     property alias hovered: hover.hovered
     signal clicked()
+
+    KfpsToolTip {
+        visible: root.clickable && hover.hovered && root.toolTipText.length > 0
+        text: root.toolTipText
+    }
 
     implicitWidth: Theme.px(260)
     implicitHeight: Theme.px(150)

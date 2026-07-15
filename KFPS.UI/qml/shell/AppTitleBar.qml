@@ -1,6 +1,8 @@
 import QtQuick 6.7
+import QtQuick.Controls 6.7
 import QtQuick.Window 6.7
 import Kfps.Theme 1.0
+import "../components"
 
 Rectangle {
     id: root
@@ -102,6 +104,17 @@ Rectangle {
                 }
 
                 HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+
+                KfpsToolTip {
+                    visible: hover.hovered
+                    text: button.modelData === "min"
+                          ? "Minimize KFPS."
+                          : (button.modelData === "max"
+                             ? (root.window.visibility === Window.FullScreen || root.window.visibility === Window.Maximized
+                                ? "Restore the KFPS window."
+                                : "Maximize the KFPS window.")
+                             : "Close KFPS.")
+                }
 
                 TapHandler {
                     onTapped: {

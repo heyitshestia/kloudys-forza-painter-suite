@@ -10,6 +10,7 @@ CheckBox {
 
     property bool dense: false
     property string toolTipText: ""
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
 
     spacing: Theme.px(9)
     leftPadding: 0
@@ -65,8 +66,8 @@ CheckBox {
         elide: Text.ElideRight
     }
 
-    ToolTip.delay: 450
-    ToolTip.timeout: 14000
-    ToolTip.visible: root.hovered && root.toolTipText.length > 0
-    ToolTip.text: root.toolTipText
+    KfpsToolTip {
+        visible: root.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 }

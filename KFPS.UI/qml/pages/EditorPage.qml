@@ -58,15 +58,17 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: "Launch Empty Editor"
+                    text: "New Project"
                     iconName: "editor"
+                    toolTipText: "Open the manual editor with a blank project in a new browser window."
                     onClicked: editorService.launch()
                 }
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "Refresh Project List"
+                    text: "Refresh Projects"
                     iconName: "refresh"
+                    toolTipText: "Scan the projects folder again and update this list."
                     onClicked: editorService.refresh()
                 }
 
@@ -141,6 +143,7 @@ Item {
                         minimumWidth: 0
                         maximumTextWidth: Math.max(Theme.px(160), width - Theme.px(40))
                         text: name + "  •  " + modifiedLabel
+                        toolTipText: "Select this saved editor project."
                         dense: root.compactHeight
                         onClicked: editorService.select(index)
                     }
@@ -230,7 +233,8 @@ Item {
 
                         PrimaryButton {
                             minimumWidth: Theme.px(170)
-                            text: "Open Selected"
+                            text: "Open Project"
+                            toolTipText: "Open the selected project in the manual editor."
                             enabled: editorService.selectedPath.length > 0
                             onClicked: editorService.launchSelected()
                         }

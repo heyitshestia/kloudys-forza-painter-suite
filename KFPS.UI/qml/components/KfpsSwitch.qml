@@ -9,6 +9,8 @@ Switch {
     objectName: "KfpsSwitch:" + root.text
 
     property bool dense: false
+    property string toolTipText: ""
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
 
     spacing: Theme.px(10)
     leftPadding: 0
@@ -17,6 +19,11 @@ Switch {
     bottomPadding: Theme.px(2)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+
+    KfpsToolTip {
+        visible: root.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     implicitHeight: Math.max(
                         Theme.px(dense ? 26 : 30),

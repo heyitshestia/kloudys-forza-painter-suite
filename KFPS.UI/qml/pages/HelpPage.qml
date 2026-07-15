@@ -37,7 +37,8 @@ Item {
             KfpsTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: "Search workflows, errors, tools..."
+                placeholderText: "Search: template, import, editor..."
+                toolTipText: "Search all help topics in plain language. Empty the box to show every topic again."
                 onTextChanged: helpService.search(text)
             }
 
@@ -48,14 +49,16 @@ Item {
                     Layout.fillWidth: true
                     dense: true
                     iconName: "check"
-                    text: "First run"
+                    text: "Start Here"
+                    toolTipText: "Open the beginner guide from choosing an image through saving the result in Forza."
                     onClicked: helpService.selectTopic("first-run")
                 }
                 PrimaryButton {
                     Layout.fillWidth: true
                     dense: true
                     iconName: "transfer"
-                    text: "FH6 template"
+                    text: "FH6 Template"
+                    toolTipText: "Open the exact one-time steps for making a reusable FH6 import template."
                     onClicked: helpService.selectTopic("fh6-template")
                 }
             }
@@ -64,7 +67,8 @@ Item {
                 Layout.fillWidth: true
                 dense: true
                 iconName: "changelog"
-                text: "Copy support checklist"
+                text: "Copy Support Info"
+                toolTipText: "Copy a short list of useful details to include when asking for help."
                 onClicked: helpService.copySupportChecklist()
             }
 
@@ -75,7 +79,8 @@ Item {
                     Layout.fillWidth: true
                     dense: true
                     iconName: "help"
-                    text: "Open support guide"
+                    text: "Fix a Problem"
+                    toolTipText: "Open the troubleshooting and support guide."
                     onClicked: helpService.selectTopic("support-checklist")
                 }
             }
@@ -109,6 +114,11 @@ Item {
                     onClicked: {
                         categoryList.currentIndex = index;
                         helpService.setCategory(key);
+                    }
+
+                    KfpsToolTip {
+                        visible: categoryButton.hovered
+                        text: categoryButton.summary
                     }
 
                     background: Rectangle {
@@ -190,6 +200,11 @@ Item {
                         helpService.select(index);
                     }
 
+                    KfpsToolTip {
+                        visible: topicButton.hovered
+                        text: topicButton.summary
+                    }
+
                     background: Rectangle {
                         radius: Theme.px(13)
                         color: topicButton.index === topicList.currentIndex ? Theme.helpTopicSelected : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
@@ -263,8 +278,9 @@ Item {
                 GhostButton {
                     dense: true
                     iconName: "changelog"
-                    text: "Copy support checklist"
+                    text: "Copy Support Info"
                     visible: Theme.logical(root.width) >= 930
+                    toolTipText: "Copy a short list of useful details to include when asking for help."
                     onClicked: helpService.copySupportChecklist()
                 }
             }
@@ -324,7 +340,7 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "Step-by-step"
+                                    text: "Do This"
                                     color: Theme.primaryBright
                                     font.family: Theme.displayFamily
                                     font.pixelSize: Theme.px(16.5)
@@ -421,7 +437,7 @@ Item {
                             spacing: Theme.px(8)
                             Text {
                                 width: parent.width
-                                text: "Watch out"
+                                text: "Avoid This"
                                 color: Theme.warning
                                 font.family: Theme.displayFamily
                                 font.pixelSize: Theme.px(15.4)
@@ -487,6 +503,7 @@ Item {
                                         dense: true
                                         text: modelData.title
                                         showArrow: true
+                                        toolTipText: "Open the related guide: " + modelData.title
                                         onClicked: helpService.selectTopic(modelData.key)
                                     }
                                 }

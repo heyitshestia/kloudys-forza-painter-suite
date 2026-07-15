@@ -10,6 +10,7 @@ Button {
     objectName: "PrimaryButton:" + root.text
 
     property string iconName: ""
+    property string toolTipText: ""
     property bool showArrow: false
     property bool dense: false
     property real minimumWidth: Theme.px(dense ? 88 : 112)
@@ -17,6 +18,7 @@ Button {
     property real textPixelSize: Theme.px(dense ? 10.5 : 11.5)
 
     readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 17 : 20) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(7) : 0
     readonly property real lipDepth: Theme.px(dense ? 2.8 : 4.2)
@@ -382,6 +384,11 @@ Button {
     }
 
     onHoveredChanged: if (hovered && !Theme.reducedMotion) sheenAnimation.restart()
+
+    KfpsToolTip {
+        visible: root.hovered && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     SequentialAnimation {
         id: sheenAnimation

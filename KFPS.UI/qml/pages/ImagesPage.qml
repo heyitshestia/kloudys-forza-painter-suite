@@ -37,12 +37,14 @@ Item {
                 Layout.fillWidth: true
                 text: "Choose source image"
                 iconName: "images"
+                toolTipText: "Choose an image to inspect before starting a long generation."
                 onClicked: sourceService.choose()
             }
 
             GhostButton {
                 Layout.fillWidth: true
-                text: "Preview detail heatmap"
+                text: "Preview Detail Map"
+                toolTipText: "Create a preview showing where KFPS detects edges and fine details that may need more shapes."
                 enabled: sourceService.path.length > 0
                 onClicked: sourceService.buildHeatmap()
             }
@@ -82,6 +84,7 @@ Item {
                 Layout.fillWidth: true
                 text: "Open Image Tools"
                 iconName: "tools"
+                toolTipText: "Open background removal, upscaling, and image size tools."
                 onClicked: appController.navigate("tools")
             }
         }

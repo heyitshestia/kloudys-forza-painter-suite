@@ -1,4 +1,5 @@
 import QtQuick 6.7
+import QtQuick.Controls 6.7
 import QtQuick.Effects 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
@@ -169,8 +170,15 @@ GlassPanel {
     }
 
     MouseArea {
+        id: tickerMouse
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: root.paused = !root.paused
+    }
+
+    KfpsToolTip {
+        visible: tickerMouse.containsMouse
+        text: root.paused ? "Click to resume the scrolling KFPS status message." : "Click to pause the scrolling KFPS status message."
     }
 }

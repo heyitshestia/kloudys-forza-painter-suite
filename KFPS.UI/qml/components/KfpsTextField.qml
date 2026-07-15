@@ -10,6 +10,8 @@ TextField {
 
     property bool dense: false
     property real minimumWidth: Theme.px(80)
+    property string toolTipText: ""
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : placeholderText
 
     implicitHeight: Math.max(
                         Theme.px(dense ? Metrics.denseButtonHeight : Metrics.fieldHeight),
@@ -32,7 +34,13 @@ TextField {
     font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: TextInput.AlignVCenter
     selectByMouse: true
+    hoverEnabled: true
     clip: true
+
+    KfpsToolTip {
+        visible: root.hovered && !root.activeFocus && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     background: Item {
         Rectangle {

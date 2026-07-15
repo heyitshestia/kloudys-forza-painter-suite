@@ -169,6 +169,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: "Choose source image(s)"
                                 iconName: "images"
+                                toolTipText: "Choose one or more images to turn into Forza vinyl shapes. PNG files with a transparent background usually work best."
                                 onClicked: sourceService.choose()
                             }
                             Text {
@@ -187,6 +188,7 @@ Item {
                                 id: preset
                                 Layout.fillWidth: true
                                 model: generationService.presets
+                                toolTipText: "Choose how KFPS interprets the artwork. A suitable preset is selected automatically when you choose an image."
                                 currentIndex: generationService.selectedPresetIndex
                                 onActivated: generationService.setSelectedPresetIndex(currentIndex)
                                 Component.onCompleted: currentIndex = generationService.selectedPresetIndex
@@ -221,6 +223,7 @@ Item {
                                         id: layers
                                         Layout.fillWidth: true
                                         model: root.layerOptions
+                                        toolTipText: "Choose the maximum number of shapes for the finished vinyl. Double-click to enter a custom count from 1 to 3000."
                                         currentIndex: 3
                                         onActivated: checkpoints.text = root.checkpointTextFor(currentText)
                                         onDoubleTapped: root.openCustomLayerDialog(layers, checkpoints)
@@ -235,6 +238,7 @@ Item {
                                 id: checkpoints
                                 Layout.fillWidth: true
                                 text: "500,1000,1250,1500,2000"
+                                toolTipText: "Enter comma-separated shape counts. KFPS saves a finished JSON and preview at each count it reaches."
                             }
 
                             Label {
@@ -295,22 +299,26 @@ Item {
                                         id: maxRes
                                         Layout.fillWidth: true
                                         placeholderText: "Max res"
+                                        toolTipText: "Advanced: limit the working image resolution. Leave the preset value unless you are testing performance or fine detail."
                                     }
                                     KfpsTextField {
                                         id: randomSamples
                                         Layout.fillWidth: true
                                         placeholderText: "Random"
+                                        toolTipText: "Advanced: set how many fresh shape candidates are tested per search step. Higher values take longer."
                                     }
                                     KfpsTextField {
                                         id: mutatedSamples
                                         Layout.fillWidth: true
                                         placeholderText: "Mutated"
+                                        toolTipText: "Advanced: set how many variations of promising candidates are tested. Higher values take longer."
                                     }
                                     KfpsTextField {
                                         id: seed
                                         Layout.fillWidth: true
                                         inputMethodHints: Qt.ImhDigitsOnly
                                         placeholderText: "Seed"
+                                        toolTipText: "Advanced: use the same number to repeat the same randomized search. Use 0 for the normal automatic seed."
                                     }
                                 }
                             }
@@ -323,8 +331,9 @@ Item {
 
                         PrimaryButton {
                             Layout.fillWidth: true
-                            text: generationService.running ? "Generating…" : "Generate Final Vinyl"
+                            text: generationService.running ? "Generating…" : "Generate Vinyl"
                             iconName: "generate"
+                            toolTipText: "Start generating every queued image with the selected layer budget, checkpoints, and options."
                             enabled: !generationService.running
                             onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.currentText, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
                         }
@@ -332,14 +341,16 @@ Item {
                             Layout.fillWidth: true
                             GhostButton {
                                 Layout.fillWidth: true
-                                text: "Graceful Stop"
+                                text: "Stop Safely"
+                                toolTipText: "Finish the current work and save all completed checkpoints before stopping."
                                 minimumWidth: Theme.px(108)
                                 enabled: generationService.running
                                 onClicked: generationService.gracefulStop()
                             }
                             GhostButton {
                                 Layout.fillWidth: true
-                                text: "Force Stop"
+                                text: "Stop Now"
+                                toolTipText: "End generation immediately. Completed checkpoints are kept, but the current unfinished step is lost."
                                 minimumWidth: Theme.px(96)
                                 enabled: generationService.running
                                 onClicked: forceDialog.open()
@@ -373,13 +384,15 @@ Item {
                             Layout.fillWidth: true
                         }
                         GhostButton {
-                            text: "Refresh"
+                            text: "Refresh Preview"
                             minimumWidth: Theme.px(82)
+                            toolTipText: "Reload the source or latest generated preview from disk."
                             onClicked: generationService.refreshPreview()
                         }
                         GhostButton {
                             text: "Open Editor"
                             minimumWidth: Theme.px(104)
+                            toolTipText: "Open the manual editor in a new browser window for detailed shape changes."
                             onClicked: editorService.launch()
                         }
                     }
@@ -599,8 +612,9 @@ Item {
                     }
                     GhostButton {
                         Layout.fillWidth: true
-                        text: "Open generated folder"
+                        text: "Open Generated Folder"
                         iconName: "folder"
+                        toolTipText: "Open the folder that contains generated JSON files, previews, checkpoints, and reports."
                         onClicked: desktop.openGenerated()
                     }
                 }
@@ -622,7 +636,7 @@ Item {
 
                 SectionHeading {
                     Layout.fillWidth: true
-                    title: "Generate Final Vinyl"
+                    title: "Generate Vinyl"
                     subtitle: "Compact mode keeps every generator option available and scrollable."
                 }
 
@@ -636,12 +650,14 @@ Item {
                             Layout.fillWidth: true
                             text: "Choose source image(s)"
                             iconName: "images"
+                            toolTipText: "Choose one or more images to turn into Forza vinyl shapes. PNG files with a transparent background usually work best."
                             onClicked: sourceService.choose()
                         }
                         KfpsComboBox {
                             id: cp
                             Layout.fillWidth: true
                             model: generationService.presets
+                            toolTipText: "Choose how KFPS interprets the artwork. A suitable preset is selected automatically when you choose an image."
                             currentIndex: generationService.selectedPresetIndex
                             onActivated: generationService.setSelectedPresetIndex(currentIndex)
                             Component.onCompleted: currentIndex = generationService.selectedPresetIndex
@@ -668,6 +684,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.columnSpan: 2
                                 model: root.layerOptions
+                                toolTipText: "Choose the maximum number of shapes for the finished vinyl. Double-click to enter a custom count from 1 to 3000."
                                 currentIndex: 3
                                 onActivated: cc.text = root.checkpointTextFor(currentText)
                                 onDoubleTapped: root.openCustomLayerDialog(cl, cc)
@@ -677,6 +694,7 @@ Item {
                             id: cc
                             Layout.fillWidth: true
                             text: "500,1000,1250,1500,2000"
+                            toolTipText: "Enter comma-separated shape counts. KFPS saves a finished JSON and preview at each count it reaches."
                         }
                         GridLayout {
                             Layout.fillWidth: true
@@ -716,22 +734,26 @@ Item {
                                     id: cMax
                                     Layout.fillWidth: true
                                     placeholderText: "Max res"
+                                    toolTipText: "Advanced: limit the working image resolution. Leave the preset value unless you are testing performance or fine detail."
                                 }
                                 KfpsTextField {
                                     id: cRandom
                                     Layout.fillWidth: true
                                     placeholderText: "Random"
+                                    toolTipText: "Advanced: set how many fresh shape candidates are tested per search step. Higher values take longer."
                                 }
                                 KfpsTextField {
                                     id: cMutated
                                     Layout.fillWidth: true
                                     placeholderText: "Mutated"
+                                    toolTipText: "Advanced: set how many variations of promising candidates are tested. Higher values take longer."
                                 }
                                 KfpsTextField {
                                     id: cseed
                                     Layout.fillWidth: true
                                     inputMethodHints: Qt.ImhDigitsOnly
                                     placeholderText: "Seed"
+                                    toolTipText: "Advanced: use the same number to repeat the same randomized search. Use 0 for the normal automatic seed."
                                 }
                             }
                         }
@@ -740,7 +762,8 @@ Item {
                         }
                         PrimaryButton {
                             Layout.fillWidth: true
-                            text: generationService.running ? "Generating…" : "Generate Final Vinyl"
+                            text: generationService.running ? "Generating…" : "Generate Vinyl"
+                            toolTipText: "Start generating every queued image with the selected layer budget, checkpoints, and options."
                             enabled: !generationService.running
                             onClicked: generationService.startQueue(sourceService.queuedPaths, cp.currentIndex, cl.currentText, cc.text, cLuma.checked, cHeat.checked, cRepair.checked, cBoost.checked, settings.manualOverrides, settings.manualOverrides ? cMax.text : "", settings.manualOverrides ? cRandom.text : "", settings.manualOverrides ? cMutated.text : "", settings.manualOverrides ? (parseInt(cseed.text) || 0) : 0)
                         }
@@ -748,13 +771,15 @@ Item {
                             Layout.fillWidth: true
                             GhostButton {
                                 Layout.fillWidth: true
-                                text: "Graceful Stop"
+                                text: "Stop Safely"
+                                toolTipText: "Finish the current work and save all completed checkpoints before stopping."
                                 enabled: generationService.running
                                 onClicked: generationService.gracefulStop()
                             }
                             GhostButton {
                                 Layout.fillWidth: true
-                                text: "Force Stop"
+                                text: "Stop Now"
+                                toolTipText: "End generation immediately. Completed checkpoints are kept, but the current unfinished step is lost."
                                 enabled: generationService.running
                                 onClicked: forceDialog.open()
                             }
@@ -835,8 +860,8 @@ Item {
 
     MessageDialog {
         id: forceDialog
-        title: "Force stop generation?"
-        text: "Force Stop ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Graceful Stop does not work."
+        title: "Stop generation now?"
+        text: "Stop Now ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Stop Safely does not work."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: generationService.forceStop()
     }
@@ -866,6 +891,7 @@ Item {
                 Layout.fillWidth: true
                 inputMethodHints: Qt.ImhDigitsOnly
                 placeholderText: "Layer count"
+                toolTipText: "Enter the maximum number of shapes to generate, from 1 to 3000."
                 validator: IntValidator { bottom: 1; top: 3000 }
                 onAccepted: customLayerDialog.accept()
             }

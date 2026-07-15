@@ -8,6 +8,8 @@ Slider {
 
     objectName: "KfpsSlider"
 
+    property string toolTipText: "Adjust this value."
+
     implicitWidth: Theme.px(220)
     implicitHeight: Theme.px(30)
     Layout.minimumWidth: Theme.px(120)
@@ -17,6 +19,12 @@ Slider {
     topPadding: 0
     bottomPadding: 0
     focusPolicy: Qt.StrongFocus
+    hoverEnabled: true
+
+    KfpsToolTip {
+        visible: root.hovered && root.toolTipText.length > 0
+        text: root.toolTipText
+    }
 
     background: Rectangle {
         x: root.leftPadding

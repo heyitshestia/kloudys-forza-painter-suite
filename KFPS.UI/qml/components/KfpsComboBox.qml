@@ -10,6 +10,8 @@ ComboBox {
 
     property bool dense: false
     property real minimumWidth: Theme.px(96)
+    property string toolTipText: ""
+    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : "Choose an option."
     signal doubleTapped()
 
     implicitHeight: Math.max(
@@ -27,6 +29,11 @@ ComboBox {
     font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+
+    KfpsToolTip {
+        visible: root.hovered && !root.popup.visible && root.effectiveToolTipText.length > 0
+        text: root.effectiveToolTipText
+    }
 
     contentItem: Text {
         id: fieldText

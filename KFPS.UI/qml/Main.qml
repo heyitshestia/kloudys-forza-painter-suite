@@ -155,8 +155,15 @@ ApplicationWindow {
                                                                     Theme.px(12),
                                                                     Math.max(Theme.px(12), width - headerBannerWidth - Theme.px(12)))
                                                       : headerFallbackBannerX
-                readonly property real headerSourceCenterX: pageHeaderX("headerSourceCenterX", Math.max(headerSafeMargin, headerBannerX + headerBannerWidth * 0.28))
-                readonly property real headerPreviewCenterX: pageHeaderX("headerPreviewCenterX", Math.max(headerSafeMargin, (window.width / 2) - workspace.x))
+                readonly property bool createHeaderAlignmentAvailable: Theme.logical(pageLoader.width) >= 1180
+                                                                       && createReferenceSource.width > 0
+                                                                       && createReferencePreview.width > 0
+                readonly property real createHeaderSourceCenterX: createHeaderReference.x
+                                                                  + createReferenceSource.x
+                                                                  + createReferenceSource.width / 2
+                readonly property real createHeaderPreviewCenterX: createHeaderReference.x
+                                                                   + createReferencePreview.x
+                                                                   + createReferencePreview.width / 2
 
                 function pageHeaderX(name, fallback) {
                     if (!pageHeaderAlignmentAvailable)
@@ -174,6 +181,43 @@ ApplicationWindow {
                     return Theme.clamp(centerX - itemWidth / 2,
                                        headerSafeMargin,
                                        Math.max(headerSafeMargin, width - headerRightReserve - itemWidth - headerSafeMargin))
+                }
+
+                // Keep header pills on the same three-column geometry as Create,
+                // independent of whichever page is currently loaded.
+                GridLayout {
+                    id: createHeaderReference
+                    x: workspaceLayout.x + pageLoader.x
+                    y: -height
+                    width: pageLoader.width
+                    height: 1
+                    columns: 3
+                    columnSpacing: Theme.px(12)
+                    rowSpacing: 0
+                    enabled: false
+
+                    Item {
+                        id: createReferenceSource
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.px(390)
+                        Layout.minimumWidth: Theme.px(350)
+                    }
+
+                    Item {
+                        id: createReferencePreview
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.px(610)
+                        Layout.minimumWidth: Theme.px(460)
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.px(380)
+                        Layout.minimumWidth: Theme.px(330)
+                    }
                 }
 
                 AnnouncementTicker {
@@ -202,8 +246,8 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin
-                    x: workspace.pageHeaderAlignmentAvailable
-                       ? workspace.centeredHeaderX(workspace.headerPreviewCenterX, width)
+                    x: workspace.createHeaderAlignmentAvailable
+                       ? workspace.centeredHeaderX(workspace.createHeaderPreviewCenterX, width)
                        : Math.max(Theme.px(14), (window.width - width) / 2 - workspace.x)
                     z: 20
                 }
@@ -212,8 +256,8 @@ ApplicationWindow {
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin + Theme.px(2)
-                    x: workspace.pageHeaderAlignmentAvailable
-                       ? workspace.centeredHeaderX(workspace.headerSourceCenterX, width)
+                    x: workspace.createHeaderAlignmentAvailable
+                       ? workspace.centeredHeaderX(workspace.createHeaderSourceCenterX, width)
                        : Math.max(
                              Theme.px(14),
                              Math.min(

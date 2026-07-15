@@ -131,8 +131,15 @@ GlassPanel {
     }
 
     MouseArea {
+        id: promoMouse
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: desktop.openUrl(root.promoUrl)
+    }
+
+    KfpsToolTip {
+        visible: promoMouse.containsMouse
+        text: "Open the KFPS supporter page in your web browser."
     }
 }
