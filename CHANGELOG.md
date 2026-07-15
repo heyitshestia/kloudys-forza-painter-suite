@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.69
+- Upgraded the bundled Galatea Genesis generator to V3 while retaining its existing command, JSON, checkpoint, preview, and resume compatibility.
+- Added final-visible color reoptimization so overlapping shapes preserve more local contrast, shading, and fine detail.
+- Improved verified quality and generation speed at normal 1,000-2,000 shape workloads, with conservative full-corpus shape-count savings.
+
 ## 3.0.68
 - Replaced the bundled Galatea Genesis generator with the fully compatible Genesis V2 engine.
 - Improved detail and edge retention at normal 1,000-2,000 shape workloads while reaching comparable quality with fewer shapes.
