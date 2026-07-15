@@ -105,6 +105,12 @@ class QmlRefinementTests(unittest.TestCase):
         for label in ("Max resolution", "Random samples", "Mutated samples", "Seed"):
             self.assertIn(f'text: "{label}"', create)
 
+    def test_generation_previews_reload_overwritten_milestones(self):
+        for page in ("pages/CreatePage.qml", "pages/GeneratePage.qml"):
+            text = self.read(page)
+            self.assertIn("generationService.previewRevision", text)
+            self.assertIn("kfpsPreview=", text)
+
     def test_positive_geometry_literals_are_scaled(self):
         offenders: list[str] = []
         geometry = re.compile(

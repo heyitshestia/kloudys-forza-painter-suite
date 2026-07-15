@@ -20,10 +20,11 @@ class GenerationService(QObject):
         super().__init__(parent); self.paths = paths; self.log = log
         self._process = QProcess(self); self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read); self._process.finished.connect(self._finished)
-        self._running = False; self._status = "Ready"; self._run_dir = ""; self._preview = ""; self._preview_revision = 0; self._buffer = b""
+        self._running = False; self._status = "Ready"; self._run_dir = ""; self._preview = ""; self._preview_revision = 0; self._preview_signature = None; self._buffer = b""
         self._live_log_lines = []; self._live_log = "Live generation log appears here."
         self._full_log_path = ""; self._full_log_handle = None
         self._queue = []; self._queue_total = 0; self._queue_index = 0
+        self._force_stop_armed = False
         self._preview_timer = QTimer(self); self._preview_timer.setInterval(1000); self._preview_timer.timeout.connect(self.refreshPreview)
         self._preset_values = []
         self._presets = self._load_presets()
@@ -124,7 +125,7 @@ class GenerationService(QObject):
             if mutated_samples.strip(): args += ["--mutated-samples", mutated_samples.strip()]
         self._open_full_generation_log()
         prefix = f" ({self.queueStatus})" if self.queueStatus else ""
-        self._run_dir = ""; self._set_preview(file_url(image)); self._buffer = b""; self._live_log_lines = []; self._live_log = "Starting generation" + prefix; self._running = True; self._status = "Starting generation" + prefix; self.changed.emit()
+        self._run_dir = ""; self._set_preview(file_url(image), self._file_signature(image)); self._buffer = b""; self._live_log_lines = []; self._live_log = "Starting generation" + prefix; self._running = True; self._force_stop_armed = False; self._status = "Starting generation" + prefix; self.changed.emit()
         self.log.append(f"Starting generation for: {image}")
         if self._full_log_path:
             self.log.append(f"Full generation log: {self._full_log_path}")
@@ -165,13 +166,23 @@ class GenerationService(QObject):
             except Exception:
                 pass
 
-    def _set_preview(self, value):
+    def _set_preview(self, value, signature=None):
         value = str(value or "")
-        if value == self._preview:
+        signature = signature if value else None
+        if value == self._preview and signature == self._preview_signature:
             return False
         self._preview = value
+        self._preview_signature = signature
         self._preview_revision += 1
         return True
+
+    @staticmethod
+    def _file_signature(path):
+        try:
+            stat = Path(path).stat()
+            return stat.st_mtime_ns, stat.st_size
+        except OSError:
+            return None
 
     @Slot()
     def clearPreview(self):
@@ -311,7 +322,7 @@ class GenerationService(QObject):
             if line.startswith("KFPS_RUN_DIR:") or line.startswith("WPF_RUN_DIR:"):
                 self._run_dir = line.split(":",1)[1].strip(); self.changed.emit()
             elif line.startswith("KFPS_PREVIEW:") or line.startswith("WPF_PREVIEW:"):
-                path = line.split(":",1)[1].strip(); self._set_preview(file_url(path)); self.changed.emit()
+                path = line.split(":",1)[1].strip(); self._set_preview(file_url(path), self._file_signature(path)); self.changed.emit()
             elif self._stream_live_generation_line(line):
                 self._append_live_log(line)
                 self.log.append(line, update_status=False)
@@ -338,7 +349,7 @@ class GenerationService(QObject):
             self._start_single(*next_args)
             return
         self._queue_index = 0; self._queue_total = 0
-        self._running = False; self._status = "Complete" if code == 0 else f"Failed (exit {code})"; self.changed.emit()
+        self._running = False; self._force_stop_armed = False; self._status = "Complete" if code == 0 else f"Failed (exit {code})"; self.changed.emit()
 
     @Slot()
     def refreshPreview(self):
@@ -350,7 +361,7 @@ class GenerationService(QObject):
         if candidates:
             latest = max(candidates, key=lambda p: p.stat().st_mtime_ns)
             url = file_url(latest)
-            if self._set_preview(url): self.changed.emit()
+            if self._set_preview(url, self._file_signature(latest)): self.changed.emit()
 
     @Slot()
     def gracefulStop(self):
@@ -367,9 +378,35 @@ class GenerationService(QObject):
         pid = int(self._process.processId())
         try:
             parent = psutil.Process(pid)
-            for child in parent.children(recursive=True):
+            children = parent.children(recursive=True)
+            raw_generators = []
+            for child in children:
+                try:
+                    name = child.name().lower()
+                except psutil.Error:
+                    continue
+                if name.startswith("kloudysgalateagenesis") or name.startswith("kloudysgenerator"):
+                    raw_generators.append(child)
+            if raw_generators:
+                for child in raw_generators:
+                    try: child.kill()
+                    except psutil.Error: pass
+                self._status = "Search force-stopped; finalizing saved checkpoints"
+                self.changed.emit()
+                self.log.append("Genesis was force-stopped. The finalizer is preserving every completed checkpoint and preview.", "warning")
+                return
+
+            checkpoints = list(Path(self._run_dir).joinpath("checkpoints").glob("*.json")) if self._run_dir else []
+            if checkpoints and not self._force_stop_armed:
+                self._force_stop_armed = True
+                self._status = "Finalizing saved checkpoints"
+                self.changed.emit()
+                self.log.append("Genesis has already stopped. Final checkpoint files are being saved atomically; press Force Stop again only to abandon finalization.", "warning")
+                return
+
+            for child in reversed(children):
                 try: child.kill()
                 except psutil.Error: pass
-            parent.kill(); self.log.append("Generation process tree was force-stopped.", "warning")
+            parent.kill(); self.log.append("Generation process tree was force-stopped before a recoverable checkpoint was available.", "warning")
         except Exception:
             self._process.kill()

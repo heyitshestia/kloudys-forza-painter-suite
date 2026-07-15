@@ -36,6 +36,7 @@ FINALS_DIR_NAME = "finals"
 CHECKPOINTS_DIR_NAME = "checkpoints"
 REPORTS_DIR_NAME = "reports"
 PREVIEWS_DIR_NAME = "previews"
+LIVE_PREVIEW_EVERY = 100
 VERSION_FILE = ROOT / "VERSION"
 ACTIVE_PRESET_FILES = (
     "b.shaded-art.ini",
@@ -845,7 +846,7 @@ def build_generator_command(image_path, setting, enable_repair=False, enable_ove
             "target_shapes": target_shapes,
             "reserved_import_layers": reserved_import_layers,
             "checkpoint_step": checkpoint_step,
-            "live_preview_every": "50",
+            "live_preview_every": str(LIVE_PREVIEW_EVERY),
             "preview_candidate_limit": "0",
             "preprocess_mode": preprocess_mode,
             "detail_heatmap_mode": detail_heatmap_mode,
@@ -874,7 +875,7 @@ def build_generator_command(image_path, setting, enable_repair=False, enable_ove
         "--checkpoint-step",
         checkpoint_step,
         "--live-preview-every",
-        "50",
+        str(LIVE_PREVIEW_EVERY),
         "--preview-candidate-limit",
         "0",
         "--stop-file",

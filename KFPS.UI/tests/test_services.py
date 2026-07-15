@@ -1,5 +1,7 @@
 import json, os, sys, tempfile, threading, time, unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 UI=Path(__file__).resolve().parents[1];ROOT=UI.parent
 sys.path.insert(0,str(UI/"src"));sys.path.insert(0,str(ROOT));os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from PySide6.QtCore import QCoreApplication
@@ -42,6 +44,36 @@ def shutdown_json_service(svc):
  svc._index_executor.shutdown(wait=True, cancel_futures=True)
 
 class ServiceTests(unittest.TestCase):
+ def test_force_stop_preserves_finalizer_and_kills_only_genesis(self):
+  class FakeProcess:
+   def __init__(self,name):self._name=name;self.killed=False
+   def name(self):return self._name
+   def kill(self):self.killed=True
+  class FakeParent(FakeProcess):
+   def __init__(self,children):super().__init__("bridge-python.exe");self._children=children
+   def children(self,recursive=True):return self._children
+  with tempfile.TemporaryDirectory() as td:
+   root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");log=DummyLog();svc=GenerationService(paths,log)
+   wrapper=FakeProcess("python.exe");genesis=FakeProcess("KloudysGalateaGenesis.exe");parent=FakeParent([wrapper,genesis])
+   svc._process=SimpleNamespace(processId=lambda:42);svc._running=True
+   with patch("kfps_ui.generation_service.psutil.Process",return_value=parent):svc.forceStop()
+   self.assertTrue(genesis.killed)
+   self.assertFalse(wrapper.killed)
+   self.assertFalse(parent.killed)
+   self.assertIn("finalizing saved checkpoints",svc.status.lower())
+
+ def test_generation_preview_revision_changes_when_same_file_is_rewritten(self):
+  with tempfile.TemporaryDirectory() as td:
+   root=Path(td);run=root/"imgs"/"generated"/"run";previews=run/"previews";previews.mkdir(parents=True)
+   preview=previews/"sample.raw.preview.png";preview.write_bytes(b"first")
+   paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog());svc._run_dir=str(run)
+   svc.refreshPreview();first_revision=svc.previewRevision;first_url=svc.previewUrl
+   first_mtime=preview.stat().st_mtime_ns;preview.write_bytes(b"second-preview");os.utime(preview,ns=(first_mtime+1_000_000,first_mtime+1_000_000))
+   svc.refreshPreview()
+   self.assertEqual(first_url,svc.previewUrl)
+   self.assertEqual(first_revision+1,svc.previewRevision)
+   svc.refreshPreview();self.assertEqual(first_revision+1,svc.previewRevision)
+
  def test_manual_generator_defaults_follow_the_selected_preset(self):
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog())

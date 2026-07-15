@@ -1,10 +1,9 @@
 import argparse
-import queue
 import subprocess
 import sys
-import threading
 import time
 import os
+import re
 from pathlib import Path
 
 def discover_app_root():
@@ -57,27 +56,54 @@ def parse_args():
     return parser.parse_args()
 
 
-def stream_process(proc):
-    output_queue = queue.Queue()
+def safe_print(line):
+    try:
+        print(str(line).rstrip("\r\n"), flush=True)
+        return True
+    except (BrokenPipeError, OSError):
+        # The QML shell can disappear while a generation is running. The
+        # worker must keep its file-backed output channel and finish saving.
+        return False
 
-    def reader():
-        try:
-            for raw_line in proc.stdout:
-                output_queue.put(raw_line)
-        finally:
-            output_queue.put(None)
 
-    threading.Thread(target=reader, daemon=True).start()
-    finished = False
-    while not finished:
-        try:
-            line = output_queue.get(timeout=0.15)
-        except queue.Empty:
-            continue
-        if line is None:
-            finished = True
-            continue
-        print(line.rstrip(), flush=True)
+def worker_log_path(run_dir, image_path):
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", image_path.stem).strip("_") or "image"
+    return run_dir / "reports" / f"{stem}.v2.worker.log"
+
+
+def start_durable_worker(cmd, log_path):
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+    if sys.platform.startswith("win") and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+    with log_path.open("w", encoding="utf-8", errors="replace") as output:
+        return subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            creationflags=flags,
+        )
+
+
+def stream_worker_log(proc, log_path):
+    output_available = True
+    with log_path.open("r", encoding="utf-8", errors="replace") as output:
+        while True:
+            line = output.readline()
+            if line:
+                if output_available:
+                    output_available = safe_print(line)
+                continue
+            if proc.poll() is not None:
+                # The worker has closed its inherited file handle. Drain any
+                # bytes written between the last read and process exit.
+                for remaining in output:
+                    if output_available:
+                        output_available = safe_print(remaining)
+                break
+            time.sleep(0.10)
+    return proc.wait()
 
 
 def main():
@@ -139,45 +165,34 @@ def main():
         seed=max(0, int(args.seed or 0)),
     )
 
-    print(f"KFPS_RUN_DIR: {run_dir}", flush=True)
-    print(f"Selected Kloudy preset: {effective.get('label') or setting.get('label') or setting.get('name')}", flush=True)
-    print(f"Generating final vinyl from: {image_path}", flush=True)
-    print(f"Vinyl run folder: {run_dir}", flush=True)
-    print(f"Target template layers: {values.get('stopAt', 'n/a')}", flush=True)
-    print(f"Finalize at layers: {values.get('saveAt', values.get('stopAt', 'n/a'))}", flush=True)
-    print(
+    log_path = worker_log_path(run_dir, image_path)
+    safe_print(f"KFPS_RUN_DIR: {run_dir}")
+    safe_print(f"Selected Kloudy preset: {effective.get('label') or setting.get('label') or setting.get('name')}")
+    safe_print(f"Generating final vinyl from: {image_path}")
+    safe_print(f"Vinyl run folder: {run_dir}")
+    safe_print(f"Durable worker log: {log_path}")
+    safe_print(f"Target template layers: {values.get('stopAt', 'n/a')}")
+    safe_print(f"Finalize at layers: {values.get('saveAt', values.get('stopAt', 'n/a'))}")
+    safe_print(
         "Preset effort: "
         f"maxRes={values.get('maxResolution', 'n/a')} "
         f"random={values.get('randomSamples', 'n/a')} "
-        f"mutated={values.get('mutatedSamples', 'n/a')}",
-        flush=True,
+        f"mutated={values.get('mutatedSamples', 'n/a')}"
     )
-    print(f"Seed: {args.seed if int(args.seed or 0) > 0 else 'random'}", flush=True)
-    print(f"Detail Heatmap: {values.get('detailHeatmapMode', 'off')}", flush=True)
-    print(f"Luma Prep: {values.get('v2PreprocessMode', 'none')}", flush=True)
+    safe_print(f"Seed: {args.seed if int(args.seed or 0) > 0 else 'random'}")
+    safe_print(f"Detail Heatmap: {values.get('detailHeatmapMode', 'off')}")
+    safe_print(f"Luma Prep: {values.get('v2PreprocessMode', 'none')}")
 
-    flags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
-    proc = subprocess.Popen(
-        cmd,
-        cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        bufsize=1,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=flags,
-    )
-    stream_process(proc)
-    return_code = proc.wait()
+    proc = start_durable_worker(cmd, log_path)
+    return_code = stream_worker_log(proc, log_path)
     if return_code != 0:
-        print(f"Generator exited with code {return_code} for {image_path.name}.", flush=True)
+        safe_print(f"Generator exited with code {return_code} for {image_path.name}.")
         return return_code
 
     previews = generated_preview_files(image_path)
     if previews:
-        print(f"KFPS_PREVIEW: {previews[0]}", flush=True)
-    print("Universal generation complete.", flush=True)
+        safe_print(f"KFPS_PREVIEW: {previews[0]}")
+    safe_print("Universal generation complete.")
     return 0
 
 

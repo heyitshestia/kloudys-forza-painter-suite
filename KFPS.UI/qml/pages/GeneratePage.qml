@@ -15,7 +15,12 @@ Item {
     property int seenSourceRevision: sourceService.revision
     property int seenPreviewRevision: generationService.previewRevision
     property bool preferSourcePreview: false
-    property string activePreviewUrl: preferSourcePreview ? sourceService.url : (generationService.previewUrl || sourceService.url)
+    readonly property string generatedPreviewUrl: generationService.previewUrl
+                                                   ? generationService.previewUrl
+                                                     + (generationService.previewUrl.indexOf("?") >= 0 ? "&" : "?")
+                                                     + "kfpsPreview=" + generationService.previewRevision
+                                                   : ""
+    property string activePreviewUrl: preferSourcePreview ? sourceService.url : (generatedPreviewUrl || sourceService.url)
     readonly property bool headerAlignmentAvailable: Boolean(pageLayoutLoader.item && pageLayoutLoader.item.headerAlignmentAvailable)
     readonly property real headerSourceCenterX: headerAlignmentAvailable ? pageLayoutLoader.item.headerSourceCenterX : 0
     readonly property real headerPreviewCenterX: headerAlignmentAvailable ? pageLayoutLoader.item.headerPreviewCenterX : 0
@@ -831,7 +836,7 @@ Item {
     MessageDialog {
         id: forceDialog
         title: "Force stop generation?"
-        text: "Force Stop immediately terminates the process tree. Use it only if Graceful Stop does not work."
+        text: "Force Stop ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Graceful Stop does not work."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: generationService.forceStop()
     }

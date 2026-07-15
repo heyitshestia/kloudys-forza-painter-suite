@@ -14,6 +14,11 @@ Item {
     property bool threeColumns: Theme.logical(width) >= 1180
     property bool compactHeight: Theme.logical(height) < 720
     property bool checkpointsManual: false
+    readonly property string generatedPreviewUrl: generationService.previewUrl
+                                                   ? generationService.previewUrl
+                                                     + (generationService.previewUrl.indexOf("?") >= 0 ? "&" : "?")
+                                                     + "kfpsPreview=" + generationService.previewRevision
+                                                   : ""
     readonly property bool headerAlignmentAvailable: threeColumns
                                                      && sourceSetupCard.width > 0
                                                      && previewCard.width > 0
@@ -399,7 +404,7 @@ Item {
                     Image {
                         anchors.fill: parent
                         anchors.margins: Theme.px(18)
-                        source: generationService.previewUrl || sourceService.url
+                        source: root.generatedPreviewUrl || sourceService.url
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: false
@@ -408,7 +413,7 @@ Item {
                     }
 
                     EmptyState {
-                        visible: !(generationService.previewUrl || sourceService.url)
+                        visible: !(root.generatedPreviewUrl || sourceService.url)
                         anchors.centerIn: parent
                         iconName: "images"
                         title: "Choose source art"
@@ -625,7 +630,7 @@ Item {
     MessageDialog {
         id: forceDialog
         title: "Force stop generation?"
-        text: "Force Stop immediately terminates the process tree. Use it only if Graceful Stop does not work."
+        text: "Force Stop ends the active Genesis search immediately, then preserves every completed checkpoint and preview. Use it only if Graceful Stop does not work."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: generationService.forceStop()
     }

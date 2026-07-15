@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.72
+- Hardened generation saving so every completed V2 checkpoint writes a verified, atomic final JSON and matching preview image.
+- Kept checkpoint finalization running if the app window closes or Genesis exits unexpectedly, preserving every usable completed checkpoint.
+- Updated live previews every 100 shapes, including reliable same-file refreshes in the Create and Generate pages.
+- Changed Force Stop to end the active Genesis search first and safely finalize completed checkpoints before abandoning the run.
+
 ## 3.0.71
 - Prefilled manual generator override fields with the selected preset's normal values and added a clear label above every field.
 - Kept displayed override defaults synchronized with automatic and manual preset changes while retaining seed 0 as normal randomized behavior.

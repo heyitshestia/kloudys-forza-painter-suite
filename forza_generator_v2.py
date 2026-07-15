@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -109,10 +110,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--live-preview-every",
         type=int,
-        default=50,
+        default=100,
         help=(
             "Overwrite the raw live preview this often during the internal build. "
-            "This does not create extra final JSONs. Default: 50"
+            "This does not create extra final JSONs. Default: 100"
         ),
     )
     parser.add_argument(
@@ -356,7 +357,7 @@ def write_v2_settings(
     values["description"] = f"V2 settings targeting {target} template layers"
     values.setdefault("shapeMode", "mixed_ellipses")
     values["stopAt"] = str(stop_at)
-    preview_every = max(1, min(int(live_preview_every or checkpoint_step or 50), max(1, stop_at)))
+    preview_every = max(1, min(int(live_preview_every or checkpoint_step or 100), max(1, stop_at)))
     explicit_points = parse_save_points(values.get("saveAt", ""), stop_at)
     if explicit_points:
         explicit_points = sorted(set(explicit_points + [target, stop_at]))
@@ -2297,8 +2298,57 @@ def select_top_checkpoint_indices(records: list[dict], limit: int) -> set[int]:
     return selected
 
 
+def replace_atomic(temp_path: Path, destination: Path) -> None:
+    last_error = None
+    for attempt in range(6):
+        try:
+            os.replace(temp_path, destination)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.05 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+
+
 def save_json(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8", newline="\n") as output:
+            output.write(json.dumps(payload, indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        replace_atomic(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def save_png(path: Path, image: Image.Image) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        image.save(temp_path, format="PNG")
+        with temp_path.open("r+b") as output:
+            os.fsync(output.fileno())
+        replace_atomic(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def require_saved_file(path: Path, label: str) -> None:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise RuntimeError(f"{label} was not saved: {path}") from exc
+    if size <= 0:
+        raise RuntimeError(f"{label} was saved as an empty file: {path}")
 
 
 def ensure_source_copy(source_path: Path, out_dir: Path) -> Path | None:
@@ -2368,7 +2418,7 @@ def main() -> int:
     )
 
     v2_settings_path = reports_dir / f"{stem}.v2.settings.ini"
-    live_preview_every = max(1, int(args.live_preview_every or 50))
+    live_preview_every = max(1, int(args.live_preview_every or 100))
     write_v2_settings(base_settings, v2_settings_path, target_shapes, raw_stop, args.checkpoint_step, live_preview_every)
 
     max_resolution = int(base_settings.get("maxResolution", "0") or 0)
@@ -2438,12 +2488,33 @@ def main() -> int:
         print(f"Detail Heatmap preview: {detail_heatmap_output_path}")
     if detail_guided_output_path is not None:
         print(f"Detail-guided image:    {detail_guided_output_path}")
+    raw_generator_error = None
     if args.finalize_only:
         interrupted = True
         print("RESUME FINALIZE CHECKPOINTS. Reusing existing internal checkpoints; no raw generation will run.", flush=True)
     else:
-        interrupted = run_generator(generation_image_path, v2_settings_path, checkpoint_dir, previews_dir, stem, stop_file=stop_file, seed=int(args.seed or 0))
-        print("INTERNAL BUILD COMPLETE. Finalize Checkpoints is starting now; do not close the app yet.", flush=True)
+        try:
+            interrupted = run_generator(
+                generation_image_path,
+                v2_settings_path,
+                checkpoint_dir,
+                previews_dir,
+                stem,
+                stop_file=stop_file,
+                seed=int(args.seed or 0),
+            )
+        except Exception as exc:
+            recoverable = collect_candidate_jsons(checkpoint_dir, stem, max_checkpoint=raw_stop)
+            if not recoverable:
+                raise
+            interrupted = True
+            raw_generator_error = f"{type(exc).__name__}: {exc}"
+            print(
+                "RAW GENERATOR STOPPED ABNORMALLY. Recovering every complete checkpoint instead of losing the run: "
+                f"{raw_generator_error}",
+                flush=True,
+            )
+        print("INTERNAL BUILD COMPLETE. Finalize Checkpoints is starting now; the saved checkpoints are protected.", flush=True)
     print("Finalized JSONs are the only import-ready vinyl files. Internal checkpoints are not final.", flush=True)
 
     requested_checkpoints = parse_save_points(base_settings.get("saveAt", ""), raw_stop)
@@ -2789,10 +2860,12 @@ def main() -> int:
             final_shapes = force_opaque_drawables(final_shapes)
         final_payload = {"shapes": final_shapes}
         save_json(final_json_path, final_payload)
+        require_saved_file(final_json_path, "Final checkpoint JSON")
         preview_written = int(record["index"]) in preview_indices
         if preview_written:
             preview = render_import_preview(background, final_shapes, full_w, full_h)
-            preview.save(final_preview_path)
+            save_png(final_preview_path, preview)
+            require_saved_file(final_preview_path, "Final checkpoint preview")
         results.append(
             {
                 "candidate": candidate_path.name,
@@ -2917,6 +2990,8 @@ def main() -> int:
         "raw_stop": raw_stop,
         "overshoot_extra": overshoot_extra,
         "interrupted": interrupted,
+        "finalize_only_recovery": bool(args.finalize_only),
+        "raw_generator_error": raw_generator_error,
         "score_size": args.score_size,
         "v5_detail_weighting": True,
         "detail_heatmap_weighting": detail_heatmap is not None,
@@ -2975,7 +3050,11 @@ def main() -> int:
         print(f"Final JSON:     {item['v2_json']}")
         print(f"Final preview:  {item['v2_preview']}")
     print(f"Report:         {report_path}")
-    if interrupted:
+    if args.finalize_only:
+        print("Recovered import-ready outputs from the existing checkpoints without rerunning Genesis.")
+    elif raw_generator_error:
+        print("Genesis stopped abnormally, but every usable completed checkpoint was finalized and saved.")
+    elif interrupted:
         print("Stopped early by request. Every usable checkpoint was finalized, including the latest saved checkpoint.")
     else:
         print("Finalized outputs written for every usable checkpoint. Pick the one you want in Import Final JSON.")
