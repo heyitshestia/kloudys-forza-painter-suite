@@ -40,21 +40,22 @@ GlassPanel {
         id: carnivalRim
         anchors.fill: parent
         z: 10
-        property real spin: 0
+        property real blinkLevel: 0.34
 
-        NumberAnimation on spin {
-            from: 0
-            to: 360
-            duration: 2600
+        SequentialAnimation on blinkLevel {
             loops: Animation.Infinite
-            running: root.visible && !Theme.reducedMotion
+            running: root.visible && !Theme.reducedMotion && !screenshotMode
+            NumberAnimation { from: 0.34; to: 0.88; duration: 1400; easing.type: Easing.InOutSine }
+            PauseAnimation { duration: 650 }
+            NumberAnimation { from: 0.88; to: 0.34; duration: 1700; easing.type: Easing.InOutSine }
+            PauseAnimation { duration: 1800 }
         }
 
         Repeater {
             model: 20
 
             Rectangle {
-                readonly property real angle: (index * 360 / 20 + carnivalRim.spin) * Math.PI / 180
+                readonly property real angle: index * 360 / 20 * Math.PI / 180
                 readonly property real dotSize: Theme.px(index % 2 === 0 ? 4.4 : 3.5)
                 width: dotSize
                 height: dotSize
@@ -62,7 +63,9 @@ GlassPanel {
                 x: carnivalRim.width / 2 + Math.cos(angle) * (carnivalRim.width / 2 - Theme.px(10)) - width / 2
                 y: carnivalRim.height / 2 + Math.sin(angle) * (carnivalRim.height / 2 - Theme.px(7)) - height / 2
                 color: index % 2 === 0 ? Theme.primaryBright : Theme.primaryHot
-                opacity: 0.82
+                opacity: screenshotMode || Theme.reducedMotion
+                         ? 0.64
+                         : Math.max(0.22, Math.min(0.94, carnivalRim.blinkLevel + (index % 3 - 1) * 0.06))
                 antialiasing: true
                 layer.enabled: Theme.glassEffects && !screenshotMode
                 layer.effect: MultiEffect {

@@ -45,6 +45,20 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("currentIndex: root.pageIndex(appController.currentPage)", sidebar)
         self.assertIn("positionViewAtIndex(currentIndex, ListView.Contain)", sidebar)
 
+    def test_sidebar_support_message_preserves_credits(self):
+        sidebar = self.read("shell/Sidebar.qml")
+        self.assertIn('"Consider supporting the project"', sidebar)
+        self.assertIn('text: "Credits"', sidebar)
+        self.assertIn("Theme.supporterSignatureText", sidebar)
+        self.assertNotIn("Folders and maintenance are in Settings.", sidebar)
+
+    def test_supporter_promo_rim_blinks_without_rotating(self):
+        promo = self.read("shell/SupporterPromoToast.qml")
+        self.assertIn("SequentialAnimation on blinkLevel", promo)
+        self.assertIn("PauseAnimation { duration: 1800 }", promo)
+        self.assertNotIn("property real spin", promo)
+        self.assertNotIn("carnivalRim.spin", promo)
+
     def test_legacy_dashboard_page_is_retired(self):
         self.assertFalse((QML / "pages" / "DashboardPage.qml").exists())
         main = self.read("Main.qml")

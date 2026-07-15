@@ -290,12 +290,14 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: Theme.supporterSignatureVisible ? Theme.supporterSignatureText : "Single path per task"
+                    text: Theme.supporterSignatureVisible ? Theme.supporterSignatureText : "Consider supporting the project"
                     color: Theme.primaryBright
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(Theme.supporterSignatureVisible ? 11.2 : 10.2)
                     font.weight: Theme.supporterSignatureVisible ? Font.DemiBold : Font.DemiBold
                     font.italic: Theme.supporterSignatureVisible
+                    fontSizeMode: Theme.supporterSignatureVisible ? Text.FixedSize : Text.HorizontalFit
+                    minimumPixelSize: Theme.px(8.2)
                     wrapMode: Theme.supporterSignatureVisible ? Text.WordWrap : Text.NoWrap
                     maximumLineCount: Theme.supporterSignatureVisible ? 2 : 1
                     lineHeight: Theme.supporterSignatureVisible ? 0.94 : 1.0
@@ -304,8 +306,9 @@ Item {
                 }
 
                 Text {
+                    visible: Theme.supporterSignatureVisible
                     width: parent.width
-                    text: Theme.supporterSignatureVisible ? Theme.activeThemeName : "Folders and maintenance are in Settings."
+                    text: Theme.activeThemeName
                     color: Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)

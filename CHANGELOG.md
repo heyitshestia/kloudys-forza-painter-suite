@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.75
+- Changed the base theme's bottom-left sidebar note to "Consider supporting the project" while preserving supporter thank-you signatures and the Credits button.
+- Replaced the rotating lights around the no-key supporter notice with fixed, slow-blinking lights that remain still in reduced-motion and screenshot modes.
+
 ## 3.0.74
 - Made the advanced no-Python release launch through a validated system-installed 64-bit Python 3.12 when no packaged runtime is present.
 - Kept bundled Python as the first choice, added the `KFPS_PYTHON` custom-path override, and rejected wrong-version or dependency-incomplete runtimes with clear recovery instructions.
