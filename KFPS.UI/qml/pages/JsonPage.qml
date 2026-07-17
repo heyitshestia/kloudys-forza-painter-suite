@@ -91,65 +91,76 @@ Item {
                     }
                 }
 
-                GridLayout {
+                ScrollView {
+                    id: importSetupScroll
                     Layout.fillWidth: true
-                    columns: 2
-                    columnSpacing: Theme.px(9)
-                    rowSpacing: Theme.px(6)
+                    Layout.fillHeight: true
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.px(3)
-                        Label { text: "Game target" }
+                        width: importSetupScroll.availableWidth
+                        spacing: Theme.px(root.compactHeight ? 7 : 9)
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: Theme.px(9)
+                            rowSpacing: Theme.px(6)
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(3)
+                                Label { text: "Game target" }
+                                KfpsComboBox {
+                                    id: game
+                                    Layout.fillWidth: true
+                                    dense: root.compactHeight
+                                    model: ["FH6", "FH5", "FM8"]
+                                    toolTipText: "Choose the game whose live editor or local save files you want to use."
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(3)
+                                Label { text: "Template layers" }
+                                KfpsTextField {
+                                    id: layerCount
+                                    Layout.fillWidth: true
+                                    dense: root.compactHeight
+                                    text: "3000"
+                                    placeholderText: "Layer count"
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                    toolTipText: "For online transfer, enter the exact number of editable layers in the template currently open in the game."
+                                }
+                            }
+                        }
+
+                        Label { text: "Output source" }
                         KfpsComboBox {
-                            id: game
+                            id: source
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            model: ["FH6", "FH5", "FM8"]
-                            toolTipText: "Choose the game whose live editor or local save files you want to use."
+                            model: supporterService.unlocked
+                                   ? ["Generated finals", "Editor exports", "Game exports", "Library"]
+                                   : ["Generated finals", "Editor exports", "Game exports"]
+                            currentIndex: jsonService.sourceIndex
+                            toolTipText: "Choose which KFPS folder or scanned game library is shown in the output browser."
+                            onActivated: jsonService.setSource(currentIndex)
                         }
-                    }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.px(3)
-                        Label { text: "Template layers" }
-                        KfpsTextField {
-                            id: layerCount
+                        GlassPanel {
                             Layout.fillWidth: true
-                            dense: root.compactHeight
-                            text: "3000"
-                            placeholderText: "Layer count"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            toolTipText: "For online transfer, enter the exact number of editable layers in the template currently open in the game."
-                        }
-                    }
-                }
+                            Layout.preferredHeight: Theme.px(root.compactHeight ? 148 : 176)
+                            soft: true
+                            visible: supporterService.unlocked
+                            border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
 
-                Label { text: "Output source" }
-                KfpsComboBox {
-                    id: source
-                    Layout.fillWidth: true
-                    dense: root.compactHeight
-                    model: supporterService.unlocked
-                           ? ["Generated finals", "Editor exports", "Game exports", "Library"]
-                           : ["Generated finals", "Editor exports", "Game exports"]
-                    currentIndex: jsonService.sourceIndex
-                    toolTipText: "Choose which KFPS folder or scanned game library is shown in the output browser."
-                    onActivated: jsonService.setSource(currentIndex)
-                }
-
-                GlassPanel {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 148 : 176)
-                    soft: true
-                    visible: supporterService.unlocked
-                    border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(10)
-                        spacing: Theme.px(6)
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: Theme.px(10)
+                                spacing: Theme.px(6)
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -232,13 +243,13 @@ Item {
                                      && jsonService.selectedPath.length > 0
                             onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
                         }
-                    }
-                }
+                            }
+                        }
 
-                GridLayout {
-                    Layout.fillWidth: true
-                    columns: 2
-                    columnSpacing: Theme.px(8)
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: Theme.px(8)
 
                     GhostButton {
                         Layout.fillWidth: true
@@ -269,13 +280,13 @@ Item {
                         dense: true
                         toolTipText: "After online import, hide placeholder layers that were not replaced by JSON shapes. Leave this on for normal use."
                     }
-                }
+                        }
 
-                GlassPanel {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 96 : 116)
-                    soft: true
-                    border.color: jsonService.selectedPath.length > 0 ? Theme.borderStrong : Theme.borderSoft
+                        GlassPanel {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.px(root.compactHeight ? 96 : 116)
+                            soft: true
+                            border.color: jsonService.selectedPath.length > 0 ? Theme.borderStrong : Theme.borderSoft
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -304,24 +315,23 @@ Item {
                             elide: Text.ElideMiddle
                         }
                     }
-                }
+                        }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: "Online import writes into the open in-game template. FH6 and FM8 offline import can also create new save-folder vinyls with transparent thumbnails. FH5 currently supports offline save-library scanning."
-                    color: Theme.muted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(10.2)
-                    wrapMode: Text.Wrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
-                }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Online import writes into the open in-game template. FH6 and FM8 offline import can also create new save-folder vinyls with transparent thumbnails. FH5 currently supports offline save-library scanning."
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(10.2)
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 3
+                            elide: Text.ElideRight
+                        }
 
-                GlassPanel {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: Theme.px(root.compactHeight ? 126 : 166)
-                    soft: true
+                        GlassPanel {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.px(root.compactHeight ? 126 : 166)
+                            soft: true
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -393,7 +403,9 @@ Item {
 
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         }
+                        }
                     }
+                }
                 }
 
                 PrimaryButton {
@@ -407,12 +419,31 @@ Item {
                     onClicked: transferService.importJson(game.currentText, jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
                 }
 
-                GhostButton {
+                GridLayout {
                     Layout.fillWidth: true
-                    text: "Online Export from Game"
-                    toolTipText: "Read the vinyl group currently open in the running game and save it as a KFPS JSON."
-                    enabled: !transferService.running
-                    onClicked: transferService.exportJson(game.currentText, parseInt(layerCount.text) || 0)
+                    columns: 2
+                    columnSpacing: Theme.px(8)
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        minimumWidth: 0
+                        text: "Open Output Folder"
+                        iconName: "folder"
+                        dense: root.compactHeight
+                        toolTipText: "Open the main output folder containing generated vinyls, editor exports, and game exports."
+                        onClicked: desktop.openJsonFolders()
+                    }
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        minimumWidth: 0
+                        text: "Online Export from Game"
+                        iconName: "transfer"
+                        dense: root.compactHeight
+                        toolTipText: "Read the vinyl group currently open in the running game and save it as a KFPS JSON."
+                        enabled: !transferService.running
+                        onClicked: transferService.exportJson(game.currentText, parseInt(layerCount.text) || 0)
+                    }
                 }
             }
         }

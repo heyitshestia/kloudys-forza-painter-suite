@@ -225,6 +225,15 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('text: "2x Mode"', generate)
         self.assertIn("columns: 2", generate)
 
+    def test_output_folder_and_live_transfer_actions_stay_pinned(self):
+        outputs = self.read("pages/JsonPage.qml")
+        scroll_end = outputs.index('"Online Import to Game"')
+        self.assertIn("id: importSetupScroll", outputs[:scroll_end])
+        self.assertIn('text: "Open Output Folder"', outputs[scroll_end:])
+        self.assertIn("onClicked: desktop.openJsonFolders()", outputs[scroll_end:])
+        self.assertIn('text: "Online Export from Game"', outputs[scroll_end:])
+        self.assertIn("onClicked: transferService.exportJson", outputs[scroll_end:])
+
     def test_create_manual_overrides_are_prefilled_from_the_selected_preset(self):
         create = self.read("pages/CreatePage.qml")
         self.assertIn("function syncManualOverrideDefaults", create)

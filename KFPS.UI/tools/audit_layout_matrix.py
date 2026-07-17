@@ -90,6 +90,11 @@ def main() -> int:
                 })
                 continue
             payload = json.loads(report.read_text(encoding="utf-8"))
+            clipped = [
+                control["name"]
+                for control in payload.get("controls", [])
+                if control.get("intersectsWindow") and not control.get("fullyInsideWindow")
+            ]
             summary = {
                 "page": page,
                 "width": width,
@@ -98,9 +103,10 @@ def main() -> int:
                 "controlCount": len(payload.get("controls", [])),
                 "zeroSize": payload.get("zeroSize", []),
                 "tooSmall": payload.get("tooSmall", []),
+                "clipped": clipped,
             }
             summaries.append(summary)
-            if summary["zeroSize"] or summary["tooSmall"]:
+            if summary["zeroSize"] or summary["tooSmall"] or summary["clipped"]:
                 failures.append({**summary, "reason": "invalid interactive geometry"})
 
     aggregate = {
@@ -116,7 +122,7 @@ def main() -> int:
     if failures:
         print(f"FAILED: {len(failures)} case(s). See {args.output / 'summary.json'}")
         return 1
-    print("PASS: no visible interactive control had zero or undersized geometry.")
+    print("PASS: no visible interactive control was clipped, zero-sized, or undersized.")
     return 0
 
 

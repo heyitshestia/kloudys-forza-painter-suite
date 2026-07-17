@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.76
+- Upgraded Galatea Genesis to V5 with qualified color-foundation and layer-order fidelity refinements, while retaining the V4-compatible workflow and exact fallback when a refinement is not beneficial.
+- Restored an Open Output Folder shortcut for the shared generated, editor, game-export, and library folders.
+- Kept Open Output Folder and Online Export from Game pinned on-screen at compact window sizes, with scrollable setup controls and clipping regression coverage.
+
 ## 3.0.75
 - Changed the base theme's bottom-left sidebar note to "Consider supporting the project" while preserving supporter thank-you signatures and the Credits button.
 - Replaced the rotating lights around the no-key supporter notice with fixed, slow-blinking lights that remain still in reduced-motion and screenshot modes.
