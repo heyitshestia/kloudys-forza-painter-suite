@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.77
+- Restored the previous production Galatea Genesis generator after V5 reduced visual fidelity on real artwork.
+
 ## 3.0.76
 - Upgraded Galatea Genesis to V5 with qualified color-foundation and layer-order fidelity refinements, while retaining the V4-compatible workflow and exact fallback when a refinement is not beneficial.
 - Restored an Open Output Folder shortcut for the shared generated, editor, game-export, and library folders.
