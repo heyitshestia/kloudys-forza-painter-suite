@@ -80,7 +80,7 @@ The inbox public key is not confidential, but uploading it as a secret keeps mul
 ## Local Development
 
 ```powershell
-cd "C:\Users\Hestia\Desktop\KFPS DIRTY\tools\supporter_activation_worker"
+cd "<path-to-KFPS>\tools\supporter_activation_worker"
 npm ci
 npm run migrate:local
 npm run dev
@@ -118,11 +118,7 @@ Before deploying:
 6. Configure Ko-fi with `/v1/kofi/webhook` on the deployed HTTPS base URL.
 7. Test Ko-fi intake and activation before enabling the KFPS client endpoint.
 
-Complete instructions are in:
-
-```text
-C:\Users\Hestia\Desktop\KFPS Activation Admin\DEPLOYMENT.md
-```
+Complete instructions are in `DEPLOYMENT.md` inside the private KFPS Activation Admin folder.
 
 ## Operational Rules
 
