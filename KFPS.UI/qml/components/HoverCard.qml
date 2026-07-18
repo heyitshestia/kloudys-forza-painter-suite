@@ -14,6 +14,7 @@ Item {
     property real padding: Theme.px(18)
     property alias hovered: hover.hovered
     signal clicked()
+    signal doubleClicked()
 
     KfpsToolTip {
         visible: root.clickable && hover.hovered && root.toolTipText.length > 0
@@ -80,5 +81,6 @@ Item {
         id: tap
         enabled: root.clickable
         onTapped: root.clicked()
+        onDoubleTapped: root.doubleClicked()
     }
 }

@@ -13,6 +13,7 @@ Item {
     readonly property var navItems: [
         { page: "create", label: "Create", icon: "generate" },
         { page: "outputs", label: "Outputs", icon: "json" },
+        { page: "community", label: "Community", icon: "heart" },
         { page: "editor", label: "Editor", icon: "editor" },
         { page: "tools", label: "Tools", icon: "tools" },
         { page: "help", label: "Help", icon: "help" },
@@ -27,6 +28,8 @@ Item {
     function primaryPage(page) {
         if (page === "outputs" || page === "json" || page === "library")
             return "outputs"
+        if (page === "community")
+            return "community"
         if (page === "editor")
             return "editor"
         if (page === "tools" || page === "images")

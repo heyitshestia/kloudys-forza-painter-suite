@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.78
+- Added the Community Library for browsing, searching, sorting, inspecting, favoriting, following, uploading, and downloading shared vinyl JSONs directly in KFPS.
+- Added GitHub Device Flow sign-in, endpoint-isolated Windows-protected sessions, permanent double-confirmed Community usernames, and restored server-side profiles across fresh KFPS installations.
+- Added a tiled local upload browser and manual JSON picker with local preview rendering, schema/game detection, FD6 background conversion, server-side sanitization, duplicate checks, and immediate publication after validation.
+- Required an account for both uploads and downloads, verified downloaded JSONs and checksums before saving them to the local Library, and added private reports plus post-publication moderation support.
+- Added full-size artwork inspection, creator profiles, compatibility warnings, revision publishing, and clear use-at-your-own-risk guidance without claiming that Community content meets current game enforcement rules.
+- Updated the bundled Pillow, pip, and setuptools runtime components to security-audited patched versions.
+
 ## 3.0.77
 - Restored the previous production Galatea Genesis generator after V5 reduced visual fidelity on real artwork.
 

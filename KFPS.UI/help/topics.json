@@ -6,6 +6,7 @@
     {"key": "json", "title": "Outputs & Files", "summary": "Find, preview, search, select, and understand saved vinyl JSON files."},
     {"key": "editor", "title": "Manual Editor", "summary": "Open projects, arrange shapes, use guides, and export finished work."},
     {"key": "transfer", "title": "Import & Export", "summary": "Move vinyls between KFPS and FH6, FH5, or FM8 safely."},
+    {"key": "community", "title": "Community Library", "summary": "Browse, inspect, download, publish, and report community-made vinyls."},
     {"key": "tools", "title": "Tools & Settings", "summary": "Prepare images, make reports, update KFPS, and find local folders."},
     {"key": "troubleshooting", "title": "Fix a Problem", "summary": "Plain checks for common startup, generation, editor, and transfer problems."},
     {"key": "limits", "title": "Safety & Limits", "summary": "What KFPS can change, what it cannot do, and how to protect your work."}
@@ -39,6 +40,62 @@
         "Do not switch game menus while an online transfer is locating or writing layers."
       ],
       "related": ["source-check", "preset-selection", "final-checkpoints", "fh6-template", "import-fh6"]
+    },
+    {
+      "key": "community-browse",
+      "category": "community",
+      "title": "Browse and download community vinyls",
+      "summary": "Search the shared catalog, inspect a full preview, and save a compatible JSON to your local library.",
+      "keywords": ["community", "browse", "catalog", "download", "creator", "favorite", "github", "preview"],
+      "steps": [
+        "Open Community. Browsing, searching, filtering, creator pages, and previews work without an account.",
+        "Use the category, game, and sort menus to narrow the catalog. Search matches artwork titles, tags, and creator names.",
+        "Select a tile to read its details. Double-click the tile or preview to open the large inspector, then zoom or use the arrow buttons to move between results.",
+        "Connect your GitHub identity, then select Download to Library. KFPS validates the file before placing it in the local community download folder.",
+        "Open Outputs and choose the relevant library source when you are ready to inspect, edit, or import the downloaded JSON.",
+        "A GitHub identity is required for downloads, favorites, follows, reports, uploads, and managing your own public creator profile. Browsing artwork and creator profiles remains public. KFPS does not request your password or repository access."
+      ],
+      "sections": [
+        {"heading": "Use at your own risk", "body": "Catalog availability is not approval by Turn 10 Studios, Playground Games, Microsoft, or the Forza enforcement team. Community content is not classified against current game rules. You are responsible for what you download, import, publish, or display."},
+        {"heading": "Accounts and usernames", "body": "GitHub establishes a stable identity. Your separate public Community username is chosen once and cannot be changed. KFPS shows the exact spelling and capitalization on a second confirmation screen before sending the claim."},
+        {"heading": "Reports", "body": "Sign in, select somebody else's listing, and choose Report in the artwork detail view. Choose the closest reason and add useful context. Reports stay private and visibly flag the listing in the administrator's review console."},
+        {"heading": "Compatibility labels", "body": "KFPS reads the JSON format and any embedded game origin. Recognized formats show their detected label. An unrecognized label means the shape list passed structural checks, but KFPS cannot promise that every part will import correctly."}
+      ],
+      "pitfalls": [
+        "A polished preview does not guarantee that a design is permitted under the game's current rules.",
+        "Do not import a downloaded file if KFPS reports that its structure or checksum is invalid.",
+        "Browsing and previews are public; downloading and all contribution features require an account."
+      ],
+      "related": ["community-publish", "json-browser", "wrong-shapes", "support-checklist"]
+    },
+    {
+      "key": "community-publish",
+      "category": "community",
+      "title": "Publish a community vinyl",
+      "summary": "Share a local KFPS JSON with a rendered preview, useful listing details, and an auditable revision history.",
+      "keywords": ["community", "upload", "publish", "revision", "moderation", "rights", "profile"],
+      "steps": [
+        "Open Community, connect your GitHub identity, and choose your permanent Community username if this is your first upload. Review it, then confirm the exact spelling and capitalization on the second screen.",
+        "Open Upload, choose Generated finals, Editor exports, Game exports, or Library, then select a JSON tile. Use Import JSON File when the file is somewhere else. KFPS renders the preview from that JSON; it does not upload a source image.",
+        "Check the detected JSON format and game origin, then add a short title, useful description, category, and searchable tags. You do not choose a game manually.",
+        "If KFPS marks a structurally valid format as unrecognized, read and accept the compatibility warning before publishing. Files without a usable shape list are rejected.",
+        "Confirm that you made the artwork or have permission to share it, then publish it.",
+        "Use My uploads to track published, rejected, or removed work. A server configured for manual review may also show pending work.",
+        "To update published work, select it as the revision target, choose the replacement JSON, and explain what changed. The original local file is not modified.",
+        "To remove your work, open My uploads, select the listing, and choose Remove. This unlists the community copy; it does not delete your local JSON or copies already downloaded by other users."
+      ],
+      "sections": [
+        {"heading": "What leaves this computer", "body": "The service receives a sanitized KFPS design, a full rendered preview, a compact thumbnail, and the public listing fields you enter. Local paths, source images, generator reports, settings, supporter data, and arbitrary JSON metadata are removed or rejected."},
+        {"heading": "Supported formats", "body": "KFPS recognizes its primitive JSONs, canonical Community JSON, FH5/FH6/FM8 live type-code exports, local save-library exports, decoded Forza file exports, flat C_group JSON, and converted Forza Designer 6 files. FD6 files are converted in a private runtime copy for preview and upload; the selected original is not changed."},
+        {"heading": "Validation and reports", "body": "The service checks structure, size, shape values, previews, hashes, and duplicates before publishing. These checks cannot judge ownership or artwork content. Signed-in users can privately report a listing, which highlights it for administrator review."},
+        {"heading": "Ownership", "body": "Only upload work you created or have permission to distribute. Removing a listing stops normal catalog access but cannot recall copies that other users already downloaded."}
+      ],
+      "pitfalls": [
+        "Do not upload source images, archives, executables, game saves, or generated report folders.",
+        "Do not reuse somebody else's preview for a different design.",
+        "Do not choose a Community username as a temporary test name; it is permanent."
+      ],
+      "related": ["community-browse", "json-browser", "final-checkpoints", "support-checklist"]
     },
     {
       "key": "source-check",

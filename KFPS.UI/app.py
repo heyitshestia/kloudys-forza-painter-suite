@@ -27,6 +27,7 @@ from kfps_ui.app_paths import AppPaths
 from kfps_ui.announcement_service import AnnouncementService
 from kfps_ui.changelog_service import ChangelogService
 from kfps_ui.cgroup_library_service import CGroupLibraryService
+from kfps_ui.community_service import CommunityService
 from kfps_ui.desktop_service import DesktopService
 from kfps_ui.editor_service import EditorService
 from kfps_ui.generation_service import GenerationService
@@ -54,6 +55,8 @@ def parse_args():
     parser.add_argument("--layout-report-dir")
     parser.add_argument("--screenshot-dir")
     parser.add_argument("--page", default="create")
+    parser.add_argument("--community-tab", choices=("browse", "upload", "profile"), help=argparse.SUPPRESS)
+    parser.add_argument("--community-overlay", choices=("login", "inspector"), help=argparse.SUPPRESS)
     parser.add_argument("--width", type=int, default=1760)
     parser.add_argument("--height", type=int, default=1040)
     parser.add_argument("--ui-scale", type=float)
@@ -350,6 +353,7 @@ def main():
     runtime = RuntimeService(demo=args.demo)
     source = SourceImageService(paths, desktop, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
+    community = CommunityService(paths, desktop, logs, jsons=jsons, demo=args.demo)
     supporter = SupporterService(paths.app_root)
     def enforce_available_theme():
         if is_supporter_theme(settings.theme) and not supporter.unlocked:
@@ -379,6 +383,7 @@ def main():
         "desktop": desktop,
         "sourceService": source,
         "jsonService": jsons,
+        "communityService": community,
         "cgroupLibraryService": cgroup_library,
         "generationService": generation,
         "transferService": transfer,
@@ -413,6 +418,19 @@ def main():
     window.setWidth(args.width)
     window.setHeight(args.height)
     controller.navigate(args.page)
+    if args.page == "community" and (args.community_tab or args.community_overlay):
+        community_tab = {"browse": 0, "upload": 1, "profile": 2}.get(args.community_tab, 0)
+
+        def select_community_tab(attempt=0):
+            page = window.findChild(QQuickItem, "CommunityPage")
+            if page is not None:
+                page.setProperty("activeTab", community_tab)
+                if args.community_overlay:
+                    page.setProperty("testOverlay", args.community_overlay)
+            elif attempt < 20:
+                QTimer.singleShot(50, lambda: select_community_tab(attempt + 1))
+
+        QTimer.singleShot(50, select_community_tab)
 
     def write_layout_report(target_path: str) -> None:
         target = Path(target_path)
@@ -462,7 +480,7 @@ def main():
         if screenshot_dir:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         audit_pages = [
-            "create", "outputs", "editor", "help", "settings",
+            "create", "outputs", "community", "editor", "help", "settings",
             "tools", "images", "reports", "update",
         ]
         audit_index = 0
@@ -504,6 +522,7 @@ def main():
                 QTimer.singleShot(50, app.quit)
 
         QTimer.singleShot(1700 if screenshot_target else 650, capture_and_report)
+    app.aboutToQuit.connect(community.close)
     return app.exec()
 
 

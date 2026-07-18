@@ -11,6 +11,7 @@ class AppController(QObject):
     PAGES = {
         "create": "Create",
         "outputs": "Outputs",
+        "community": "Community",
         "editor": "Editor",
         "help": "Help",
         "settings": "Settings",
@@ -28,6 +29,7 @@ class AppController(QObject):
     SUBTITLES = {
         "create": "Source, generation, preview, and next step without page scrolling.",
         "outputs": "Select one JSON, inspect it, then import or export.",
+        "community": "Browse, share, and download community-made vinyl artwork.",
         "editor": "Launch the Fabric editor and manage saved editor projects.",
         "help": "Workflow guides, import notes, and troubleshooting.",
         "settings": "Preferences, folders, maintenance, and diagnostics.",

@@ -14,11 +14,11 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-> **NEWS: KFPS now has a cleaner native Outputs workflow and supporter-unlocked offline save-library tools.**
+> **NEWS: KFPS now includes a native Community Library for sharing and discovering vinyl artwork.**
 >
-> Generated finals, editor exports, game exports, and scanned save-library JSONs are now handled from one thumbnail-first Outputs view. FH6 remains the main target; offline save-library work is still experimental and intentionally gated while it is tested more widely.
+> Browse artwork and creator profiles, inspect full previews, and connect a GitHub identity when you want to upload or download. Valid uploads are checked and published immediately, while reports and removals remain available for review after publication.
 
-KFPS is a Windows-focused Forza Horizon 6 vinyl suite with a native QML app. It can generate vinyl JSON from source art, finalize and preview import-ready checkpoints, import compatible JSON through the FH6 importer, export compatible game JSON, scan supported Forza save-library layer groups, and launch the bundled editor for manual vinyl work.
+KFPS is a Windows-focused Forza Horizon 6 vinyl suite with a native QML app. It can generate vinyl JSON from source art, finalize and preview import-ready checkpoints, import compatible JSON through the FH6 importer, export compatible game JSON, scan supported Forza save-library layer groups, browse and share Community artwork, and launch the bundled editor for manual vinyl work.
 
 This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.md](docs/USER_MANUAL.md), and the detailed FH6 template/import guide is in [docs/FH6_IMPORT_GUIDE.md](docs/FH6_IMPORT_GUIDE.md).
 
@@ -28,6 +28,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 | --- | --- |
 | `Create` | Converts PNG/JPG source art into finalized FH6 vinyl JSON using the bundled GPU generator, source checks, presets, and KFPS finalization pipeline. |
 | `Outputs` | Shows generated finals, editor exports, game exports, and save-library JSONs as thumbnails with previews, layer counts, import controls, and export controls. |
+| `Community` | Browses shared vinyl artwork and creator profiles, inspects full previews, and provides authenticated uploads, verified downloads, favorites, follows, reports, and revision management. |
 | `Online Import / Export` | Imports compatible JSON into a prepared FH6 vinyl template and exports the currently loaded editable group through the live game locator. |
 | `Offline Save Library` | Supporter-unlocked WIP tools for scanning supported Forza save folders, building local JSON previews, and testing save-folder based workflows. |
 | `Editor` | Launches the bundled Fabric-based JSON editor for manual vinyl creation, cleanup, tracing, shape search, favorites, color picking, layer work, guide snapping, and JSON export. |
@@ -54,6 +55,7 @@ After registration, KFPS protects supporter access with Windows protected storag
 - Source-aware settings keep normal generation simple while still allowing Pro settings for manual tuning.
 - FH6 imports use a reusable 3000-layer plain white circle template, then cull the saved layer count down to the imported design.
 - The editor is local/offline, so manual shape work can be done outside the in-game editor.
+- The Community Library validates shared JSONs and downloads before adding them to the local Library while keeping supporter activation and local artwork separate.
 - The source checks and tool links make image preparation part of the same workflow instead of a separate guessing step.
 
 ## Manual Editor Highlight
@@ -137,7 +139,7 @@ KloudysFH6Painter/
 
 The standalone release includes bundled Python 3.12, bundled Python dependencies, the current KFPS generator executable, the app files, the editor files, and update scripts. You should not need to install Python manually when using the full standalone release.
 
-An optional `KFPS-<version>-binary.zip` omits the `python/` directory. It requires a system-installed 64-bit Python 3.12 and the packages in `KloudysFH6Painter/requirements.txt`:
+An optional `KFPS-<version>-ADVANCED-NO-PYTHON-NO-DEPENDENCIES.zip` omits the `python/` directory and Python packages. It requires a system-installed 64-bit Python 3.12 and the packages in `KloudysFH6Painter/requirements.txt`:
 
 ```powershell
 py -3.12 -m pip install -r KloudysFH6Painter\requirements.txt

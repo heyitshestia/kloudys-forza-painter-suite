@@ -5,7 +5,7 @@ from pathlib import Path
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 OUT = UI / "Previews"
-PAGES = ["create","outputs","editor","help","settings","tools","images","reports","update"]
+PAGES = ["create","outputs","community","editor","help","settings","tools","images","reports","update"]
 SIZES = [(1360,820),(1760,1040),(1920,1080),(2560,1440)]
 
 def main():

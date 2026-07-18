@@ -311,6 +311,7 @@ ApplicationWindow {
                             create: "CreatePage",
                             dashboard: "CreatePage",
                             outputs: "JsonPage",
+                            community: "CommunityPage",
                             library: "JsonPage",
                             json: "JsonPage",
                             generate: "GeneratePage",

@@ -174,12 +174,15 @@ class QmlRefinementTests(unittest.TestCase):
     def test_help_is_written_for_a_first_time_user(self):
         payload = json.loads((UI / "help" / "topics.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(payload["version"], 2)
-        self.assertEqual(8, len(payload["categories"]))
-        self.assertEqual(22, len(payload["topics"]))
+        self.assertEqual(9, len(payload["categories"]))
+        self.assertEqual(24, len(payload["topics"]))
 
         topics = {topic["key"]: topic for topic in payload["topics"]}
         self.assertEqual(len(topics), len(payload["topics"]))
-        for key in ("first-run", "fh6-template", "import-fh6", "json-browser", "support-checklist"):
+        for key in (
+            "first-run", "fh6-template", "import-fh6", "json-browser",
+            "community-browse", "community-publish", "support-checklist",
+        ):
             self.assertIn(key, topics)
 
         all_keys = set(topics)

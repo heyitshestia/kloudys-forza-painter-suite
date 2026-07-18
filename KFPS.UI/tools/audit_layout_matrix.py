@@ -10,7 +10,7 @@ from pathlib import Path
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 PAGES = [
-    "create", "outputs", "editor", "help", "settings",
+    "create", "outputs", "community", "editor", "help", "settings",
     "tools", "images", "reports", "update",
 ]
 DEFAULT_SIZES = [
