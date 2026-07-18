@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QPainter
 
 from .qt_utils import file_url
 
@@ -16,6 +16,7 @@ from .qt_utils import file_url
 MAX_JSON_BYTES = 24 * 1024 * 1024
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 MAX_SHAPES = 3001
+THUMBNAIL_SIZE = 480
 FORBIDDEN_KEYS = {"__proto__", "prototype", "constructor"}
 PRIMITIVE_TYPES = {1, 2, 8, 16}
 UNKNOWN_SCHEMA_WARNING = (
@@ -266,12 +267,27 @@ def inspect_upload(path: str | Path, runtime_root: Path) -> CommunityUploadInspe
     image = QImage.fromData(preview, "PNG")
     if image.isNull():
         raise ValueError("KFPS could not decode the rendered community preview.")
-    thumbnail_image = image.scaled(
-        480,
-        480,
+    scaled_thumbnail = image.scaled(
+        THUMBNAIL_SIZE,
+        THUMBNAIL_SIZE,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+    thumbnail_image = QImage(
+        THUMBNAIL_SIZE,
+        THUMBNAIL_SIZE,
+        QImage.Format.Format_RGBA8888,
+    )
+    thumbnail_image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(thumbnail_image)
+    try:
+        painter.drawImage(
+            (THUMBNAIL_SIZE - scaled_thumbnail.width()) // 2,
+            (THUMBNAIL_SIZE - scaled_thumbnail.height()) // 2,
+            scaled_thumbnail,
+        )
+    finally:
+        painter.end()
     thumbnail_buffer = QBuffer()
     if not thumbnail_buffer.open(QIODevice.OpenModeFlag.WriteOnly) or not thumbnail_image.save(thumbnail_buffer, "PNG"):
         raise ValueError("KFPS could not produce the community thumbnail.")

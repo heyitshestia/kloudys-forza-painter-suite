@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QCoreApplication
+from PySide6.QtGui import QImage
 
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.community_client import CommunityApiClient, CommunityApiError
@@ -160,6 +161,7 @@ class CommunityBoundaryTests(unittest.TestCase):
             )
             self.assertGreaterEqual(max(preview_size), 900)
             self.assertLessEqual(max(preview_size), 1400)
+            self.assertGreaterEqual(min(thumbnail_size), 64)
             self.assertLessEqual(max(thumbnail_size), 480)
             self.assertLess(max(thumbnail_size), max(preview_size))
             canonical = json.dumps({
@@ -172,6 +174,32 @@ class CommunityBoundaryTests(unittest.TestCase):
             self.assertEqual(validate_download(canonical, digest)["format"], "kfps.community.v1")
             with self.assertRaises(ValueError):
                 validate_download(canonical + b" ", digest)
+
+    def test_upload_thumbnails_pad_extreme_aspect_ratios_to_a_transparent_square(self):
+        test_root = ROOT / "runtime" / "community-tests"
+        test_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_root) as folder:
+            folder = Path(folder)
+            for name, width, height in (("wide", 10_000, 500), ("tall", 500, 10_000)):
+                with self.subTest(name=name):
+                    source = folder / f"{name}.json"
+                    source.write_text(json.dumps({
+                        "metadata": {"target_game": "fh6"},
+                        "shapes": [
+                            {"type": 1, "color": [0, 0, 0, 0], "data": [0, 0, 1, 1, 0]},
+                            {"type": 1, "color": [255, 30, 100, 255], "data": [0, 0, width, height, 0]},
+                        ],
+                    }), encoding="utf-8")
+                    inspected = inspect_upload(source, folder)
+                    preview_size = (
+                        int.from_bytes(inspected.preview_bytes[16:20], "big"),
+                        int.from_bytes(inspected.preview_bytes[20:24], "big"),
+                    )
+                    thumbnail = QImage.fromData(inspected.thumbnail_bytes, "PNG")
+                    self.assertGreaterEqual(min(preview_size), 64)
+                    self.assertEqual((thumbnail.width(), thumbnail.height()), (480, 480))
+                    self.assertEqual(thumbnail.pixelColor(0, 0).alpha(), 0)
+                    self.assertGreater(thumbnail.pixelColor(240, 240).alpha(), 0)
 
     def test_known_community_json_schemas_and_game_origins_are_detected(self):
         primitive = {"type": 16, "color": [1, 2, 3, 255], "data": [1, 2, 3, 4, 5]}

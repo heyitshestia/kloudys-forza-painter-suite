@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.79
+- Fixed Community uploads for very wide or tall vinyls by centering generated thumbnails on transparent square canvases that meet the server's preview limits.
+
 ## 3.0.78
 - Added the Community Library for browsing, searching, sorting, inspecting, favoriting, following, uploading, and downloading shared vinyl JSONs directly in KFPS.
 - Added GitHub Device Flow sign-in, endpoint-isolated Windows-protected sessions, permanent double-confirmed Community usernames, and restored server-side profiles across fresh KFPS installations.
