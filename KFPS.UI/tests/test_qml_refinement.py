@@ -24,6 +24,7 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_checkable_ghost_buttons_show_selected_state_in_every_theme(self):
         ghost = self.read("components/GhostButton.qml")
+        self.assertIn("root.selected ||", ghost)
         self.assertIn("root.checkable && root.checked", ghost)
         self.assertIn("root.checkedState ? Theme.navActiveTop", ghost)
         self.assertIn("root.checkedState ? Theme.navActiveMiddle", ghost)

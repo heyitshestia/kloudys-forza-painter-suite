@@ -34,6 +34,8 @@ QtObject {
     readonly property color success: "#3e9f65"
     readonly property color warning: "#b87928"
     readonly property color danger: "#be4258"
+    readonly property color classificationHandmade: "#b83f73"
+    readonly property color classificationToolmade: "#28769f"
     readonly property color consoleBackground: "#eefdf1f6"
     readonly property color shadow: "#527a4356"
     readonly property color innerHighlight: "#adfffbfd"

@@ -372,6 +372,10 @@ Item {
                                         dense: true
                                         text: modelData
                                         accentText: communityService.selectedScopeIndex === index
+                                        selected: communityService.selectedScopeIndex === index
+                                        labelColor: index === 1 ? Theme.classificationHandmade
+                                                               : (index === 2 ? Theme.classificationToolmade
+                                                                              : (accentText ? Theme.primaryBright : Theme.text))
                                         enabled: index < 4 || communityService.authenticated
                                         toolTipText: index === 0 ? "Show all published community artwork."
                                                       : index === 1 ? "Show only artwork classified as Handmade."
@@ -765,16 +769,13 @@ Item {
                                             elide: Text.ElideRight
                                         }
 
-                                        Text {
+                                        CommunityClassificationLine {
                                             Layout.fillWidth: true
-                                            text: (Boolean(communityService.selectedArtwork.supporterOnly) ? "Supporters | " : "")
-                                                  + String(communityService.selectedArtwork.classificationLabel || "Toolmade")
-                                                  + " | " + String(communityService.selectedArtwork.category || "Other")
-                                                  + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
-                                            color: Theme.muted
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.px(9.8)
-                                            elide: Text.ElideRight
+                                            supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
+                                            classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                                            categoryLabel: String(communityService.selectedArtwork.category || "Other")
+                                            schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
+                                            textPixelSize: Theme.px(9.8)
                                         }
                                     }
 
@@ -1438,6 +1439,7 @@ Item {
                                         id: handmadeUploadChoice
                                         Layout.fillWidth: true
                                         text: "Handmade"
+                                        labelColor: Theme.classificationHandmade
                                         checkable: true
                                         checked: root.uploadClassification === "handmade"
                                         ButtonGroup.group: uploadClassificationGroup
@@ -1453,6 +1455,7 @@ Item {
                                         id: toolmadeUploadChoice
                                         Layout.fillWidth: true
                                         text: "Toolmade"
+                                        labelColor: Theme.classificationToolmade
                                         checkable: true
                                         checked: root.uploadClassification === "toolmade"
                                         ButtonGroup.group: uploadClassificationGroup
@@ -2416,16 +2419,13 @@ Item {
                             }
                         }
 
-                        Text {
+                        CommunityClassificationLine {
                             Layout.fillWidth: true
-                            text: (Boolean(communityService.selectedArtwork.supporterOnly) ? "Supporters | " : "")
-                                  + String(communityService.selectedArtwork.classificationLabel || "Toolmade")
-                                  + " | " + String(communityService.selectedArtwork.category || "Other")
-                                  + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
-                            color: Theme.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(9.8)
-                            elide: Text.ElideRight
+                            supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
+                            classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                            categoryLabel: String(communityService.selectedArtwork.category || "Other")
+                            schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
+                            textPixelSize: Theme.px(9.8)
                         }
 
                         Text {

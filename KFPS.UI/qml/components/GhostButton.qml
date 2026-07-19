@@ -12,13 +12,15 @@ Button {
     property string iconName: ""
     property string toolTipText: ""
     property bool accentText: false
+    property bool selected: false
+    property color labelColor: accentText ? Theme.primaryBright : Theme.text
     property bool showArrow: false
     property bool dense: false
     property real minimumWidth: Theme.px(dense ? 74 : 96)
     property real maximumTextWidth: Number.POSITIVE_INFINITY
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
 
-    readonly property bool checkedState: root.checkable && root.checked
+    readonly property bool checkedState: root.selected || (root.checkable && root.checked)
     readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
@@ -303,7 +305,7 @@ Button {
                        0,
                        parent.width - (root.reserveSideSlots ? (root.sideSlotWidth + root.sideGap) * 2 : 0))
             text: root.text
-            color: root.accentText ? Theme.primaryBright : Theme.text
+            color: root.labelColor
             font.family: Theme.fontFamily
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold

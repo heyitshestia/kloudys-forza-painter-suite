@@ -621,6 +621,30 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn("Theme.px(82)", artwork_grid)
         self.assertIn("artworkGrid.contentY = nextY", artwork_grid)
 
+    def test_community_classification_labels_use_distinct_theme_colors(self):
+        page = (UI / "qml" / "pages" / "CommunityPage.qml").read_text(encoding="utf-8")
+        card = (UI / "qml" / "components" / "CommunityArtworkCard.qml").read_text(encoding="utf-8")
+        line = (UI / "qml" / "components" / "CommunityClassificationLine.qml").read_text(encoding="utf-8")
+        ghost = (UI / "qml" / "components" / "GhostButton.qml").read_text(encoding="utf-8")
+        theme = (UI / "qml" / "Kfps" / "Theme" / "Theme.qml").read_text(encoding="utf-8")
+
+        self.assertIn("index === 1 ? Theme.classificationHandmade", page)
+        self.assertIn("index === 2 ? Theme.classificationToolmade", page)
+        self.assertIn("labelColor: Theme.classificationHandmade", page)
+        self.assertIn("labelColor: Theme.classificationToolmade", page)
+        self.assertEqual(page.count("CommunityClassificationLine"), 2)
+        self.assertIn("CommunityClassificationLine", card)
+        self.assertIn("property color labelColor", ghost)
+        self.assertIn("color: root.labelColor", ghost)
+        self.assertIn("Theme.classificationHandmade", line)
+        self.assertIn("Theme.classificationToolmade", line)
+        self.assertIn("classificationHandmade: palette.classificationHandmade", theme)
+        self.assertIn("classificationToolmade: palette.classificationToolmade", theme)
+        for palette_name in ("PaletteNightBlossom.qml", "PalettePatronsAtelier.qml", "PaletteCarbonDark.qml"):
+            palette = (UI / "qml" / "Kfps" / "Theme" / palette_name).read_text(encoding="utf-8")
+            self.assertIn("property color classificationHandmade", palette)
+            self.assertIn("property color classificationToolmade", palette)
+
 
 @unittest.skipUnless(os.environ.get("KFPS_COMMUNITY_E2E") == "1", "local Worker integration test is opt-in")
 class CommunityWorkerIntegrationTests(unittest.TestCase):

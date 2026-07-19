@@ -151,13 +151,12 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Text {
+                CommunityClassificationLine {
                     Layout.fillWidth: true
-                    text: root.cardClassificationLabel + " | " + root.cardCategory + " | " + root.cardSchemaLabel
-                    color: Theme.muted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(9.7)
-                    elide: Text.ElideRight
+                    classificationLabel: root.cardClassificationLabel
+                    categoryLabel: root.cardCategory
+                    schemaLabel: root.cardSchemaLabel
+                    textPixelSize: Theme.px(9.7)
                 }
 
                 Text {

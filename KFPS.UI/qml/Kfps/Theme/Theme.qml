@@ -56,6 +56,8 @@ QtObject {
     readonly property color success: palette.success
     readonly property color warning: palette.warning
     readonly property color danger: palette.danger
+    readonly property color classificationHandmade: palette.classificationHandmade
+    readonly property color classificationToolmade: palette.classificationToolmade
     readonly property color consoleBackground: palette.consoleBackground
     readonly property color shadow: palette.shadow
     readonly property color innerHighlight: palette.innerHighlight

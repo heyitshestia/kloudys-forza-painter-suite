@@ -1744,6 +1744,8 @@ class CommunityService(QObject):
                 role: ({
                     "id": f"demo-{index}", "title": f"Community Artwork {index + 1:02d}",
                     "description": "A cached community browser demonstration.", "category": "Original Artwork",
+                    "classification": "handmade" if index % 2 == 0 else "toolmade",
+                    "classificationLabel": "Handmade" if index % 2 == 0 else "Toolmade",
                     "tagsText": "demo, artwork", "gamesText": "FH6, FM8", "license": "Community Share",
                     "schemaId": "kfps-primitives", "schemaLabel": "KFPS primitive geometry",
                     "schemaKnown": index != 8,

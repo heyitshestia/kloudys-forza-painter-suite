@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.86
+- Colored Handmade labels pastel pink and Toolmade labels baby blue throughout Community browsing, details, filters, and uploads.
+- Preserved clear selected-filter styling and tuned the classification colors for readable contrast across all themes.
+
 ## 3.0.85
 - Made Community artwork-grid scrolling as responsive as the Help tab for mouse wheels and touchpads.
 - Made selected Community upload classification and audience choices clearly visible across every standard and supporter theme.
