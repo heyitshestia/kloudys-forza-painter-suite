@@ -16,6 +16,7 @@ Item {
     property bool uploadSupporterOnly: false
     property string lastUploadPath: ""
     property string pendingUploadPath: ""
+    property string metadataResetForPath: ""
     property string profileLoadedFor: ""
     property string pendingCommunityUsername: ""
     property string testOverlay: ""
@@ -32,6 +33,16 @@ Item {
     readonly property real headerBannerLeftX: 0
     readonly property real headerBannerRightX: width
 
+    ButtonGroup {
+        id: uploadClassificationGroup
+        exclusive: true
+    }
+
+    ButtonGroup {
+        id: uploadAudienceGroup
+        exclusive: true
+    }
+
     function uploadLicense() {
         var values = communityService.licenses
         return uploadLicenseBox.currentIndex >= 0 && uploadLicenseBox.currentIndex < values.length
@@ -40,19 +51,31 @@ Item {
 
     function syncUploadSelection() {
         if (communityService.uploadPath && communityService.uploadPath !== root.lastUploadPath) {
+            root.resetMetadataForNewUpload(communityService.uploadPath)
             root.lastUploadPath = communityService.uploadPath
             root.pendingUploadPath = communityService.uploadPath
             uploadTitle.text = communityService.uploadName
             compatibilityConfirmation.checked = false
-            if (!root.revisionMode) {
-                root.uploadClassification = ""
-                root.uploadSupporterOnly = false
-            }
         }
     }
 
     function comparableLocalPath(value) {
         return String(value || "").replace(/\//g, "\\").toLowerCase()
+    }
+
+    function resetMetadataForNewUpload(path) {
+        var candidate = root.comparableLocalPath(path)
+        if (root.revisionMode || candidate.length === 0
+                || candidate === root.comparableLocalPath(root.metadataResetForPath))
+            return
+        root.metadataResetForPath = String(path)
+        uploadDescription.text = ""
+        uploadTags.text = ""
+        root.uploadClassification = ""
+        root.uploadSupporterOnly = false
+        rightsConfirmation.checked = false
+        compatibilityConfirmation.checked = false
+        revisionNote.text = ""
     }
 
     function uploadTileSelected(path) {
@@ -63,6 +86,7 @@ Item {
     function prepareUploadPath(path) {
         if (!path || communityService.busy)
             return
+        root.resetMetadataForNewUpload(path)
         root.pendingUploadPath = String(path)
         jsonService.selectPath(String(path))
         communityService.selectUploadJson(String(path))
@@ -1388,9 +1412,13 @@ Item {
                                     spacing: Theme.px(8)
 
                                     GhostButton {
+                                        id: handmadeUploadChoice
                                         Layout.fillWidth: true
                                         text: "Handmade"
-                                        accentText: root.uploadClassification === "handmade"
+                                        checkable: true
+                                        checked: root.uploadClassification === "handmade"
+                                        ButtonGroup.group: uploadClassificationGroup
+                                        accentText: checked
                                         enabled: !root.revisionMode
                                         toolTipText: root.revisionMode
                                                      ? "Classification is fixed after the first upload."
@@ -1399,9 +1427,13 @@ Item {
                                     }
 
                                     GhostButton {
+                                        id: toolmadeUploadChoice
                                         Layout.fillWidth: true
                                         text: "Toolmade"
-                                        accentText: root.uploadClassification === "toolmade"
+                                        checkable: true
+                                        checked: root.uploadClassification === "toolmade"
+                                        ButtonGroup.group: uploadClassificationGroup
+                                        accentText: checked
                                         enabled: !root.revisionMode
                                         toolTipText: root.revisionMode
                                                      ? "Classification is fixed after the first upload."
@@ -1416,9 +1448,13 @@ Item {
                                     spacing: Theme.px(8)
 
                                     GhostButton {
+                                        id: everyoneUploadChoice
                                         Layout.fillWidth: true
                                         text: "Everyone"
-                                        accentText: !root.uploadSupporterOnly
+                                        checkable: true
+                                        checked: !root.uploadSupporterOnly
+                                        ButtonGroup.group: uploadAudienceGroup
+                                        accentText: checked
                                         enabled: !root.revisionMode
                                         toolTipText: root.revisionMode
                                                      ? "Audience is fixed after the first upload."
@@ -1427,9 +1463,13 @@ Item {
                                     }
 
                                     GhostButton {
+                                        id: supportersUploadChoice
                                         Layout.fillWidth: true
                                         text: "Supporters"
-                                        accentText: root.uploadSupporterOnly
+                                        checkable: true
+                                        checked: root.uploadSupporterOnly
+                                        ButtonGroup.group: uploadAudienceGroup
+                                        accentText: checked
                                         enabled: !root.revisionMode && communityService.supporterAccess
                                         toolTipText: root.revisionMode
                                                      ? "Audience is fixed after the first upload."

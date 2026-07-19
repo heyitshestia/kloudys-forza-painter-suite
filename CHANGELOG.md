@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.84
+- Split Community upload classification and audience into independent choices, allowing one selection from each group.
+- Cleared stale descriptions, tags, and confirmation state when preparing a different JSON while preserving metadata during revisions.
+
 ## 3.0.83
 - Fixed release updates incorrectly failing after installing the valid native launcher introduced in 3.0.74.
 - Updated launcher verification to recognize the current packaged executable used by both bundled and no-Python releases.
