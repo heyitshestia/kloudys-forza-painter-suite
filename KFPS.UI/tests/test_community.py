@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -452,7 +453,7 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertEqual(desktop.choose_calls, 0)
                 payload = service._upload_payload(
                     "Fixture", "", "Original Artwork", "test", "handmade",
-                    "kfps-community-share-v1", True, False,
+                    "kfps-community-share-v1", False, True, False,
                 )
                 self.assertEqual(payload["client_version"], "3.0.81")
                 self.assertEqual(payload["classification"], "handmade")
@@ -466,6 +467,91 @@ class CommunityBoundaryTests(unittest.TestCase):
                 service.selectUploadJson(str(folder / "missing.json"))
                 self.assertEqual(service.uploadPath, "")
                 self.assertIn("existing JSON file", service.errorMessage)
+            finally:
+                service.close()
+
+    def test_supporter_handoff_is_account_bound_and_restricted_assets_stay_memory_only(self):
+        test_root = ROOT / "runtime" / "community-tests"
+        test_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_root) as folder:
+            folder = Path(folder)
+            source = folder / "supporter-preview.json"
+            write_design(source, 4321)
+            preview = inspect_upload(source, folder).thumbnail_bytes
+            import hashlib
+            digest = hashlib.sha256(preview).hexdigest()
+            app_root = folder / "app"
+            paths = AppPaths(
+                app_root=app_root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=app_root / "runtime",
+                bundled_python=app_root / "python" / "python.exe",
+            )
+            service = CommunityService(paths, DummyDesktop(source), DummyLog(), demo=True)
+            subject = "11111111-1111-4111-8111-111111111111"
+            requested = []
+            service.supporterEntitlementRequested.connect(requested.append)
+            try:
+                service.demo = False
+                service._token = "session"
+                service._client.token = "session"
+                service._session_user = {"id": subject, "username": "SupporterTester"}
+                service._supporter = {"active": False, "verified_until": ""}
+                service._supporter_request_after = 0
+                service.ensureSupporterEntitlement()
+                self.assertEqual(requested, [subject])
+                self.assertTrue(service._supporter_entitlement_pending)
+
+                service.applySupporterEntitlement({
+                    "ok": False, "subject": subject, "message": "No active supporter registration.",
+                })
+                self.assertFalse(service._supporter_entitlement_pending)
+                self.assertIn("No active", service.supporterStatus)
+
+                expires = datetime.fromtimestamp(time.time() + 900, timezone.utc).isoformat().replace("+00:00", "Z")
+                service._apply_result("supporter_verify", {
+                    "ok": True, "value": {"supporter": {"active": True, "verified_until": expires}},
+                })
+                self.assertTrue(service.supporterAccess)
+                with patch.object(service, "_submit") as submit:
+                    service._scope = "supporters"
+                    service.setLocalSupporterState("revoked")
+                self.assertFalse(service.supporterAccess)
+                self.assertEqual(service.selectedScopeIndex, 3)
+                self.assertEqual(service.artworkModel.rowCount(), 0)
+                self.assertEqual(submit.call_args.args[0], "supporter_clear")
+                self.assertTrue(service._supporter_clear_required)
+                service.setLocalSupporterState("active")
+                service._supporter = {"active": True, "verified_until": expires}
+
+                item = {
+                    "id": "supporter-artwork",
+                    "title": "Restricted fixture",
+                    "supporter_only": True,
+                    "preview_url": "/v1/artworks/supporter-artwork/preview",
+                    "thumbnail_url": "/v1/artworks/supporter-artwork/thumbnail",
+                    "download_url": "/v1/artworks/supporter-artwork/download",
+                    "preview_sha256": digest,
+                    "thumbnail_sha256": digest,
+                    "creator": {"username": "Artist"},
+                }
+                row = service._normalize_artwork(item)
+                self.assertTrue(row["supporterOnly"])
+                self.assertEqual(row["previewUrl"], "")
+                self.assertEqual(row["thumbnailUrl"], "")
+                with patch.object(CommunityApiClient, "binary", return_value=(preview, {"Content-Type": "image/png"})) as binary:
+                    asset = service._fetch_supporter_asset(
+                        row["id"], digest, row["_thumbnailAssetUrl"], "session", "thumbnail",
+                    )
+                self.assertTrue(asset["data_url"].startswith("data:image/png;base64,"))
+                self.assertTrue(binary.call_args.kwargs["authenticated"])
+                self.assertFalse(any(paths.runtime_root.rglob("*.png")))
+
+                service._scope = "supporters"
+                service._write_cache({"items": [item], "page": 1, "page_count": 1, "total": 1})
+                self.assertFalse(service._cache_file.exists())
             finally:
                 service.close()
 
@@ -491,10 +577,19 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn('text: "Import JSON File"', page)
         self.assertIn('Label { text: "Output folder" }', page)
         self.assertIn("CommunityUploadTile", page)
-        self.assertIn('SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Favorites", "Following", "My uploads"]',
+        self.assertIn('SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Supporters", "Favorites", "Following", "My uploads"]',
                       (UI / "src" / "kfps_ui" / "community_service.py").read_text(encoding="utf-8"))
         self.assertIn('text: "Handmade"', page)
         self.assertIn('text: "Toolmade"', page)
+        self.assertIn('"Get access to supporter vinyl sharing"', page)
+        self.assertIn('desktop.openUrl("https://ko-fi.com/s/2d1507698d")', page)
+        self.assertIn("enabled: index < 4 || communityService.authenticated", page)
+        self.assertIn('text: "Supporters"', page)
+        self.assertIn("root.uploadSupporterOnly", page)
+        self.assertIn("cardSupporterOnly", card)
+        app = (UI / "app.py").read_text(encoding="utf-8")
+        self.assertIn("community.supporterEntitlementRequested.connect", app)
+        self.assertIn("supporter.communityEntitlementReady.connect", app)
         self.assertIn("root.uploadClassification.length > 0", page)
         self.assertIn("id: editTagsDialog", page)
         self.assertIn("communityService.selectedMetadataEditable", page)
@@ -555,7 +650,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 title = "Qt Workflow " + uuid.uuid4().hex[:8]
                 service.submitUpload(
                     title, "End-to-end client test.", "Original Artwork", "automated, integration",
-                    "toolmade", "kfps-community-share-v1", True, False,
+                    "toolmade", "kfps-community-share-v1", False, True, False,
                 )
                 self.assertTrue(wait_for(
                     lambda: service.selectedOwned and service.selectedArtwork.get("title") == title and not service.busy
@@ -576,7 +671,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
 
                 service.submitUpload(
                     title + " Duplicate", "Duplicate test.", "Original Artwork", "automated",
-                    "toolmade", "kfps-community-share-v1", True, False,
+                    "toolmade", "kfps-community-share-v1", False, True, False,
                 )
                 self.assertTrue(wait_for(lambda: "already" in service.errorMessage.lower() and not service.busy), service.errorMessage)
                 service.clearError()
@@ -605,7 +700,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 ))
                 service.submitRevision(
                     title, "Revised end-to-end client test.", "Original Artwork", "automated, revision",
-                    "toolmade", "kfps-community-share-v1", True, False, "Adjusted one accent color.",
+                    "toolmade", "kfps-community-share-v1", False, True, False, "Adjusted one accent color.",
                 )
                 self.assertTrue(wait_for(lambda: service.uploadStatus.startswith("Revision 2") and not service.busy), service.errorMessage)
 
@@ -637,7 +732,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                     and not service.busy
                 ), service.errorMessage)
 
-                service.setScopeIndex(5)
+                service.setScopeIndex(6)
                 self.assertTrue(wait_for(
                     lambda: any(row.get("id") == artwork_id for row in service._rows) and not service.busy
                 ), service.errorMessage)
@@ -658,7 +753,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 unknown_title = "Qt Unknown " + uuid.uuid4().hex[:8]
                 service.submitUpload(
                     unknown_title, "Unknown-schema acknowledgement test.", "Original Artwork", "automated",
-                    "handmade", "kfps-community-share-v1", True, False,
+                    "handmade", "kfps-community-share-v1", False, True, False,
                 )
                 self.assertTrue(wait_for(
                     lambda: "unrecognized format" in service.errorMessage.lower() and not service.busy
@@ -666,7 +761,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 service.clearError()
                 service.submitUpload(
                     unknown_title, "Unknown-schema acknowledgement test.", "Original Artwork", "automated",
-                    "handmade", "kfps-community-share-v1", True, True,
+                    "handmade", "kfps-community-share-v1", False, True, True,
                 )
                 self.assertTrue(wait_for(
                     lambda: service.selectedOwned and service.selectedArtwork.get("title") == unknown_title

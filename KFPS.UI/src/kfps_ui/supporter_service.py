@@ -20,6 +20,7 @@ from .activation_crypto import (
     verify_activation_decision,
     verify_activation_receipt,
     verify_activation_status,
+    verify_community_entitlement,
 )
 from .activation_storage import (
     ActivationStorageError,
@@ -36,6 +37,7 @@ RETRY_DELAYS_SECONDS = (30 * 60, 2 * 60 * 60, 12 * 60 * 60, 24 * 60 * 60)
 
 class SupporterService(QObject):
     changed = Signal()
+    communityEntitlementReady = Signal(object)
 
     def __init__(
         self,
@@ -69,6 +71,8 @@ class SupporterService(QObject):
         self._started = False
         self._inflight_operation = ""
         self._status_checked_key_id = ""
+        self._pending_community_subject = ""
+        self._community_request_subject = ""
         self._clock = clock or time.time
         self._endpoint = activation_endpoint() if endpoint is None else str(endpoint).strip()
         self._enforce_activation = enforcement_enabled() if enforce_activation is None else bool(enforce_activation)
@@ -396,6 +400,36 @@ class SupporterService(QObject):
             return
         self._send_activation_request("deactivate")
 
+    @Slot(str)
+    def requestCommunityEntitlement(self, subject: str):
+        subject = str(subject or "").strip()
+        if not subject:
+            return
+        self._pending_community_subject = subject
+        self._drain_community_entitlement()
+
+    def _drain_community_entitlement(self):
+        subject = self._pending_community_subject
+        if not subject or self._inflight_operation:
+            return
+        if (
+            self._activation_state != "active"
+            or self._key is None
+            or not self._device_id
+            or not self._client.configured
+        ):
+            self._pending_community_subject = ""
+            self.communityEntitlementReady.emit({
+                "ok": False,
+                "subject": subject,
+                "code": "supporter_not_active",
+                "message": "A connected, active supporter registration is required.",
+            })
+            return
+        self._pending_community_subject = ""
+        self._community_request_subject = subject
+        self._send_activation_request("community-entitlement", community_subject=subject)
+
     def _maybe_activate(self, force: bool = False):
         if not self._started or not self._enforce_activation or self._key is None or not self._device_id or self._inflight_operation:
             return
@@ -414,7 +448,7 @@ class SupporterService(QObject):
             return
         self._send_activation_request("activate")
 
-    def _send_activation_request(self, operation: str):
+    def _send_activation_request(self, operation: str, *, community_subject: str = ""):
         if self._key is None:
             return
         nonce = b64url_encode(secrets.token_bytes(32))
@@ -433,6 +467,15 @@ class SupporterService(QObject):
             "deactivate": self._client.deactivate,
             "status": self._client.status,
         }.get(operation)
+        if operation == "community-entitlement":
+            self._client.community_entitlement(
+                key_id=self._key.key_id,
+                key_proof=self._key.key_proof,
+                device_id=self._device_id,
+                nonce=nonce,
+                community_subject=community_subject,
+            )
+            return
         if sender is None:
             self._inflight_operation = ""
             return
@@ -451,12 +494,53 @@ class SupporterService(QObject):
         if operation != self._inflight_operation:
             return
         self._inflight_operation = ""
+        QTimer.singleShot(0, self._drain_community_entitlement)
         previous = self._snapshot()
         nonce = str(result.get("nonce") or "")
         status = int(result.get("http_status") or 0)
         body = result.get("body")
         network_error = str(result.get("network_error") or "")
         parse_error = str(result.get("parse_error") or "")
+
+        if operation == "community-entitlement":
+            subject = self._community_request_subject
+            self._community_request_subject = ""
+            entitlement = body.get("entitlement") if isinstance(body, dict) else None
+            verified, verify_error = verify_community_entitlement(
+                entitlement,
+                subject=subject,
+                nonce=nonce,
+                now=float(self._clock()),
+            )
+            if status == 200 and verified is not None:
+                self.communityEntitlementReady.emit({
+                    "ok": True,
+                    "subject": subject,
+                    "entitlement": entitlement,
+                })
+            else:
+                code = str(body.get("error") or "supporter_entitlement_failed") if isinstance(body, dict) else "supporter_entitlement_failed"
+                if status == 404 and code == "not_found":
+                    message = "This activation server version does not support supporter Community access yet."
+                elif code == "community_account_already_bound":
+                    message = "This supporter key is already connected to another Community account."
+                elif code == "not_eligible":
+                    message = "An active supporter registration was not found for this device."
+                elif parse_error:
+                    message = "The activation service returned an unreadable supporter verification response."
+                elif network_error or status == 0:
+                    message = "The activation service could not be reached to verify Community access."
+                elif status == 200 and verify_error:
+                    message = "The activation service returned an invalid supporter verification response."
+                else:
+                    message = "Supporter Community verification was rejected by the activation service."
+                self.communityEntitlementReady.emit({
+                    "ok": False,
+                    "subject": subject,
+                    "code": code,
+                    "message": message,
+                })
+            return
 
         if operation == "status":
             if status == 200 and isinstance(body, dict) and body.get("status") in {"active", "revoked"}:

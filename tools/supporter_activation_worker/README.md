@@ -26,9 +26,17 @@ GET  /v1/health
 POST /v1/activate
 POST /v1/status
 POST /v1/deactivate
+POST /v1/community-entitlement
 ```
 
 Requests are schema checked and size bounded. A valid first device receives a signed receipt. At startup, a matching key proof receives a signed active or revoked status bound to its device ID and fresh nonce. A valid second device receives a signed duplicate decision. Unknown IDs and wrong proofs receive a generic unsigned denial and do not increase duplicate counters.
+
+`/v1/community-entitlement` is available only to the exact active key proof and
+registered device. It binds that license to one opaque Community user ID and returns
+a 15-minute RSA-signed entitlement for the `kfps-community-v1` audience. The token
+contains an opaque random entitlement ID, Community subject, nonce, and timestamps;
+it contains no key ID, proof, receipt, purchaser identity, or device identity. The
+Community Worker never calls this service and never receives activation credentials.
 
 ## Encrypted Ko-fi Inbox
 
@@ -59,6 +67,10 @@ POST /v1/admin/kofi/ack
 ```
 
 Every admin request uses a timestamped HMAC-SHA256 signature over method, exact path/query, timestamp, unique request ID, and body hash. Mutation request IDs are stored to reject replay. License key IDs and Ko-fi event IDs stay in signed JSON bodies for mutations rather than routine request paths.
+
+The `reset_community` license mutation releases only the opaque Community account
+binding. It does not reset device registration, restore a revoked license, clear
+duplicate attempts, or expose the bound Community user ID.
 
 Use only the separate `KFPS Operations Console`. Do not expose admin routes through an unauthenticated proxy or public dashboard.
 
@@ -96,7 +108,7 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-Tests cover atomic activation claims, same-device repair, simultaneous claims, signed startup status and duplicate/revoked decisions, invalid-proof privacy, admin authentication, import/list/reset/conflict clearing, Ko-fi token rejection, encrypted-at-rest storage, duplicate webhooks, list/ack flow, and long-field encryption bounds.
+Tests cover atomic activation claims, same-device repair, simultaneous claims, signed startup status and duplicate/revoked decisions, invalid-proof privacy, short-lived Community entitlement binding/reset/tampering, admin authentication, import/list/reset/conflict clearing, Ko-fi token rejection, encrypted-at-rest storage, duplicate webhooks, list/ack flow, and long-field encryption bounds.
 
 ## Production
 

@@ -56,6 +56,11 @@ def parse_args():
     parser.add_argument("--screenshot-dir")
     parser.add_argument("--page", default="create")
     parser.add_argument("--community-tab", choices=("browse", "upload", "profile"), help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--community-scope",
+        choices=("browse", "handmade", "toolmade", "supporters", "favorites", "following", "mine"),
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--community-overlay", choices=("login", "inspector"), help=argparse.SUPPRESS)
     parser.add_argument("--width", type=int, default=1760)
     parser.add_argument("--height", type=int, default=1040)
@@ -357,6 +362,13 @@ def main():
         paths, desktop, logs, jsons=jsons, app_version=version.localVersion, demo=args.demo,
     )
     supporter = SupporterService(paths.app_root)
+    community.supporterEntitlementRequested.connect(supporter.requestCommunityEntitlement)
+    supporter.communityEntitlementReady.connect(community.applySupporterEntitlement)
+    community.supporterRepairRequested.connect(supporter.repairActivation)
+    def sync_community_supporter_state():
+        community.setLocalSupporterState(supporter.activationState, supporter.keyValid)
+    supporter.changed.connect(sync_community_supporter_state)
+    sync_community_supporter_state()
     def enforce_available_theme():
         if is_supporter_theme(settings.theme) and not supporter.unlocked:
             settings.theme = DEFAULT_THEME
@@ -420,13 +432,19 @@ def main():
     window.setWidth(args.width)
     window.setHeight(args.height)
     controller.navigate(args.page)
-    if args.page == "community" and (args.community_tab or args.community_overlay):
+    if args.page == "community" and (args.community_tab or args.community_scope or args.community_overlay):
         community_tab = {"browse": 0, "upload": 1, "profile": 2}.get(args.community_tab, 0)
+        community_scope = {
+            "browse": 0, "handmade": 1, "toolmade": 2, "supporters": 3,
+            "favorites": 4, "following": 5, "mine": 6,
+        }.get(args.community_scope)
 
         def select_community_tab(attempt=0):
             page = window.findChild(QQuickItem, "CommunityPage")
             if page is not None:
                 page.setProperty("activeTab", community_tab)
+                if community_scope is not None:
+                    community.setScopeIndex(community_scope)
                 if args.community_overlay:
                     page.setProperty("testOverlay", args.community_overlay)
             elif attempt < 20:

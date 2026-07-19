@@ -63,6 +63,26 @@ async function statusCheck(keyId: string, proof: string, device: string): Promis
   });
 }
 
+async function communityEntitlement(
+  keyId: string,
+  proof: string,
+  device: string,
+  subject: string,
+): Promise<Response> {
+  return SELF.fetch("https://activation.test/v1/community-entitlement", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      protocol: 1,
+      key_id: keyId,
+      key_proof: proof,
+      device_id: device,
+      nonce: bytesToBase64Url(randomBytes(32)),
+      community_subject: subject,
+    }),
+  });
+}
+
 function signedPayload(envelope: { payload: string }): Record<string, unknown> {
   return JSON.parse(new TextDecoder().decode(base64UrlToBytes(envelope.payload))) as Record<string, unknown>;
 }
@@ -208,6 +228,48 @@ describe("activation worker", () => {
       status: "not_eligible",
       decision: expect.objectContaining({ type: "kfps.supporter.activation-decision" }),
     }));
+  });
+
+  it("issues short-lived Community entitlements without exposing activation identity", async () => {
+    const license = await makeLicense();
+    const wrong = await makeLicense();
+    const device = deviceId("4");
+    const firstSubject = "11111111-1111-4111-8111-111111111111";
+    const secondSubject = "22222222-2222-4222-8222-222222222222";
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO licenses(key_id, signature_sha256, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+    ).bind(license.keyId, license.proofHash, now).run();
+    expect((await activate(license.keyId, license.proof, device)).status).toBe(200);
+
+    const issued = await communityEntitlement(license.keyId, license.proof, device, firstSubject);
+    expect(issued.status).toBe(200);
+    const body = await issued.json() as { entitlement: { type: string; payload: string } };
+    expect(body.entitlement.type).toBe("kfps.supporter.community-entitlement");
+    const payload = signedPayload(body.entitlement);
+    expect(payload).toMatchObject({
+      schema: "kfps.community.supporter.v1",
+      audience: "kfps-community-v1",
+      subject: firstSubject,
+    });
+    expect(payload).not.toHaveProperty("key_id");
+    expect(payload).not.toHaveProperty("device_id");
+    expect(Date.parse(String(payload.expires_at)) - Date.parse(String(payload.issued_at))).toBe(15 * 60 * 1000);
+
+    const repeated = await communityEntitlement(license.keyId, license.proof, device, firstSubject);
+    expect(repeated.status).toBe(200);
+    const repeatedPayload = signedPayload((await repeated.json() as { entitlement: { payload: string } }).entitlement);
+    expect(repeatedPayload.entitlement_id).toBe(payload.entitlement_id);
+
+    expect((await communityEntitlement(license.keyId, license.proof, device, secondSubject)).status).toBe(409);
+    expect((await communityEntitlement(license.keyId, wrong.proof, device, firstSubject)).status).toBe(403);
+
+    const resetBody = JSON.stringify({ action: "reset_community", key_id: license.keyId });
+    expect((await adminFetch("/v1/admin/licenses/mutate", "POST", resetBody)).status).toBe(200);
+    expect((await communityEntitlement(license.keyId, license.proof, device, secondSubject)).status).toBe(200);
+
+    await env.DB.prepare("UPDATE licenses SET status = 'revoked' WHERE key_id = ?1").bind(license.keyId).run();
+    expect((await communityEntitlement(license.keyId, license.proof, device, secondSubject)).status).toBe(403);
   });
 
   it("requires authenticated admin requests and supports import, conflict clearing, list, and reset", async () => {

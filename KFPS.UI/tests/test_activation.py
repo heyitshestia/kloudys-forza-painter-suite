@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 UI = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ from kfps_ui.activation_crypto import (
     verify_activation_decision,
     verify_activation_receipt,
     verify_activation_status,
+    verify_community_entitlement,
 )
 from kfps_ui.activation_storage import (
     ActivationStorageError,
@@ -91,6 +93,9 @@ class FakeClient(QObject):
 
     def status(self, **payload):
         self.requests.append(("status", payload))
+
+    def community_entitlement(self, **payload):
+        self.requests.append(("community-entitlement", payload))
 
 
 class PendingReply(QObject):
@@ -243,6 +248,97 @@ class ActivationTests(unittest.TestCase):
             self.assertIsNone(verify_activation_decision(decision, key_id=key_id, device_id=device_id, nonce="wrong")[0])
             self.assertIsNotNone(verify_activation_status(status, key_id=key_id, device_id=device_id, nonce=nonce)[0])
             self.assertIsNone(verify_activation_status(status, key_id=key_id, device_id=device_id, nonce="wrong")[0])
+
+    def test_community_entitlement_is_signed_short_lived_and_request_bound(self):
+        subject = "11111111-1111-4111-8111-111111111111"
+        nonce = b64url_encode(b"n" * 32)
+        issued = datetime.fromtimestamp(1000, timezone.utc).isoformat().replace("+00:00", "Z")
+        expires = datetime.fromtimestamp(1900, timezone.utc).isoformat().replace("+00:00", "Z")
+        envelope = sign_test_envelope("kfps.supporter.community-entitlement", {
+            "audience": "kfps-community-v1",
+            "entitlement_id": "22222222-2222-4222-8222-222222222222",
+            "expires_at": expires,
+            "issued_at": issued,
+            "nonce": nonce,
+            "schema": "kfps.community.supporter.v1",
+            "subject": subject,
+        })
+        with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
+            verified, error = verify_community_entitlement(
+                envelope, subject=subject, nonce=nonce, now=1000,
+            )
+            self.assertEqual(error, "")
+            self.assertEqual(verified["subject"], subject)
+            self.assertIsNone(verify_community_entitlement(
+                envelope, subject="33333333-3333-4333-8333-333333333333", nonce=nonce, now=1000,
+            )[0])
+            self.assertIsNone(verify_community_entitlement(
+                envelope, subject=subject, nonce=nonce, now=1901,
+            )[0])
+
+    def test_active_service_requests_only_a_signed_community_entitlement(self):
+        with tempfile.TemporaryDirectory() as td:
+            key, client, _store, service = self.make_service(Path(td), clock=lambda: 1000.0)
+            service._activation_state = "active"
+            service._access_allowed = True
+            subject = "11111111-1111-4111-8111-111111111111"
+            received = []
+            service.communityEntitlementReady.connect(received.append)
+            service.requestCommunityEntitlement(subject)
+            self.assertTrue(wait_for_request(client))
+            operation, request = client.requests[-1]
+            self.assertEqual(operation, "community-entitlement")
+            self.assertEqual(request["community_subject"], subject)
+            self.assertEqual(request["key_id"], key.key_id)
+            entitlement = sign_test_envelope("kfps.supporter.community-entitlement", {
+                "audience": "kfps-community-v1",
+                "entitlement_id": "22222222-2222-4222-8222-222222222222",
+                "expires_at": datetime.fromtimestamp(1900, timezone.utc).isoformat().replace("+00:00", "Z"),
+                "issued_at": datetime.fromtimestamp(1000, timezone.utc).isoformat().replace("+00:00", "Z"),
+                "nonce": request["nonce"],
+                "schema": "kfps.community.supporter.v1",
+                "subject": subject,
+            })
+            with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
+                client.completed.emit({
+                    "operation": operation,
+                    "nonce": request["nonce"],
+                    "http_status": 200,
+                    "network_error": "",
+                    "parse_error": "",
+                    "body": {"status": "active", "entitlement": entitlement},
+                })
+            self.assertTrue(received)
+            self.assertTrue(received[-1]["ok"])
+            self.assertEqual(received[-1]["subject"], subject)
+            payload = json.loads(activation_crypto.b64url_decode(entitlement["payload"]).decode("utf-8"))
+            self.assertNotIn("key_id", payload)
+            self.assertNotIn("device_id", payload)
+
+    def test_missing_community_entitlement_route_has_a_clear_message(self):
+        with tempfile.TemporaryDirectory() as td:
+            _key, client, _store, service = self.make_service(Path(td), clock=lambda: 1000.0)
+            service._activation_state = "active"
+            service._access_allowed = True
+            subject = "11111111-1111-4111-8111-111111111111"
+            received = []
+            service.communityEntitlementReady.connect(received.append)
+            service.requestCommunityEntitlement(subject)
+            self.assertTrue(wait_for_request(client))
+            operation, request = client.requests[-1]
+            client.completed.emit({
+                "operation": operation,
+                "nonce": request["nonce"],
+                "http_status": 404,
+                "network_error": "",
+                "parse_error": "",
+                "body": {"error": "not_found"},
+            })
+            self.assertTrue(received)
+            self.assertFalse(received[-1]["ok"])
+            self.assertEqual(received[-1]["code"], "not_found")
+            self.assertIn("does not support supporter Community access yet", received[-1]["message"])
+            self.assertNotIn("Signed activation response", received[-1]["message"])
 
     def test_service_registers_silently_and_accepts_a_signed_receipt(self):
         with tempfile.TemporaryDirectory() as td:

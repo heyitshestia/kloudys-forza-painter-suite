@@ -46,7 +46,22 @@ class ActivationClient(QObject):
     def status(self, *, key_id: str, key_proof: str, device_id: str, nonce: str):
         self._send("status", key_id=key_id, key_proof=key_proof, device_id=device_id, nonce=nonce)
 
-    def _send(self, operation: str, *, key_id: str, key_proof: str, device_id: str, nonce: str):
+    def community_entitlement(
+        self, *, key_id: str, key_proof: str, device_id: str, nonce: str, community_subject: str,
+    ):
+        self._send(
+            "community-entitlement",
+            key_id=key_id,
+            key_proof=key_proof,
+            device_id=device_id,
+            nonce=nonce,
+            community_subject=community_subject,
+        )
+
+    def _send(
+        self, operation: str, *, key_id: str, key_proof: str, device_id: str, nonce: str,
+        community_subject: str = "",
+    ):
         if not self.configured:
             self.completed.emit({
                 "operation": operation,
@@ -62,13 +77,16 @@ class ActivationClient(QObject):
         request.setRawHeader(b"Cache-Control", b"no-store")
         request.setAttribute(QNetworkRequest.RedirectPolicyAttribute, QNetworkRequest.ManualRedirectPolicy)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
-        payload = json.dumps({
+        payload_data = {
             "protocol": PROTOCOL_VERSION,
             "key_id": key_id,
             "key_proof": key_proof,
             "device_id": device_id,
             "nonce": nonce,
-        }, separators=(",", ":")).encode("utf-8")
+        }
+        if operation == "community-entitlement":
+            payload_data["community_subject"] = community_subject
+        payload = json.dumps(payload_data, separators=(",", ":")).encode("utf-8")
         reply = self._manager.post(request, QByteArray(payload))
         self._contexts[reply] = {"operation": operation, "nonce": nonce}
         reply.finished.connect(lambda current=reply: self._finished(current))

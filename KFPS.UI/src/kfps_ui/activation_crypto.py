@@ -4,6 +4,9 @@ import base64
 import hashlib
 import hmac
 import json
+import re
+import time
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -230,4 +233,58 @@ def verify_activation_status(
         return None, "Activation status is not recognized."
     if not isinstance(payload.get("checked_at"), str):
         return None, "Activation status is missing its check time."
+    return payload, ""
+
+
+def _iso_timestamp(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def verify_community_entitlement(
+    envelope: object,
+    *,
+    subject: str,
+    nonce: str,
+    now: float | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    payload, error = _signed_payload(
+        envelope,
+        expected_type="kfps.supporter.community-entitlement",
+        expected_schema="kfps.community.supporter.v1",
+    )
+    if payload is None:
+        return None, error
+    expected_keys = {
+        "audience", "entitlement_id", "expires_at", "issued_at", "nonce", "schema", "subject",
+    }
+    if set(payload) != expected_keys:
+        return None, "Supporter Community entitlement fields are invalid."
+    if payload.get("audience") != "kfps-community-v1":
+        return None, "Supporter Community entitlement audience is invalid."
+    if payload.get("subject") != subject or payload.get("nonce") != nonce:
+        return None, "Supporter Community entitlement does not match this request."
+    entitlement_id = payload.get("entitlement_id")
+    if not isinstance(entitlement_id, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+        entitlement_id,
+    ):
+        return None, "Supporter Community entitlement identity is invalid."
+    issued_at = _iso_timestamp(payload.get("issued_at"))
+    expires_at = _iso_timestamp(payload.get("expires_at"))
+    current = time.time() if now is None else float(now)
+    if (
+        issued_at is None
+        or expires_at is None
+        or issued_at > current + 120
+        or issued_at < current - 1800
+        or expires_at <= current
+        or expires_at <= issued_at
+        or expires_at - issued_at > 16 * 60
+    ):
+        return None, "Supporter Community entitlement time window is invalid."
     return payload, ""

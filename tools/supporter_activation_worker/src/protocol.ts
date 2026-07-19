@@ -142,6 +142,26 @@ export async function signStatus(
   });
 }
 
+export async function signCommunityEntitlement(
+  privateKeyPem: string,
+  kid: string,
+  subject: string,
+  entitlementId: string,
+  nonce: string,
+  issuedAt: string,
+  expiresAt: string,
+): Promise<SignedEnvelope> {
+  return signEnvelope(privateKeyPem, kid, "kfps.supporter.community-entitlement", {
+    audience: "kfps-community-v1",
+    entitlement_id: entitlementId,
+    expires_at: expiresAt,
+    issued_at: issuedAt,
+    nonce,
+    schema: "kfps.community.supporter.v1",
+    subject,
+  });
+}
+
 export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;

@@ -1,6 +1,13 @@
 import { authenticateAdmin } from "./admin_auth";
 import { encryptKofiEvent, parseKofiPayload, validKofiToken } from "./kofi_inbox";
-import { base64UrlToBytes, sha256Hex, signDecision, signReceipt, signStatus } from "./protocol";
+import {
+  base64UrlToBytes,
+  sha256Hex,
+  signCommunityEntitlement,
+  signDecision,
+  signReceipt,
+  signStatus,
+} from "./protocol";
 
 export interface Env {
   DB: D1Database;
@@ -19,6 +26,10 @@ interface ActivationRequest {
   nonce: string;
 }
 
+interface CommunityEntitlementRequest extends ActivationRequest {
+  community_subject: string;
+}
+
 interface LicenseRow {
   key_id: string;
   signature_sha256: string;
@@ -30,11 +41,14 @@ interface LicenseRow {
   last_conflict_at: string | null;
   reset_count: number;
   last_reset_at: string | null;
+  community_subject_hash: string | null;
+  community_entitlement_id: string | null;
+  community_bound_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-type AdminLicenseAction = "reset" | "revoke" | "restore" | "clear_conflicts";
+type AdminLicenseAction = "reset" | "revoke" | "restore" | "clear_conflicts" | "reset_community";
 
 const JSON_HEADERS = {
   "Cache-Control": "no-store",
@@ -45,6 +59,7 @@ const MAX_PUBLIC_BODY = 8192;
 const MAX_ADMIN_BODY = 256 * 1024;
 const MAX_KOFI_BODY = 64 * 1024;
 const HEX_64 = /^[0-9a-f]{64}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -79,6 +94,25 @@ function parseActivationRequest(raw: string): ActivationRequest {
   const nonce = base64UrlToBytes(value.nonce);
   if (proof.length !== 384 || nonce.length < 16 || nonce.length > 64) throw new Error("invalid proof or nonce length");
   return value as unknown as ActivationRequest;
+}
+
+function parseCommunityEntitlementRequest(raw: string): CommunityEntitlementRequest {
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request");
+  if (!hasExactKeys(value, ["protocol", "key_id", "key_proof", "device_id", "nonce", "community_subject"])) {
+    throw new Error("invalid fields");
+  }
+  const activation = parseActivationRequest(JSON.stringify({
+    protocol: value.protocol,
+    key_id: value.key_id,
+    key_proof: value.key_proof,
+    device_id: value.device_id,
+    nonce: value.nonce,
+  }));
+  if (typeof value.community_subject !== "string" || !UUID.test(value.community_subject)) {
+    throw new Error("invalid community subject");
+  }
+  return { ...activation, community_subject: value.community_subject };
 }
 
 async function signedDecision(
@@ -223,6 +257,74 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
   return jsonResponse({ status, decision });
 }
 
+async function handleCommunityEntitlement(request: Request, env: Env): Promise<Response> {
+  if ((request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+    return errorResponse(415, "content_type_required");
+  }
+  let entitlementRequest: CommunityEntitlementRequest;
+  try {
+    entitlementRequest = parseCommunityEntitlementRequest(await readBody(request, MAX_PUBLIC_BODY));
+  } catch {
+    return errorResponse(400, "invalid_request");
+  }
+
+  const proofHash = await sha256Hex(base64UrlToBytes(entitlementRequest.key_proof));
+  const subjectHash = await sha256Hex(new TextEncoder().encode(
+    `kfps-community-v1\0${entitlementRequest.community_subject}`,
+  ));
+  const now = new Date();
+  const issuedAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  const proposedEntitlementId = crypto.randomUUID();
+  const claimed = await env.DB.prepare(
+    `UPDATE licenses
+        SET community_subject_hash = COALESCE(community_subject_hash, ?4),
+            community_entitlement_id = COALESCE(community_entitlement_id, ?5),
+            community_bound_at = COALESCE(community_bound_at, ?6),
+            updated_at = ?6
+      WHERE key_id = ?1
+        AND signature_sha256 = ?2
+        AND status = 'active'
+        AND device_id = ?3
+        AND activated_at IS NOT NULL
+        AND (community_subject_hash IS NULL OR community_subject_hash = ?4)
+      RETURNING community_entitlement_id`,
+  ).bind(
+    entitlementRequest.key_id,
+    proofHash,
+    entitlementRequest.device_id,
+    subjectHash,
+    proposedEntitlementId,
+    issuedAt,
+  ).first<{ community_entitlement_id: string }>();
+
+  if (!claimed?.community_entitlement_id) {
+    const validLicense = await env.DB.prepare(
+      `SELECT community_subject_hash FROM licenses
+        WHERE key_id = ?1 AND signature_sha256 = ?2 AND status = 'active'
+          AND device_id = ?3 AND activated_at IS NOT NULL LIMIT 1`,
+    ).bind(
+      entitlementRequest.key_id,
+      proofHash,
+      entitlementRequest.device_id,
+    ).first<{ community_subject_hash: string | null }>();
+    return validLicense
+      ? errorResponse(409, "community_account_already_bound")
+      : errorResponse(403, "not_eligible");
+  }
+
+  const entitlement = await signCommunityEntitlement(
+    env.ACTIVATION_PRIVATE_KEY_PEM,
+    env.ACTIVATION_KEY_ID,
+    entitlementRequest.community_subject,
+    claimed.community_entitlement_id,
+    entitlementRequest.nonce,
+    issuedAt,
+    expiresAt,
+  );
+  return jsonResponse({ status: "active", entitlement });
+}
+
 async function handleKofiWebhook(request: Request, env: Env): Promise<Response> {
   const contentType = (request.headers.get("content-type") || "").toLowerCase();
   if (!contentType.includes("application/x-www-form-urlencoded") && !contentType.includes("application/json")) {
@@ -273,6 +375,8 @@ function publicLicense(row: LicenseRow): Record<string, unknown> {
     last_conflict_at: row.last_conflict_at,
     reset_count: row.reset_count,
     last_reset_at: row.last_reset_at,
+    community_bound: Boolean(row.community_subject_hash && row.community_entitlement_id),
+    community_bound_at: row.community_bound_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -417,6 +521,15 @@ async function handleAdminMutation(
               updated_at = ?2
         WHERE key_id = ?1`,
     ).bind(keyId, now);
+  } else if (action === "reset_community") {
+    statement = env.DB.prepare(
+      `UPDATE licenses
+          SET community_subject_hash = NULL,
+              community_entitlement_id = NULL,
+              community_bound_at = NULL,
+              updated_at = ?2
+        WHERE key_id = ?1`,
+    ).bind(keyId, now);
   } else {
     statement = env.DB.prepare(
       "UPDATE licenses SET status = ?2, updated_at = ?3 WHERE key_id = ?1",
@@ -440,7 +553,7 @@ async function handleAdminMutationRequest(env: Env, rawBody: string, requestId: 
     || !hasExactKeys(payload, ["action", "key_id"])
     || typeof payload.key_id !== "string"
     || !HEX_64.test(payload.key_id)
-    || !["reset", "revoke", "restore", "clear_conflicts"].includes(String(payload.action))
+    || !["reset", "revoke", "restore", "clear_conflicts", "reset_community"].includes(String(payload.action))
   ) {
     return errorResponse(400, "invalid_request");
   }
@@ -482,6 +595,9 @@ export default {
     try {
       if (request.method === "POST" && url.pathname === "/v1/activate") return await handleActivate(request, env);
       if (request.method === "POST" && url.pathname === "/v1/status") return await handleStatus(request, env);
+      if (request.method === "POST" && url.pathname === "/v1/community-entitlement") {
+        return await handleCommunityEntitlement(request, env);
+      }
       if (request.method === "POST" && url.pathname === "/v1/deactivate") return await handleDeactivate(request, env);
       if (request.method === "POST" && url.pathname === "/v1/kofi/webhook") return await handleKofiWebhook(request, env);
       if (url.pathname.startsWith("/v1/admin/")) return await handleAdmin(request, env, url.pathname);

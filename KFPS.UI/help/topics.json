@@ -46,10 +46,11 @@
       "category": "community",
       "title": "Browse and download community vinyls",
       "summary": "Search the shared catalog, inspect a full preview, and save a compatible JSON to your local library.",
-      "keywords": ["community", "browse", "catalog", "download", "creator", "favorite", "github", "preview"],
+      "keywords": ["community", "browse", "catalog", "download", "creator", "favorite", "github", "preview", "supporter", "supporters"],
       "steps": [
         "Open Community. Browsing, searching, filtering, creator pages, and previews work without an account.",
         "Use the category, game, and sort menus to narrow the catalog. Search matches artwork titles, tags, and creator names.",
+        "Open Supporters to browse vinyls shared only with verified KFPS supporters. The tab stays visible without a key and shows how to unlock supporter vinyl sharing.",
         "Select a tile to read its details. Double-click the tile or preview to open the large inspector, then zoom or use the arrow buttons to move between results.",
         "Connect your GitHub identity, then select Download to Library. KFPS validates the file before placing it in the local community download folder.",
         "Open Outputs and choose the relevant library source when you are ready to inspect, edit, or import the downloaded JSON.",
@@ -58,6 +59,7 @@
       "sections": [
         {"heading": "Use at your own risk", "body": "Catalog availability is not approval by Turn 10 Studios, Playground Games, Microsoft, or the Forza enforcement team. Community content is not classified against current game rules. You are responsible for what you download, import, publish, or display."},
         {"heading": "Accounts and usernames", "body": "GitHub establishes a stable identity. Your separate public Community username is chosen once and cannot be changed. KFPS shows the exact spelling and capitalization on a second confirmation screen before sending the claim."},
+        {"heading": "Supporter vinyl sharing", "body": "Supporter-only listings are visible and downloadable only after an active supporter key is connected to your signed-in Community profile. The activation service sends the Community service a short-lived signed entitlement; supporter keys, receipts, purchaser details, and device identity are not shared with the Community service."},
         {"heading": "Reports", "body": "Sign in, select somebody else's listing, and choose Report in the artwork detail view. Choose the closest reason and add useful context. Reports stay private and visibly flag the listing in the administrator's review console."},
         {"heading": "Compatibility labels", "body": "KFPS reads the JSON format and any embedded game origin. Recognized formats show their detected label. An unrecognized label means the shape list passed structural checks, but KFPS cannot promise that every part will import correctly."}
       ],
@@ -78,6 +80,7 @@
         "Open Community, connect your GitHub identity, and choose your permanent Community username if this is your first upload. Review it, then confirm the exact spelling and capitalization on the second screen.",
         "Open Upload, choose Generated finals, Editor exports, Game exports, or Library, then select a JSON tile. Use Import JSON File when the file is somewhere else. KFPS renders the preview from that JSON; it does not upload a source image.",
         "Check the detected JSON format and game origin, then add a short title, useful description, category, and searchable tags. You do not choose a game manually.",
+        "Choose Handmade or Toolmade, then choose Everyone or Supporters as the audience. Supporters requires verified supporter access. Classification and audience cannot be changed after publication, including through a revision.",
         "If KFPS marks a structurally valid format as unrecognized, read and accept the compatibility warning before publishing. Files without a usable shape list are rejected.",
         "Confirm that you made the artwork or have permission to share it, then publish it.",
         "Use My uploads to track published, rejected, or removed work. A server configured for manual review may also show pending work.",
@@ -88,6 +91,7 @@
         {"heading": "What leaves this computer", "body": "The service receives a sanitized KFPS design, a full rendered preview, a compact thumbnail, and the public listing fields you enter. Local paths, source images, generator reports, settings, supporter data, and arbitrary JSON metadata are removed or rejected."},
         {"heading": "Supported formats", "body": "KFPS recognizes its primitive JSONs, canonical Community JSON, FH5/FH6/FM8 live type-code exports, local save-library exports, decoded Forza file exports, flat C_group JSON, and converted Forza Designer 6 files. FD6 files are converted in a private runtime copy for preview and upload; the selected original is not changed."},
         {"heading": "Validation and reports", "body": "The service checks structure, size, shape values, previews, hashes, and duplicates before publishing. These checks cannot judge ownership or artwork content. Signed-in users can privately report a listing, which highlights it for administrator review."},
+        {"heading": "Audience", "body": "Everyone listings appear in the public catalog. Supporters listings use the same Handmade or Toolmade classification but stay in the protected supporter catalog. A revision may replace the design and update normal listing details, but it cannot move an existing listing into or out of supporter-only sharing."},
         {"heading": "Ownership", "body": "Only upload work you created or have permission to distribute. Removing a listing stops normal catalog access but cannot recall copies that other users already downloaded."}
       ],
       "pitfalls": [

@@ -13,6 +13,7 @@ Item {
     property int activeTab: 0
     property bool revisionMode: false
     property string uploadClassification: ""
+    property bool uploadSupporterOnly: false
     property string lastUploadPath: ""
     property string pendingUploadPath: ""
     property string profileLoadedFor: ""
@@ -20,7 +21,11 @@ Item {
     property string testOverlay: ""
     readonly property bool wide: Theme.logical(width) >= 1040
     readonly property bool compactHeight: Theme.logical(height) < 720
+    readonly property bool supporterCatalogLocked: communityService.selectedScopeIndex === 3
+                                                   && !communityService.supporterAccess
+    readonly property bool activeSupporterKey: communityService.supporterKeyConnected
     readonly property bool headerAlignmentAvailable: root.activeTab === 0 && root.wide
+                                                     && !root.supporterCatalogLocked
                                                      && browsePanel.width > 0 && detailPanel.width > 0
     readonly property real headerSourceCenterX: browsePanel.x + browsePanel.width / 2
     readonly property real headerPreviewCenterX: detailPanel.x + detailPanel.width / 2
@@ -39,8 +44,10 @@ Item {
             root.pendingUploadPath = communityService.uploadPath
             uploadTitle.text = communityService.uploadName
             compatibilityConfirmation.checked = false
-            if (!root.revisionMode)
+            if (!root.revisionMode) {
                 root.uploadClassification = ""
+                root.uploadSupporterOnly = false
+            }
         }
     }
 
@@ -78,6 +85,7 @@ Item {
         uploadDescription.text = String(selected.description || "")
         uploadTags.text = String(selected.tagsText || "")
         root.uploadClassification = String(selected.classification || "toolmade")
+        root.uploadSupporterOnly = Boolean(selected.supporterOnly)
         var categoryIndex = uploadCategory.find(String(selected.category || "Other"))
         uploadCategory.currentIndex = categoryIndex >= 0 ? categoryIndex : 1
         var licenseIndex = communityService.licenses.indexOf(String(selected.license || ""))
@@ -275,6 +283,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.preferredWidth: root.wide ? Theme.px(760) : -1
+                        Layout.columnSpan: root.wide && root.supporterCatalogLocked ? 2 : 1
                         strong: true
 
                         ColumnLayout {
@@ -285,6 +294,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(8)
+                                visible: !root.supporterCatalogLocked
 
                                 KfpsTextField {
                                     id: searchField
@@ -338,12 +348,15 @@ Item {
                                         dense: true
                                         text: modelData
                                         accentText: communityService.selectedScopeIndex === index
-                                        enabled: index < 3 || communityService.authenticated
+                                        enabled: index < 4 || communityService.authenticated
                                         toolTipText: index === 0 ? "Show all published community artwork."
                                                       : index === 1 ? "Show only artwork classified as Handmade."
                                                       : index === 2 ? "Show only artwork classified as Toolmade."
-                                                      : index === 3 ? "Show artwork you marked as a favorite."
-                                                      : index === 4 ? "Show artwork from creators you follow."
+                                                      : index === 3 ? (communityService.supporterAccess
+                                                                     ? "Show artwork shared only with verified KFPS supporters."
+                                                                     : "Open supporter vinyl sharing and access options.")
+                                                      : index === 4 ? "Show artwork you marked as a favorite."
+                                                      : index === 5 ? "Show artwork from creators you follow."
                                                                     : "Show your uploads and publication status."
                                         onClicked: communityService.setScopeIndex(index)
                                     }
@@ -386,6 +399,7 @@ Item {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
+                                    visible: !root.supporterCatalogLocked
                                     text: communityService.resultSummary
                                     color: Theme.subtle
                                     font.family: Theme.fontFamily
@@ -408,7 +422,8 @@ Item {
                                     id: artworkGrid
                                     anchors.fill: parent
                                     clip: true
-                                    model: communityService.artworkModel
+                                    visible: !root.supporterCatalogLocked
+                                    model: root.supporterCatalogLocked ? null : communityService.artworkModel
                                     property int columns: width >= Theme.px(790) ? 2 : 1
                                     cellWidth: Math.max(1, width / columns)
                                     cellHeight: Theme.px(root.compactHeight ? 146 : 166)
@@ -431,6 +446,7 @@ Item {
                                         required property int downloads
                                         required property int favorites
                                         required property bool featured
+                                        required property bool supporterOnly
                                         required property string statusLabel
 
                                         width: artworkGrid.cellWidth - Theme.px(7)
@@ -447,6 +463,7 @@ Item {
                                         cardDownloads: downloads
                                         cardFavorites: favorites
                                         cardFeatured: featured
+                                        cardSupporterOnly: supporterOnly
                                         cardStatusLabel: statusLabel
                                         cardSelected: communityService.selectedIndex === index
                                         onClicked: communityService.selectArtwork(index)
@@ -457,17 +474,119 @@ Item {
                                 }
 
                                 EmptyState {
-                                    visible: communityService.artworkModel.count === 0 && !communityService.busy
+                                    visible: !root.supporterCatalogLocked
+                                             && communityService.artworkModel.count === 0
+                                             && !communityService.busy
                                     anchors.centerIn: parent
                                     iconName: "json"
                                     title: "No matching artwork"
                                     message: "Try another search, filter, or personal view."
+                                }
+
+                                Item {
+                                    anchors.fill: parent
+                                    visible: root.supporterCatalogLocked
+
+                                    Column {
+                                        width: Math.min(Theme.px(590), parent.width - Theme.px(48))
+                                        anchors.centerIn: parent
+                                        spacing: Theme.px(11)
+
+                                        Icon {
+                                            name: "heart"
+                                            iconSize: Theme.px(root.compactHeight ? 42 : 54)
+                                            glow: true
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: !communityService.supporterKeyAvailable
+                                                  ? "Get access to supporter vinyl sharing"
+                                                  : !root.activeSupporterKey
+                                                    ? "Connect your supporter key"
+                                                    : !communityService.authenticated
+                                                      ? "Connect to the supporter catalog"
+                                                      : "Confirming supporter access"
+                                            color: Theme.text
+                                            font.family: Theme.displayFamily
+                                            font.pixelSize: Theme.px(root.compactHeight ? 19 : 23)
+                                            font.weight: Font.Bold
+                                            horizontalAlignment: Text.AlignHCenter
+                                            wrapMode: Text.Wrap
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: !communityService.supporterKeyAvailable
+                                                  ? "Share your best vinyls with other supporters, and browse artwork creators have chosen to keep within the supporter community."
+                                                  : !root.activeSupporterKey
+                                                    ? "This catalog needs a connected supporter key so access can be verified securely."
+                                                    : !communityService.authenticated
+                                                      ? "Sign in with GitHub to connect supporter access to your Community profile."
+                                                      : "KFPS is checking this supporter registration before loading the private catalog."
+                                            color: Theme.muted
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(root.compactHeight ? 10.8 : 12)
+                                            horizontalAlignment: Text.AlignHCenter
+                                            wrapMode: Text.Wrap
+                                            lineHeight: 1.08
+                                        }
+
+                                        PrimaryButton {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            iconName: !communityService.supporterKeyAvailable ? "heart" : "external"
+                                            showArrow: true
+                                            text: !communityService.supporterKeyAvailable
+                                                  ? "Get a Supporter Key"
+                                                  : !root.activeSupporterKey
+                                                    ? "Check Supporter Key"
+                                                    : !communityService.authenticated
+                                                      ? "Connect Community Account"
+                                                      : "Check Supporter Access"
+                                            enabled: true
+                                            toolTipText: !communityService.supporterKeyAvailable
+                                                         ? "Open the KFPS supporter-key page on Ko-fi."
+                                                         : !root.activeSupporterKey
+                                                           ? "Retry supporter-key activation."
+                                                           : !communityService.authenticated
+                                                             ? "Connect your GitHub identity to the Community library."
+                                                             : "Request a fresh supporter Community verification."
+                                            onClicked: {
+                                                if (!communityService.supporterKeyAvailable)
+                                                    desktop.openUrl("https://ko-fi.com/s/2d1507698d")
+                                                else if (!root.activeSupporterKey)
+                                                    communityService.repairSupporterAccess()
+                                                else if (!communityService.authenticated)
+                                                    root.openLogin()
+                                                else
+                                                    communityService.refreshSupporterEntitlement()
+                                            }
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: !communityService.supporterKeyAvailable
+                                                  ? "A supporter key unlocks this catalog and the other KFPS supporter features."
+                                                  : !root.activeSupporterKey
+                                                    ? communityService.supporterStatus
+                                                    : communityService.supporterStatus
+                                            color: Theme.subtle
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(9.5)
+                                            horizontalAlignment: Text.AlignHCenter
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                        }
+                                    }
                                 }
                             }
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(8)
+                                visible: !root.supporterCatalogLocked
 
                                 GhostButton {
                                     dense: true
@@ -503,6 +622,7 @@ Item {
 
                     GlassPanel {
                         id: detailPanel
+                        visible: !root.supporterCatalogLocked
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.preferredWidth: root.wide ? Theme.px(400) : -1
@@ -600,7 +720,8 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                                            text: (Boolean(communityService.selectedArtwork.supporterOnly) ? "Supporters | " : "")
+                                                  + String(communityService.selectedArtwork.classificationLabel || "Toolmade")
                                                   + " | " + String(communityService.selectedArtwork.category || "Other")
                                                   + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
                                             color: Theme.muted
@@ -1126,6 +1247,7 @@ Item {
                                         onClicked: {
                                             root.revisionMode = false
                                             root.uploadClassification = ""
+                                            root.uploadSupporterOnly = false
                                         }
                                     }
                                 }
@@ -1288,6 +1410,36 @@ Item {
                                     }
                                 }
 
+                                Label { text: "Audience" }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.px(8)
+
+                                    GhostButton {
+                                        Layout.fillWidth: true
+                                        text: "Everyone"
+                                        accentText: !root.uploadSupporterOnly
+                                        enabled: !root.revisionMode
+                                        toolTipText: root.revisionMode
+                                                     ? "Audience is fixed after the first upload."
+                                                     : "Publish this artwork in the public Community browser."
+                                        onClicked: root.uploadSupporterOnly = false
+                                    }
+
+                                    GhostButton {
+                                        Layout.fillWidth: true
+                                        text: "Supporters"
+                                        accentText: root.uploadSupporterOnly
+                                        enabled: !root.revisionMode && communityService.supporterAccess
+                                        toolTipText: root.revisionMode
+                                                     ? "Audience is fixed after the first upload."
+                                                     : communityService.supporterAccess
+                                                       ? "Share this artwork only with currently verified KFPS supporters."
+                                                       : communityService.supporterStatus
+                                        onClicked: root.uploadSupporterOnly = true
+                                    }
+                                }
+
                                 ColumnLayout {
                                     visible: communityService.uploadCompatibilityConfirmationRequired
                                     Layout.fillWidth: true
@@ -1350,6 +1502,7 @@ Item {
                                              && uploadTitle.text.trim().length > 0
                                              && uploadCategory.currentIndex > 0
                                              && root.uploadClassification.length > 0
+                                             && (!root.uploadSupporterOnly || communityService.supporterAccess)
                                              && rightsConfirmation.checked
                                              && (communityService.uploadSchemaKnown || compatibilityConfirmation.checked)
                                              && (!root.revisionMode || (communityService.selectedOwned && revisionNote.text.trim().length > 0))
@@ -1361,12 +1514,12 @@ Item {
                                         if (root.revisionMode) {
                                             communityService.submitRevision(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
-                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), rightsConfirmation.checked,
+                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), root.uploadSupporterOnly, rightsConfirmation.checked,
                                                 compatibilityConfirmation.checked, revisionNote.text)
                                         } else {
                                             communityService.submitUpload(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
-                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), rightsConfirmation.checked,
+                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), root.uploadSupporterOnly, rightsConfirmation.checked,
                                                 compatibilityConfirmation.checked)
                                         }
                                     }
@@ -1473,6 +1626,16 @@ Item {
                                             color: Theme.subtle
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(9.7)
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: communityService.supporterStatus
+                                            color: communityService.supporterAccess ? Theme.success : Theme.muted
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(9.4)
+                                            font.weight: communityService.supporterAccess ? Font.DemiBold : Font.Normal
+                                            elide: Text.ElideRight
                                         }
                                     }
 
@@ -1594,7 +1757,7 @@ Item {
                                     toolTipText: "Browse your uploads and their publication status."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(5)
+                                        communityService.setScopeIndex(6)
                                     }
                                 }
 
@@ -1605,7 +1768,7 @@ Item {
                                     toolTipText: "Browse artwork you saved as a favorite."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(3)
+                                        communityService.setScopeIndex(4)
                                     }
                                 }
 
@@ -1616,7 +1779,7 @@ Item {
                                     toolTipText: "Browse recent artwork from creators you follow."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(4)
+                                        communityService.setScopeIndex(5)
                                     }
                                 }
 
@@ -2192,7 +2355,8 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                            text: (Boolean(communityService.selectedArtwork.supporterOnly) ? "Supporters | " : "")
+                                  + String(communityService.selectedArtwork.classificationLabel || "Toolmade")
                                   + " | " + String(communityService.selectedArtwork.category || "Other")
                                   + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
                             color: Theme.muted

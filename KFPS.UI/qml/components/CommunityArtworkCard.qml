@@ -18,6 +18,7 @@ Item {
     property int cardDownloads: 0
     property int cardFavorites: 0
     property bool cardFeatured: false
+    property bool cardSupporterOnly: false
     property bool cardSelected: false
     property string cardStatusLabel: "Published"
     signal clicked()
@@ -95,6 +96,29 @@ Item {
                         color: Theme.primaryText
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(8.6)
+                        font.weight: Font.Bold
+                    }
+                }
+
+                Rectangle {
+                    visible: root.cardSupporterOnly
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.px(6)
+                    width: supporterText.implicitWidth + Theme.px(14)
+                    height: Theme.px(22)
+                    radius: Theme.px(5)
+                    color: Theme.surfaceStrong
+                    border.width: Math.max(1, Theme.px(1))
+                    border.color: Theme.primaryBright
+
+                    Text {
+                        id: supporterText
+                        anchors.centerIn: parent
+                        text: "SUPPORTERS"
+                        color: Theme.primaryBright
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(8.3)
                         font.weight: Font.Bold
                     }
                 }

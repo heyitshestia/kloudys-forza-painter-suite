@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.82
+- Added a Supporters catalog and supporter-only upload audience to Community, while keeping the tab visible with a clear supporter-key offer for everyone.
+- Added short-lived signed Community entitlements so supporter keys and activation receipts remain isolated from the Community service.
+- Added owner controls for resetting a key's Community-account binding and immediate access removal when local supporter status becomes inactive.
+- Synchronized the Community upload-version floor against the official repository VERSION, including scheduled checks and safe refreshes prompted by newer clients without trusting uploader-provided versions.
+
 ## 3.0.81
 - Added mandatory Handmade or Toolmade classification for new Community uploads, with dedicated browse filters and classification-aware search.
 - Added classification labels to artwork tiles and details while preserving Browse as the complete catalog view.
