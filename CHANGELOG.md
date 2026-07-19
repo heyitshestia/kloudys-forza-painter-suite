@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.80
+- Fixed KFPS primitive ellipse previews so generated and Community JSON artwork renders at the intended size instead of as separated half-size shapes.
+- Kept rectangle primitives and Forza type-code shape previews unchanged, with focused regression coverage for both rendering paths.
+
 ## 3.0.79
 - Fixed Community uploads for very wide or tall vinyls by centering generated thumbnails on transparent square canvases that meet the server's preview limits.
 

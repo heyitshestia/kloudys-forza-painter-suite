@@ -507,8 +507,10 @@ def _compensated_ellipse_size(width: float, height: float) -> tuple[float, float
     return max(1.0, width * uniform_scale), max(1.0, height * uniform_scale * major_axis_scale)
 
 
-def _ellipse_points(cx: float, cy: float, width: float, height: float, rot_deg: float, steps: int = 48) -> list[tuple[float, float]]:
-    rx, ry = _compensated_ellipse_size(width / 2.0, height / 2.0)
+def _ellipse_points(cx: float, cy: float, radius_x: float, radius_y: float, rot_deg: float, steps: int = 48) -> list[tuple[float, float]]:
+    # Legacy KFPS primitive types 8/16 store ellipse radii. Rectangle types
+    # 1/2 use full dimensions and are handled separately by _rect_points.
+    rx, ry = _compensated_ellipse_size(radius_x, radius_y)
     rot = math.radians(rot_deg)
     cos_r = math.cos(rot)
     sin_r = math.sin(rot)
