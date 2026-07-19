@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .forza_source_decoder import DecodeError, decode_forza_source
+    from .forza_source_decoder import DecodeError, decode_forza_source, probe_forza_source_kind
 except ImportError:  # pragma: no cover - direct script execution fallback
-    from forza_source_decoder import DecodeError, decode_forza_source
+    from forza_source_decoder import DecodeError, decode_forza_source, probe_forza_source_kind
 
 
 SOURCE_NAMES = {"c_group", "c_livery"}
@@ -44,7 +44,7 @@ def is_fh5_layer_group_candidate(path: Path) -> bool:
         return True
     if name.endswith(".c_group"):
         return True
-    return False
+    return probe_forza_source_kind(path) == "cgroup"
 
 
 def is_source_candidate(path: Path, game: str) -> bool:

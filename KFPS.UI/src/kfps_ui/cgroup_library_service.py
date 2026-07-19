@@ -515,6 +515,7 @@ class CGroupLibraryService(QObject):
         self._flatten_legacy_game_library_roots(library_root)
         exported: list[str] = []
         active_entry_names: set[str] = set()
+        active_source_keys: set[str] = set()
         skipped = 0
         ignored_other_creators = 0
         fm8_grouped_sources = 0
@@ -570,6 +571,7 @@ class CGroupLibraryService(QObject):
                 source_key_text = str(source_path.resolve())
             except OSError:
                 source_key_text = str(source_path)
+            active_source_keys.add(self._source_path_key(source_path))
             source_key = hashlib.sha1(source_key_text.encode("utf-8", errors="ignore")).hexdigest()[:8]
             entry_name = safe_file_part(f"{display_stem}-{layers}layers-{source_key}-{fingerprint}", "forza-layergroup")
             active_entry_names.add(entry_name)
@@ -614,7 +616,12 @@ class CGroupLibraryService(QObject):
             self._write_preview(output_json)
             exported.append(str(output_json.resolve()))
 
-        self._prune_non_layergroup_library_entries(library_root, active_entry_names, game_key)
+        self._prune_non_layergroup_library_entries(
+            library_root,
+            active_entry_names,
+            active_source_keys,
+            game_key,
+        )
 
         fm8_message = ""
         if game_key == "fm8":
@@ -1106,21 +1113,19 @@ class CGroupLibraryService(QObject):
                 add(path)
 
         for root in roots:
-            if len(found) >= 180:
-                break
             if game_key != "fm8" and cls._is_xbox_game_save_root(root):
                 continue
+            complete_fh5_root = game_key == "fh5" and cls._is_fh5_save_root(root)
             for path in cls._bounded_source_walk(
                 root,
-                remaining=180 - len(found),
-                max_files=60_000,
-                max_seconds=18.0,
+                max_files=None if complete_fh5_root else 60_000,
+                max_seconds=None if complete_fh5_root else 18.0,
                 game_key=game_key,
             ):
                 add(path)
 
         found.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
-        return found[:180]
+        return found
 
     @staticmethod
     def _is_xbox_game_save_root(root: Path) -> bool:
@@ -1230,17 +1235,18 @@ class CGroupLibraryService(QObject):
             return True
         if name.endswith(".c_group"):
             return True
-        return False
+        from tools.cgroup.forza_source_decoder import probe_forza_source_kind
+
+        return probe_forza_source_kind(path) == "cgroup"
 
     @staticmethod
     def _bounded_source_walk(
         root: Path,
-        remaining: int,
-        max_files: int,
-        max_seconds: float,
+        max_files: int | None,
+        max_seconds: float | None,
         game_key: str = "fh6",
     ) -> list[Path]:
-        if remaining <= 0 or not root.exists():
+        if not root.exists():
             return []
         skip_names = {
             ".git",
@@ -1261,7 +1267,7 @@ class CGroupLibraryService(QObject):
         }
         found: list[Path] = []
         scanned = 0
-        deadline = time.monotonic() + max_seconds
+        deadline = time.monotonic() + max_seconds if max_seconds is not None else None
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             dirnames[:] = [name for name in dirnames if name.lower() not in skip_names]
             scanned += len(filenames)
@@ -1276,9 +1282,9 @@ class CGroupLibraryService(QObject):
                     is_candidate = filename_lower == "c_group" and current.name.startswith("LayerGroup_")
                 if is_candidate:
                     found.append(current / filename)
-                    if len(found) >= remaining:
-                        return found
-            if scanned >= max_files or time.monotonic() >= deadline:
+            if (max_files is not None and scanned >= max_files) or (
+                deadline is not None and time.monotonic() >= deadline
+            ):
                 break
         return found
 
@@ -1762,7 +1768,19 @@ class CGroupLibraryService(QObject):
                 pass
 
     @staticmethod
-    def _prune_non_layergroup_library_entries(library_root: Path, active_entry_names: set[str], game_key: str | None = None) -> None:
+    def _source_path_key(path: Path | str) -> str:
+        try:
+            return str(Path(path).resolve()).casefold()
+        except OSError:
+            return str(path).casefold()
+
+    @staticmethod
+    def _prune_non_layergroup_library_entries(
+        library_root: Path,
+        active_entry_names: set[str],
+        active_source_keys: set[str],
+        game_key: str | None = None,
+    ) -> None:
         if not library_root.is_dir():
             return
         scan_game_key = CGroupLibraryService._game_key(game_key)
@@ -1783,14 +1801,16 @@ class CGroupLibraryService(QObject):
             if target_game != scan_game_key:
                 continue
             is_fh_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
-            is_fh5_layer_group = target_game == "fh5" and source_kind == "cgroup" and source_path.name.lower().endswith(".c_group")
+            is_fh5_layer_group = target_game == "fh5" and source_kind == "cgroup"
             is_fm8_layer_group = (
                 target_game == "fm8"
                 and source_path.name.lower() == "data"
                 and source_path.parent.parent.name.lower() == "layergroups"
             )
             is_layer_group = is_fh_layer_group or is_fh5_layer_group or is_fm8_layer_group
-            if not is_layer_group or (active_entry_names and entry.name not in active_entry_names):
+            source_was_rescanned = CGroupLibraryService._source_path_key(source_path) in active_source_keys
+            superseded = source_was_rescanned and entry.name not in active_entry_names
+            if not is_layer_group or superseded:
                 try:
                     shutil.rmtree(entry)
                 except OSError:

@@ -177,6 +177,56 @@ def unwrap_forza_container_bytes(raw: bytes, path: Path) -> bytes:
     return b"".join(payloads)
 
 
+def probe_forza_source_kind(
+    path: Path | str,
+    *,
+    max_payload_prefix: int = 0x200,
+    max_compressed_probe: int = 1024 * 1024,
+) -> str | None:
+    """Identify a Forza artifact without trusting its filename or expanding it fully."""
+
+    source = Path(path)
+    if not source.is_file():
+        return None
+    try:
+        file_size = source.stat().st_size
+        with source.open("rb") as handle:
+            header = handle.read(8)
+            if header.startswith(b"gyvl"):
+                return "cgroup"
+            if header.startswith(b"vlrc"):
+                return "clivery"
+            if len(header) < 8:
+                return None
+
+            compressed_len, payload_len = struct.unpack("<II", header)
+            if compressed_len <= 0 or payload_len < 4 or compressed_len > file_size - 8:
+                return None
+
+            decompressor = zlib.decompressobj()
+            payload_prefix = bytearray()
+            remaining = min(compressed_len, max_compressed_probe)
+            while remaining > 0 and len(payload_prefix) < max_payload_prefix:
+                chunk = handle.read(min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                payload_prefix.extend(
+                    decompressor.decompress(chunk, max_payload_prefix - len(payload_prefix))
+                )
+                if decompressor.eof:
+                    break
+    except (OSError, struct.error, zlib.error, ValueError):
+        return None
+
+    prefix = bytes(payload_prefix)
+    if prefix.startswith(b"gyvl"):
+        return "cgroup"
+    if prefix.startswith(b"vlrc") or b"gyvl" in prefix:
+        return "clivery"
+    return None
+
+
 def resolve_forza_source(path: Path | str) -> tuple[Path, str]:
     path = Path(path)
     if path.is_dir():

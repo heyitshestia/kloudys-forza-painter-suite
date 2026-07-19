@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.87
+- Fixed FH5 Microsoft Store library scans by detecting direct and compressed C_group data inside opaque WGS save files instead of relying on filenames.
+- Removed the 180-vinyl save-library scan ceiling and preserved valid cached vinyls that were not part of a later partial scan.
+
 ## 3.0.86
 - Colored Handmade labels pastel pink and Toolmade labels baby blue throughout Community browsing, details, filters, and uploads.
 - Preserved clear selected-filter styling and tuned the classification colors for readable contrast across all themes.
