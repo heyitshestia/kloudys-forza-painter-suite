@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.81
+- Added mandatory Handmade or Toolmade classification for new Community uploads, with dedicated browse filters and classification-aware search.
+- Added classification labels to artwork tiles and details while preserving Browse as the complete catalog view.
+- Added tag editing for creators under Profile > My uploads while keeping classifications fixed after publication.
+- Added client-version reporting so outdated KFPS builds can be blocked from submitting Community uploads.
+
 ## 3.0.80
 - Fixed KFPS primitive ellipse previews so generated and Community JSON artwork renders at the intended size instead of as separated half-size shapes.
 - Kept rectangle primitives and Forza type-code shape previews unchanged, with focused regression coverage for both rendering paths.

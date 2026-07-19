@@ -10,6 +10,7 @@ Item {
     property string cardCreatorName: "Unknown"
     property string cardPreviewUrl: ""
     property string cardCategory: "Other"
+    property string cardClassificationLabel: "Toolmade"
     property string cardGamesText: ""
     property string cardSchemaLabel: "KFPS-compatible JSON"
     property bool cardSchemaKnown: true
@@ -128,7 +129,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.cardCategory + " | " + root.cardSchemaLabel
+                    text: root.cardClassificationLabel + " | " + root.cardCategory + " | " + root.cardSchemaLabel
                     color: Theme.muted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(9.7)

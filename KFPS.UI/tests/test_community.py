@@ -442,7 +442,7 @@ class CommunityBoundaryTests(unittest.TestCase):
                 bundled_python=app_root / "python" / "python.exe",
             )
             desktop = DummyDesktop(folder / "manual-choice.json")
-            service = CommunityService(paths, desktop, DummyLog(), demo=True)
+            service = CommunityService(paths, desktop, DummyLog(), app_version="3.0.81", demo=True)
             try:
                 service.selectUploadJson(str(source))
                 self.assertTrue(wait_for(lambda: not service.busy and bool(service.uploadPath)), service.errorMessage)
@@ -450,6 +450,18 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertEqual(service.uploadName, "Browser Selection")
                 self.assertEqual(service.uploadShapeCount, 3)
                 self.assertEqual(desktop.choose_calls, 0)
+                payload = service._upload_payload(
+                    "Fixture", "", "Original Artwork", "test", "handmade",
+                    "kfps-community-share-v1", True, False,
+                )
+                self.assertEqual(payload["client_version"], "3.0.81")
+                self.assertEqual(payload["classification"], "handmade")
+
+                service._scope = "handmade"
+                self.assertIn("scope=browse", service._catalog_path())
+                self.assertIn("classification=handmade", service._catalog_path())
+                service._scope = "toolmade"
+                self.assertIn("classification=toolmade", service._catalog_path())
 
                 service.selectUploadJson(str(folder / "missing.json"))
                 self.assertEqual(service.uploadPath, "")
@@ -479,6 +491,15 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn('text: "Import JSON File"', page)
         self.assertIn('Label { text: "Output folder" }', page)
         self.assertIn("CommunityUploadTile", page)
+        self.assertIn('SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Favorites", "Following", "My uploads"]',
+                      (UI / "src" / "kfps_ui" / "community_service.py").read_text(encoding="utf-8"))
+        self.assertIn('text: "Handmade"', page)
+        self.assertIn('text: "Toolmade"', page)
+        self.assertIn("root.uploadClassification.length > 0", page)
+        self.assertIn("id: editTagsDialog", page)
+        self.assertIn("communityService.selectedMetadataEditable", page)
+        self.assertIn("communityService.updateSelectedTags(editTagsField.text)", page)
+        self.assertNotIn("updateSelectedClassification", page)
         self.assertNotIn("Compatible games", page)
         self.assertNotIn("selectedGames", page)
         self.assertIn("text: \"Report\"", page)
@@ -512,7 +533,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
             )
             desktop = DummyDesktop(source)
             log = DummyLog()
-            service = CommunityService(paths, desktop, log)
+            service = CommunityService(paths, desktop, log, app_version="3.0.81")
             try:
                 self.assertTrue(wait_for(lambda: service.connected and not service.busy), service.errorMessage)
                 self.assertGreaterEqual(service.totalCount, 1)
@@ -534,7 +555,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 title = "Qt Workflow " + uuid.uuid4().hex[:8]
                 service.submitUpload(
                     title, "End-to-end client test.", "Original Artwork", "automated, integration",
-                    "kfps-community-share-v1", True, False,
+                    "toolmade", "kfps-community-share-v1", True, False,
                 )
                 self.assertTrue(wait_for(
                     lambda: service.selectedOwned and service.selectedArtwork.get("title") == title and not service.busy
@@ -543,11 +564,19 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 self.assertEqual(service.selectedArtwork.get("gamesText"), "FH6")
                 self.assertEqual(service.selectedArtwork.get("schemaId"), "kfps-primitives")
                 self.assertTrue(service.selectedArtwork.get("schemaKnown"))
+                self.assertEqual(service.selectedArtwork.get("classification"), "toolmade")
+                self.assertTrue(service.selectedMetadataEditable)
                 artwork_id = service.selectedArtwork["id"]
+
+                service.updateSelectedTags("automated, integration, retagged")
+                self.assertTrue(wait_for(
+                    lambda: "retagged" in service.selectedArtwork.get("tagsText", "") and not service.busy
+                ), service.errorMessage)
+                self.assertEqual(service.selectedArtwork.get("classification"), "toolmade")
 
                 service.submitUpload(
                     title + " Duplicate", "Duplicate test.", "Original Artwork", "automated",
-                    "kfps-community-share-v1", True, False,
+                    "toolmade", "kfps-community-share-v1", True, False,
                 )
                 self.assertTrue(wait_for(lambda: "already" in service.errorMessage.lower() and not service.busy), service.errorMessage)
                 service.clearError()
@@ -576,10 +605,20 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 ))
                 service.submitRevision(
                     title, "Revised end-to-end client test.", "Original Artwork", "automated, revision",
-                    "kfps-community-share-v1", True, False, "Adjusted one accent color.",
+                    "toolmade", "kfps-community-share-v1", True, False, "Adjusted one accent color.",
                 )
                 self.assertTrue(wait_for(lambda: service.uploadStatus.startswith("Revision 2") and not service.busy), service.errorMessage)
 
+                service.setSearchQuery(title)
+                service.setScopeIndex(2)
+                self.assertTrue(wait_for(
+                    lambda: any(row.get("id") == artwork_id for row in service._rows) and not service.busy
+                ), service.errorMessage)
+                service.setScopeIndex(1)
+                self.assertTrue(wait_for(
+                    lambda: all(row.get("id") != artwork_id for row in service._rows) and not service.busy
+                ), service.errorMessage)
+                service.setSearchQuery("")
                 service.setScopeIndex(0)
                 self.assertTrue(wait_for(
                     lambda: service.totalCount > 1 and any(row.get("creatorName") != username for row in service._rows)
@@ -598,7 +637,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                     and not service.busy
                 ), service.errorMessage)
 
-                service.setScopeIndex(3)
+                service.setScopeIndex(5)
                 self.assertTrue(wait_for(
                     lambda: any(row.get("id") == artwork_id for row in service._rows) and not service.busy
                 ), service.errorMessage)
@@ -619,7 +658,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 unknown_title = "Qt Unknown " + uuid.uuid4().hex[:8]
                 service.submitUpload(
                     unknown_title, "Unknown-schema acknowledgement test.", "Original Artwork", "automated",
-                    "kfps-community-share-v1", True, False,
+                    "handmade", "kfps-community-share-v1", True, False,
                 )
                 self.assertTrue(wait_for(
                     lambda: "unrecognized format" in service.errorMessage.lower() and not service.busy
@@ -627,7 +666,7 @@ class CommunityWorkerIntegrationTests(unittest.TestCase):
                 service.clearError()
                 service.submitUpload(
                     unknown_title, "Unknown-schema acknowledgement test.", "Original Artwork", "automated",
-                    "kfps-community-share-v1", True, True,
+                    "handmade", "kfps-community-share-v1", True, True,
                 )
                 self.assertTrue(wait_for(
                     lambda: service.selectedOwned and service.selectedArtwork.get("title") == unknown_title

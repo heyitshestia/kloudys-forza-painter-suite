@@ -353,7 +353,9 @@ def main():
     runtime = RuntimeService(demo=args.demo)
     source = SourceImageService(paths, desktop, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
-    community = CommunityService(paths, desktop, logs, jsons=jsons, demo=args.demo)
+    community = CommunityService(
+        paths, desktop, logs, jsons=jsons, app_version=version.localVersion, demo=args.demo,
+    )
     supporter = SupporterService(paths.app_root)
     def enforce_available_theme():
         if is_supporter_theme(settings.theme) and not supporter.unlocked:

@@ -29,7 +29,7 @@ from .qt_utils import file_url, safe_file_part
 
 
 ARTWORK_ROLES = [
-    "id", "title", "description", "category", "tagsText", "gamesText", "license",
+    "id", "title", "description", "category", "classification", "classificationLabel", "tagsText", "gamesText", "license",
     "schemaId", "schemaLabel", "schemaKnown", "schemaWarning",
     "shapeCount", "groupCount", "status", "statusLabel", "rejectionReason", "featured",
     "revision", "downloads", "favorites", "favorited", "createdAt", "updatedAt", "publishedAt",
@@ -39,8 +39,8 @@ ARTWORK_ROLES = [
 
 SORT_VALUES = ["featured", "trending", "new", "downloads", "favorites", "name"]
 SORT_LABELS = ["Featured", "Trending", "Newest", "Most downloaded", "Most favorited", "Name"]
-SCOPE_VALUES = ["browse", "favorites", "following", "mine"]
-SCOPE_LABELS = ["Browse", "Favorites", "Following", "My uploads"]
+SCOPE_VALUES = ["browse", "handmade", "toolmade", "favorites", "following", "mine"]
+SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Favorites", "Following", "My uploads"]
 WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -116,17 +116,21 @@ class CommunityService(QObject):
     _resultReady = Signal(str, object)
     _githubDeviceReady = Signal(object)
 
-    def __init__(self, paths: AppPaths, desktop: DesktopService, log: LogService, jsons=None, demo=False, parent=None):
+    def __init__(
+        self, paths: AppPaths, desktop: DesktopService, log: LogService,
+        jsons=None, app_version="unknown", demo=False, parent=None,
+    ):
         super().__init__(parent)
         self.paths = paths
         self.desktop = desktop
         self.log = log
         self.jsons = jsons
         self.demo = bool(demo)
+        self._app_version = str(app_version or "unknown").strip()
         self._root = paths.runtime_root / "community"
         self._base_url = configured_community_api_url(paths.app_root)
         self._endpoint_key = hashlib.sha256(self._base_url.encode("utf-8")).hexdigest()[:20]
-        self._cache_file = self._root / f"catalog-cache.{self._endpoint_key}.v2.json"
+        self._cache_file = self._root / f"catalog-cache.{self._endpoint_key}.v3.json"
         self._credentials = CommunityCredentialStore(paths.runtime_root, self._base_url)
         self._token = self._credentials.load_token()
         self._github_client_id_override = os.environ.get("KFPS_COMMUNITY_GITHUB_CLIENT_ID", "").strip()[:128]
@@ -148,6 +152,8 @@ class CommunityService(QObject):
             "categories": ["Characters", "Motorsport", "Logos", "Gaming", "Abstract", "Patterns", "Humor", "Original Artwork", "Other"],
             "games": ["FH5", "FH6", "FM8"],
             "licenses": ["kfps-community-share-v1", "cc-by-4.0", "cc-by-nc-4.0", "cc0-1.0"],
+            "classifications": ["handmade", "toolmade"],
+            "minimum_upload_version": "3.0.81",
             "test_auth": True,
             "github_client_id": "",
         }
@@ -300,6 +306,10 @@ class CommunityService(QObject):
     @Property(bool, notify=changed)
     def selectedOwned(self):
         return bool(self.username and self._selected.get("creatorName") == self.username)
+
+    @Property(bool, notify=changed)
+    def selectedMetadataEditable(self):
+        return self.authenticated and self.selectedOwned and self._scope == "mine"
 
     @Property(bool, notify=changed)
     def authenticated(self):
@@ -482,12 +492,15 @@ class CommunityService(QObject):
         return {"health": health, "config": config, "session": session, "expired": expired, "catalog": catalog}
 
     def _catalog_path(self):
+        classification = self._scope if self._scope in {"handmade", "toolmade"} else ""
+        scope = "browse" if classification else self._scope
         return build_query("artworks", {
             "search": self._search,
             "category": self._category,
             "game": self._game,
             "sort": self._sort,
-            "scope": self._scope,
+            "scope": scope,
+            "classification": classification,
             "creator": self._creator_filter,
             "page": self._page,
             "limit": 24,
@@ -552,7 +565,7 @@ class CommunityService(QObject):
     def setScopeIndex(self, index):
         if not 0 <= index < len(SCOPE_VALUES):
             return
-        if index > 0 and not self.authenticated:
+        if SCOPE_VALUES[index] in {"favorites", "following", "mine"} and not self.authenticated:
             self._error = "Sign in to use personal community views."
             self.changed.emit()
             return
@@ -834,8 +847,11 @@ class CommunityService(QObject):
             lambda: inspect_upload(path, self.paths.runtime_root),
         )
 
-    @Slot(str, str, str, str, str, bool, bool)
-    def submitUpload(self, title, description, category, tags_text, license, confirm_rights, confirm_compatibility):
+    @Slot(str, str, str, str, str, str, bool, bool)
+    def submitUpload(
+        self, title, description, category, tags_text, classification, license,
+        confirm_rights, confirm_compatibility,
+    ):
         inspection = self._upload_inspection
         if not inspection:
             self._error = "Choose and validate a JSON before uploading."
@@ -846,16 +862,17 @@ class CommunityService(QObject):
             self.changed.emit()
             return
         payload = self._upload_payload(
-            title, description, category, tags_text, license, confirm_rights, confirm_compatibility
+            title, description, category, tags_text, classification, license,
+            confirm_rights, confirm_compatibility,
         )
         self._upload_status = "Uploading for server validation and publication..."
         self._submit("upload", lambda: CommunityApiClient(self._base_url, self._token).json(
             "artworks", "POST", payload, authenticated=True
         ))
 
-    @Slot(str, str, str, str, str, bool, bool, str)
+    @Slot(str, str, str, str, str, str, bool, bool, str)
     def submitRevision(
-        self, title, description, category, tags_text, license,
+        self, title, description, category, tags_text, classification, license,
         confirm_rights, confirm_compatibility, change_note,
     ):
         if not self._upload_inspection:
@@ -867,7 +884,8 @@ class CommunityService(QObject):
             self.changed.emit()
             return
         payload = self._upload_payload(
-            title, description, category, tags_text, license, confirm_rights, confirm_compatibility
+            title, description, category, tags_text, classification, license,
+            confirm_rights, confirm_compatibility,
         )
         payload["change_note"] = str(change_note or "").strip()
         artwork_id = urllib.parse.quote(str(self._selected.get("id") or ""))
@@ -877,16 +895,18 @@ class CommunityService(QObject):
         ))
 
     def _upload_payload(
-        self, title, description, category, tags_text, license,
+        self, title, description, category, tags_text, classification, license,
         confirm_rights, confirm_compatibility,
     ):
         inspection = self._upload_inspection
         if not inspection:
             return {}
         return {
+            "client_version": self._app_version,
             "title": str(title or inspection.display_name),
             "description": str(description or ""),
             "category": str(category or "Other"),
+            "classification": str(classification or ""),
             "tags": [item.strip() for item in str(tags_text or "").split(",") if item.strip()],
             "license": str(license or "kfps-community-share-v1"),
             "confirm_rights": bool(confirm_rights),
@@ -895,6 +915,20 @@ class CommunityService(QObject):
             "preview_base64": base64.b64encode(inspection.preview_bytes).decode("ascii"),
             "thumbnail_base64": base64.b64encode(inspection.thumbnail_bytes).decode("ascii"),
         }
+
+    @Slot(str)
+    def updateSelectedTags(self, tags_text):
+        if not self.selectedMetadataEditable:
+            self._error = "Open Profile > My Uploads and select one of your uploads before editing tags."
+            self.changed.emit()
+            return
+        artwork_id = urllib.parse.quote(str(self._selected.get("id") or ""))
+        payload = {
+            "tags": [item.strip() for item in str(tags_text or "").split(",") if item.strip()],
+        }
+        self._submit("metadata", lambda: CommunityApiClient(self._base_url, self._token).json(
+            f"artworks/{artwork_id}", "PATCH", payload, authenticated=True
+        ))
 
     @Slot()
     def favoriteSelected(self):
@@ -1203,6 +1237,12 @@ class CommunityService(QObject):
             self._selected = {"id": str(value.get("artwork_id") or "")}
             self._selection_touched = bool(self._selected["id"])
             self.refresh()
+        elif operation == "metadata":
+            artwork = dict(value.get("artwork") or {})
+            self._status = "Upload tags updated."
+            self._selected = {"id": str(artwork.get("id") or self._selected.get("id") or "")}
+            self._selection_touched = bool(self._selected["id"])
+            self.refresh()
         elif operation == "favorite":
             self._update_selected("favorited", bool(value.get("favorited")))
             self._update_selected("favorites", int(value.get("favorites") or 0))
@@ -1271,6 +1311,8 @@ class CommunityService(QObject):
             "title": str(item.get("title") or "Untitled"),
             "description": str(item.get("description") or ""),
             "category": str(item.get("category") or "Other"),
+            "classification": str(item.get("classification") or "toolmade"),
+            "classificationLabel": "Handmade" if str(item.get("classification") or "toolmade") == "handmade" else "Toolmade",
             "tagsText": ", ".join(str(value) for value in item.get("tags", [])),
             "gamesText": ", ".join(str(value) for value in item.get("games", [])),
             "license": str(item.get("license") or "kfps-community-share-v1"),
@@ -1313,7 +1355,7 @@ class CommunityService(QObject):
     def _load_cache(self):
         try:
             payload = json.loads(self._cache_file.read_text(encoding="utf-8"))
-            if (payload.get("version") == 2
+            if (payload.get("version") == 3
                     and payload.get("endpoint") == self._endpoint_key
                     and isinstance(payload.get("catalog"), dict)):
                 self._apply_catalog(payload["catalog"])
@@ -1325,7 +1367,7 @@ class CommunityService(QObject):
         try:
             self._root.mkdir(parents=True, exist_ok=True)
             payload = {
-                "version": 2,
+                "version": 3,
                 "endpoint": self._endpoint_key,
                 "saved_at": time.time(),
                 "catalog": catalog,

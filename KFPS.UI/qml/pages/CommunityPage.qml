@@ -12,6 +12,7 @@ Item {
 
     property int activeTab: 0
     property bool revisionMode: false
+    property string uploadClassification: ""
     property string lastUploadPath: ""
     property string pendingUploadPath: ""
     property string profileLoadedFor: ""
@@ -38,6 +39,8 @@ Item {
             root.pendingUploadPath = communityService.uploadPath
             uploadTitle.text = communityService.uploadName
             compatibilityConfirmation.checked = false
+            if (!root.revisionMode)
+                root.uploadClassification = ""
         }
     }
 
@@ -74,6 +77,7 @@ Item {
         uploadTitle.text = String(selected.title || "")
         uploadDescription.text = String(selected.description || "")
         uploadTags.text = String(selected.tagsText || "")
+        root.uploadClassification = String(selected.classification || "toolmade")
         var categoryIndex = uploadCategory.find(String(selected.category || "Other"))
         uploadCategory.currentIndex = categoryIndex >= 0 ? categoryIndex : 1
         var licenseIndex = communityService.licenses.indexOf(String(selected.license || ""))
@@ -334,11 +338,13 @@ Item {
                                         dense: true
                                         text: modelData
                                         accentText: communityService.selectedScopeIndex === index
-                                        enabled: index === 0 || communityService.authenticated
+                                        enabled: index < 3 || communityService.authenticated
                                         toolTipText: index === 0 ? "Show all published community artwork."
-                                                                      : index === 1 ? "Show artwork you marked as a favorite."
-                                                                                    : index === 2 ? "Show artwork from creators you follow."
-                                                                                                  : "Show your uploads and publication status."
+                                                      : index === 1 ? "Show only artwork classified as Handmade."
+                                                      : index === 2 ? "Show only artwork classified as Toolmade."
+                                                      : index === 3 ? "Show artwork you marked as a favorite."
+                                                      : index === 4 ? "Show artwork from creators you follow."
+                                                                    : "Show your uploads and publication status."
                                         onClicked: communityService.setScopeIndex(index)
                                     }
                                 }
@@ -417,6 +423,7 @@ Item {
                                         required property string previewUrl
                                         required property string thumbnailUrl
                                         required property string category
+                                        required property string classificationLabel
                                         required property string gamesText
                                         required property string schemaLabel
                                         required property bool schemaKnown
@@ -432,6 +439,7 @@ Item {
                                         cardCreatorName: creatorName
                                         cardPreviewUrl: thumbnailUrl
                                         cardCategory: category
+                                        cardClassificationLabel: classificationLabel
                                         cardGamesText: gamesText
                                         cardSchemaLabel: schemaLabel
                                         cardSchemaKnown: schemaKnown
@@ -592,7 +600,8 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: String(communityService.selectedArtwork.category || "Other")
+                                            text: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                                                  + " | " + String(communityService.selectedArtwork.category || "Other")
                                                   + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
                                             color: Theme.muted
                                             font.family: Theme.fontFamily
@@ -800,6 +809,14 @@ Item {
                                     }
 
                                     Item { Layout.fillWidth: true }
+
+                                    GhostButton {
+                                        visible: communityService.selectedMetadataEditable
+                                        dense: true
+                                        text: "Edit tags"
+                                        toolTipText: "Change the search tags for this upload. Classification is administrator-managed after publishing."
+                                        onClicked: editTagsDialog.open()
+                                    }
 
                                     GhostButton {
                                         visible: communityService.selectedOwned
@@ -1106,7 +1123,10 @@ Item {
                                         text: "New upload"
                                         dense: true
                                         toolTipText: "Leave revision mode and publish the prepared file as a separate artwork."
-                                        onClicked: root.revisionMode = false
+                                        onClicked: {
+                                            root.revisionMode = false
+                                            root.uploadClassification = ""
+                                        }
                                     }
                                 }
                             }
@@ -1240,6 +1260,34 @@ Item {
                                     toolTipText: "Add up to ten comma-separated search tags, each no longer than 24 characters."
                                 }
 
+                                Label { text: "Classification" }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.px(8)
+
+                                    GhostButton {
+                                        Layout.fillWidth: true
+                                        text: "Handmade"
+                                        accentText: root.uploadClassification === "handmade"
+                                        enabled: !root.revisionMode
+                                        toolTipText: root.revisionMode
+                                                     ? "Classification is fixed after the first upload."
+                                                     : "Choose Handmade for artwork drawn or assembled manually."
+                                        onClicked: root.uploadClassification = "handmade"
+                                    }
+
+                                    GhostButton {
+                                        Layout.fillWidth: true
+                                        text: "Toolmade"
+                                        accentText: root.uploadClassification === "toolmade"
+                                        enabled: !root.revisionMode
+                                        toolTipText: root.revisionMode
+                                                     ? "Classification is fixed after the first upload."
+                                                     : "Choose Toolmade for artwork generated or converted with a tool."
+                                        onClicked: root.uploadClassification = "toolmade"
+                                    }
+                                }
+
                                 ColumnLayout {
                                     visible: communityService.uploadCompatibilityConfirmationRequired
                                     Layout.fillWidth: true
@@ -1301,6 +1349,7 @@ Item {
                                     enabled: communityService.uploadReady
                                              && uploadTitle.text.trim().length > 0
                                              && uploadCategory.currentIndex > 0
+                                             && root.uploadClassification.length > 0
                                              && rightsConfirmation.checked
                                              && (communityService.uploadSchemaKnown || compatibilityConfirmation.checked)
                                              && (!root.revisionMode || (communityService.selectedOwned && revisionNote.text.trim().length > 0))
@@ -1312,12 +1361,12 @@ Item {
                                         if (root.revisionMode) {
                                             communityService.submitRevision(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
-                                                uploadTags.text, root.uploadLicense(), rightsConfirmation.checked,
+                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), rightsConfirmation.checked,
                                                 compatibilityConfirmation.checked, revisionNote.text)
                                         } else {
                                             communityService.submitUpload(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
-                                                uploadTags.text, root.uploadLicense(), rightsConfirmation.checked,
+                                                uploadTags.text, root.uploadClassification, root.uploadLicense(), rightsConfirmation.checked,
                                                 compatibilityConfirmation.checked)
                                         }
                                     }
@@ -1545,7 +1594,7 @@ Item {
                                     toolTipText: "Browse your uploads and their publication status."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(3)
+                                        communityService.setScopeIndex(5)
                                     }
                                 }
 
@@ -1556,7 +1605,7 @@ Item {
                                     toolTipText: "Browse artwork you saved as a favorite."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(1)
+                                        communityService.setScopeIndex(3)
                                     }
                                 }
 
@@ -1567,7 +1616,7 @@ Item {
                                     toolTipText: "Browse recent artwork from creators you follow."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(2)
+                                        communityService.setScopeIndex(4)
                                     }
                                 }
 
@@ -2143,7 +2192,8 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: String(communityService.selectedArtwork.category || "Other")
+                            text: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                                  + " | " + String(communityService.selectedArtwork.category || "Other")
                                   + " | " + String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
                             color: Theme.muted
                             font.family: Theme.fontFamily
@@ -2644,6 +2694,70 @@ Item {
                         communityService.browseCreator(String(communityService.creatorProfile.username || ""))
                         root.activeTab = 0
                         creatorDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: editTagsDialog
+        objectName: "CommunityEditTagsDialog"
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min(root.width - Theme.px(48), Theme.px(520))
+        height: Theme.px(260)
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(18)
+        onAboutToShow: editTagsField.text = String(communityService.selectedArtwork.tagsText || "")
+
+        background: Rectangle {
+            radius: Theme.px(8)
+            color: Theme.surfaceRaised
+            border.width: Math.max(1, Theme.px(1))
+            border.color: Theme.borderStrong
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(10)
+
+            SectionHeading {
+                Layout.fillWidth: true
+                title: "Edit upload tags"
+                subtitle: String(communityService.selectedArtwork.title || "Selected upload")
+            }
+
+            Label { text: "Tags" }
+            KfpsTextField {
+                id: editTagsField
+                Layout.fillWidth: true
+                placeholderText: "anime, racing, portrait"
+                maximumLength: 249
+                toolTipText: "Add up to ten comma-separated search tags, each no longer than 24 characters."
+            }
+
+            Item { Layout.fillHeight: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.px(8)
+                GhostButton {
+                    text: "Cancel"
+                    toolTipText: "Close without changing the upload tags."
+                    onClicked: editTagsDialog.close()
+                }
+                Item { Layout.fillWidth: true }
+                PrimaryButton {
+                    text: "Save Tags"
+                    iconName: "check"
+                    enabled: communityService.selectedMetadataEditable && !communityService.busy
+                    toolTipText: "Save these search tags without changing the uploaded JSON or its classification."
+                    onClicked: {
+                        communityService.updateSelectedTags(editTagsField.text)
+                        editTagsDialog.close()
                     }
                 }
             }
