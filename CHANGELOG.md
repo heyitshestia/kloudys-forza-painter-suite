@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.83
+- Fixed release updates incorrectly failing after installing the valid native launcher introduced in 3.0.74.
+- Updated launcher verification to recognize the current packaged executable used by both bundled and no-Python releases.
+
 ## 3.0.82
 - Added a Supporters catalog and supporter-only upload audience to Community, while keeping the tab visible with a clear supporter-key offer for everyone.
 - Added short-lived signed Community entitlements so supporter keys and activation receipts remain isolated from the Community service.
