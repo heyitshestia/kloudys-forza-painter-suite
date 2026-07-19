@@ -452,8 +452,31 @@ Item {
                                     cellWidth: Math.max(1, width / columns)
                                     cellHeight: Theme.px(root.compactHeight ? 146 : 166)
                                     boundsBehavior: Flickable.StopAtBounds
+                                    maximumFlickVelocity: 100000
+                                    flickDeceleration: 12000
                                     reuseItems: true
                                     cacheBuffer: height
+
+                                    WheelHandler {
+                                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                                        target: null
+                                        onWheel: event => {
+                                            var delta = event.pixelDelta.y
+                                            if (delta === 0)
+                                                delta = (event.angleDelta.y / 120.0) * Theme.px(82)
+                                            if (delta === 0)
+                                                return
+
+                                            var maximumY = Math.max(0, artworkGrid.contentHeight - artworkGrid.height)
+                                            var nextY = Math.max(0, Math.min(
+                                                artworkGrid.contentY - delta,
+                                                maximumY))
+                                            if (nextY !== artworkGrid.contentY) {
+                                                artworkGrid.contentY = nextY
+                                                event.accepted = true
+                                            }
+                                        }
+                                    }
 
                                     delegate: CommunityArtworkCard {
                                         required property int index

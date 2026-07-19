@@ -22,6 +22,14 @@ class QmlRefinementTests(unittest.TestCase):
             self.assertIn("minimumPixelSize", text)
             self.assertIn("Layout.minimumHeight", text)
 
+    def test_checkable_ghost_buttons_show_selected_state_in_every_theme(self):
+        ghost = self.read("components/GhostButton.qml")
+        self.assertIn("root.checkable && root.checked", ghost)
+        self.assertIn("root.checkedState ? Theme.navActiveTop", ghost)
+        self.assertIn("root.checkedState ? Theme.navActiveMiddle", ghost)
+        self.assertIn("root.checkedState ? Theme.navActiveBottom", ghost)
+        self.assertIn("root.checkedState ? Theme.primaryHot", ghost)
+
     def test_fields_center_content_vertically(self):
         text_field = self.read("components/KfpsTextField.qml")
         combo = self.read("components/KfpsComboBox.qml")

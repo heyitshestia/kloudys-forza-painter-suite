@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.85
+- Made Community artwork-grid scrolling as responsive as the Help tab for mouse wheels and touchpads.
+- Made selected Community upload classification and audience choices clearly visible across every standard and supporter theme.
+
 ## 3.0.84
 - Split Community upload classification and audience into independent choices, allowing one selection from each group.
 - Cleared stale descriptions, tags, and confirmation state when preparing a different JSON while preserving metadata during revisions.

@@ -609,6 +609,18 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertNotIn("safe for work", page.lower())
         self.assertNotIn("mature_content", page)
 
+    def test_community_catalog_uses_direct_help_style_scrolling(self):
+        page = (UI / "qml" / "pages" / "CommunityPage.qml").read_text(encoding="utf-8")
+        start = page.index("id: artworkGrid")
+        end = page.index("delegate: CommunityArtworkCard", start)
+        artwork_grid = page[start:end]
+
+        self.assertIn("maximumFlickVelocity: 100000", artwork_grid)
+        self.assertIn("flickDeceleration: 12000", artwork_grid)
+        self.assertIn("acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad", artwork_grid)
+        self.assertIn("Theme.px(82)", artwork_grid)
+        self.assertIn("artworkGrid.contentY = nextY", artwork_grid)
+
 
 @unittest.skipUnless(os.environ.get("KFPS_COMMUNITY_E2E") == "1", "local Worker integration test is opt-in")
 class CommunityWorkerIntegrationTests(unittest.TestCase):

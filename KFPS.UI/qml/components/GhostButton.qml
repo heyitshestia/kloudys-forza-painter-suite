@@ -18,6 +18,7 @@ Button {
     property real maximumTextWidth: Number.POSITIVE_INFINITY
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
 
+    readonly property bool checkedState: root.checkable && root.checked
     readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
@@ -79,10 +80,12 @@ Button {
             height: Math.min(parent.height, root.lipDepth + Theme.px(root.dense ? 3 : 5))
             radius: Theme.px(Metrics.controlRadius)
             antialiasing: true
-            color: root.down ? Theme.ghostPressedSurface : Theme.panelGradientBottom(false, false)
+            color: root.down ? Theme.ghostPressedSurface
+                             : (root.checkedState ? Theme.primaryDeep : Theme.panelGradientBottom(false, false))
             border.width: Math.max(1, Theme.px(1))
-            border.color: root.hovered ? Theme.primaryBright : Theme.borderSoft
-            opacity: root.enabled ? 0.36 : 0.14
+            border.color: root.checkedState ? Theme.primaryHot
+                                            : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
+            opacity: root.enabled ? (root.checkedState ? 0.72 : 0.36) : 0.14
             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
             Behavior on border.color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 120 } }
         }
@@ -96,21 +99,35 @@ Button {
             y: root.capTravel
             radius: Theme.px(Metrics.controlRadius)
             antialiasing: true
-            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
-            border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
+            border.width: root.activeFocus || root.checkedState ? Theme.px(2) : Theme.px(1)
+            border.color: root.activeFocus ? Theme.focusColor
+                                           : (root.checkedState ? Theme.primaryHot
+                                                                : (root.hovered ? Theme.primaryBright : Theme.borderSoft))
             opacity: root.enabled ? 1.0 : 0.42
             clip: true
             gradient: Gradient {
-                GradientStop { position: 0.0; color: root.down ? Theme.ghostPressedSurface : Theme.fieldFocusSurface }
-                GradientStop { position: 0.48; color: root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface }
-                GradientStop { position: 1.0; color: root.down ? Theme.ghostPressedSurface : Theme.ghostSurface }
+                GradientStop {
+                    position: 0.0
+                    color: root.down ? Theme.ghostPressedSurface
+                                     : (root.checkedState ? Theme.navActiveTop : Theme.fieldFocusSurface)
+                }
+                GradientStop {
+                    position: 0.48
+                    color: root.checkedState ? Theme.navActiveMiddle
+                                             : (root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface)
+                }
+                GradientStop {
+                    position: 1.0
+                    color: root.down ? Theme.ghostPressedSurface
+                                     : (root.checkedState ? Theme.navActiveBottom : Theme.ghostSurface)
+                }
             }
-            layer.enabled: Theme.glassEffects && root.hovered && !screenshotMode
+            layer.enabled: Theme.glassEffects && (root.hovered || root.checkedState) && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
-                shadowColor: Theme.ghostShadow
-                shadowBlur: 0.18
-                shadowOpacity: 0.05
+                shadowColor: root.checkedState ? Theme.navActiveGlow : Theme.ghostShadow
+                shadowBlur: root.checkedState ? 0.34 : 0.18
+                shadowOpacity: root.checkedState ? 0.20 : 0.05
                 shadowHorizontalOffset: 0
                 shadowVerticalOffset: Theme.px(root.down ? 0.5 : 1)
             }
@@ -238,6 +255,18 @@ Button {
                 opacity: root.down ? 0.14 : 0
                 antialiasing: true
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 80 } }
+            }
+
+            Rectangle {
+                visible: root.checkedState
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(3)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(Theme.px(2.5), 2)
+                height: Math.max(Theme.px(12), parent.height - Theme.px(12))
+                radius: width / 2
+                color: Theme.primaryHot
+                antialiasing: true
             }
         }
     }
