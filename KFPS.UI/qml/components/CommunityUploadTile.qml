@@ -42,6 +42,12 @@ Item {
                     z: 20
                 }
 
+                ArtworkPreviewBackdrop {
+                    anchors.fill: parent
+                    anchors.margins: Theme.px(4)
+                    visible: root.previewUrl.length > 0 && tilePreview.status !== Image.Error
+                }
+
                 Image {
                     id: tilePreview
                     anchors.fill: parent

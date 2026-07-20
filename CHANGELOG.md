@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.92
+- Added neutral checkerboard backdrops to Outputs and Community thumbnails, upload previews, detail views, and inspectors so transparent white or black vinyls remain visible in every theme.
+- Kept preview rendering lightweight with one cached tiled texture while leaving stored preview images unchanged.
+
 ## 3.0.91
 - Kept the live-status ticker aligned identically across Create and every Community subtab, and added a saved setting to show or hide it.
 - Preserved manual generator overrides, reduced motion, ambient motion, and glass-effects choices across theme changes and app restarts instead of allowing theme selection to overwrite them.

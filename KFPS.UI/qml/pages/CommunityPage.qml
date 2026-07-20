@@ -721,6 +721,13 @@ Item {
                                         z: 20
                                     }
 
+                                    ArtworkPreviewBackdrop {
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.px(8)
+                                        visible: String(communityService.selectedArtwork.previewUrl || "").length > 0
+                                                 && detailPreview.status !== Image.Error
+                                    }
+
                                     Image {
                                         id: detailPreview
                                         anchors.fill: parent
@@ -1232,6 +1239,12 @@ Item {
                                             anchors.fill: parent
                                             sunken: true
                                             z: 20
+                                        }
+
+                                        ArtworkPreviewBackdrop {
+                                            anchors.fill: parent
+                                            anchors.margins: Theme.px(4)
+                                            visible: String(communityService.uploadPreviewUrl || "").length > 0
                                         }
 
                                         Image {
@@ -2385,6 +2398,13 @@ Item {
                         Item {
                             width: previewFlick.contentWidth
                             height: previewFlick.contentHeight
+
+                            ArtworkPreviewBackdrop {
+                                anchors.fill: parent
+                                anchors.margins: Theme.px(8)
+                                visible: String(communityService.selectedArtwork.previewUrl || "").length > 0
+                                         && inspectorImage.status !== Image.Error
+                            }
 
                             Image {
                                 id: inspectorImage

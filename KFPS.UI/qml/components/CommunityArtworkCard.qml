@@ -53,6 +53,12 @@ Item {
                     z: 20
                 }
 
+                ArtworkPreviewBackdrop {
+                    anchors.fill: parent
+                    anchors.margins: Theme.px(4)
+                    visible: root.cardPreviewUrl.length > 0 && previewImage.status !== Image.Error
+                }
+
                 Image {
                     id: previewImage
                     anchors.fill: parent

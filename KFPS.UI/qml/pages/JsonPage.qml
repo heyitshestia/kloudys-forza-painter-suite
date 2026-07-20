@@ -622,6 +622,12 @@ Item {
                                                     z: 20
                                                 }
 
+                                                ArtworkPreviewBackdrop {
+                                                    anchors.fill: parent
+                                                    anchors.margins: Theme.px(5)
+                                                    visible: String(fileCard.previewUrl || "").length > 0
+                                                }
+
                                                 Image {
                                                     anchors.fill: parent
                                                     anchors.margins: Theme.px(5)
@@ -822,6 +828,12 @@ Item {
                     anchors.fill: parent
                     sunken: true
                     z: 20
+                }
+
+                ArtworkPreviewBackdrop {
+                    anchors.fill: parent
+                    anchors.margins: Theme.px(16)
+                    visible: root.infoCardPreview.length > 0
                 }
 
                 Image {
