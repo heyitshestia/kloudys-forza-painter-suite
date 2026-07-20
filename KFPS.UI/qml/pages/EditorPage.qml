@@ -182,7 +182,14 @@ Item {
                     border.color: Theme.borderStrong
                     clip: true
 
+                    ClassicBevel {
+                        anchors.fill: parent
+                        sunken: true
+                        z: 20
+                    }
+
                     Rectangle {
+                        visible: !Theme.classicMode
                         anchors.fill: parent
                         anchors.margins: Theme.px(1)
                         radius: Theme.corner(parent.radius - Theme.px(1))

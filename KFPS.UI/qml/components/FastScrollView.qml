@@ -10,10 +10,18 @@ ScrollView {
 
     clip: true
 
-    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
+    ScrollBar.vertical: KfpsScrollBar {
+        policy: ScrollBar.AsNeeded
+        anchors.top: Theme.classicMode ? root.top : undefined
+        anchors.right: Theme.classicMode ? root.right : undefined
+        anchors.bottom: Theme.classicMode ? root.bottom : undefined
+    }
     ScrollBar.horizontal: KfpsScrollBar {
         orientation: Qt.Horizontal
         policy: ScrollBar.AsNeeded
+        anchors.left: Theme.classicMode ? root.left : undefined
+        anchors.right: Theme.classicMode ? root.right : undefined
+        anchors.bottom: Theme.classicMode ? root.bottom : undefined
     }
 
     Component.onCompleted: tuneFlickable()

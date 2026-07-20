@@ -48,12 +48,34 @@ ComboBox {
     }
 
     indicator: Item {
-        implicitWidth: Theme.px(22)
+        implicitWidth: Theme.px(Theme.classicMode ? 24 : 22)
         implicitHeight: root.implicitHeight
-        x: root.width - width - Theme.px(7)
+        x: root.width - width - Theme.px(Theme.classicMode ? 2 : 7)
         y: 0
 
+        Rectangle {
+            visible: Theme.classicMode
+            anchors.fill: parent
+            anchors.topMargin: Theme.px(2)
+            anchors.bottomMargin: Theme.px(2)
+            color: Theme.surface
+
+            ClassicBevel {
+                anchors.fill: parent
+                pressed: root.down || root.popup.visible
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: "\u25bc"
+                color: Theme.borderStrong
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.px(8)
+            }
+        }
+
         Icon {
+            visible: !Theme.classicMode
             anchors.centerIn: parent
             name: "chevron-right"
             iconSize: Theme.px(root.dense ? 12 : 14)
@@ -80,9 +102,11 @@ ComboBox {
             anchors.fill: parent
             radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
-            border.width: root.activeFocus
+            border.width: Theme.classicMode
+                          ? 0
+                          : (root.activeFocus
                           ? Theme.px(2)
-                          : (Theme.customFrameExclusive ? 0 : Theme.px(1))
+                          : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
             border.color: root.activeFocus ? Theme.focusColor
                                            : (root.popup.visible ? Theme.primaryBright
                                                                  : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -129,6 +153,20 @@ ComboBox {
                 warningState: root.popup.visible
             }
         }
+
+        ClassicBevel {
+            anchors.fill: parent
+            sunken: true
+            z: 100
+        }
+
+        ClassicFocusRect {
+            anchors.fill: parent
+            anchors.margins: Theme.px(4)
+            anchors.rightMargin: Theme.px(Theme.classicMode ? 29 : 4)
+            active: root.activeFocus && !root.popup.visible
+            z: 101
+        }
     }
 
     TapHandler {
@@ -140,7 +178,7 @@ ComboBox {
         id: delegateRoot
         required property var modelData
         width: ListView.view ? ListView.view.width : root.width
-        implicitHeight: Math.max(Theme.px(36), delegateLabel.implicitHeight + Theme.px(12))
+        implicitHeight: Math.max(Theme.px(Theme.classicMode ? 24 : 36), delegateLabel.implicitHeight + Theme.px(Theme.classicMode ? 6 : 12))
         leftPadding: Theme.px(10)
         rightPadding: Theme.px(10)
 
@@ -161,7 +199,7 @@ ComboBox {
     }
 
     popup: Popup {
-        y: root.height + Theme.px(4)
+        y: root.height + Theme.px(Theme.classicMode ? 0 : 4)
         width: root.width
         implicitHeight: Math.min(contentItem.implicitHeight + topPadding + bottomPadding, Theme.px(260))
         padding: Theme.px(4)
@@ -203,6 +241,11 @@ ComboBox {
                     }
                     opacity: 0.22
                 }
+            }
+
+            ClassicBevel {
+                anchors.fill: parent
+                z: 100
             }
         }
 

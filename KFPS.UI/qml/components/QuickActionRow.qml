@@ -20,7 +20,7 @@ Item {
 
     implicitHeight: Theme.px(dense ? 35 : 48)
     Layout.minimumHeight: implicitHeight
-    scale: tap.pressed ? 0.992 : 1.0
+    scale: Theme.classicMode ? 1.0 : (tap.pressed ? 0.992 : 1.0)
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
 
     KfpsToolTip {
@@ -42,6 +42,12 @@ Item {
         height: Math.max(1, Theme.px(1))
         color: Theme.divider
         opacity: 0.56
+    }
+
+    ClassicBevel {
+        anchors.fill: parent
+        visible: Theme.classicMode && (root.hovered || root.pressed)
+        pressed: root.pressed
     }
 
     Icon {

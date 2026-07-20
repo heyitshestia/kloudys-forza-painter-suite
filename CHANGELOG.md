@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.90
+- Added the supporter-only Windows 94 theme with authentic square controls, classic four-color depth, recessed work areas, pixel-era typography, and Windows-style interaction states.
+- Added dedicated classic treatments for the app shell, navigation, fields, previews, lists, dialogs, focus outlines, scrollbars, and title-bar controls while preserving other themes.
+- Made the Reduce nonessential motion, Ambient background motion, and Glass shadows and effects settings start unchecked in Windows 94 without changing other themes' defaults.
+
 ## 3.0.89
 - Added the public Command Prompt theme for supporters and non-supporters, with a square monochrome console interface and an optional theme-only green text mode.
 - Restored clear Handmade and Toolmade classification colors and reliable black text on white selected controls throughout Community.

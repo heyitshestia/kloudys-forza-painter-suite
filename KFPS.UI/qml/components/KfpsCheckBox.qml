@@ -33,29 +33,44 @@ CheckBox {
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
         radius: Theme.corner(Theme.customFrameExclusive ? Theme.px(6) : Theme.px(5))
-        color: root.checked
+        color: Theme.classicMode
+               ? Theme.checkboxSurface
+               : (root.checked
                ? (root.hovered ? Theme.primaryBright : Theme.checkboxCheckedSurface)
-               : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
-        border.width: root.activeFocus
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface))
+        border.width: Theme.classicMode
+                      ? 0
+                      : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
-        scale: root.pressed ? 0.88 : (root.hovered ? 1.06 : 1.0)
+        scale: Theme.classicMode ? 1.0 : (root.pressed ? 0.88 : (root.hovered ? 1.06 : 1.0))
         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 105 } }
         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
         Text {
             anchors.centerIn: parent
-            text: Theme.terminalMode ? "X" : "✓"
+            text: Theme.terminalMode || Theme.classicMode ? "X" : "✓"
             visible: root.checked
-            color: root.hovered ? Theme.backgroundA : Theme.primaryText
+            color: Theme.classicMode ? Theme.borderStrong : (root.hovered ? Theme.backgroundA : Theme.primaryText)
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(dense ? 10 : 12)
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
+        }
+
+        ClassicBevel {
+            anchors.fill: parent
+            sunken: true
+        }
+
+        ClassicFocusRect {
+            anchors.fill: parent
+            anchors.margins: -Theme.px(3)
+            active: root.activeFocus
         }
     }
 

@@ -12,10 +12,10 @@ ToolTip {
 
     delay: 450
     timeout: 14000
-    leftPadding: Theme.px(11)
-    rightPadding: Theme.px(11)
-    topPadding: Theme.px(8)
-    bottomPadding: Theme.px(8)
+    leftPadding: Theme.px(Theme.classicMode ? 5 : 11)
+    rightPadding: Theme.px(Theme.classicMode ? 5 : 11)
+    topPadding: Theme.px(Theme.classicMode ? 3 : 8)
+    bottomPadding: Theme.px(Theme.classicMode ? 3 : 8)
     implicitWidth: preferredTextWidth + leftPadding + rightPadding
     implicitHeight: tipText.implicitHeight + topPadding + bottomPadding
 
@@ -42,8 +42,8 @@ ToolTip {
     background: Rectangle {
         radius: Theme.framedRadius(Theme.px(6))
         color: Theme.surfaceRaised
-        border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
-        border.color: Theme.primary
+        border.width: Theme.classicMode ? Math.max(1, Theme.px(1)) : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
+        border.color: Theme.classicMode ? Theme.borderStrong : Theme.primary
         opacity: 0.98
     }
 }

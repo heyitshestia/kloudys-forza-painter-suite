@@ -42,7 +42,13 @@ from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
 from kfps_ui.supporter_service import SupporterService
-from kfps_ui.theme_catalog import DEFAULT_THEME, KNOWN_THEME_NAMES, is_supporter_theme, normalize_theme
+from kfps_ui.theme_catalog import (
+    DEFAULT_THEME,
+    KNOWN_THEME_NAMES,
+    is_supporter_theme,
+    normalize_theme,
+    theme_entry_preferences,
+)
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
 from kfps_ui.version_service import VersionService
@@ -343,6 +349,7 @@ def main():
     theme_preview = normalize_theme(args.theme_preview) if args.theme_preview else ""
     if theme_preview:
         settings._data["theme"] = theme_preview
+        settings._data.update(theme_entry_preferences(theme_preview))
     if args.terminal_green_text:
         settings._data["terminalGreenText"] = True
     if args.ui_scale is not None:

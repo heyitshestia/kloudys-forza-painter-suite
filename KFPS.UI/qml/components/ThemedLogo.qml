@@ -14,8 +14,8 @@ Item {
         source: visible ? assetRoot + "/" + Theme.logoDialFile : ""
         fillMode: Image.PreserveAspectFit
         opacity: Theme.logoDialOpacity
-        smooth: true
-        mipmap: true
+        smooth: !Theme.classicMode
+        mipmap: !Theme.classicMode
     }
 
     Image {
@@ -25,8 +25,8 @@ Item {
         visible: !Theme.logoColorize
         source: assetRoot + "/" + Theme.logoFile
         fillMode: Image.PreserveAspectFit
-        smooth: true
-        mipmap: true
+        smooth: !Theme.classicMode
+        mipmap: !Theme.classicMode
     }
 
     Image {

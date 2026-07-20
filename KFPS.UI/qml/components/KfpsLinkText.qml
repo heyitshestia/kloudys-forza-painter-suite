@@ -18,9 +18,9 @@ Text {
     topPadding: Theme.px(7)
     bottomPadding: Theme.px(7)
     verticalAlignment: Text.AlignVCenter
-    font.underline: hover.hovered || activeFocus
+    font.underline: Theme.classicMode || hover.hovered || activeFocus
     activeFocusOnTab: interactive
-    scale: tap.pressed ? 0.985 : 1.0
+    scale: Theme.classicMode ? 1.0 : (tap.pressed ? 0.985 : 1.0)
 
     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 95 } }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }

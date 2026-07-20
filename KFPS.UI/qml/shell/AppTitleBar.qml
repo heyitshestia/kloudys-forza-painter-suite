@@ -9,8 +9,30 @@ Rectangle {
 
     property var window
 
-    color: Theme.titleBarSurface
-    height: Theme.px(Metrics.titleHeight)
+    color: Theme.classicMode ? Theme.surface : Theme.titleBarSurface
+    height: Theme.px(Theme.classicMode ? 30 : Metrics.titleHeight)
+
+    ClassicBevel {
+        anchors.fill: parent
+        z: 20
+    }
+
+    Rectangle {
+        visible: Theme.classicMode
+        anchors.left: parent.left
+        anchors.right: windowButtons.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.px(3)
+        anchors.rightMargin: Theme.px(2)
+        anchors.topMargin: Theme.px(3)
+        anchors.bottomMargin: Theme.px(3)
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: Theme.titleBarSurface }
+            GradientStop { position: 1.0; color: Theme.primaryBright }
+        }
+    }
 
     Rectangle {
         anchors.left: parent.left
@@ -18,12 +40,12 @@ Rectangle {
         anchors.bottom: parent.bottom
         height: Math.max(1, Theme.px(1))
         color: Theme.borderSoft
-        opacity: 0.5
+        opacity: Theme.classicMode ? 0 : 0.5
     }
 
     Row {
         anchors.left: parent.left
-        anchors.leftMargin: Theme.px(10)
+        anchors.leftMargin: Theme.px(Theme.classicMode ? 7 : 10)
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.terminalMode ? 0 : Theme.px(7)
 
@@ -38,9 +60,10 @@ Rectangle {
             text: Theme.terminalMode
                   ? "C:\\WINDOWS\\system32\\cmd.exe - KFPS"
                   : appController.windowTitle
-            color: Theme.muted
+            color: Theme.classicMode ? Theme.primaryText : Theme.muted
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.px(10.5)
+            font.pixelSize: Theme.px(Theme.classicMode ? 12 : 10.5)
+            font.weight: Theme.classicMode ? Font.Bold : Font.Normal
             renderType: Text.NativeRendering
             font.hintingPreference: Font.PreferFullHinting
             verticalAlignment: Text.AlignVCenter
@@ -49,9 +72,13 @@ Rectangle {
     }
 
     Row {
+        id: windowButtons
         anchors.right: parent.right
+        anchors.rightMargin: Theme.classicMode ? Theme.px(3) : 0
         anchors.top: parent.top
-        height: parent.height
+        anchors.topMargin: Theme.classicMode ? Theme.px(3) : 0
+        height: Theme.classicMode ? parent.height - Theme.px(6) : parent.height
+        spacing: Theme.classicMode ? Theme.px(2) : 0
 
         Repeater {
             model: ["min", "max", "close"]
@@ -61,12 +88,20 @@ Rectangle {
                 required property string modelData
 
                 objectName: "TitleBarButton:" + button.modelData
+                readonly property bool pressed: buttonTap.pressed
 
-                width: Theme.px(46)
+                width: Theme.px(Theme.classicMode ? 24 : 46)
                 height: parent.height
-                color: hover.hovered
-                       ? (modelData === "close" ? Theme.titleBarCloseHover : Theme.titleBarButtonHover)
-                       : "transparent"
+                color: Theme.classicMode
+                       ? Theme.surface
+                       : (hover.hovered
+                          ? (modelData === "close" ? Theme.titleBarCloseHover : Theme.titleBarButtonHover)
+                          : "transparent")
+
+                ClassicBevel {
+                    anchors.fill: parent
+                    pressed: buttonTap.pressed
+                }
 
                 Item {
                     anchors.centerIn: parent
@@ -77,8 +112,9 @@ Rectangle {
                         visible: button.modelData === "min"
                         width: Theme.px(12)
                         height: Math.max(1, Theme.px(1))
-                        color: Theme.text
+                        color: Theme.classicMode ? Theme.borderStrong : Theme.text
                         anchors.centerIn: parent
+                        anchors.verticalCenterOffset: Theme.classicMode ? Theme.px(4) : 0
                     }
 
                     Rectangle {
@@ -87,7 +123,7 @@ Rectangle {
                         height: Theme.px(10)
                         color: "transparent"
                         border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.text
+                        border.color: Theme.classicMode ? Theme.borderStrong : Theme.text
                         anchors.centerIn: parent
                     }
 
@@ -95,10 +131,10 @@ Rectangle {
                         visible: button.modelData === "close"
                         anchors.centerIn: parent
                         text: "×"
-                        color: Theme.text
+                        color: Theme.classicMode ? Theme.borderStrong : Theme.text
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(19)
-                        font.weight: Font.Light
+                        font.pixelSize: Theme.px(Theme.classicMode ? 15 : 19)
+                        font.weight: Theme.classicMode ? Font.Bold : Font.Light
                         renderType: Text.NativeRendering
                         font.hintingPreference: Font.PreferFullHinting
                         horizontalAlignment: Text.AlignHCenter
@@ -120,6 +156,7 @@ Rectangle {
                 }
 
                 TapHandler {
+                    id: buttonTap
                     onTapped: {
                         if (button.modelData === "min") {
                             root.window.showMinimized()

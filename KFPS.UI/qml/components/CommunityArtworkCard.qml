@@ -47,6 +47,12 @@ Item {
                 border.color: root.cardSelected ? Theme.primaryBright : Theme.borderSoft
                 clip: true
 
+                ClassicBevel {
+                    anchors.fill: parent
+                    sunken: true
+                    z: 20
+                }
+
                 Image {
                     id: previewImage
                     anchors.fill: parent

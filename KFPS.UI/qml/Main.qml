@@ -17,6 +17,11 @@ ApplicationWindow {
     title: appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    FontLoader {
+        id: windows94Font
+        source: "../assets/fonts/windows94/W95FA.otf"
+    }
+
     Component.onCompleted: supporterService.startActivation()
 
     onActiveChanged: {
@@ -55,6 +60,13 @@ ApplicationWindow {
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
     Binding { target: Theme; property: "terminalGreenText"; value: settings.terminalGreenText }
+    Binding {
+        target: Theme
+        property: "classicFontFamily"
+        value: windows94Font.status === FontLoader.Ready
+               ? windows94Font.name
+               : (Qt.platform.os === "windows" ? "Microsoft Sans Serif" : "sans-serif")
+    }
     Binding { target: Theme; property: "themeName"; value: settings.theme }
     Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked || themePreviewUnlocked }
 
@@ -86,6 +98,11 @@ ApplicationWindow {
         border.width: Math.max(1, Theme.px(1))
         border.color: Theme.appBorder
         z: 200
+    }
+
+    ClassicBevel {
+        anchors.fill: parent
+        z: 201
     }
 
     Column {
@@ -121,6 +138,12 @@ ApplicationWindow {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: Theme.classicMode ? Theme.surface : "transparent"
+                    z: -1
+                }
                 property real controlsTopMargin: announcementTicker.visible
                                                  ? Theme.px(window.shortWindow ? 42 : 54)
                                                  : Theme.px(window.shortWindow ? 10 : 16)

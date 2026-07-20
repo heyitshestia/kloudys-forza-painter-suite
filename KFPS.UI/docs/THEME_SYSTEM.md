@@ -10,7 +10,7 @@ concrete theme name.
 - `qml/Kfps/Theme/Theme.qml` selects an allowed palette and exposes the stable
   semantic `Theme.*` API consumed by the rest of QML.
 - `src/kfps_ui/theme_catalog.py` owns persistence validation, Settings ordering,
-  and supporter-gated visibility.
+  supporter-gated visibility, and optional preferences applied when entering a theme.
 - Reusable components and pages consume semantic tokens. They must not inspect
   `Theme.themeName` or add `Theme.activeSomePreset` branches.
 
@@ -44,7 +44,8 @@ an empty asset path, `false`, or zero opacity instead of branching in a componen
 2. Give it unique `name` metadata and set `supporterOnly` deliberately.
 3. Register the QML type in `qml/Kfps/Theme/qmldir`.
 4. Instantiate it and add it to `palettes` in `Theme.qml`.
-5. Add one matching `ThemePreset` entry in `theme_catalog.py`.
+5. Add one matching `ThemePreset` entry in `theme_catalog.py`, including deliberate
+   supporter access and any theme-entry preference values.
 6. Put any original assets under a dedicated `KFPS.UI/assets/themes/<theme>/` folder.
 7. Run the automated checks below.
 8. Capture every major page in the new theme at the standard desktop and compact sizes.
@@ -62,7 +63,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 python KFPS.UI\tools\audit_theme_literals.py
 python KFPS.UI\tests\test_theme_catalog.py
 python KFPS.UI\tests\test_qml_refinement.py
-python KFPS.UI\tools\capture_pages.py --theme "Night Blossom" --theme "Patron's Atelier" --theme "Carbon Dark" --theme "Overdrive 200X"
+python KFPS.UI\tools\capture_pages.py --theme "Night Blossom" --theme "Command Prompt" --theme "Windows 94" --theme "Patron's Atelier" --theme "Carbon Dark" --theme "Overdrive 200X"
 python KFPS.UI\tools\audit_layout_matrix.py --theme "Night Blossom" --size 1360x820
 ```
 
@@ -117,3 +118,16 @@ between white and phosphor green. The preference may stay enabled while another 
 is active, but only `PaletteCommandPrompt` consumes it. `iconGlyphsVisible` is false for
 this palette so shared icon components collapse their layout slots instead of loading
 or leaving gaps for graphical symbols.
+
+## Windows 94
+
+Windows 94 is a supporter theme built from the fixed Windows 9x face, light, highlight,
+shadow, dark, navy, blue, and desktop colors. Shared controls use a generic
+`classicMode` capability to switch to square geometry, four-color raised and recessed
+bevels, dotted keyboard focus, direct black icons, and short classic page transitions.
+The packaged W95FA font is licensed under the SIL Open Font License; the icon set is a
+mechanical monochrome treatment of KFPS's existing original SVG geometry.
+
+On entry, its `ThemePreset` sets reduced motion, ambient background motion, and glass
+effects to off in one saved update. Users may change those options afterward; their
+choices remain persisted until they explicitly enter Windows 94 again.

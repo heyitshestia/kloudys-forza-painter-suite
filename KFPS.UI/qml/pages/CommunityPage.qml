@@ -704,14 +704,22 @@ Item {
                                     Layout.preferredHeight: Theme.px(root.compactHeight ? 190 : 250)
                                     radius: Theme.framedRadius(Theme.px(7))
                                     color: detailPreviewHover.hovered ? Theme.fieldHoverSurface : Theme.previewSurface
-                                    border.width: Theme.customFrameExclusive
+                                    border.width: Theme.classicMode
                                                   ? 0
-                                                  : Math.max(1, Theme.px(1))
+                                                  : (Theme.customFrameExclusive
+                                                  ? 0
+                                                  : Math.max(1, Theme.px(1)))
                                     border.color: detailPreviewHover.hovered ? Theme.primary : Theme.borderStrong
                                     clip: true
-                                    scale: detailPreviewTap.pressed ? 0.99 : 1.0
+                                    scale: Theme.classicMode ? 1.0 : (detailPreviewTap.pressed ? 0.99 : 1.0)
                                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
                                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
+
+                                    ClassicBevel {
+                                        anchors.fill: parent
+                                        sunken: true
+                                        z: 20
+                                    }
 
                                     Image {
                                         id: detailPreview
@@ -1219,6 +1227,12 @@ Item {
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.borderSoft
                                         clip: true
+
+                                        ClassicBevel {
+                                            anchors.fill: parent
+                                            sunken: true
+                                            z: 20
+                                        }
 
                                         Image {
                                             anchors.fill: parent
@@ -1935,8 +1949,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -2129,6 +2144,12 @@ Item {
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.primary
 
+                        ClassicBevel {
+                            anchors.fill: parent
+                            sunken: true
+                            z: 20
+                        }
+
                         ColumnLayout {
                             anchors.centerIn: parent
                             spacing: Theme.px(5)
@@ -2223,8 +2244,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -2344,6 +2366,12 @@ Item {
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
                     clip: true
+
+                    ClassicBevel {
+                        anchors.fill: parent
+                        sunken: true
+                        z: 20
+                    }
 
                     Flickable {
                         id: previewFlick
@@ -2585,8 +2613,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -2705,8 +2734,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.warning
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -2739,6 +2769,12 @@ Item {
                 color: Theme.previewSurface
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.primary
+
+                ClassicBevel {
+                    anchors.fill: parent
+                    sunken: true
+                    z: 20
+                }
 
                 Text {
                     anchors.fill: parent
@@ -2811,8 +2847,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -2953,8 +2990,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -3019,8 +3057,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -3098,8 +3137,9 @@ Item {
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.danger
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {

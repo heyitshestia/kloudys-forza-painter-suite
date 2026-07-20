@@ -12,6 +12,7 @@ QtObject {
     property bool ambientMotion: true
     property bool glassEffects: true
     property bool terminalGreenText: false
+    property string classicFontFamily: Qt.platform.os === "windows" ? "Microsoft Sans Serif" : "sans-serif"
     property string themeName: nightBlossom.name
     property bool supporterUnlocked: false
 
@@ -19,10 +20,11 @@ QtObject {
     readonly property QtObject commandPrompt: PaletteCommandPrompt {
         greenText: root.terminalGreenText
     }
+    readonly property QtObject windows94: PaletteWindows94 {}
     readonly property QtObject patronsAtelier: PalettePatronsAtelier {}
     readonly property QtObject carbonDark: PaletteCarbonDark {}
     readonly property QtObject overdrive200X: PaletteOverdrive200X {}
-    readonly property var palettes: [nightBlossom, commandPrompt, patronsAtelier, carbonDark, overdrive200X]
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -31,6 +33,7 @@ QtObject {
     readonly property string activeThemeName: palette.name
     readonly property bool supporterTheme: palette.supporterOnly
     readonly property bool terminalMode: palette.terminalMode
+    readonly property bool classicMode: palette.classicMode
     readonly property bool iconGlyphsVisible: palette.iconGlyphsVisible
 
     function paletteForName(name) {
@@ -240,13 +243,17 @@ QtObject {
     readonly property color stepBadge: palette.stepBadge
     readonly property color richAccent: palette.richAccent
 
-    readonly property string fontFamily: terminalMode
-                                                ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
-                                                : (Qt.platform.os === "windows" ? "Segoe UI" : "Inter")
+    readonly property string fontFamily: classicMode
+                                                ? classicFontFamily
+                                                : (terminalMode
+                                                   ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
+                                                   : (Qt.platform.os === "windows" ? "Segoe UI" : "Inter"))
     readonly property string displayFamily: fontFamily
-    readonly property string monoFamily: terminalMode
-                                                ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
-                                                : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace")
+    readonly property string monoFamily: classicMode
+                                                ? classicFontFamily
+                                                : (terminalMode
+                                                   ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
+                                                   : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace"))
 
     readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
 
@@ -295,10 +302,10 @@ QtObject {
     }
 
     function framedRadius(defaultRadius) {
-        return terminalMode ? 0 : (customFrameExclusive ? px(customFrameRadius) : defaultRadius)
+        return (terminalMode || classicMode) ? 0 : (customFrameExclusive ? px(customFrameRadius) : defaultRadius)
     }
 
     function corner(defaultRadius) {
-        return terminalMode ? 0 : defaultRadius
+        return (terminalMode || classicMode) ? 0 : defaultRadius
     }
 }

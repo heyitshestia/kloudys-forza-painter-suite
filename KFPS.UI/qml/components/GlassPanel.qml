@@ -13,7 +13,7 @@ Rectangle {
     property real shadowStrength: raised ? 0.86 : (strong ? 0.72 : 0.64)
     readonly property var backdropSource: Window.window && Window.window.glassBackdropSource ? Window.window.glassBackdropSource : null
     readonly property point backdropOrigin: backdropSource ? mapToItem(backdropSource, 0, 0) : Qt.point(0, 0)
-    readonly property bool backdropBlurActive: !Theme.terminalMode && Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
+    readonly property bool backdropBlurActive: !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
     readonly property bool roundedContentMaskActive: radius > 0 && width > 2 && height > 2
     readonly property bool locatorVisible: Theme.panelLocatorEnabled && (strong || raised)
     readonly property bool telemetryVisible: Theme.equipmentAccentsEnabled
@@ -26,9 +26,9 @@ Rectangle {
     radius: Theme.framedRadius(Theme.px(14))
     color: "transparent"
     opacity: panelOpacity
-    border.width: Theme.terminalMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
+    border.width: Theme.terminalMode || Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
     border.color: raised ? Theme.borderStrong : (strong ? Theme.borderStrong : (soft ? Theme.borderSoft : Theme.border))
-    antialiasing: !Theme.terminalMode
+    antialiasing: !Theme.terminalMode && !Theme.classicMode
     clip: true
 
     gradient: Gradient {
@@ -46,7 +46,7 @@ Rectangle {
         }
     }
 
-    layer.enabled: !Theme.terminalMode && Theme.glassEffects && !screenshotMode
+    layer.enabled: !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && !screenshotMode
     layer.smooth: true
     layer.effect: MultiEffect {
         shadowEnabled: true
@@ -367,6 +367,12 @@ Rectangle {
                 NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
             }
         }
+    }
+
+    ClassicBevel {
+        anchors.fill: parent
+        sunken: root.soft && !root.raised
+        z: 90
     }
 
 

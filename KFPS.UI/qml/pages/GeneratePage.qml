@@ -404,6 +404,11 @@ Item {
                         color: Theme.previewSurfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
+                        ClassicBevel {
+                            anchors.fill: parent
+                            sunken: true
+                            z: 20
+                        }
                         Image {
                             anchors.fill: parent
                             anchors.margins: Theme.px(12)
@@ -519,6 +524,11 @@ Item {
                         color: Theme.previewSurface
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
+                        ClassicBevel {
+                            anchors.fill: parent
+                            sunken: true
+                            z: 20
+                        }
                         Image {
                             anchors.fill: parent
                             anchors.margins: Theme.px(8)
@@ -874,6 +884,14 @@ Item {
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         width: Theme.px(320)
+
+        background: Rectangle {
+            color: Theme.surface
+            border.width: Theme.classicMode ? 0 : Math.max(1, Theme.px(1))
+            border.color: Theme.borderStrong
+            radius: Theme.corner(Theme.px(10))
+            ClassicBevel { anchors.fill: parent }
+        }
 
         ColumnLayout {
             width: parent.width

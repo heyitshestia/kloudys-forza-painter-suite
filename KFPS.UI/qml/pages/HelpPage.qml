@@ -112,7 +112,7 @@ Item {
                     height: Theme.px(54)
                     hoverEnabled: true
                     focusPolicy: Qt.StrongFocus
-                    scale: down ? 0.985 : 1.0
+                    scale: Theme.classicMode ? 1.0 : (down ? 0.985 : 1.0)
                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
                     onClicked: {
                         categoryList.currentIndex = index;
@@ -129,11 +129,13 @@ Item {
                         color: categoryButton.index === categoryList.currentIndex
                                ? (categoryButton.hovered ? Theme.primaryDeep : Theme.helpCategorySelected)
                                : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
-                        border.width: categoryButton.activeFocus
+                        border.width: Theme.classicMode
+                                      ? 0
+                                      : (categoryButton.activeFocus
                                       ? Theme.px(2)
                                       : (Theme.customFrameExclusive
                                          ? 0
-                                         : Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1)))
+                                         : Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1))))
                         border.color: categoryButton.activeFocus
                                       ? Theme.focusColor
                                       : (categoryButton.index === categoryList.currentIndex
@@ -141,6 +143,17 @@ Item {
                                          : (categoryButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                        ClassicBevel {
+                            anchors.fill: parent
+                            pressed: categoryButton.down || categoryButton.index === categoryList.currentIndex
+                        }
+
+                        ClassicFocusRect {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(4)
+                            active: categoryButton.activeFocus && categoryButton.index !== categoryList.currentIndex
+                        }
                     }
 
                     contentItem: RowLayout {
@@ -148,7 +161,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: categoryButton.title
-                            color: categoryButton.index === categoryList.currentIndex ? "white" : Theme.text
+                            color: categoryButton.index === categoryList.currentIndex ? Theme.primaryText : Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(13)
                             font.weight: Font.DemiBold
@@ -164,7 +177,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: categoryButton.count
-                                color: categoryButton.index === categoryList.currentIndex ? "white" : Theme.muted
+                                color: categoryButton.index === categoryList.currentIndex ? Theme.primaryText : Theme.muted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(11.5)
                                 font.weight: Font.DemiBold
@@ -209,7 +222,7 @@ Item {
                     height: Theme.px(86)
                     hoverEnabled: true
                     focusPolicy: Qt.StrongFocus
-                    scale: down ? 0.985 : 1.0
+                    scale: Theme.classicMode ? 1.0 : (down ? 0.985 : 1.0)
                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
                     onClicked: {
                         topicList.currentIndex = index;
@@ -226,11 +239,13 @@ Item {
                         color: topicButton.index === topicList.currentIndex
                                ? (topicButton.hovered ? Theme.primaryDeep : Theme.helpTopicSelected)
                                : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
-                        border.width: topicButton.activeFocus
+                        border.width: Theme.classicMode
+                                      ? 0
+                                      : (topicButton.activeFocus
                                       ? Theme.px(2)
                                       : (Theme.customFrameExclusive
                                          ? 0
-                                         : Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1)))
+                                         : Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1))))
                         border.color: topicButton.activeFocus
                                       ? Theme.focusColor
                                       : (topicButton.index === topicList.currentIndex
@@ -238,6 +253,17 @@ Item {
                                          : (topicButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                        ClassicBevel {
+                            anchors.fill: parent
+                            pressed: topicButton.down || topicButton.index === topicList.currentIndex
+                        }
+
+                        ClassicFocusRect {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(4)
+                            active: topicButton.activeFocus && topicButton.index !== topicList.currentIndex
+                        }
                     }
 
                     contentItem: Column {
@@ -246,7 +272,7 @@ Item {
                         Text {
                             width: parent.width
                             text: topicButton.title
-                            color: topicButton.index === topicList.currentIndex ? Theme.primaryBright : Theme.text
+                            color: topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(13.4)
                             font.weight: Font.DemiBold
@@ -255,7 +281,7 @@ Item {
                         Text {
                             width: parent.width
                             text: topicButton.summary
-                            color: Theme.muted
+                            color: topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(11.6)
                             lineHeight: 1.12

@@ -26,11 +26,11 @@ Item {
 
     implicitWidth: Theme.px(260)
     implicitHeight: Theme.px(150)
-    scale: Theme.terminalMode ? 1.0 : (tap.pressed ? 0.985 : 1.0)
+    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (tap.pressed ? 0.985 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: hover.hovered && root.clickable && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(2) : 0
+        y: hover.hovered && root.clickable && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -65,7 +65,7 @@ Item {
         radius: Theme.corner(panel.radius)
         color: Theme.hover
         opacity: hover.hovered && root.clickable
-                 ? (Theme.terminalMode ? 0.10 : (Theme.customFrameExclusive ? 0.72 : 0.10))
+                 ? (Theme.classicMode ? 0 : (Theme.terminalMode ? 0.10 : (Theme.customFrameExclusive ? 0.72 : 0.10)))
                  : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }
@@ -74,6 +74,13 @@ Item {
         id: content
         anchors.fill: parent
         anchors.margins: root.padding
+    }
+
+    ClassicBevel {
+        anchors.fill: parent
+        visible: Theme.classicMode && root.clickable
+        pressed: tap.pressed
+        z: 80
     }
 
     HoverHandler {

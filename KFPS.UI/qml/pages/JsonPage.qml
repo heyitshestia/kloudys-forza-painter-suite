@@ -586,15 +586,19 @@ Item {
                                         width: files.cellWidth - Theme.px(8)
                                         height: files.cellHeight - Theme.px(8)
                                         radius: Theme.framedRadius(Theme.px(16))
-                                        color: jsonService.selectedPath === path
+                                        color: Theme.classicMode && jsonService.selectedPath === path
+                                               ? Theme.primary
+                                               : (jsonService.selectedPath === path
                                                ? (cardHover.hovered ? Theme.primaryDeep : Theme.primarySoft)
-                                               : (cardHover.hovered ? Theme.helpTopicHover : Theme.panelGradientTop(false, false))
-                                        border.width: Theme.customFrameExclusive
+                                               : (cardHover.hovered ? Theme.helpTopicHover : Theme.panelGradientTop(false, false)))
+                                        border.width: Theme.classicMode
                                                       ? 0
-                                                      : Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
+                                                      : (Theme.customFrameExclusive
+                                                      ? 0
+                                                      : Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1)))
                                         border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
                                         antialiasing: true
-                                        scale: cardMouse.pressed ? 0.985 : 1.0
+                                        scale: Theme.classicMode ? 1.0 : (cardMouse.pressed ? 0.985 : 1.0)
                                         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
                                         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
 
@@ -611,6 +615,12 @@ Item {
                                                 border.width: Math.max(1, Theme.px(1))
                                                 border.color: Theme.border
                                                 clip: true
+
+                                                ClassicBevel {
+                                                    anchors.fill: parent
+                                                    sunken: true
+                                                    z: 20
+                                                }
 
                                                 Image {
                                                     anchors.fill: parent
@@ -634,7 +644,7 @@ Item {
                                             Text {
                                                 width: parent.width
                                                 text: fileCard.displayName
-                                                color: Theme.text
+                                                color: Theme.classicMode && jsonService.selectedPath === path ? Theme.primaryText : Theme.text
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.px(10.4)
                                                 font.weight: Font.DemiBold
@@ -645,11 +655,17 @@ Item {
                                             Text {
                                                 width: parent.width
                                                 text: fileCard.detailText
-                                                color: Theme.subtle
+                                                color: Theme.classicMode && jsonService.selectedPath === path ? Theme.primaryText : Theme.subtle
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.px(9.2)
                                                 elide: Text.ElideRight
                                             }
+                                        }
+
+                                        ClassicBevel {
+                                            anchors.fill: parent
+                                            pressed: cardMouse.pressed || jsonService.selectedPath === path
+                                            z: 30
                                         }
 
                                         HoverHandler {
@@ -764,9 +780,11 @@ Item {
         background: Rectangle {
             radius: Theme.corner(Theme.px(24))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
             antialiasing: true
+
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {
@@ -799,6 +817,12 @@ Item {
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.borderStrong
                 clip: true
+
+                ClassicBevel {
+                    anchors.fill: parent
+                    sunken: true
+                    z: 20
+                }
 
                 Image {
                     anchors.fill: parent
@@ -876,9 +900,11 @@ Item {
         background: Rectangle {
             radius: Theme.corner(Theme.px(24))
             color: Theme.surfaceRaised
-            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
             border.color: Theme.borderStrong
             antialiasing: true
+
+            ClassicBevel { anchors.fill: parent }
         }
 
         contentItem: ColumnLayout {

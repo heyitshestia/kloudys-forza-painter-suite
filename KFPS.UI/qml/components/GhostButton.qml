@@ -29,8 +29,8 @@ Button {
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(6) : 0
-    readonly property real lipDepth: Theme.terminalMode ? 0 : Theme.px(dense ? 1.8 : 2.8)
-    readonly property real capTravel: Theme.terminalMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
+    readonly property real lipDepth: Theme.terminalMode || Theme.classicMode ? 0 : Theme.px(dense ? 1.8 : 2.8)
+    readonly property real capTravel: Theme.terminalMode || Theme.classicMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
 
     implicitHeight: Math.max(
                         Theme.px(dense ? Metrics.denseButtonHeight : 36),
@@ -50,11 +50,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: Theme.terminalMode ? 1.0 : (down ? 0.982 : 1.0)
+    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.982 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -287,6 +287,24 @@ Button {
                 antialiasing: true
             }
         }
+
+        Rectangle {
+            visible: Theme.classicMode
+            anchors.fill: parent
+            color: Theme.surface
+            z: 100
+
+            ClassicBevel {
+                anchors.fill: parent
+                pressed: root.down || root.checkedState
+            }
+
+            ClassicFocusRect {
+                anchors.fill: parent
+                anchors.margins: Theme.px(4)
+                active: root.activeFocus && !root.checkedState
+            }
+        }
     }
 
     contentItem: Item {
@@ -309,7 +327,7 @@ Button {
             colorize: true
             tint: Theme.terminalMode && (root.checkedState || root.down)
                   ? Theme.primaryText
-                  : (root.accentText ? Theme.primaryBright : Theme.text)
+                  : (Theme.classicMode ? Theme.borderStrong : (root.accentText ? Theme.primaryBright : Theme.text))
             iconOpacity: root.enabled ? 0.96 : 0.48
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -343,7 +361,7 @@ Button {
             colorize: true
             tint: Theme.terminalMode && (root.checkedState || root.down)
                   ? Theme.primaryText
-                  : (root.accentText ? Theme.primaryBright : Theme.muted)
+                  : (Theme.classicMode ? Theme.borderStrong : (root.accentText ? Theme.primaryBright : Theme.muted))
             glow: false
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter

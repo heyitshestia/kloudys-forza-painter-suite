@@ -105,18 +105,20 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.px(10)
-        anchors.rightMargin: Theme.px(10)
-        anchors.topMargin: Theme.px(8)
-        anchors.bottomMargin: Theme.px(10)
-        spacing: Theme.px(4)
+        anchors.leftMargin: Theme.px(Theme.classicMode ? 8 : 10)
+        anchors.rightMargin: Theme.px(Theme.classicMode ? 8 : 10)
+        anchors.topMargin: Theme.px(Theme.classicMode ? 5 : 8)
+        anchors.bottomMargin: Theme.px(Theme.classicMode ? 8 : 10)
+        spacing: Theme.px(Theme.classicMode ? 2 : 4)
 
         Item {
             id: logoArea
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(Theme.terminalMode
+            Layout.preferredHeight: Theme.px(Theme.classicMode
+                                             ? (root.compact ? 62 : 78)
+                                             : (Theme.terminalMode
                                              ? (root.compact ? 54 : 64)
-                                             : (root.denseNavigation ? (root.compact ? 74 : 82) : (root.compact ? 93 : 102)))
+                                             : (root.denseNavigation ? (root.compact ? 74 : 82) : (root.compact ? 93 : 102))))
             Layout.minimumHeight: Layout.preferredHeight
 
             Row {
@@ -143,6 +145,8 @@ Item {
                         showDial: Theme.logoDialFile.length > 0
                         logoMargin: Theme.px(3)
                     }
+
+                    ClassicBevel { anchors.fill: parent }
                 }
 
                 Item {
@@ -154,7 +158,7 @@ Item {
                         id: brandText
                         anchors.centerIn: parent
                         text: "KFPS"
-                        color: Theme.primaryBright
+                        color: Theme.classicMode ? Theme.primary : Theme.primaryBright
                         font.family: Theme.displayFamily
                         font.pixelSize: Theme.px(root.denseNavigation ? 21 : 25)
                         font.weight: Font.DemiBold
@@ -187,12 +191,14 @@ Item {
                         showDial: Theme.logoDialFile.length > 0
                         logoMargin: Theme.px(3)
                     }
+
+                    ClassicBevel { anchors.fill: parent }
                 }
 
                 Text {
                     width: parent.width
                     text: "KFPS"
-                    color: Theme.primaryBright
+                    color: Theme.classicMode ? Theme.primary : Theme.primaryBright
                     font.family: Theme.displayFamily
                     font.pixelSize: Theme.px(root.denseNavigation ? 12.5 : 14)
                     font.weight: Font.DemiBold
@@ -276,7 +282,7 @@ Item {
             clip: true
             model: root.navItems
             currentIndex: root.pageIndex(appController.currentPage)
-            spacing: Theme.terminalMode ? 0 : Theme.px(4)
+            spacing: Theme.terminalMode ? 0 : Theme.px(Theme.classicMode ? 2 : 4)
             boundsBehavior: Flickable.StopAtBounds
             keyNavigationEnabled: true
 
@@ -325,7 +331,7 @@ Item {
                           : (supporterService.unlocked
                              ? "Thank you for supporting the project"
                              : "Consider supporting the project")
-                    color: Theme.primaryBright
+                    color: Theme.classicMode ? Theme.text : Theme.primaryBright
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(Theme.supporterSignatureVisible ? 11.2 : 10.2)
                     font.weight: Theme.supporterSignatureVisible ? Font.DemiBold : Font.DemiBold

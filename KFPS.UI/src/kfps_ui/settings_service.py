@@ -6,7 +6,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
-from .theme_catalog import DEFAULT_THEME, KNOWN_THEME_NAMES, normalize_theme
+from .theme_catalog import (
+    DEFAULT_THEME,
+    KNOWN_THEME_NAMES,
+    normalize_theme,
+    theme_entry_preferences,
+)
 
 
 class SettingsService(QObject):
@@ -55,10 +60,18 @@ class SettingsService(QObject):
         self._data[key] = value
         self.save(); self.changed.emit()
 
+    def _set_theme(self, value):
+        theme = normalize_theme(value)
+        if self._data.get("theme") == theme:
+            return
+        self._data["theme"] = theme
+        self._data.update(theme_entry_preferences(theme))
+        self.save(); self.changed.emit()
+
     @Property(str, notify=changed)
     def theme(self): return str(self._get("theme"))
     @theme.setter
-    def theme(self, value): self._set("theme", normalize_theme(value))
+    def theme(self, value): self._set_theme(value)
     @Property(float, notify=changed)
     def uiScale(self): return float(self._get("uiScale"))
     @uiScale.setter

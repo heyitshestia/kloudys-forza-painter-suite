@@ -128,6 +128,12 @@ Item {
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.borderSoft
 
+                ClassicBevel {
+                    anchors.fill: parent
+                    sunken: true
+                    z: 20
+                }
+
                 Image {
                     anchors.fill: parent
                     anchors.margins: Theme.px(12)

@@ -48,9 +48,11 @@ TextField {
             anchors.fill: parent
             radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
-            border.width: root.activeFocus
+            border.width: Theme.classicMode
+                          ? 0
+                          : (root.activeFocus
                           ? Theme.px(2)
-                          : (Theme.customFrameExclusive ? 0 : Theme.px(1))
+                          : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
             border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
             opacity: root.enabled ? 1.0 : 0.62
             clip: true
@@ -93,6 +95,12 @@ TextField {
                 activeState: root.activeFocus
                 hoveredState: root.hovered
             }
+        }
+
+        ClassicBevel {
+            anchors.fill: parent
+            sunken: true
+            z: 100
         }
     }
 }

@@ -13,8 +13,8 @@ Column {
         width: parent.width
         color: Theme.text
         font.family: Theme.displayFamily
-        font.pixelSize: Theme.px(21)
-        font.weight: Font.DemiBold
+        font.pixelSize: Theme.px(Theme.classicMode ? 17 : 21)
+        font.weight: Theme.classicMode ? Font.Bold : Font.DemiBold
         wrapMode: Text.Wrap
         maximumLineCount: 2
         elide: Text.ElideRight

@@ -33,25 +33,29 @@ Switch {
 
     indicator: Rectangle {
         id: switchTrack
-        implicitWidth: Theme.px(Theme.terminalMode ? (dense ? 32 : 36) : (dense ? 38 : 42))
-        implicitHeight: Theme.px(dense ? 20 : 22)
+        implicitWidth: Theme.px(Theme.classicMode ? (dense ? 16 : 18) : (Theme.terminalMode ? (dense ? 32 : 36) : (dense ? 38 : 42)))
+        implicitHeight: Theme.px(Theme.classicMode ? (dense ? 16 : 18) : (dense ? 20 : 22))
         y: Math.round((root.height - height) / 2)
         radius: Theme.corner(height / 2)
-        color: root.checked
+        color: Theme.classicMode
+               ? Theme.checkboxSurface
+               : (root.checked
                ? (root.hovered ? Theme.primary : Theme.primaryDeep)
-               : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff)
-        border.width: root.activeFocus
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff))
+        border.width: Theme.classicMode
+                      ? 0
+                      : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
-        scale: root.pressed ? 0.96 : (root.hovered ? 1.025 : 1.0)
+        scale: Theme.classicMode ? 1.0 : (root.pressed ? 0.96 : (root.hovered ? 1.025 : 1.0))
         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
         Rectangle {
-            visible: !Theme.terminalMode
+            visible: !Theme.terminalMode && !Theme.classicMode
             width: Theme.px(dense ? 14 : 16)
             height: width
             radius: Theme.corner(width / 2)
@@ -69,13 +73,24 @@ Switch {
         }
 
         Text {
-            visible: Theme.terminalMode
+            visible: Theme.terminalMode || Theme.classicMode
             anchors.centerIn: parent
-            text: root.checked ? "[X]" : "[ ]"
-            color: root.checked ? Theme.primaryText : Theme.text
+            text: Theme.classicMode ? (root.checked ? "X" : "") : (root.checked ? "[X]" : "[ ]")
+            color: Theme.classicMode ? Theme.borderStrong : (root.checked ? Theme.primaryText : Theme.text)
             font.family: Theme.monoFamily
             font.pixelSize: Theme.px(dense ? 10 : 11)
             font.weight: Font.Bold
+        }
+
+        ClassicBevel {
+            anchors.fill: parent
+            sunken: true
+        }
+
+        ClassicFocusRect {
+            anchors.fill: parent
+            anchors.margins: -Theme.px(3)
+            active: root.activeFocus
         }
     }
 

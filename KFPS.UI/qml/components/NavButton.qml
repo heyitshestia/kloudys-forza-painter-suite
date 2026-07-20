@@ -14,9 +14,9 @@ Button {
     property bool active: false
     property bool compact: false
     property bool dense: false
-    readonly property real activeLipDepth: Theme.terminalMode ? 0 : Theme.px(dense ? 2.0 : 3.2)
+    readonly property real activeLipDepth: Theme.terminalMode || Theme.classicMode ? 0 : Theme.px(dense ? 2.0 : 3.2)
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
-    readonly property real capTravel: Theme.terminalMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
+    readonly property real capTravel: Theme.terminalMode || Theme.classicMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
     property real signalPhase: screenshotMode && active && Theme.navSignalEnabled ? 3.0 : 0.0
     property real revealProgress: screenshotMode && active && Theme.navSignalEnabled ? 1.0 : 0.0
 
@@ -53,11 +53,11 @@ Button {
     rightPadding: 0
     topPadding: 0
     bottomPadding: 0
-    scale: Theme.terminalMode ? 1.0 : (down ? 0.982 : 1.0)
+    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.982 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -354,6 +354,24 @@ Button {
             color: Theme.divider
             opacity: root.active ? 0 : 0.34
         }
+
+        Rectangle {
+            visible: Theme.classicMode
+            anchors.fill: parent
+            color: Theme.surface
+            z: 100
+
+            ClassicBevel {
+                anchors.fill: parent
+                pressed: root.down || root.active
+            }
+
+            ClassicFocusRect {
+                anchors.fill: parent
+                anchors.margins: Theme.px(4)
+                active: root.activeFocus && !root.active
+            }
+        }
     }
 
     contentItem: Loader {
@@ -391,9 +409,11 @@ Button {
                 Icon {
                     name: root.iconName
                     iconSize: Theme.px(root.dense ? 18 : 20)
-                    colorize: root.active
-                    tint: Theme.primaryButtonText
-                    glow: root.active
+                    colorize: Theme.classicMode || root.active
+                    tint: Theme.classicMode
+                          ? Theme.borderStrong
+                          : Theme.primaryButtonText
+                    glow: root.active && !Theme.classicMode
                     glowColor: Theme.focusColor
                     iconOpacity: root.active ? 1 : 0.78
                     anchors.verticalCenter: parent.verticalCenter
@@ -402,7 +422,9 @@ Button {
                 Text {
                     width: Math.max(0, parent.width - x)
                     text: root.text
-                    color: root.active ? Theme.primaryButtonText : Theme.muted
+                    color: Theme.classicMode
+                           ? Theme.text
+                           : (root.active ? Theme.primaryButtonText : Theme.muted)
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
                     font.weight: root.active ? Font.DemiBold : Font.Medium
@@ -417,7 +439,7 @@ Button {
                 id: arrowText
                 width: Theme.px(20)
                 text: "›"
-                visible: !Theme.terminalMode && (root.active || root.hovered)
+                visible: !Theme.terminalMode && !Theme.classicMode && (root.active || root.hovered)
                 color: root.active ? Theme.primaryButtonText : Theme.primaryBright
                 opacity: root.active ? 1 : 0.75
                 font.family: Theme.fontFamily
@@ -441,9 +463,11 @@ Button {
             Icon {
                 name: root.iconName
                 iconSize: Theme.px(root.dense ? 17 : 19)
-                colorize: root.active
-                tint: Theme.primaryButtonText
-                glow: root.active
+                colorize: Theme.classicMode || root.active
+                tint: Theme.classicMode
+                      ? Theme.borderStrong
+                      : Theme.primaryButtonText
+                glow: root.active && !Theme.classicMode
                 glowColor: Theme.focusColor
                 iconOpacity: root.active ? 1 : 0.78
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -452,7 +476,9 @@ Button {
             Text {
                 width: parent.width - Theme.px(8)
                 text: root.text
-                color: root.active ? Theme.primaryButtonText : Theme.muted
+                color: Theme.classicMode
+                       ? Theme.text
+                       : (root.active ? Theme.primaryButtonText : Theme.muted)
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.dense ? 8 : 9)
                 font.weight: Font.DemiBold

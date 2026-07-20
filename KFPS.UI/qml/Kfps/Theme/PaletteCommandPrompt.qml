@@ -12,6 +12,7 @@ QtObject {
     readonly property string name: "Command Prompt"
     readonly property bool supporterOnly: false
     readonly property bool terminalMode: true
+    readonly property bool classicMode: false
     readonly property bool iconGlyphsVisible: false
     readonly property string iconFolder: "icons-carbon"
     readonly property bool iconColorize: true

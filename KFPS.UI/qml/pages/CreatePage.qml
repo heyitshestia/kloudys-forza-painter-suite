@@ -416,6 +416,12 @@ Item {
                     border.color: Theme.borderStrong
                     clip: true
 
+                    ClassicBevel {
+                        anchors.fill: parent
+                        sunken: true
+                        z: 20
+                    }
+
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: Theme.px(1)

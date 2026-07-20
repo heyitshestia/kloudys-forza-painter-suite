@@ -24,6 +24,7 @@ imgs/luma-bands/
 imgs/handmade/
 imgs/exported/
 imgs/editor/
+imgs/library/
 projects/
 *.exe.bak-*
 BUILD_COMMIT

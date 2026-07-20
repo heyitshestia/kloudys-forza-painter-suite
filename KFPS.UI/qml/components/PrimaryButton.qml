@@ -22,8 +22,8 @@ Button {
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 17 : 20) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(7) : 0
-    readonly property real lipDepth: Theme.terminalMode ? 0 : Theme.px(dense ? 2.8 : 4.2)
-    readonly property real capTravel: Theme.terminalMode ? 0 : (down ? Theme.px(dense ? 1.8 : 3.0) : 0)
+    readonly property real lipDepth: Theme.terminalMode || Theme.classicMode ? 0 : Theme.px(dense ? 2.8 : 4.2)
+    readonly property real capTravel: Theme.terminalMode || Theme.classicMode ? 0 : (down ? Theme.px(dense ? 1.8 : 3.0) : 0)
     property real signalPhase: screenshotMode && Theme.controlSignalEnabled ? 3.0 : 0.0
 
     implicitHeight: Math.max(
@@ -44,11 +44,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: Theme.terminalMode ? 1.0 : (down ? 0.978 : 1.0)
+    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.978 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(1.2) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1.2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -366,6 +366,24 @@ Button {
                 }
             }
         }
+
+        Rectangle {
+            visible: Theme.classicMode
+            anchors.fill: parent
+            color: Theme.surface
+            z: 100
+
+            ClassicBevel {
+                anchors.fill: parent
+                pressed: root.down
+            }
+
+            ClassicFocusRect {
+                anchors.fill: parent
+                anchors.margins: Theme.px(4)
+                active: root.activeFocus && !root.down
+            }
+        }
     }
 
     contentItem: Item {
@@ -410,8 +428,8 @@ Button {
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold
             font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
-            style: Theme.terminalMode ? Text.Normal : Text.Raised
-            styleColor: Theme.terminalMode ? "transparent" : Theme.primaryButtonGlassTop
+            style: Theme.terminalMode || Theme.classicMode ? Text.Normal : Text.Raised
+            styleColor: Theme.terminalMode || Theme.classicMode ? "transparent" : Theme.primaryButtonGlassTop
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.NoWrap

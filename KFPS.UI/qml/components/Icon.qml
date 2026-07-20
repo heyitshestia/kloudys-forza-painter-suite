@@ -29,15 +29,15 @@ Item {
         source: visible && root.name.length > 0 ? assetRoot + "/" + root.iconFolder + "/" + root.name + ".svg" : ""
         fillMode: Image.PreserveAspectFit
         opacity: root.iconOpacity
-        smooth: true
-        mipmap: true
+        smooth: !Theme.classicMode
+        mipmap: !Theme.classicMode
         asynchronous: true
-        layer.enabled: root.colorize || (root.glow && !screenshotMode)
+        layer.enabled: (!Theme.classicMode && root.colorize) || (root.glow && !Theme.classicMode && !screenshotMode)
         layer.smooth: true
         layer.effect: MultiEffect {
-            colorization: root.colorize ? 1.0 : 0.0
+            colorization: root.colorize && !Theme.classicMode ? 1.0 : 0.0
             colorizationColor: root.tint
-            shadowEnabled: root.glow && !screenshotMode
+            shadowEnabled: root.glow && !Theme.classicMode && !screenshotMode
             shadowColor: root.glowColor
             shadowBlur: 0.72
             shadowOpacity: 0.92

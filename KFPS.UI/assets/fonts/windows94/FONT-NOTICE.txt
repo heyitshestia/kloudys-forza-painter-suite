@@ -1,0 +1,8 @@
+W95FA is a Windows 95/98-style display font by Alina Sava (FontsArena).
+
+It is distributed under the SIL Open Font License, Version 1.1. The complete
+license is included in OFL.txt. KFPS uses the font only for its Windows 94
+theme; no Microsoft fonts or icon artwork are bundled for this theme.
+
+Font project: https://fontsarena.com/w95fa-by-alina-sava/
+License: https://openfontlicense.org/
