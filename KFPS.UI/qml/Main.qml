@@ -54,6 +54,7 @@ ApplicationWindow {
     Binding { target: Theme; property: "reducedMotion"; value: settings.reducedMotion }
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
+    Binding { target: Theme; property: "terminalGreenText"; value: settings.terminalGreenText }
     Binding { target: Theme; property: "themeName"; value: settings.theme }
     Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked || themePreviewUnlocked }
 
@@ -154,7 +155,17 @@ ApplicationWindow {
                     Theme.px(window.compactHeader ? 420 : 540),
                     headerBannerRight - headerBannerLeft
                 )
-                readonly property real headerBannerWidth: pageHeaderAlignmentAvailable ? headerAlignedBannerWidth : headerFallbackBannerWidth
+                readonly property real headerBannerWidth: pageHeaderAlignmentAvailable
+                                                           ? headerAlignedBannerWidth
+                                                           : (Theme.terminalMode
+                                                              ? Math.max(
+                                                                    Theme.px(180),
+                                                                    Math.min(
+                                                                        headerFallbackBannerWidth,
+                                                                        headerRightLimit - headerFallbackBannerX
+                                                                    )
+                                                                )
+                                                              : headerFallbackBannerWidth)
                 readonly property real headerBannerX: pageHeaderAlignmentAvailable
                                                       ? Theme.clamp(headerBannerLeft + ((headerBannerRight - headerBannerLeft - headerBannerWidth) / 2),
                                                                     Theme.px(12),
@@ -300,11 +311,11 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: Theme.px(12)
-                    anchors.rightMargin: Theme.px(14)
+                    anchors.leftMargin: Theme.terminalMode ? 0 : Theme.px(12)
+                    anchors.rightMargin: Theme.terminalMode ? 0 : Theme.px(14)
                     anchors.topMargin: window.headerHeight
-                    anchors.bottomMargin: Theme.px(11)
-                    spacing: Theme.px(10)
+                    anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(11)
+                    spacing: Theme.terminalMode ? 0 : Theme.px(10)
 
                     Loader {
                         id: pageLoader

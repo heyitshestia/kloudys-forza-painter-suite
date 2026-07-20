@@ -14,11 +14,12 @@ class SettingsService(QObject):
 
     DEFAULTS = {
         "theme": DEFAULT_THEME,
-        "uiScale": 1.0,
+        "uiScale": 1.05,
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
         "glassEffects": True,
+        "terminalGreenText": False,
         "consoleCollapsed": False,
     }
     KNOWN_THEMES = set(KNOWN_THEME_NAMES)
@@ -78,6 +79,10 @@ class SettingsService(QObject):
     def glassEffects(self): return bool(self._get("glassEffects"))
     @glassEffects.setter
     def glassEffects(self, value): self._set("glassEffects", bool(value))
+    @Property(bool, notify=changed)
+    def terminalGreenText(self): return bool(self._get("terminalGreenText"))
+    @terminalGreenText.setter
+    def terminalGreenText(self, value): self._set("terminalGreenText", bool(value))
     @Property(bool, notify=changed)
     def consoleCollapsed(self): return bool(self._get("consoleCollapsed"))
     @consoleCollapsed.setter

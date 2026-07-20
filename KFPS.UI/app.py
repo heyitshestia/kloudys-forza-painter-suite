@@ -70,6 +70,7 @@ def parse_args():
     parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--theme-preview", choices=sorted(KNOWN_THEME_NAMES), help=argparse.SUPPRESS)
+    parser.add_argument("--terminal-green-text", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--allow-unsupported-python", action="store_true")
     parser.add_argument("--allow-source-download", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--skip-startup-index", action="store_true")
@@ -342,6 +343,8 @@ def main():
     theme_preview = normalize_theme(args.theme_preview) if args.theme_preview else ""
     if theme_preview:
         settings._data["theme"] = theme_preview
+    if args.terminal_green_text:
+        settings._data["terminalGreenText"] = True
     if args.ui_scale is not None:
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
     if args.motion_capture_dir or args.motion_preview:

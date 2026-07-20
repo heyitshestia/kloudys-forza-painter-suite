@@ -176,7 +176,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.px(330)
-                    radius: Theme.px(18)
+                    radius: Theme.corner(Theme.px(18))
                     color: Theme.previewSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
@@ -185,7 +185,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: Theme.px(1)
-                        radius: parent.radius - Theme.px(1)
+                        radius: Theme.corner(parent.radius - Theme.px(1))
                         color: "transparent"
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.innerHighlight

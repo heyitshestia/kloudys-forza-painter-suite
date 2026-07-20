@@ -108,6 +108,15 @@ Item {
                     elide: Text.ElideRight
                 }
 
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    visible: Theme.terminalMode
+                    text: "Green terminal text"
+                    checked: settings.terminalGreenText
+                    toolTipText: "Switch Command Prompt text between white and phosphor green. This setting affects only the Command Prompt theme."
+                    onToggled: settings.terminalGreenText = checked
+                }
+
                 Label { text: "UI scale  •  " + Math.round(root.pendingUiScale * 100) + "%" }
                 KfpsSlider {
                     id: uiScaleSlider

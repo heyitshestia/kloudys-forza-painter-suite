@@ -19,7 +19,7 @@ class CoreTests(unittest.TestCase):
   self.assertEqual(parse_bridge_line("KFPS_RUN_DIR: C:/run").kind,"run_started");self.assertEqual(parse_bridge_line("WPF_RUN_DIR: C:/run").kind,"run_started");self.assertEqual(parse_bridge_line("normal").kind,"log")
  def test_clean_settings_and_clamp(self):
   with tempfile.TemporaryDirectory() as td:
-   path=Path(td)/"settings.json";svc=SettingsService(path);self.assertEqual(svc.theme,"Night Blossom");svc.uiScale=5;self.assertEqual(svc.uiScale,1.35);self.assertTrue(path.exists())
+   path=Path(td)/"settings.json";svc=SettingsService(path);self.assertEqual(svc.theme,"Night Blossom");self.assertEqual(svc.uiScale,1.05);svc.uiScale=5;self.assertEqual(svc.uiScale,1.35);self.assertTrue(path.exists())
  def test_changelog_separates_summary_from_line_preserved_details(self):
   with tempfile.TemporaryDirectory() as td:
    path=Path(td)/"CHANGELOG.md"

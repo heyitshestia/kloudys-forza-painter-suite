@@ -120,7 +120,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: Theme.px(12)
                                         Layout.preferredHeight: Theme.px(12)
-                                        radius: width / 2
+                                        radius: Theme.corner(width / 2)
                                         color: root.hasUpdate ? Theme.danger : Theme.success
                                         opacity: root.hasUpdate ? (versionService.blinkOn ? 1.0 : 0.36) : 1.0
 
@@ -174,7 +174,7 @@ Item {
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(12)
                                             font.capitalization: Font.AllUppercase
-                                            font.letterSpacing: Theme.px(1.2)
+                                            font.letterSpacing: 0
                                         }
 
                                         Text {
@@ -216,7 +216,7 @@ Item {
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(12)
                                             font.capitalization: Font.AllUppercase
-                                            font.letterSpacing: Theme.px(1.2)
+                                            font.letterSpacing: 0
                                         }
 
                                         Text {

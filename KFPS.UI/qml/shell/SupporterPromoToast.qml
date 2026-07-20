@@ -63,7 +63,7 @@ GlassPanel {
                 readonly property real dotSize: Theme.px(index % 2 === 0 ? 4.4 : 3.5)
                 width: dotSize
                 height: dotSize
-                radius: width / 2
+                radius: Theme.corner(width / 2)
                 x: carnivalRim.width / 2 + Math.cos(angle) * (carnivalRim.width / 2 - Theme.px(10)) - width / 2
                 y: carnivalRim.height / 2 + Math.sin(angle) * (carnivalRim.height / 2 - Theme.px(7)) - height / 2
                 color: index % 2 === 0 ? Theme.primaryBright : Theme.primaryHot

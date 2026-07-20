@@ -15,8 +15,8 @@ Item {
     property color glowColor: Theme.primary
     readonly property string iconFolder: Theme.iconFolder
 
-    implicitWidth: iconSize
-    implicitHeight: iconSize
+    implicitWidth: Theme.iconGlyphsVisible ? iconSize : 0
+    implicitHeight: Theme.iconGlyphsVisible ? iconSize : 0
     Layout.minimumWidth: implicitWidth
     Layout.minimumHeight: implicitHeight
 
@@ -25,7 +25,8 @@ Item {
         anchors.centerIn: parent
         width: root.iconSize
         height: root.iconSize
-        source: root.name.length > 0 ? assetRoot + "/" + root.iconFolder + "/" + root.name + ".svg" : ""
+        visible: Theme.iconGlyphsVisible
+        source: visible && root.name.length > 0 ? assetRoot + "/" + root.iconFolder + "/" + root.name + ".svg" : ""
         fillMode: Image.PreserveAspectFit
         opacity: root.iconOpacity
         smooth: true

@@ -7,7 +7,7 @@ Text {
     font.pixelSize: Theme.px(10)
     font.weight: Font.DemiBold
     font.capitalization: Font.AllUppercase
-    font.letterSpacing: Theme.px(0.5)
+    font.letterSpacing: 0
     renderType: Text.NativeRendering
     font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: Text.AlignVCenter

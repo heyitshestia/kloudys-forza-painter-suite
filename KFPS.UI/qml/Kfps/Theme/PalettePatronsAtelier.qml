@@ -3,6 +3,8 @@ import QtQuick 6.7
 QtObject {
     readonly property string name: "Patron's Atelier"
     readonly property bool supporterOnly: true
+    readonly property bool terminalMode: false
+    readonly property bool iconGlyphsVisible: true
     readonly property string iconFolder: "icons"
     readonly property bool iconColorize: false
     readonly property color iconTint: primaryBright

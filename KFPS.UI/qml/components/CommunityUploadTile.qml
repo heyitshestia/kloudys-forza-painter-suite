@@ -30,7 +30,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: Theme.px(72)
-                radius: Theme.px(6)
+                radius: Theme.corner(Theme.px(6))
                 color: Theme.previewSurface
                 border.width: Math.max(1, Theme.px(root.selected ? 2 : 1))
                 border.color: root.selected ? Theme.primaryBright : Theme.borderSoft

@@ -606,7 +606,7 @@ Item {
                                             Rectangle {
                                                 width: parent.width
                                                 height: Math.max(Theme.px(72), fileCard.height - Theme.px(root.compactHeight ? 70 : 78))
-                                                radius: Theme.px(12)
+                                                radius: Theme.corner(Theme.px(12))
                                                 color: Theme.previewSurface
                                                 border.width: Math.max(1, Theme.px(1))
                                                 border.color: Theme.border
@@ -762,7 +762,7 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(24)
+            radius: Theme.corner(Theme.px(24))
             color: Theme.surfaceRaised
             border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
@@ -794,7 +794,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: Theme.px(460)
-                radius: Theme.px(18)
+                radius: Theme.corner(Theme.px(18))
                 color: Theme.previewSurface
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.borderStrong
@@ -874,7 +874,7 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(24)
+            radius: Theme.corner(Theme.px(24))
             color: Theme.surfaceRaised
             border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
@@ -969,7 +969,7 @@ Item {
 
                             width: fm8CreatorList.width
                             height: Theme.px(76)
-                            radius: Theme.px(16)
+                            radius: Theme.corner(Theme.px(16))
                             color: root.fm8PendingCreator === creator ? Theme.primarySoft : (creatorHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
                             border.width: Math.max(1, Theme.px(root.fm8PendingCreator === creator ? 2 : 1))
                             border.color: root.fm8PendingCreator === creator ? Theme.primaryBright : (recommended ? Theme.warning : Theme.borderSoft)

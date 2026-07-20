@@ -2,6 +2,7 @@ module Kfps.Theme
 singleton Theme 1.0 Theme.qml
 singleton Metrics 1.0 Metrics.qml
 PaletteNightBlossom 1.0 PaletteNightBlossom.qml
+PaletteCommandPrompt 1.0 PaletteCommandPrompt.qml
 PalettePatronsAtelier 1.0 PalettePatronsAtelier.qml
 PaletteCarbonDark 1.0 PaletteCarbonDark.qml
 PaletteOverdrive200X 1.0 PaletteOverdrive200X.qml

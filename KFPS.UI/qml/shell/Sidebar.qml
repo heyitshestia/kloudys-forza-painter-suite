@@ -71,7 +71,7 @@ Item {
 
     GlassPanel {
         anchors.fill: parent
-        radius: 0
+        radius: Theme.corner(0)
         strong: true
         panelOpacity: 0.97
         border.width: 0
@@ -114,12 +114,14 @@ Item {
         Item {
             id: logoArea
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(root.denseNavigation ? (root.compact ? 74 : 82) : (root.compact ? 93 : 102))
+            Layout.preferredHeight: Theme.px(Theme.terminalMode
+                                             ? (root.compact ? 54 : 64)
+                                             : (root.denseNavigation ? (root.compact ? 74 : 82) : (root.compact ? 93 : 102)))
             Layout.minimumHeight: Layout.preferredHeight
 
             Row {
                 id: wideLogoContent
-                visible: !root.compact
+                visible: !root.compact && !Theme.terminalMode
                 anchors.centerIn: parent
                 spacing: Theme.px(10)
                 opacity: root.insaneActive ? 0 : 1
@@ -130,7 +132,7 @@ Item {
                 Rectangle {
                     width: Theme.px(root.denseNavigation ? 48 : 56)
                     height: width
-                    radius: width / 2
+                    radius: Theme.corner(width / 2)
                     color: Theme.logoCapsuleSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
@@ -156,14 +158,14 @@ Item {
                         font.family: Theme.displayFamily
                         font.pixelSize: Theme.px(root.denseNavigation ? 21 : 25)
                         font.weight: Font.DemiBold
-                        font.letterSpacing: Theme.px(1.4)
+                        font.letterSpacing: 0
                     }
                 }
             }
 
             Column {
                 id: compactLogoContent
-                visible: root.compact
+                visible: root.compact && !Theme.terminalMode
                 anchors.centerIn: parent
                 spacing: Theme.px(3)
                 opacity: root.insaneActive ? 0 : 1
@@ -174,7 +176,7 @@ Item {
                 Rectangle {
                     width: Theme.px(root.denseNavigation ? 42 : 50)
                     height: width
-                    radius: width / 2
+                    radius: Theme.corner(width / 2)
                     color: Theme.logoCapsuleSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
@@ -210,7 +212,7 @@ Item {
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(root.compact ? 11.5 : 16)
                 font.weight: Font.Black
-                font.letterSpacing: Theme.px(root.compact ? 0.6 : 1.1)
+                font.letterSpacing: 0
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.NoWrap
@@ -219,6 +221,32 @@ Item {
                 minimumPixelSize: Theme.px(root.compact ? 8.5 : 11.5)
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 210; easing.type: Easing.OutCubic } }
                 Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 210; easing.type: Easing.OutBack } }
+            }
+
+            Column {
+                visible: Theme.terminalMode
+                anchors.centerIn: parent
+                width: parent.width - Theme.px(8)
+                spacing: Theme.px(3)
+
+                Text {
+                    width: parent.width
+                    text: root.compact ? "KFPS>" : "C:\\KFPS>"
+                    color: Theme.text
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.px(root.compact ? 11 : 17)
+                    font.weight: Font.Bold
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Text {
+                    width: parent.width
+                    text: "READY"
+                    color: Theme.subtle
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.px(root.compact ? 8 : 9.5)
+                    horizontalAlignment: Text.AlignHCenter
+                }
             }
 
             TapHandler {
@@ -230,7 +258,7 @@ Item {
             HoverHandler { id: logoHover }
             KfpsToolTip {
                 visible: logoHover.hovered
-                text: "KFPS logo."
+                text: Theme.terminalMode ? "KFPS command prompt." : "KFPS logo."
             }
         }
 
@@ -248,7 +276,7 @@ Item {
             clip: true
             model: root.navItems
             currentIndex: root.pageIndex(appController.currentPage)
-            spacing: Theme.px(4)
+            spacing: Theme.terminalMode ? 0 : Theme.px(4)
             boundsBehavior: Flickable.StopAtBounds
             keyNavigationEnabled: true
 
@@ -292,19 +320,23 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: Theme.supporterSignatureVisible ? Theme.supporterSignatureText : "Consider supporting the project"
+                    text: Theme.supporterSignatureVisible
+                          ? Theme.supporterSignatureText
+                          : (supporterService.unlocked
+                             ? "Thank you for supporting the project"
+                             : "Consider supporting the project")
                     color: Theme.primaryBright
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(Theme.supporterSignatureVisible ? 11.2 : 10.2)
                     font.weight: Theme.supporterSignatureVisible ? Font.DemiBold : Font.DemiBold
                     font.italic: Theme.supporterSignatureVisible
-                    fontSizeMode: Theme.supporterSignatureVisible ? Text.FixedSize : Text.HorizontalFit
+                    fontSizeMode: Text.FixedSize
                     minimumPixelSize: Theme.px(8.2)
-                    wrapMode: Theme.supporterSignatureVisible ? Text.WordWrap : Text.NoWrap
-                    maximumLineCount: Theme.supporterSignatureVisible ? 2 : 1
-                    lineHeight: Theme.supporterSignatureVisible ? 0.94 : 1.0
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
+                    lineHeight: 0.94
                     lineHeightMode: Text.ProportionalHeight
-                    elide: Theme.supporterSignatureVisible ? Text.ElideNone : Text.ElideRight
+                    elide: Text.ElideNone
                 }
 
                 Text {

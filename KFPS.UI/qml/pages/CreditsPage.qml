@@ -160,7 +160,7 @@ Item {
                         Rectangle {
                             Layout.preferredWidth: Theme.px(root.compact ? 44 : 54)
                             Layout.preferredHeight: Layout.preferredWidth
-                            radius: width / 2
+                            radius: Theme.corner(width / 2)
                             color: Theme.logoCapsuleSurface
                             border.width: Math.max(1, Theme.px(1))
                             border.color: Theme.primaryBright
@@ -261,7 +261,7 @@ Item {
 
                                     width: nameText.implicitWidth + Theme.px(18)
                                     height: Theme.px(28)
-                                    radius: height / 2
+                                    radius: Theme.corner(height / 2)
                                     color: Theme.logoCapsuleSurface
                                     border.width: Math.max(1, Theme.px(1))
                                     border.color: Theme.borderSoft
@@ -366,7 +366,7 @@ Item {
 
                                     width: flsNameText.implicitWidth + Theme.px(18)
                                     height: Theme.px(28)
-                                    radius: height / 2
+                                    radius: Theme.corner(height / 2)
                                     color: Theme.logoCapsuleSurface
                                     border.width: Math.max(1, Theme.px(1))
                                     border.color: Theme.borderSoft

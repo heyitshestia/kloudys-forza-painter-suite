@@ -27,7 +27,7 @@ GlassPanel {
                 required property int index
                 width: Theme.px(index === 3 ? 8 : 4)
                 height: Theme.px(1.5)
-                radius: height / 2
+                radius: Theme.corner(height / 2)
                 color: versionService.updateAvailable
                        ? Theme.signalDanger
                        : (index === 3 ? Theme.signalSuccess : Theme.signalPrimary)
@@ -45,9 +45,9 @@ GlassPanel {
             Layout.preferredWidth: Theme.px(10)
             Layout.preferredHeight: Theme.px(10)
             Layout.alignment: Qt.AlignVCenter
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             color: versionService.updateAvailable ? Theme.danger : Theme.success
-            layer.enabled: Theme.glassEffects && !screenshotMode
+            layer.enabled: !Theme.terminalMode && Theme.glassEffects && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
                 shadowColor: statusDot.color
@@ -66,7 +66,7 @@ GlassPanel {
         Text {
             Layout.alignment: Qt.AlignVCenter
             Layout.maximumWidth: Theme.px(root.compact ? 154 : 184)
-            text: versionService.displayText
+            text: Theme.terminalMode ? "VER " + versionService.displayText : versionService.displayText
             color: versionService.updateAvailable
                    ? (versionService.blinkOn ? Theme.danger : Theme.text)
                    : Theme.text

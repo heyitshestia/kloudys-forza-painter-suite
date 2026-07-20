@@ -14,7 +14,7 @@ ScrollBar {
     contentItem: Rectangle {
         implicitWidth: Theme.px(5)
         implicitHeight: Theme.px(40)
-        radius: Math.min(width, height) / 2
+        radius: Theme.corner(Math.min(width, height) / 2)
         color: root.pressed
                ? Theme.primaryHot
                : (root.hovered ? Theme.primaryBright : Theme.primary)
@@ -27,7 +27,7 @@ ScrollBar {
     }
 
     background: Rectangle {
-        radius: Math.min(width, height) / 2
+        radius: Theme.corner(Math.min(width, height) / 2)
         color: Theme.fieldSurface
         opacity: root.hovered || root.pressed ? 0.62 : 0.20
         Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 110 } }

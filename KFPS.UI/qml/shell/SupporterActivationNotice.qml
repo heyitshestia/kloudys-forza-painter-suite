@@ -13,7 +13,7 @@ GlassPanel {
                     Theme.px(compact ? 460 : 540))
     implicitHeight: content.implicitHeight + Theme.px(compact ? 20 : 24)
     height: implicitHeight
-    radius: Theme.px(8)
+    radius: Theme.corner(Theme.px(8))
     strong: true
     raised: true
     visible: supporterService.problemVisible

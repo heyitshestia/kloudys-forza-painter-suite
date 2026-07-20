@@ -400,7 +400,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: Theme.px(10)
+                        radius: Theme.corner(Theme.px(10))
                         color: Theme.previewSurfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
@@ -515,7 +515,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(210)
-                        radius: Theme.px(10)
+                        radius: Theme.corner(Theme.px(10))
                         color: Theme.previewSurface
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft

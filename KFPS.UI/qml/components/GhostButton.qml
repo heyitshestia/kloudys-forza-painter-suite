@@ -22,12 +22,15 @@ Button {
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
 
     readonly property bool checkedState: root.selected || (root.checkable && root.checked)
-    readonly property bool reserveSideSlots: iconName.length > 0 || showArrow
+    readonly property color effectiveLabelColor: Theme.terminalMode && (checkedState || down)
+                                                 ? Theme.primaryText
+                                                 : labelColor
+    readonly property bool reserveSideSlots: Theme.iconGlyphsVisible && (iconName.length > 0 || showArrow)
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real sideSlotWidth: reserveSideSlots ? Theme.px(dense ? 16 : 19) : 0
     readonly property real sideGap: reserveSideSlots ? Theme.px(6) : 0
-    readonly property real lipDepth: Theme.px(dense ? 1.8 : 2.8)
-    readonly property real capTravel: down ? Theme.px(dense ? 1.1 : 2.0) : 0
+    readonly property real lipDepth: Theme.terminalMode ? 0 : Theme.px(dense ? 1.8 : 2.8)
+    readonly property real capTravel: Theme.terminalMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
 
     implicitHeight: Math.max(
                         Theme.px(dense ? Metrics.denseButtonHeight : 36),
@@ -47,11 +50,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: down ? 0.982 : 1.0
+    scale: Theme.terminalMode ? 1.0 : (down ? 0.982 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -129,7 +132,7 @@ Button {
                                      : (root.checkedState ? Theme.navActiveBottom : Theme.ghostSurface)
                 }
             }
-            layer.enabled: Theme.glassEffects && (root.hovered || root.checkedState) && !screenshotMode
+            layer.enabled: !Theme.terminalMode && Theme.glassEffects && (root.hovered || root.checkedState) && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
                 shadowColor: root.checkedState ? Theme.navActiveGlow : Theme.ghostShadow
@@ -150,7 +153,7 @@ Button {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: Theme.px(1.4)
-                radius: Math.max(0, chrome.radius - Theme.px(1.5))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1.5)))
                 antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
@@ -193,7 +196,7 @@ Button {
                 anchors.rightMargin: Theme.px(1)
                 anchors.topMargin: Theme.px(1)
                 height: parent.height * 0.48
-                radius: Math.max(0, chrome.radius - Theme.px(1))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1)))
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
                     GradientStop { position: 0.78; color: Theme.primaryButtonGlassMiddle }
@@ -206,7 +209,7 @@ Button {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: Theme.px(1.4)
-                radius: Math.max(0, chrome.radius - Theme.px(1.4))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1.4)))
                 color: "transparent"
                 border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.primaryButtonGlassTop
@@ -232,7 +235,7 @@ Button {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: Math.max(1, Theme.px(1.4))
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
@@ -246,7 +249,7 @@ Button {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: Math.max(1, Theme.px(1.4))
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
                     GradientStop { position: 0.0; color: Theme.primaryButtonSheenTransparent }
@@ -257,7 +260,7 @@ Button {
 
             Rectangle {
                 anchors.fill: parent
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 color: Theme.primaryButtonGlassTop
                 opacity: root.down ? 0.14 : 0
                 antialiasing: true
@@ -279,7 +282,7 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(Theme.px(2.5), 2)
                 height: Math.max(Theme.px(12), parent.height - Theme.px(12))
-                radius: width / 2
+                radius: Theme.corner(width / 2)
                 color: Theme.primaryHot
                 antialiasing: true
             }
@@ -304,7 +307,9 @@ Button {
             name: root.iconName
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: root.accentText ? Theme.primaryBright : Theme.text
+            tint: Theme.terminalMode && (root.checkedState || root.down)
+                  ? Theme.primaryText
+                  : (root.accentText ? Theme.primaryBright : Theme.text)
             iconOpacity: root.enabled ? 0.96 : 0.48
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -318,10 +323,11 @@ Button {
                        0,
                        parent.width - (root.reserveSideSlots ? (root.sideSlotWidth + root.sideGap) * 2 : 0))
             text: root.text
-            color: root.labelColor
+            color: root.effectiveLabelColor
             font.family: Theme.fontFamily
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold
+            font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.NoWrap
@@ -335,7 +341,9 @@ Button {
             name: "chevron-right"
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: root.accentText ? Theme.primaryBright : Theme.muted
+            tint: Theme.terminalMode && (root.checkedState || root.down)
+                  ? Theme.primaryText
+                  : (root.accentText ? Theme.primaryBright : Theme.muted)
             glow: false
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter

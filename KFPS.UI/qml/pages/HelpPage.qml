@@ -157,7 +157,7 @@ Item {
                         Rectangle {
                             Layout.preferredWidth: Theme.px(34)
                             Layout.preferredHeight: Theme.px(24)
-                            radius: height / 2
+                            radius: Theme.corner(height / 2)
                             color: categoryButton.index === categoryList.currentIndex ? Theme.helpBadgeSelected : Theme.helpBadge
                             border.width: Math.max(1, Theme.px(1))
                             border.color: Theme.helpBadgeBorder
@@ -384,7 +384,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: Theme.px(29)
                                         Layout.preferredHeight: Theme.px(29)
-                                        radius: height / 2
+                                        radius: Theme.corner(height / 2)
                                         color: Theme.stepBadge
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.primaryBright

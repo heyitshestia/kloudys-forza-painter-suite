@@ -45,7 +45,7 @@ Item {
                 required property int index
                 width: Theme.px(index === 3 ? 6 : 3)
                 height: Theme.px(2)
-                radius: height / 2
+                radius: Theme.corner(height / 2)
                 color: index === 2 ? Theme.signalSecondary : Theme.signalPrimary
                 opacity: root.pressed || root.signalPhase > index
                          ? (index === 2 ? 0.94 : 0.82)

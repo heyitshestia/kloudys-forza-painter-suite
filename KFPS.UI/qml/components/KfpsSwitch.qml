@@ -33,10 +33,10 @@ Switch {
 
     indicator: Rectangle {
         id: switchTrack
-        implicitWidth: Theme.px(dense ? 38 : 42)
+        implicitWidth: Theme.px(Theme.terminalMode ? (dense ? 32 : 36) : (dense ? 38 : 42))
         implicitHeight: Theme.px(dense ? 20 : 22)
         y: Math.round((root.height - height) / 2)
-        radius: height / 2
+        radius: Theme.corner(height / 2)
         color: root.checked
                ? (root.hovered ? Theme.primary : Theme.primaryDeep)
                : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff)
@@ -51,9 +51,10 @@ Switch {
         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
         Rectangle {
+            visible: !Theme.terminalMode
             width: Theme.px(dense ? 14 : 16)
             height: width
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             y: Math.round((parent.height - height) / 2)
             x: root.checked ? parent.width - width - Theme.px(3) : Theme.px(3)
             color: root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted)
@@ -66,6 +67,16 @@ Switch {
             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 100 } }
             Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
         }
+
+        Text {
+            visible: Theme.terminalMode
+            anchors.centerIn: parent
+            text: root.checked ? "[X]" : "[ ]"
+            color: root.checked ? Theme.primaryText : Theme.text
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.px(dense ? 10 : 11)
+            font.weight: Font.Bold
+        }
     }
 
     contentItem: Text {
@@ -74,6 +85,7 @@ Switch {
         text: root.text
         font.family: Theme.fontFamily
         font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+        font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
         color: root.enabled ? Theme.text : Theme.subtle
         opacity: root.hovered ? 1.0 : 0.92
         Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }

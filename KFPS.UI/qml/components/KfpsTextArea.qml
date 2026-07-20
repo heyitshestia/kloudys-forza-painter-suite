@@ -71,7 +71,7 @@ TextArea {
                 anchors.rightMargin: Theme.px(1)
                 anchors.topMargin: Theme.px(1)
                 height: parent.height * 0.28
-                radius: Math.max(0, fieldChrome.radius - Theme.px(1))
+                radius: Theme.corner(Math.max(0, fieldChrome.radius - Theme.px(1)))
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
                     GradientStop { position: 0.72; color: Theme.primaryButtonGlassMiddle }

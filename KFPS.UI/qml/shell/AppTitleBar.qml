@@ -25,16 +25,19 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: Theme.px(10)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Theme.px(7)
+        spacing: Theme.terminalMode ? 0 : Theme.px(7)
 
         ThemedLogo {
-            width: Theme.px(16)
+            visible: !Theme.terminalMode
+            width: visible ? Theme.px(16) : 0
             height: width
             logoMargin: 0
         }
 
         Text {
-            text: appController.windowTitle
+            text: Theme.terminalMode
+                  ? "C:\\WINDOWS\\system32\\cmd.exe - KFPS"
+                  : appController.windowTitle
             color: Theme.muted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(10.5)
@@ -147,7 +150,7 @@ Rectangle {
                 required property int index
                 width: Theme.px(index === 3 ? 12 : 5)
                 height: Theme.px(2)
-                radius: height / 2
+                radius: Theme.corner(height / 2)
                 color: index === 5 ? Theme.signalSecondary : Theme.signalPrimary
             }
         }

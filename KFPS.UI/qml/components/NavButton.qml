@@ -14,9 +14,9 @@ Button {
     property bool active: false
     property bool compact: false
     property bool dense: false
-    readonly property real activeLipDepth: Theme.px(dense ? 2.0 : 3.2)
+    readonly property real activeLipDepth: Theme.terminalMode ? 0 : Theme.px(dense ? 2.0 : 3.2)
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
-    readonly property real capTravel: down ? Theme.px(dense ? 1.1 : 2.0) : 0
+    readonly property real capTravel: Theme.terminalMode ? 0 : (down ? Theme.px(dense ? 1.1 : 2.0) : 0)
     property real signalPhase: screenshotMode && active && Theme.navSignalEnabled ? 3.0 : 0.0
     property real revealProgress: screenshotMode && active && Theme.navSignalEnabled ? 1.0 : 0.0
 
@@ -53,11 +53,11 @@ Button {
     rightPadding: 0
     topPadding: 0
     bottomPadding: 0
-    scale: down ? 0.982 : 1.0
+    scale: Theme.terminalMode ? 1.0 : (down ? 0.982 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -77,7 +77,7 @@ Button {
             radius: Theme.framedRadius(Theme.px(11))
             color: "transparent"
             opacity: root.active ? 1 : 0
-            layer.enabled: Theme.glassEffects && root.active && !screenshotMode
+            layer.enabled: !Theme.terminalMode && Theme.glassEffects && root.active && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
                 shadowColor: Theme.navActiveGlow
@@ -155,7 +155,7 @@ Button {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: Theme.px(1.4)
-                radius: Math.max(0, chrome.radius - Theme.px(1.5))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1.5)))
                 visible: root.active
                 antialiasing: true
                 gradient: Gradient {
@@ -223,7 +223,7 @@ Button {
                 anchors.rightMargin: Theme.px(1)
                 anchors.topMargin: Theme.px(1)
                 height: parent.height * 0.46
-                radius: Math.max(0, chrome.radius - Theme.px(1))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1)))
                 visible: root.active
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
@@ -237,7 +237,7 @@ Button {
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: Theme.px(1.4)
-                radius: Math.max(0, chrome.radius - Theme.px(1.4))
+                radius: Theme.corner(Math.max(0, chrome.radius - Theme.px(1.4)))
                 visible: root.active
                 color: "transparent"
                 border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
@@ -252,7 +252,7 @@ Button {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: Math.max(1, Theme.px(1.6))
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 visible: root.active
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -267,7 +267,7 @@ Button {
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 width: Math.max(1, Theme.px(1.6))
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 visible: root.active
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -279,7 +279,7 @@ Button {
 
             Rectangle {
                 anchors.fill: parent
-                radius: chrome.radius
+                radius: Theme.corner(chrome.radius)
                 visible: root.active
                 color: Theme.primaryButtonGlassTop
                 opacity: root.down ? 0.14 : 0
@@ -328,7 +328,7 @@ Button {
                         required property int index
                         width: Theme.px(index === 2 ? 7 : 4)
                         height: Theme.px(2)
-                        radius: height / 2
+                        radius: Theme.corner(height / 2)
                         color: root.signalPhase > index
                                ? (index === 2 ? Theme.signalSecondary : Theme.signalPrimary)
                                : Theme.signalOff
@@ -376,7 +376,17 @@ Button {
                 anchors.right: arrowText.left
                 anchors.rightMargin: Theme.px(8)
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.px(13)
+                spacing: Theme.px(Theme.terminalMode ? 7 : 13)
+
+                Text {
+                    visible: Theme.terminalMode
+                    text: root.active ? ">" : (root.hovered ? ":" : " ")
+                    color: root.active ? Theme.primaryText : Theme.text
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
+                    font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
 
                 Icon {
                     name: root.iconName
@@ -396,6 +406,7 @@ Button {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
                     font.weight: root.active ? Font.DemiBold : Font.Medium
+                    font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
                     anchors.verticalCenter: parent.verticalCenter
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -406,7 +417,7 @@ Button {
                 id: arrowText
                 width: Theme.px(20)
                 text: "›"
-                visible: root.active || root.hovered
+                visible: !Theme.terminalMode && (root.active || root.hovered)
                 color: root.active ? Theme.primaryButtonText : Theme.primaryBright
                 opacity: root.active ? 1 : 0.75
                 font.family: Theme.fontFamily
@@ -445,6 +456,7 @@ Button {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.dense ? 8 : 9)
                 font.weight: Font.DemiBold
+                font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight

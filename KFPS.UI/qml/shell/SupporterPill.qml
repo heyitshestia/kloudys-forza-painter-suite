@@ -65,7 +65,7 @@ GlassPanel {
                 required property color modelData
                 width: Theme.px(5)
                 height: Theme.px(1.5)
-                radius: height / 2
+                radius: Theme.corner(height / 2)
                 color: modelData
                 opacity: 0.64
             }
@@ -77,7 +77,7 @@ GlassPanel {
         spacing: Theme.px(6)
 
         Text {
-            text: "✦"
+            text: Theme.terminalMode ? "[" : "✦"
             color: Theme.primaryBright
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(root.compact ? 13 : 15)
@@ -86,7 +86,7 @@ GlassPanel {
         }
 
         Text {
-            text: "supporter"
+            text: Theme.terminalMode ? "SUPPORTER" : "supporter"
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(root.compact ? 10.8 : 11.8)
@@ -96,7 +96,7 @@ GlassPanel {
         }
 
         Text {
-            text: "✦"
+            text: Theme.terminalMode ? "]" : "✦"
             color: Theme.primaryBright
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(root.compact ? 13 : 15)
@@ -105,7 +105,7 @@ GlassPanel {
         }
     }
 
-    layer.enabled: Theme.glassEffects && !screenshotMode
+    layer.enabled: !Theme.terminalMode && Theme.glassEffects && !screenshotMode
     layer.effect: MultiEffect {
         shadowEnabled: true
         shadowColor: Theme.primary

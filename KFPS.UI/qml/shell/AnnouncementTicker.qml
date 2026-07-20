@@ -18,8 +18,11 @@ GlassPanel {
     readonly property string effectiveText: announcementService.enabled
                                            ? announcementService.displayText
                                            : (announcementService.checking
-                                              ? "Checking KFPS live status..."
-                                              : "KFPS live status: no current announcement.")
+                                               ? "Checking KFPS live status..."
+                                               : "KFPS live status: no current announcement.")
+    readonly property string terminalText: Theme.terminalMode
+                                           ? "STATUS> " + effectiveText
+                                           : effectiveText
     readonly property color accentColor: severity === "critical"
                                         ? Theme.danger
                                         : (severity === "warning"
@@ -35,7 +38,7 @@ GlassPanel {
 
     Rectangle {
         anchors.fill: parent
-        radius: root.radius
+        radius: Theme.corner(root.radius)
         color: Theme.hover
         opacity: tickerMouse.pressed
                  ? (Theme.customFrameExclusive ? 0.92 : 0.18)
@@ -88,7 +91,7 @@ GlassPanel {
             Layout.preferredWidth: Theme.px(root.compact ? 8 : 9)
             Layout.preferredHeight: width
             Layout.alignment: Qt.AlignVCenter
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             color: root.accentColor
             opacity: announcementService.checking ? 0.55 : 1.0
 
@@ -123,7 +126,7 @@ GlassPanel {
             Text {
                 id: tickerMeasure
                 visible: false
-                text: root.effectiveText
+                text: root.terminalText
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.compact ? 10.2 : 11.4)
                 font.weight: Font.DemiBold
@@ -144,7 +147,7 @@ GlassPanel {
                     Text {
                         x: index * tickerViewport.tickerStep
                         y: Math.round((tickerViewport.height - height) / 2)
-                        text: root.effectiveText
+                        text: root.terminalText
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(root.compact ? 10.2 : 11.4)
@@ -170,7 +173,7 @@ GlassPanel {
             Text {
                 anchors.fill: parent
                 visible: Theme.reducedMotion || root.paused
-                text: root.effectiveText
+                text: root.terminalText
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.compact ? 10.2 : 11.4)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 
 DEFAULT_THEME = "Night Blossom"
+COMMAND_PROMPT_THEME = "Command Prompt"
 PATRONS_ATELIER_THEME = "Patron's Atelier"
 CARBON_DARK_THEME = "Carbon Dark"
 OVERDRIVE_200X_THEME = "Overdrive 200X"
@@ -25,6 +26,7 @@ class ThemePreset:
 
 THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(DEFAULT_THEME, "PaletteNightBlossom"),
+    ThemePreset(COMMAND_PROMPT_THEME, "PaletteCommandPrompt"),
     ThemePreset(PATRONS_ATELIER_THEME, "PalettePatronsAtelier", supporter_only=True),
     ThemePreset(CARBON_DARK_THEME, "PaletteCarbonDark", supporter_only=True),
     ThemePreset(OVERDRIVE_200X_THEME, "PaletteOverdrive200X", supporter_only=True),

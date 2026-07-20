@@ -3,6 +3,8 @@ import QtQuick 6.7
 QtObject {
     readonly property string name: "Overdrive 200X"
     readonly property bool supporterOnly: true
+    readonly property bool terminalMode: false
+    readonly property bool iconGlyphsVisible: true
     readonly property string iconFolder: "icons-carbon"
     readonly property bool iconColorize: true
     readonly property color iconTint: signalPrimary

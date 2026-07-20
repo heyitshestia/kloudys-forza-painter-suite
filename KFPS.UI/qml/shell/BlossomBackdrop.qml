@@ -6,7 +6,8 @@ Item {
 
     Image {
         anchors.fill: parent
-        source: assetRoot + "/" + Theme.backdropBaseFile
+        visible: Theme.backdropBaseFile.length > 0
+        source: visible ? assetRoot + "/" + Theme.backdropBaseFile : ""
         fillMode: Image.PreserveAspectCrop
         smooth: true
         mipmap: true

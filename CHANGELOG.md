@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.89
+- Added the public Command Prompt theme for supporters and non-supporters, with a square monochrome console interface and an optional theme-only green text mode.
+- Restored clear Handmade and Toolmade classification colors and reliable black text on white selected controls throughout Community.
+- Changed the fresh-install UI scale default to 105% while preserving each existing user's saved scale and theme preferences.
+
 ## 3.0.88
 - Added the supporter-only Overdrive 200X theme with custom military-science-fiction hardware, animated perimeter lighting, micro-LED feedback, and theme-specific transitions.
 - Expanded the modular theme system with isolated backdrop, foreground, control, icon, link, scrollbar, and page-transition treatments while preserving every existing theme.

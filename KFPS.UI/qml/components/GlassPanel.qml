@@ -13,7 +13,7 @@ Rectangle {
     property real shadowStrength: raised ? 0.86 : (strong ? 0.72 : 0.64)
     readonly property var backdropSource: Window.window && Window.window.glassBackdropSource ? Window.window.glassBackdropSource : null
     readonly property point backdropOrigin: backdropSource ? mapToItem(backdropSource, 0, 0) : Qt.point(0, 0)
-    readonly property bool backdropBlurActive: Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
+    readonly property bool backdropBlurActive: !Theme.terminalMode && Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
     readonly property bool roundedContentMaskActive: radius > 0 && width > 2 && height > 2
     readonly property bool locatorVisible: Theme.panelLocatorEnabled && (strong || raised)
     readonly property bool telemetryVisible: Theme.equipmentAccentsEnabled
@@ -26,9 +26,9 @@ Rectangle {
     radius: Theme.framedRadius(Theme.px(14))
     color: "transparent"
     opacity: panelOpacity
-    border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
+    border.width: Theme.terminalMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
     border.color: raised ? Theme.borderStrong : (strong ? Theme.borderStrong : (soft ? Theme.borderSoft : Theme.border))
-    antialiasing: true
+    antialiasing: !Theme.terminalMode
     clip: true
 
     gradient: Gradient {
@@ -46,7 +46,7 @@ Rectangle {
         }
     }
 
-    layer.enabled: Theme.glassEffects && !screenshotMode
+    layer.enabled: !Theme.terminalMode && Theme.glassEffects && !screenshotMode
     layer.smooth: true
     layer.effect: MultiEffect {
         shadowEnabled: true
@@ -60,7 +60,7 @@ Rectangle {
     Rectangle {
         id: roundedContentMask
         anchors.fill: parent
-        radius: root.radius
+        radius: Theme.corner(root.radius)
         color: "#ffffffff"
         visible: false
         antialiasing: true
@@ -111,7 +111,7 @@ Rectangle {
         Rectangle {
             anchors.fill: parent
             anchors.margins: Theme.px(1.5)
-            radius: Math.max(0, root.radius - Theme.px(1.5))
+            radius: Theme.corner(Math.max(0, root.radius - Theme.px(1.5)))
             color: Theme.panelConvexCenterGlow
             opacity: root.soft ? 0.13 : (root.strong || root.raised ? 0.18 : 0.15)
             antialiasing: true
@@ -122,7 +122,7 @@ Rectangle {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             width: Math.max(1, Theme.px(root.strong || root.raised ? 24 : 18))
-            radius: root.radius
+            radius: Theme.corner(root.radius)
             gradient: Gradient {
                 orientation: Gradient.Horizontal
                 GradientStop {
@@ -142,7 +142,7 @@ Rectangle {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             width: Math.max(1, Theme.px(root.strong || root.raised ? 26 : 20))
-            radius: root.radius
+            radius: Theme.corner(root.radius)
             gradient: Gradient {
                 orientation: Gradient.Horizontal
                 GradientStop {
@@ -162,7 +162,7 @@ Rectangle {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Math.max(1, Theme.px(root.strong || root.raised ? 26 : 20))
-            radius: root.radius
+            radius: Theme.corner(root.radius)
             gradient: Gradient {
                 GradientStop {
                     position: 0.0
@@ -184,7 +184,7 @@ Rectangle {
             anchors.rightMargin: Theme.px(1)
             anchors.topMargin: Theme.px(1)
             height: Math.max(1, Theme.px(root.strong ? 2.6 : 1.8))
-            radius: Math.max(0, root.radius - Theme.px(1))
+            radius: Theme.corner(Math.max(0, root.radius - Theme.px(1)))
             visible: !Theme.customFrameExclusive
             color: Theme.panelTopHighlight
             opacity: Theme.panelHighlightOpacity(root.soft, root.strong)
@@ -193,7 +193,7 @@ Rectangle {
         Rectangle {
             anchors.fill: parent
             anchors.margins: Theme.px(1)
-            radius: Math.max(0, root.radius - Theme.px(1))
+            radius: Theme.corner(Math.max(0, root.radius - Theme.px(1)))
             visible: !Theme.customFrameExclusive
             color: "transparent"
             border.width: Math.max(1, Theme.px(1))
@@ -205,7 +205,7 @@ Rectangle {
         Rectangle {
             anchors.fill: parent
             anchors.margins: Theme.px(2)
-            radius: Math.max(0, root.radius - Theme.px(2))
+            radius: Theme.corner(Math.max(0, root.radius - Theme.px(2)))
             color: root.strong ? Theme.panelStrongOverlay : Theme.panelOverlay
             opacity: Theme.panelOverlayOpacity(root.soft)
             antialiasing: true
@@ -213,7 +213,8 @@ Rectangle {
 
         Image {
             anchors.fill: parent
-            source: assetRoot + "/" + Theme.panelNoiseFile
+            visible: Theme.panelNoiseFile.length > 0
+            source: visible ? assetRoot + "/" + Theme.panelNoiseFile : ""
             fillMode: Image.Tile
             opacity: Theme.panelNoiseOpacity(root.soft, root.strong)
             smooth: true
@@ -308,7 +309,7 @@ Rectangle {
             y: Theme.px(2)
             width: Theme.px(24)
             height: Math.max(1, Theme.px(2))
-            radius: height / 2
+            radius: Theme.corner(height / 2)
             color: Theme.signalPrimary
             opacity: Theme.locatorOpacity * (locatorHover.hovered ? 1.0 : 0.54)
             Behavior on opacity {
@@ -338,7 +339,7 @@ Rectangle {
                     required property int index
                     width: Theme.px(index === 4 ? 8 : (index % 2 === 0 ? 4 : 2))
                     height: Theme.px(2)
-                    radius: height / 2
+                    radius: Theme.corner(height / 2)
                     color: index === 3 ? Theme.signalSecondary : Theme.signalPrimary
                     opacity: root.telemetryPhase > index ? 0.82 : 0.10
 
@@ -357,7 +358,7 @@ Rectangle {
             anchors.topMargin: Theme.px(10)
             width: Theme.px(2)
             height: Theme.px(7)
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             color: Theme.signalSecondary
             opacity: root.telemetryPhase >= 4.0 ? 0.78 : 0.16
 

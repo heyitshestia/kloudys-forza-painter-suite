@@ -3,6 +3,8 @@ import QtQuick 6.7
 QtObject {
     readonly property string name: "Night Blossom"
     readonly property bool supporterOnly: false
+    readonly property bool terminalMode: false
+    readonly property bool iconGlyphsVisible: true
     readonly property string iconFolder: "icons"
     readonly property bool iconColorize: false
     readonly property color iconTint: primaryBright

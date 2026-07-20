@@ -261,7 +261,7 @@ Item {
             visible: communityService.errorMessage.length > 0
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? Theme.px(42) : 0
-            radius: Theme.px(6)
+            radius: Theme.corner(Theme.px(6))
             color: Theme.danger
             opacity: 0.88
 
@@ -394,7 +394,7 @@ Item {
                                     visible: communityService.creatorFilter.length > 0
                                     Layout.preferredWidth: creatorFilterText.implicitWidth + Theme.px(56)
                                     Layout.preferredHeight: Theme.px(30)
-                                    radius: Theme.px(6)
+                                    radius: Theme.corner(Theme.px(6))
                                     color: Theme.primarySoft
                                     border.width: Math.max(1, Theme.px(1))
                                     border.color: Theme.primary
@@ -792,7 +792,7 @@ Item {
                                         visible: Boolean(communityService.selectedArtwork.featured)
                                         Layout.preferredWidth: Theme.px(72)
                                         Layout.preferredHeight: Theme.px(24)
-                                        radius: Theme.px(5)
+                                        radius: Theme.corner(Theme.px(5))
                                         color: Theme.primarySoft
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.primary
@@ -1214,7 +1214,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: Theme.px(root.compactHeight ? 82 : 100)
                                         Layout.fillHeight: true
-                                        radius: Theme.px(6)
+                                        radius: Theme.corner(Theme.px(6))
                                         color: Theme.previewSurface
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.borderSoft
@@ -1346,7 +1346,7 @@ Item {
                                     visible: !communityService.authenticated || communityService.usernameRequired
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.px(72)
-                                    radius: Theme.px(6)
+                                    radius: Theme.corner(Theme.px(6))
                                     color: Theme.primarySoft
                                     border.width: Math.max(1, Theme.px(1))
                                     border.color: Theme.primary
@@ -1653,7 +1653,7 @@ Item {
                                     Rectangle {
                                         Layout.preferredWidth: Theme.px(64)
                                         Layout.preferredHeight: Theme.px(64)
-                                        radius: Theme.px(6)
+                                        radius: Theme.corner(Theme.px(6))
                                         color: Theme.primarySoft
                                         border.width: Math.max(1, Theme.px(1))
                                         border.color: Theme.primary
@@ -1743,7 +1743,7 @@ Item {
                                             required property var modelData
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: Theme.px(58)
-                                            radius: Theme.px(6)
+                                            radius: Theme.corner(Theme.px(6))
                                             color: Theme.surfaceSoft
                                             border.width: Math.max(1, Theme.px(1))
                                             border.color: Theme.borderSoft
@@ -1871,7 +1871,7 @@ Item {
                                 Rectangle {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.px(120)
-                                    radius: Theme.px(6)
+                                    radius: Theme.corner(Theme.px(6))
                                     color: Theme.surfaceSoft
                                     border.width: Math.max(1, Theme.px(1))
                                     border.color: Theme.borderSoft
@@ -1965,7 +1965,7 @@ Item {
                 visible: communityService.errorMessage.length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: visible ? Theme.px(44) : 0
-                radius: Theme.px(6)
+                radius: Theme.corner(Theme.px(6))
                 color: Theme.surfaceSoft
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.danger
@@ -1994,7 +1994,7 @@ Item {
                         visible: communityService.githubAuthenticationAvailable
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(138)
-                        radius: Theme.px(7)
+                        radius: Theme.corner(Theme.px(7))
                         color: Theme.surfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
@@ -2034,7 +2034,7 @@ Item {
                         visible: communityService.testAuthenticationAvailable
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(126)
-                        radius: Theme.px(7)
+                        radius: Theme.corner(Theme.px(7))
                         color: Theme.surfaceSoft
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
@@ -2124,7 +2124,7 @@ Item {
                         visible: communityService.githubAuthorizationReady
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(112)
-                        radius: Theme.px(7)
+                        radius: Theme.corner(Theme.px(7))
                         color: Theme.previewSurface
                         border.width: Math.max(1, Theme.px(1))
                         border.color: Theme.primary
@@ -2339,7 +2339,7 @@ Item {
                     Layout.fillHeight: true
                     Layout.preferredWidth: Theme.px(880)
                     Layout.minimumHeight: Theme.px(360)
-                    radius: Theme.px(7)
+                    radius: Theme.corner(Theme.px(7))
                     color: Theme.previewSurface
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
@@ -2394,7 +2394,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: Theme.px(390)
-                    radius: Theme.px(7)
+                    radius: Theme.corner(Theme.px(7))
                     color: Theme.surfaceSoft
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderSoft
@@ -2521,7 +2521,7 @@ Item {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.px(66)
-                            radius: Theme.px(6)
+                            radius: Theme.corner(Theme.px(6))
                             color: Theme.surfaceRaised
                             border.width: Math.max(1, Theme.px(1))
                             border.color: Theme.warning
@@ -2635,7 +2635,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.px(48)
-                radius: Theme.px(6)
+                radius: Theme.corner(Theme.px(6))
                 color: Theme.primarySoft
 
                 Text {
@@ -2735,7 +2735,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.px(72)
-                radius: Theme.px(6)
+                radius: Theme.corner(Theme.px(6))
                 color: Theme.previewSurface
                 border.width: Math.max(1, Theme.px(1))
                 border.color: Theme.primary
@@ -2825,7 +2825,7 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: Theme.px(74)
                     Layout.preferredHeight: Theme.px(74)
-                    radius: Theme.px(6)
+                    radius: Theme.corner(Theme.px(6))
                     color: Theme.primarySoft
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.primary

@@ -24,7 +24,7 @@ Item {
                 required property int index
                 width: Theme.px(index === 2 ? 8 : 4)
                 height: Theme.px(2)
-                radius: height / 2
+                radius: Theme.corner(height / 2)
                 color: root.warningState && index === 2
                        ? Theme.signalSecondary
                        : Theme.signalPrimary

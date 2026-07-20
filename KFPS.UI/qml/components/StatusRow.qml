@@ -54,7 +54,7 @@ Item {
             Layout.minimumWidth: Layout.preferredWidth
             Layout.minimumHeight: Layout.preferredHeight
             Layout.alignment: Qt.AlignVCenter
-            radius: width / 2
+            radius: Theme.corner(width / 2)
             color: "transparent"
             border.width: Math.max(1, Theme.px(1))
             border.color: root.state === "bad" ? Theme.danger : (root.state === "warn" ? Theme.warning : Theme.success)

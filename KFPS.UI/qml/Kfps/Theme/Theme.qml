@@ -7,18 +7,22 @@ QtObject {
     // Runtime inputs bound by Main.qml. Components should consume only semantic
     // tokens below, never branch on a page/function name or hard-code a palette.
     property real viewportScale: 1.0
-    property real uiScale: 1.0
+    property real uiScale: 1.05
     property bool reducedMotion: false
     property bool ambientMotion: true
     property bool glassEffects: true
+    property bool terminalGreenText: false
     property string themeName: nightBlossom.name
     property bool supporterUnlocked: false
 
     readonly property QtObject nightBlossom: PaletteNightBlossom {}
+    readonly property QtObject commandPrompt: PaletteCommandPrompt {
+        greenText: root.terminalGreenText
+    }
     readonly property QtObject patronsAtelier: PalettePatronsAtelier {}
     readonly property QtObject carbonDark: PaletteCarbonDark {}
     readonly property QtObject overdrive200X: PaletteOverdrive200X {}
-    readonly property var palettes: [nightBlossom, patronsAtelier, carbonDark, overdrive200X]
+    readonly property var palettes: [nightBlossom, commandPrompt, patronsAtelier, carbonDark, overdrive200X]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -26,6 +30,8 @@ QtObject {
     readonly property var palette: requestedThemeAllowed ? requestedPalette : nightBlossom
     readonly property string activeThemeName: palette.name
     readonly property bool supporterTheme: palette.supporterOnly
+    readonly property bool terminalMode: palette.terminalMode
+    readonly property bool iconGlyphsVisible: palette.iconGlyphsVisible
 
     function paletteForName(name) {
         var requestedName = String(name || "").trim()
@@ -234,9 +240,13 @@ QtObject {
     readonly property color stepBadge: palette.stepBadge
     readonly property color richAccent: palette.richAccent
 
-    readonly property string fontFamily: Qt.platform.os === "windows" ? "Segoe UI" : "Inter"
-    readonly property string displayFamily: Qt.platform.os === "windows" ? "Segoe UI" : "Inter"
-    readonly property string monoFamily: Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace"
+    readonly property string fontFamily: terminalMode
+                                                ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
+                                                : (Qt.platform.os === "windows" ? "Segoe UI" : "Inter")
+    readonly property string displayFamily: fontFamily
+    readonly property string monoFamily: terminalMode
+                                                ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
+                                                : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace")
 
     readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
 
@@ -285,6 +295,10 @@ QtObject {
     }
 
     function framedRadius(defaultRadius) {
-        return customFrameExclusive ? px(customFrameRadius) : defaultRadius
+        return terminalMode ? 0 : (customFrameExclusive ? px(customFrameRadius) : defaultRadius)
+    }
+
+    function corner(defaultRadius) {
+        return terminalMode ? 0 : defaultRadius
     }
 }

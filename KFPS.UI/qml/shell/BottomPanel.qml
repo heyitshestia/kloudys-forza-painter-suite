@@ -13,7 +13,7 @@ GlassPanel {
     signal toggle()
 
     strong: true
-    radius: Theme.px(13)
+    radius: Theme.corner(Theme.px(13))
 
     ColumnLayout {
         anchors.fill: parent

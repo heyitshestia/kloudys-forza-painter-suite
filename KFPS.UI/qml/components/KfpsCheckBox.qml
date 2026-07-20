@@ -32,7 +32,7 @@ CheckBox {
         implicitHeight: implicitWidth
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
-        radius: Theme.customFrameExclusive ? Theme.px(6) : Theme.px(5)
+        radius: Theme.corner(Theme.customFrameExclusive ? Theme.px(6) : Theme.px(5))
         color: root.checked
                ? (root.hovered ? Theme.primaryBright : Theme.checkboxCheckedSurface)
                : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
@@ -48,7 +48,7 @@ CheckBox {
 
         Text {
             anchors.centerIn: parent
-            text: "✓"
+            text: Theme.terminalMode ? "X" : "✓"
             visible: root.checked
             color: root.hovered ? Theme.backgroundA : Theme.primaryText
             font.family: Theme.fontFamily
@@ -66,6 +66,7 @@ CheckBox {
         text: root.text
         font.family: Theme.fontFamily
         font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+        font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
         color: root.enabled ? Theme.text : Theme.subtle
         opacity: root.hovered ? 1.0 : 0.92
         Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }

@@ -41,7 +41,7 @@ Item {
                 Layout.preferredWidth: Theme.px(142)
                 Layout.fillHeight: true
                 Layout.minimumHeight: Theme.px(126)
-                radius: Theme.px(6)
+                radius: Theme.corner(Theme.px(6))
                 color: Theme.previewSurface
                 border.width: Math.max(1, Theme.px(root.cardSelected ? 2 : 1))
                 border.color: root.cardSelected ? Theme.primaryBright : Theme.borderSoft
@@ -84,7 +84,7 @@ Item {
                     anchors.margins: Theme.px(6)
                     width: featuredText.implicitWidth + Theme.px(14)
                     height: Theme.px(22)
-                    radius: Theme.px(5)
+                    radius: Theme.corner(Theme.px(5))
                     color: Theme.primaryDeep
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.primaryBright
@@ -107,7 +107,7 @@ Item {
                     anchors.margins: Theme.px(6)
                     width: supporterText.implicitWidth + Theme.px(14)
                     height: Theme.px(22)
-                    radius: Theme.px(5)
+                    radius: Theme.corner(Theme.px(5))
                     color: Theme.surfaceStrong
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.primaryBright

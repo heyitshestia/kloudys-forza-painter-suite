@@ -26,11 +26,11 @@ Item {
 
     implicitWidth: Theme.px(260)
     implicitHeight: Theme.px(150)
-    scale: tap.pressed ? 0.985 : 1.0
+    scale: Theme.terminalMode ? 1.0 : (tap.pressed ? 0.985 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: hover.hovered && root.clickable && !Theme.customFrameExclusive ? -Theme.px(2) : 0
+        y: hover.hovered && root.clickable && !Theme.customFrameExclusive && !Theme.terminalMode ? -Theme.px(2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -62,10 +62,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: panel.radius
+        radius: Theme.corner(panel.radius)
         color: Theme.hover
         opacity: hover.hovered && root.clickable
-                 ? (Theme.customFrameExclusive ? 0.72 : 0.10)
+                 ? (Theme.terminalMode ? 0.10 : (Theme.customFrameExclusive ? 0.72 : 0.10))
                  : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }

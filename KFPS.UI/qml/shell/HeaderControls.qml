@@ -7,6 +7,14 @@ GlassPanel {
     id: root
 
     property bool compact: false
+    property bool cursorOn: screenshotMode || Theme.reducedMotion
+
+    Timer {
+        interval: 540
+        repeat: true
+        running: Theme.terminalMode && !Theme.reducedMotion && !screenshotMode
+        onTriggered: root.cursorOn = !root.cursorOn
+    }
 
     function iconFor(page) {
         if (page === "create" || page === "generate") return "generate"
@@ -24,7 +32,7 @@ GlassPanel {
 
     width: Theme.px(compact ? 330 : 430)
     height: Theme.px(compact ? 50 : 58)
-    radius: Theme.px(14)
+    radius: Theme.corner(Theme.px(14))
     soft: true
 
     RowLayout {
@@ -47,7 +55,9 @@ GlassPanel {
 
             Text {
                 Layout.fillWidth: true
-                text: appController.pageTitle
+                text: Theme.terminalMode
+                      ? "C:\\KFPS> " + appController.pageTitle.toUpperCase()
+                      : appController.pageTitle
                 color: Theme.primaryBright
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(root.compact ? 12.5 : 14.5)
@@ -57,7 +67,9 @@ GlassPanel {
 
             Text {
                 Layout.fillWidth: true
-                text: appController.pageSubtitle
+                text: Theme.terminalMode
+                      ? appController.pageSubtitle + (root.cursorOn ? " _" : "  ")
+                      : appController.pageSubtitle
                 color: Theme.muted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.compact ? 9.4 : 10.3)

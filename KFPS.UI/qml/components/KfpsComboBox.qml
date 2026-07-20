@@ -62,6 +62,16 @@ ComboBox {
             tint: root.popup.visible ? Theme.primaryBright : Theme.muted
             glow: false
         }
+
+        Text {
+            visible: Theme.terminalMode
+            anchors.centerIn: parent
+            text: root.popup.visible ? "^" : "v"
+            color: root.popup.visible ? Theme.primaryBright : Theme.text
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.px(root.dense ? 10 : 11)
+            font.weight: Font.Bold
+        }
     }
 
     background: Item {
@@ -99,7 +109,7 @@ ComboBox {
                 anchors.rightMargin: Theme.px(1)
                 anchors.topMargin: Theme.px(1)
                 height: parent.height * 0.48
-                radius: Math.max(0, comboChrome.radius - Theme.px(1))
+                radius: Theme.corner(Math.max(0, comboChrome.radius - Theme.px(1)))
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
                     GradientStop { position: 0.74; color: Theme.primaryButtonGlassMiddle }
@@ -185,7 +195,7 @@ ComboBox {
                     anchors.rightMargin: Theme.px(1)
                     anchors.topMargin: Theme.px(1)
                     height: parent.height * 0.18
-                    radius: Math.max(0, popupChrome.radius - Theme.px(1))
+                    radius: Theme.corner(Math.max(0, popupChrome.radius - Theme.px(1)))
                     gradient: Gradient {
                         GradientStop { position: 0.0; color: Theme.primaryButtonGlassTop }
                         GradientStop { position: 0.78; color: Theme.primaryButtonGlassMiddle }

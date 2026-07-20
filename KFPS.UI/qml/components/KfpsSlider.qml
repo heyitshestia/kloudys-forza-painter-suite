@@ -30,8 +30,8 @@ Slider {
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
         width: root.availableWidth
-        height: Theme.px(5)
-        radius: height / 2
+        height: Theme.px(Theme.terminalMode ? 3 : 5)
+        radius: Theme.corner(height / 2)
         color: root.hovered ? Theme.checkboxHoverSurface : Theme.sliderTrack
         border.width: root.activeFocus
                       ? Theme.px(2)
@@ -42,7 +42,7 @@ Slider {
         Rectangle {
             width: root.visualPosition * parent.width
             height: parent.height
-            radius: parent.radius
+            radius: Theme.corner(parent.radius)
             color: root.hovered ? Theme.primaryBright : Theme.primary
             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
         }
@@ -51,9 +51,9 @@ Slider {
     handle: Rectangle {
         x: root.leftPadding + root.visualPosition * (root.availableWidth - width)
         y: Math.round((root.height - height) / 2)
-        width: Theme.px(18)
+        width: Theme.px(Theme.terminalMode ? 10 : 18)
         height: width
-        radius: width / 2
+        radius: Theme.corner(width / 2)
         color: root.pressed ? Theme.primaryBright : (root.hovered ? Theme.primaryHot : Theme.text)
         border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
         border.color: Theme.primaryBright

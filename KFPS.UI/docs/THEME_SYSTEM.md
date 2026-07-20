@@ -24,6 +24,8 @@ The required metadata includes:
 - `name` - exact user-facing name, matching the Python registry.
 - `supporterOnly` - whether QML may activate it without supporter access.
 - `iconFolder`, `iconColorize`, and `iconTint` - generic icon treatment.
+- `terminalMode` and `iconGlyphsVisible` - opt into the flat command-surface
+  treatment and suppress graphical icon slots without checking a concrete theme name.
 - `backdropComponentFile`, `foregroundComponentFile`, and
   `pageTransitionComponentFile` - optional custom presentation components loaded
   through stable shell hosts. Foregrounds are non-interactive and reserved for
@@ -101,3 +103,17 @@ The custom button lens is painted after generic backdrop blur and glass shading 
 authored edge and embedded marks stay legible. A non-interactive foreground component
 adds sparse chassis-seam telemetry, while shared controls expose panel and focus-state
 micro LEDs through generic equipment capability tokens.
+
+## Command Prompt
+
+Command Prompt is a public theme. It deliberately uses no decorative raster or vector
+assets: the shell is pure black, all active QML radii resolve to zero through
+`Theme.corner()`, structural glass panels become one continuous borderless surface,
+and command controls use square outlines with inverted hover selection. The navigation
+and title shell use prompt-oriented text while the application workflow remains shared.
+
+The Settings-only `terminalGreenText` preference switches the monochrome terminal ink
+between white and phosphor green. The preference may stay enabled while another theme
+is active, but only `PaletteCommandPrompt` consumes it. `iconGlyphsVisible` is false for
+this palette so shared icon components collapse their layout slots instead of loading
+or leaving gaps for graphical symbols.
