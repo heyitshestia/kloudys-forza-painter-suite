@@ -47,7 +47,6 @@ from kfps_ui.theme_catalog import (
     KNOWN_THEME_NAMES,
     is_supporter_theme,
     normalize_theme,
-    theme_entry_preferences,
 )
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
@@ -349,7 +348,6 @@ def main():
     theme_preview = normalize_theme(args.theme_preview) if args.theme_preview else ""
     if theme_preview:
         settings._data["theme"] = theme_preview
-        settings._data.update(theme_entry_preferences(theme_preview))
     if args.terminal_green_text:
         settings._data["terminalGreenText"] = True
     if args.ui_scale is not None:

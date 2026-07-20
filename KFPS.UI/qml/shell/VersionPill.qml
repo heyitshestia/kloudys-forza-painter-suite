@@ -7,12 +7,31 @@ import "../components"
 GlassPanel {
     id: root
 
+    objectName: "VersionPill"
+
     property bool compact: false
+    readonly property bool updateAlertPhase: versionService.updateAvailable
+                                                    && versionService.blinkOn
 
     width: Theme.px(compact ? 198 : 230)
     height: Theme.px(38)
     radius: Theme.framedRadius(height / 2)
     soft: true
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: Theme.classicMode ? Theme.px(2) : 0
+        radius: Theme.corner(Math.max(0, root.radius - anchors.margins))
+        color: Theme.updateAlertSurface
+        opacity: root.updateAlertPhase ? 0.94 : 0.0
+        antialiasing: !Theme.terminalMode && !Theme.classicMode
+        z: 70
+
+        Behavior on opacity {
+            enabled: !Theme.reducedMotion
+            NumberAnimation { duration: 110; easing.type: Easing.InOutQuad }
+        }
+    }
 
     Row {
         visible: Theme.headerSignalEnabled
@@ -20,6 +39,7 @@ GlassPanel {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.px(3)
         spacing: Theme.px(3)
+        z: 100
 
         Repeater {
             model: 4
@@ -29,7 +49,7 @@ GlassPanel {
                 height: Theme.px(1.5)
                 radius: Theme.corner(height / 2)
                 color: versionService.updateAvailable
-                       ? Theme.signalDanger
+                       ? (root.updateAlertPhase ? Theme.updateAlertText : Theme.updateAlertSurface)
                        : (index === 3 ? Theme.signalSuccess : Theme.signalPrimary)
                 opacity: 0.68
             }
@@ -39,6 +59,7 @@ GlassPanel {
     RowLayout {
         anchors.centerIn: parent
         spacing: Theme.px(9)
+        z: 100
 
         Rectangle {
             id: statusDot
@@ -46,7 +67,9 @@ GlassPanel {
             Layout.preferredHeight: Theme.px(10)
             Layout.alignment: Qt.AlignVCenter
             radius: Theme.corner(width / 2)
-            color: versionService.updateAvailable ? Theme.danger : Theme.success
+            color: versionService.updateAvailable
+                   ? (root.updateAlertPhase ? Theme.updateAlertText : Theme.updateAlertSurface)
+                   : Theme.success
             layer.enabled: !Theme.terminalMode && Theme.glassEffects && !screenshotMode
             layer.effect: MultiEffect {
                 shadowEnabled: true
@@ -55,21 +78,14 @@ GlassPanel {
                 shadowOpacity: 0.9
             }
 
-            SequentialAnimation on opacity {
-                running: versionService.updateAvailable && !Theme.reducedMotion
-                loops: Animation.Infinite
-                NumberAnimation { to: 0.30; duration: 650 }
-                NumberAnimation { to: 1.0; duration: 650 }
-            }
+            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
         Text {
             Layout.alignment: Qt.AlignVCenter
             Layout.maximumWidth: Theme.px(root.compact ? 154 : 184)
             text: Theme.terminalMode ? "VER " + versionService.displayText : versionService.displayText
-            color: versionService.updateAvailable
-                   ? (versionService.blinkOn ? Theme.danger : Theme.text)
-                   : Theme.text
+            color: root.updateAlertPhase ? Theme.updateAlertText : Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(11.5)
             font.weight: Font.DemiBold

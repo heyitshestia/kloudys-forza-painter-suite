@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from kfps_ui.settings_service import SettingsService  # noqa: E402
 from kfps_ui.theme_catalog import (  # noqa: E402
+    DEFAULT_THEME,
     PUBLIC_THEME_NAMES,
     SUPPORTER_THEME_NAMES,
     WINDOWS_94_THEME,
@@ -34,19 +35,31 @@ class Windows94ThemeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
             settings = SettingsService(path)
+            settings.manualOverrides = True
             settings.reducedMotion = True
+            settings.ambientMotion = False
+            settings.glassEffects = False
+            settings.liveStatusVisible = False
             settings.theme = WINDOWS_94_THEME
             reloaded = SettingsService(path)
             self.assertEqual(reloaded.theme, WINDOWS_94_THEME)
-            self.assertFalse(reloaded.reducedMotion)
+            self.assertTrue(reloaded.manualOverrides)
+            self.assertTrue(reloaded.reducedMotion)
             self.assertFalse(reloaded.ambientMotion)
             self.assertFalse(reloaded.glassEffects)
+            self.assertFalse(reloaded.liveStatusVisible)
 
             reloaded.ambientMotion = True
             reloaded.glassEffects = True
+            reloaded.liveStatusVisible = True
+            reloaded.theme = DEFAULT_THEME
             persisted = SettingsService(path)
+            self.assertEqual(persisted.theme, DEFAULT_THEME)
+            self.assertTrue(persisted.manualOverrides)
+            self.assertTrue(persisted.reducedMotion)
             self.assertTrue(persisted.ambientMotion)
             self.assertTrue(persisted.glassEffects)
+            self.assertTrue(persisted.liveStatusVisible)
 
     def test_palette_matches_the_classic_reference_contract(self):
         source = PALETTE.read_text(encoding="utf-8")

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.91
+- Kept the live-status ticker aligned identically across Create and every Community subtab, and added a saved setting to show or hide it.
+- Preserved manual generator overrides, reduced motion, ambient motion, and glass-effects choices across theme changes and app restarts instead of allowing theme selection to overwrite them.
+- Made available updates blink the complete version pill between its neutral theme styling and a clear red alert treatment across every theme.
+
 ## 3.0.90
 - Added the supporter-only Windows 94 theme with authentic square controls, classic four-color depth, recessed work areas, pixel-era typography, and Windows-style interaction states.
 - Added dedicated classic treatments for the app shell, navigation, fields, previews, lists, dialogs, focus outlines, scrollbars, and title-bar controls while preserving other themes.

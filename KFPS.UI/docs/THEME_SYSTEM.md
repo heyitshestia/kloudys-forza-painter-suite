@@ -9,8 +9,8 @@ concrete theme name.
   icon treatment, and supporter metadata.
 - `qml/Kfps/Theme/Theme.qml` selects an allowed palette and exposes the stable
   semantic `Theme.*` API consumed by the rest of QML.
-- `src/kfps_ui/theme_catalog.py` owns persistence validation, Settings ordering,
-  supporter-gated visibility, and optional preferences applied when entering a theme.
+- `src/kfps_ui/theme_catalog.py` owns persistence validation, Settings ordering, and
+  supporter-gated visibility. Theme selection never changes global user preferences.
 - Reusable components and pages consume semantic tokens. They must not inspect
   `Theme.themeName` or add `Theme.activeSomePreset` branches.
 
@@ -45,7 +45,7 @@ an empty asset path, `false`, or zero opacity instead of branching in a componen
 3. Register the QML type in `qml/Kfps/Theme/qmldir`.
 4. Instantiate it and add it to `palettes` in `Theme.qml`.
 5. Add one matching `ThemePreset` entry in `theme_catalog.py`, including deliberate
-   supporter access and any theme-entry preference values.
+   supporter access.
 6. Put any original assets under a dedicated `KFPS.UI/assets/themes/<theme>/` folder.
 7. Run the automated checks below.
 8. Capture every major page in the new theme at the standard desktop and compact sizes.
@@ -128,6 +128,6 @@ bevels, dotted keyboard focus, direct black icons, and short classic page transi
 The packaged W95FA font is licensed under the SIL Open Font License; the icon set is a
 mechanical monochrome treatment of KFPS's existing original SVG geometry.
 
-On entry, its `ThemePreset` sets reduced motion, ambient background motion, and glass
-effects to off in one saved update. Users may change those options afterward; their
-choices remain persisted until they explicitly enter Windows 94 again.
+Manual generator overrides, reduced motion, ambient background motion, glass effects,
+and live-status visibility are global user preferences. They remain unchanged when a
+theme is selected and persist across theme changes and application restarts.

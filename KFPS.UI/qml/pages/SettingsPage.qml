@@ -301,6 +301,14 @@ Item {
                     onToggled: settings.glassEffects = checked
                 }
 
+                KfpsSwitch {
+                    Layout.fillWidth: true
+                    text: "Show live status ticker"
+                    checked: settings.liveStatusVisible
+                    toolTipText: "Show or hide the scrolling KFPS live-status message at the top of every page. Status checks continue while it is hidden."
+                    onToggled: settings.liveStatusVisible = checked
+                }
+
                 Item { Layout.fillHeight: true }
             }
         }

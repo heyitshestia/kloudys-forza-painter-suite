@@ -262,6 +262,7 @@ ApplicationWindow {
                 AnnouncementTicker {
                     id: announcementTicker
                     compact: window.compactHeader
+                    visible: settings.liveStatusVisible
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
                     x: workspace.headerBannerX + Theme.px(5)

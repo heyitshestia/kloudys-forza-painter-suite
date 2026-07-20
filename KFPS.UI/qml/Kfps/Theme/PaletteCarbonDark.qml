@@ -67,6 +67,8 @@ QtObject {
     readonly property color success: "#6ed29a"
     readonly property color warning: "#f1c66e"
     readonly property color danger: "#ff657a"
+    readonly property color updateAlertSurface: danger
+    readonly property color updateAlertText: primaryText
     readonly property color classificationHandmade: "#ff9fce"
     readonly property color classificationToolmade: "#8fd8ff"
     readonly property color consoleBackground: "#ee050608"

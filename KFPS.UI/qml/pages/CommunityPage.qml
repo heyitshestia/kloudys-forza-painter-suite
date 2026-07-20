@@ -25,9 +25,9 @@ Item {
     readonly property bool supporterCatalogLocked: communityService.selectedScopeIndex === 3
                                                    && !communityService.supporterAccess
     readonly property bool activeSupporterKey: communityService.supporterKeyConnected
-    readonly property bool headerAlignmentAvailable: root.activeTab === 0 && root.wide
-                                                     && !root.supporterCatalogLocked
-                                                     && browsePanel.width > 0 && detailPanel.width > 0
+    // The live-status banner is shell-owned, so keep its page alignment stable
+    // while Browse, Upload, and Profile exchange their internal layouts.
+    readonly property bool headerAlignmentAvailable: root.wide
     readonly property real headerSourceCenterX: browsePanel.x + browsePanel.width / 2
     readonly property real headerPreviewCenterX: detailPanel.x + detailPanel.width / 2
     readonly property real headerBannerLeftX: 0

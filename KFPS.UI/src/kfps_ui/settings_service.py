@@ -10,7 +10,6 @@ from .theme_catalog import (
     DEFAULT_THEME,
     KNOWN_THEME_NAMES,
     normalize_theme,
-    theme_entry_preferences,
 )
 
 
@@ -24,6 +23,7 @@ class SettingsService(QObject):
         "reducedMotion": False,
         "ambientMotion": True,
         "glassEffects": True,
+        "liveStatusVisible": True,
         "terminalGreenText": False,
         "consoleCollapsed": False,
     }
@@ -65,7 +65,6 @@ class SettingsService(QObject):
         if self._data.get("theme") == theme:
             return
         self._data["theme"] = theme
-        self._data.update(theme_entry_preferences(theme))
         self.save(); self.changed.emit()
 
     @Property(str, notify=changed)
@@ -92,6 +91,10 @@ class SettingsService(QObject):
     def glassEffects(self): return bool(self._get("glassEffects"))
     @glassEffects.setter
     def glassEffects(self, value): self._set("glassEffects", bool(value))
+    @Property(bool, notify=changed)
+    def liveStatusVisible(self): return bool(self._get("liveStatusVisible"))
+    @liveStatusVisible.setter
+    def liveStatusVisible(self, value): self._set("liveStatusVisible", bool(value))
     @Property(bool, notify=changed)
     def terminalGreenText(self): return bool(self._get("terminalGreenText"))
     @terminalGreenText.setter
