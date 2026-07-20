@@ -22,6 +22,21 @@ ApplicationWindow {
         source: "../assets/fonts/windows94/W95FA.otf"
     }
 
+    FontLoader {
+        id: themeUiFont
+        source: Theme.uiFontFile.length > 0 ? "../assets/" + Theme.uiFontFile : ""
+    }
+
+    FontLoader {
+        id: themeDisplayFont
+        source: Theme.displayFontFile.length > 0 ? "../assets/" + Theme.displayFontFile : ""
+    }
+
+    FontLoader {
+        id: themeMonoFont
+        source: Theme.monoFontFile.length > 0 ? "../assets/" + Theme.monoFontFile : ""
+    }
+
     Component.onCompleted: supporterService.startActivation()
 
     onActiveChanged: {
@@ -66,6 +81,21 @@ ApplicationWindow {
         value: windows94Font.status === FontLoader.Ready
                ? windows94Font.name
                : (Qt.platform.os === "windows" ? "Microsoft Sans Serif" : "sans-serif")
+    }
+    Binding {
+        target: Theme
+        property: "loadedUiFontFamily"
+        value: themeUiFont.status === FontLoader.Ready ? themeUiFont.name : ""
+    }
+    Binding {
+        target: Theme
+        property: "loadedDisplayFontFamily"
+        value: themeDisplayFont.status === FontLoader.Ready ? themeDisplayFont.name : ""
+    }
+    Binding {
+        target: Theme
+        property: "loadedMonoFontFamily"
+        value: themeMonoFont.status === FontLoader.Ready ? themeMonoFont.name : ""
     }
     Binding { target: Theme; property: "themeName"; value: settings.theme }
     Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked || themePreviewUnlocked }

@@ -9,6 +9,9 @@ QtObject {
     readonly property string iconFolder: "icons-carbon"
     readonly property bool iconColorize: true
     readonly property color iconTint: primary
+    readonly property string uiFontFile: ""
+    readonly property string displayFontFile: ""
+    readonly property string monoFontFile: ""
 
     // Optional capabilities consumed generically by shared UI components.
     readonly property string backdropComponentFile: "BlossomBackdrop.qml"

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.93
+- Added the public Apex Vector theme for supporters and non-supporters, with a flat high-contrast race-control interface, original technical assets, packaged IBM Plex fonts, restrained idle telemetry, and custom page transitions.
+- Expanded the modular theme contract with optional theme fonts, isolated foreground telemetry, live semantic navigation colors, and clipped custom control treatments while preserving existing theme behavior.
+- Showed the Ko-fi supporter promo throughout public themes when no key is installed, displayed the correct dynamic thank-you or support message, and kept Windows 94 and Overdrive 200X supporter-only.
+
 ## 3.0.92
 - Added neutral checkerboard backdrops to Outputs and Community thumbnails, upload previews, detail views, and inspectors so transparent white or black vinyls remain visible in every theme.
 - Kept preview rendering lightweight with one cached tiled texture while leaving stored preview images unchanged.

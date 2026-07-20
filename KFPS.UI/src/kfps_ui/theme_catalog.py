@@ -9,6 +9,7 @@ WINDOWS_94_THEME = "Windows 94"
 PATRONS_ATELIER_THEME = "Patron's Atelier"
 CARBON_DARK_THEME = "Carbon Dark"
 OVERDRIVE_200X_THEME = "Overdrive 200X"
+APEX_VECTOR_THEME = "Apex Vector"
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(PATRONS_ATELIER_THEME, "PalettePatronsAtelier", supporter_only=True),
     ThemePreset(CARBON_DARK_THEME, "PaletteCarbonDark", supporter_only=True),
     ThemePreset(OVERDRIVE_200X_THEME, "PaletteOverdrive200X", supporter_only=True),
+    ThemePreset(APEX_VECTOR_THEME, "PaletteApexVector"),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

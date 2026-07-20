@@ -18,6 +18,9 @@ QtObject {
     readonly property string iconFolder: "icons-windows94"
     readonly property bool iconColorize: false
     readonly property color iconTint: dark
+    readonly property string uiFontFile: ""
+    readonly property string displayFontFile: ""
+    readonly property string monoFontFile: ""
 
     // Optional capabilities consumed generically by shared UI components.
     readonly property string backdropComponentFile: "../themes/windows94/Windows94Backdrop.qml"

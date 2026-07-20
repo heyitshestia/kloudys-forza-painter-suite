@@ -444,7 +444,7 @@ These examples show prepared source art next to high-layer final preview output 
 
 ## Theme Showcase
 
-Night Blossom is the public default, and Command Prompt is also available to everyone.
+Night Blossom is the public default; Command Prompt and Apex Vector are available to everyone.
 Supporter presets include Windows 94, Patron's Atelier, Carbon Dark, and the custom
 animated Overdrive 200X hardware-console theme.
 

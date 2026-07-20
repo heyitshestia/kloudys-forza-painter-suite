@@ -11,9 +11,14 @@ sys.path.insert(0, str(UI / "src"))
 sys.path.insert(0, str(ROOT))
 
 from kfps_ui.theme_catalog import (  # noqa: E402
+    APEX_VECTOR_THEME,
+    COMMAND_PROMPT_THEME,
     DEFAULT_THEME,
+    OVERDRIVE_200X_THEME,
+    PUBLIC_THEME_NAMES,
     SUPPORTER_THEME_NAMES,
     THEME_PRESETS,
+    WINDOWS_94_THEME,
     available_theme_names,
     is_supporter_theme,
     normalize_theme,
@@ -38,6 +43,13 @@ class ThemeCatalogTests(unittest.TestCase):
             self.assertIn(name, unlocked)
             self.assertTrue(is_supporter_theme(name))
         self.assertFalse(is_supporter_theme("Unused Theme"))
+
+    def test_recent_theme_entitlements_are_explicit(self):
+        self.assertIn(DEFAULT_THEME, PUBLIC_THEME_NAMES)
+        self.assertIn(COMMAND_PROMPT_THEME, PUBLIC_THEME_NAMES)
+        self.assertIn(APEX_VECTOR_THEME, PUBLIC_THEME_NAMES)
+        self.assertIn(WINDOWS_94_THEME, SUPPORTER_THEME_NAMES)
+        self.assertIn(OVERDRIVE_200X_THEME, SUPPORTER_THEME_NAMES)
 
     def test_palette_metadata_matches_python_registry(self):
         qmldir = (PALETTE_DIR / "qmldir").read_text(encoding="utf-8")

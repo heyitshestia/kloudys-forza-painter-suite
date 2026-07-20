@@ -13,6 +13,9 @@ QtObject {
     property bool glassEffects: true
     property bool terminalGreenText: false
     property string classicFontFamily: Qt.platform.os === "windows" ? "Microsoft Sans Serif" : "sans-serif"
+    property string loadedUiFontFamily: ""
+    property string loadedDisplayFontFamily: ""
+    property string loadedMonoFontFamily: ""
     property string themeName: nightBlossom.name
     property bool supporterUnlocked: false
 
@@ -24,7 +27,8 @@ QtObject {
     readonly property QtObject patronsAtelier: PalettePatronsAtelier {}
     readonly property QtObject carbonDark: PaletteCarbonDark {}
     readonly property QtObject overdrive200X: PaletteOverdrive200X {}
-    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X]
+    readonly property QtObject apexVector: PaletteApexVector {}
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -35,6 +39,9 @@ QtObject {
     readonly property bool terminalMode: palette.terminalMode
     readonly property bool classicMode: palette.classicMode
     readonly property bool iconGlyphsVisible: palette.iconGlyphsVisible
+    readonly property string uiFontFile: palette.uiFontFile
+    readonly property string displayFontFile: palette.displayFontFile
+    readonly property string monoFontFile: palette.monoFontFile
 
     function paletteForName(name) {
         var requestedName = String(name || "").trim()
@@ -249,13 +256,21 @@ QtObject {
                                                 ? classicFontFamily
                                                 : (terminalMode
                                                    ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
-                                                   : (Qt.platform.os === "windows" ? "Segoe UI" : "Inter"))
-    readonly property string displayFamily: fontFamily
+                                                   : (loadedUiFontFamily.length > 0
+                                                      ? loadedUiFontFamily
+                                                      : (Qt.platform.os === "windows" ? "Segoe UI" : "Inter")))
+    readonly property string displayFamily: classicMode || terminalMode
+                                             ? fontFamily
+                                             : (loadedDisplayFontFamily.length > 0
+                                                ? loadedDisplayFontFamily
+                                                : fontFamily)
     readonly property string monoFamily: classicMode
                                                 ? classicFontFamily
                                                 : (terminalMode
                                                    ? (Qt.platform.os === "windows" ? "Consolas" : "monospace")
-                                                   : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace"))
+                                                   : (loadedMonoFontFamily.length > 0
+                                                      ? loadedMonoFontFamily
+                                                      : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace")))
 
     readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
 

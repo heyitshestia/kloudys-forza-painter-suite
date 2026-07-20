@@ -24,6 +24,8 @@ The required metadata includes:
 - `name` - exact user-facing name, matching the Python registry.
 - `supporterOnly` - whether QML may activate it without supporter access.
 - `iconFolder`, `iconColorize`, and `iconTint` - generic icon treatment.
+- `uiFontFile`, `displayFontFile`, and `monoFontFile` - optional packaged font files.
+  Empty paths retain the existing system-font behavior.
 - `terminalMode` and `iconGlyphsVisible` - opt into the flat command-surface
   treatment and suppress graphical icon slots without checking a concrete theme name.
 - `backdropComponentFile`, `foregroundComponentFile`, and
@@ -63,7 +65,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 python KFPS.UI\tools\audit_theme_literals.py
 python KFPS.UI\tests\test_theme_catalog.py
 python KFPS.UI\tests\test_qml_refinement.py
-python KFPS.UI\tools\capture_pages.py --theme "Night Blossom" --theme "Command Prompt" --theme "Windows 94" --theme "Patron's Atelier" --theme "Carbon Dark" --theme "Overdrive 200X"
+python KFPS.UI\tools\capture_pages.py --theme "Night Blossom" --theme "Command Prompt" --theme "Windows 94" --theme "Patron's Atelier" --theme "Carbon Dark" --theme "Overdrive 200X" --theme "Apex Vector"
 python KFPS.UI\tools\audit_layout_matrix.py --theme "Night Blossom" --size 1360x820
 ```
 
@@ -104,6 +106,22 @@ The custom button lens is painted after generic backdrop blur and glass shading 
 authored edge and embedded marks stay legible. A non-interactive foreground component
 adds sparse chassis-seam telemetry, while shared controls expose panel and focus-state
 micro LEDs through generic equipment capability tokens.
+
+## Apex Vector
+
+Apex Vector is a public theme built as a bright precision graphics workstation. It
+packages IBM Plex Sans, IBM Plex Sans Condensed, and IBM Plex Mono through the optional
+font contract; other palettes leave those paths empty and retain their prior fonts.
+
+The theme uses an original cool-white engineering field, a transform-animated layer
+array, sparse perimeter telemetry, a clipped saturated-red control field, and a 320 ms
+lateral page transfer. Active navigation uses a flat near-black fill so it remains
+unambiguous against the bright shell. Preview surfaces stay neutral gray to preserve
+white and dark vinyl visibility.
+
+All production SVGs are original, local, text-free geometry. Reference principles,
+motion timing, performance limits, font licensing, provenance, and the full validation
+matrix are documented in `APEX_VECTOR_THEME_STORYBOARD.md`.
 
 ## Command Prompt
 

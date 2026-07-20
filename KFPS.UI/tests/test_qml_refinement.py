@@ -63,6 +63,8 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_supporter_promo_rim_blinks_without_rotating(self):
         promo = self.read("shell/SupporterPromoToast.qml")
+        self.assertIn("readonly property bool eligible: !Theme.supporterTheme", promo)
+        self.assertNotIn("Theme.activeThemeName === Theme.defaultThemeName", promo)
         self.assertIn("SequentialAnimation on blinkLevel", promo)
         self.assertIn("PauseAnimation { duration: 1800 }", promo)
         self.assertNotIn("property real spin", promo)

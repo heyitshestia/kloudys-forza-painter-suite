@@ -11,6 +11,7 @@ ComboBox {
     property bool dense: false
     property real minimumWidth: Theme.px(96)
     property string toolTipText: ""
+    property bool auditAllowOutsideFeedback: Theme.panelLocatorEnabled
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : "Choose an option."
     signal doubleTapped()
 

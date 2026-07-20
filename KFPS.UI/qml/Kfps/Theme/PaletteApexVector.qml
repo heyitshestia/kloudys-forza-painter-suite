@@ -1,0 +1,237 @@
+import QtQuick 6.7
+
+QtObject {
+    readonly property string name: "Apex Vector"
+    readonly property bool supporterOnly: false
+    readonly property bool terminalMode: false
+    readonly property bool classicMode: false
+    readonly property bool iconGlyphsVisible: true
+    readonly property string iconFolder: "icons-carbon"
+    readonly property bool iconColorize: true
+    readonly property color iconTint: "#080b0c"
+    readonly property string uiFontFile: "fonts/apex-vector/IBMPlexSans-Regular.ttf"
+    readonly property string displayFontFile: "fonts/apex-vector/IBMPlexSansCondensed-SemiBold.ttf"
+    readonly property string monoFontFile: "fonts/apex-vector/IBMPlexMono-Regular.ttf"
+
+    // Optional capabilities consumed generically by shared UI components.
+    readonly property string backdropComponentFile: "../themes/apex/ApexVectorBackdrop.qml"
+    readonly property string foregroundComponentFile: "../themes/apex/ApexVectorForeground.qml"
+    readonly property string pageTransitionComponentFile: "../themes/apex/ApexVectorPageTransition.qml"
+    readonly property bool equipmentAccentsEnabled: true
+    readonly property bool ambientScanEnabled: true
+    readonly property bool controlSignalEnabled: true
+    readonly property bool navSignalEnabled: true
+    readonly property bool panelLocatorEnabled: true
+    readonly property bool headerSignalEnabled: true
+    readonly property string logoDialFile: "themes/apex-vector/apex-vector-logo-reticle.svg"
+    readonly property real logoDialOpacity: 0.96
+    readonly property bool logoColorize: true
+    readonly property color logoTint: "#080b0c"
+    readonly property color signalPrimary: "#ff1744"
+    readonly property color signalSecondary: "#00c8e5"
+    readonly property color signalDanger: "#e00038"
+    readonly property color signalSuccess: "#00a878"
+    readonly property color signalOff: "#46080b0c"
+    readonly property color transitionSweep: "#080b0c"
+    readonly property color transitionTrail: "#ff1744"
+    readonly property real interactionSweepDuration: 170
+    readonly property real interactionSweepWidth: 0.18
+    readonly property real pageTransitionDuration: 320
+    readonly property real locatorOpacity: 0.90
+
+    readonly property color backgroundA: "#fafbfa"
+    readonly property color backgroundB: "#f3f5f4"
+    readonly property color backgroundC: "#e9edeb"
+
+    readonly property color surface: "#f8faf9"
+    readonly property color surfaceSoft: "#f1f4f2"
+    readonly property color surfaceStrong: "#ffffff"
+    readonly property color surfaceRaised: "#ffffff"
+    readonly property color surfaceTop: "#f8faf9"
+    readonly property color surfaceBottom: "#f8faf9"
+    readonly property color surfaceStrongTop: "#ffffff"
+    readonly property color surfaceStrongBottom: "#ffffff"
+
+    readonly property color border: "#76636c70"
+    readonly property color borderSoft: "#42687276"
+    readonly property color borderStrong: "#e6080b0c"
+    readonly property color divider: "#5c697377"
+    readonly property color text: "#080b0c"
+    readonly property color muted: "#323b3f"
+    readonly property color subtle: "#596468"
+    readonly property color faint: "#7c878b"
+
+    readonly property color primary: "#ff1744"
+    readonly property color primaryBright: "#ff1744"
+    readonly property color primaryHot: "#ff3b5f"
+    readonly property color primaryDeep: "#bd0031"
+    readonly property color primarySoft: "#2bff1744"
+    readonly property color hover: "#20ff1744"
+    readonly property color success: "#00a878"
+    readonly property color warning: "#f28c00"
+    readonly property color danger: "#e00038"
+    readonly property color updateAlertSurface: danger
+    readonly property color updateAlertText: primaryText
+    readonly property color classificationHandmade: "#e43d92"
+    readonly property color classificationToolmade: "#008fbd"
+    readonly property color consoleBackground: "#fcfdfc"
+    readonly property color shadow: "#1a000000"
+    readonly property color innerHighlight: "#00ffffff"
+    readonly property color focusColor: "#008ba0"
+    readonly property color primaryText: "#ffffff"
+
+    readonly property color appBorder: "#d9080b0c"
+    readonly property color titleBarSurface: "#ffffff"
+    readonly property color titleBarButtonHover: "#1f00c8e5"
+    readonly property color titleBarCloseHover: "#e6ff1744"
+    readonly property color logoCapsuleSurface: "#ffffff"
+
+    readonly property color panelTop: "#f8faf9"
+    readonly property color panelMiddle: "#f8faf9"
+    readonly property color panelBottom: "#f8faf9"
+    readonly property color panelSoftTop: "#f1f4f2"
+    readonly property color panelSoftMiddle: "#f1f4f2"
+    readonly property color panelSoftBottom: "#f1f4f2"
+    readonly property color panelStrongTop: "#ffffff"
+    readonly property color panelStrongMiddle: "#ffffff"
+    readonly property color panelStrongBottom: "#ffffff"
+    readonly property color panelTopHighlight: "#00ffffff"
+    readonly property color panelInnerBorder: "#70636c70"
+    readonly property color panelStrongInnerBorder: "#d9080b0c"
+    readonly property color panelOverlay: "#00000000"
+    readonly property color panelStrongOverlay: "#00000000"
+    readonly property color panelGlowShadow: "#00000000"
+    readonly property color panelConvexLeftHighlight: "#00ffffff"
+    readonly property color panelConvexRightShadow: "#00000000"
+    readonly property color panelConvexBottomShadow: "#00000000"
+    readonly property color panelConvexCenterGlow: "#00000000"
+    readonly property real panelNoiseSoftOpacity: 0.0
+    readonly property real panelNoiseOpacity: 0.0
+    readonly property real panelNoiseStrongOpacity: 0.0
+    readonly property real panelHighlightSoftOpacity: 0.0
+    readonly property real panelHighlightOpacity: 0.0
+    readonly property real panelHighlightStrongOpacity: 0.0
+    readonly property real panelOverlaySoftOpacity: 0.0
+    readonly property real panelOverlayOpacity: 0.0
+
+    readonly property color primaryButtonBorder: "#e6080b0c"
+    readonly property color primaryButtonHoverBorder: "#080b0c"
+    readonly property color primaryButtonTop: "#ff1744"
+    readonly property color primaryButtonMiddle: "#ff1744"
+    readonly property color primaryButtonBottom: "#ff1744"
+    readonly property color primaryButtonHoverTop: "#ff3b5f"
+    readonly property color primaryButtonHoverMiddle: "#ff3b5f"
+    readonly property color primaryButtonHoverBottom: "#ff3b5f"
+    readonly property color primaryButtonShadow: "#00000000"
+    readonly property color primaryButtonHoverShadow: "#00000000"
+    readonly property color primaryButtonSheenTransparent: "#00ffffff"
+    readonly property color primaryButtonSheen: "#00ffffff"
+    readonly property color primaryButtonLip: "#ff1744"
+    readonly property color primaryButtonLipPressed: "#d60039"
+    readonly property color primaryButtonGlassTop: "#00ffffff"
+    readonly property color primaryButtonGlassMiddle: "#00ffffff"
+    readonly property color primaryButtonInnerShadow: "#00000000"
+    readonly property string primaryButtonTextureFile: ""
+    readonly property real primaryButtonTextureOpacity: 0.0
+    readonly property string primaryButtonLensOverlayFile: "themes/apex-vector/apex-vector-button-lens.svg"
+    readonly property real primaryButtonLensOverlayOpacity: 1.0
+    readonly property color primaryButtonText: "#ffffff"
+    readonly property real buttonGlassBackdropOpacity: 0.0
+    readonly property real buttonGlassBackdropBlur: 0.0
+    readonly property int buttonGlassBackdropBlurMax: 20
+    readonly property real buttonGlassBackdropBlurMultiplier: 0.0
+    readonly property real buttonGlassBackdropBrightness: 0.0
+    readonly property real buttonGlassBackdropContrast: 0.0
+    readonly property real buttonGlassBackdropSaturation: 1.0
+    readonly property real buttonGlassBackdropDownsample: 0.92
+    readonly property real buttonGlassLensOpacity: 0.0
+    readonly property real buttonGlassLensInsetX: 0.08
+    readonly property real buttonGlassLensInsetY: 0.18
+    readonly property real buttonGlassLensOffsetX: 0.0
+    readonly property real buttonGlassLensOffsetY: -0.02
+    readonly property real buttonGlassLensBlur: 0.0
+    readonly property real buttonGlassLensContrast: 0.0
+    readonly property real buttonGlassLensSaturation: 1.0
+    readonly property color buttonGlassLensLeftHighlight: "#00ffffff"
+    readonly property color buttonGlassLensCenterHighlight: "#00000000"
+    readonly property color buttonGlassLensRightShadow: "#00000000"
+
+    readonly property color ghostSurface: "#ffffff"
+    readonly property color ghostHoverSurface: "#edf1ef"
+    readonly property color ghostPressedSurface: "#dfe5e2"
+    readonly property color ghostShadow: "#00000000"
+
+    readonly property color fieldSurface: "#ffffff"
+    readonly property color fieldHoverSurface: "#f7f9f8"
+    readonly property color fieldFocusSurface: "#ffffff"
+    readonly property color comboSurfaceOpen: "#ffffff"
+    readonly property color comboHoverSurface: "#edf1ef"
+    readonly property color comboPopupSurface: "#ffffff"
+    readonly property color comboHighlight: "#2bff1744"
+
+    readonly property color checkboxSurface: "#dfe5e3"
+    readonly property color checkboxHoverSurface: "#ffdce4"
+    readonly property color checkboxCheckedSurface: primary
+    readonly property color switchTrackOff: "#a9b3b6"
+    readonly property color sliderTrack: "#98a4a8"
+
+    readonly property color navHoverSurface: "#2200c8e5"
+    readonly property color navActiveGlow: "#00ff1744"
+    readonly property color navActiveTop: "#080b0c"
+    readonly property color navActiveMiddle: "#080b0c"
+    readonly property color navActiveBottom: "#080b0c"
+
+    readonly property color rowHover: "#1f00c8e5"
+    readonly property color rowSelectedSurface: "#2bff1744"
+    readonly property color previewSurface: "#d8dddb"
+    readonly property color previewSurfaceSoft: "#eef1ef"
+
+    readonly property color helpCategorySelected: "#ff1744"
+    readonly property color helpCategoryHover: "#ffe9ee"
+    readonly property color helpCategorySurface: "#ffffff"
+    readonly property color helpBadgeSelected: "#35ffffff"
+    readonly property color helpBadge: "#2600c8e5"
+    readonly property color helpBadgeBorder: "#a000c8e5"
+    readonly property color helpTopicSelected: "#ffe5eb"
+    readonly property color helpTopicHover: "#ffe1e8"
+    readonly property color helpTopicSurface: "#ffffff"
+    readonly property color stepBadge: "#3000c8e5"
+    readonly property color richAccent: "#008ba0"
+
+    readonly property color backdropOverlayTop: "#00ffffff"
+    readonly property color backdropOverlayMiddle: "#00ffffff"
+    readonly property color backdropOverlayBottom: "#08080b0c"
+
+    readonly property string backdropBaseFile: "themes/apex-vector/apex-vector-backdrop.svg"
+    readonly property string backdropBranchTopFile: ""
+    readonly property string backdropBranchBottomFile: ""
+    readonly property string backdropPetalFile: ""
+    readonly property string panelNoiseFile: ""
+    readonly property string panelGlintFile: ""
+    readonly property string panelRefractionFile: ""
+    readonly property real panelRefractionOpacity: 0.0
+    readonly property string panelEdgeFile: "themes/apex-vector/apex-vector-panel-frame.svg"
+    readonly property real panelEdgeOpacity: 0.90
+    readonly property bool customFrameExclusive: true
+    readonly property real customFrameRadius: 0.0
+    readonly property string goldTrimFile: ""
+    readonly property real goldTrimOpacity: 0.0
+    readonly property bool glassBackdropEnabled: false
+    readonly property real glassBackdropOpacity: 0.0
+    readonly property real glassBackdropBlur: 0.0
+    readonly property int glassBackdropBlurMax: 28
+    readonly property real glassBackdropBlurMultiplier: 0.0
+    readonly property real glassBackdropBrightness: 0.0
+    readonly property real glassBackdropContrast: 0.0
+    readonly property real glassBackdropSaturation: 1.0
+    readonly property real glassBackdropDownsample: 0.90
+    readonly property string logoFile: "kfps-logo.png"
+    readonly property bool backdropBranchesVisible: false
+    readonly property bool backdropPetalsVisible: false
+    readonly property real backdropTopBranchOpacity: 0.0
+    readonly property real backdropBottomBranchOpacity: 0.0
+    readonly property real sidebarBranchOpacity: 0.0
+    readonly property real sidebarCompactBranchOpacity: 0.0
+    readonly property bool supporterSignatureVisible: false
+    readonly property string supporterSignatureText: ""
+}

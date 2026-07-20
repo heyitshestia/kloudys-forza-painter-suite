@@ -13,7 +13,7 @@ GlassPanel {
     readonly property string promoUrl: "https://ko-fi.com/s/2d1507698d"
     property bool compact: false
     property bool expired: false
-    readonly property bool eligible: Theme.activeThemeName === Theme.defaultThemeName
+    readonly property bool eligible: !Theme.supporterTheme
                                      && supporterService.activationState === "no_key"
     readonly property bool hovered: promoMouse.containsMouse
     readonly property bool pressed: promoMouse.pressed

@@ -132,14 +132,17 @@ Button {
                           ? Theme.px(2)
                           : ((!Theme.customFrameExclusive && (root.active || root.hovered)) ? Theme.px(1) : 0)
             border.color: root.activeFocus ? Theme.focusColor : (root.active ? (root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder) : Theme.borderSoft)
-            gradient: root.active ? activeGradient : undefined
             clip: true
 
-            Gradient {
-                id: activeGradient
-                GradientStop { position: 0.0; color: Theme.navActiveTop }
-                GradientStop { position: 0.52; color: Theme.navActiveMiddle }
-                GradientStop { position: 1.0; color: Theme.navActiveBottom }
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.corner(parent.radius)
+                visible: root.active
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.navActiveTop }
+                    GradientStop { position: 0.52; color: Theme.navActiveMiddle }
+                    GradientStop { position: 1.0; color: Theme.navActiveBottom }
+                }
             }
 
             Behavior on color { ColorAnimation { duration: 120 } }
@@ -409,10 +412,10 @@ Button {
                 Icon {
                     name: root.iconName
                     iconSize: Theme.px(root.dense ? 18 : 20)
-                    colorize: Theme.classicMode || root.active
+                    colorize: Theme.iconColorize || Theme.classicMode || root.active
                     tint: Theme.classicMode
                           ? Theme.borderStrong
-                          : Theme.primaryButtonText
+                          : (root.active ? Theme.primaryButtonText : Theme.iconTint)
                     glow: root.active && !Theme.classicMode
                     glowColor: Theme.focusColor
                     iconOpacity: root.active ? 1 : 0.78
@@ -463,10 +466,10 @@ Button {
             Icon {
                 name: root.iconName
                 iconSize: Theme.px(root.dense ? 17 : 19)
-                colorize: Theme.classicMode || root.active
+                colorize: Theme.iconColorize || Theme.classicMode || root.active
                 tint: Theme.classicMode
                       ? Theme.borderStrong
-                      : Theme.primaryButtonText
+                      : (root.active ? Theme.primaryButtonText : Theme.iconTint)
                 glow: root.active && !Theme.classicMode
                 glowColor: Theme.focusColor
                 iconOpacity: root.active ? 1 : 0.78
