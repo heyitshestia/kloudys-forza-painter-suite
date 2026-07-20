@@ -68,9 +68,11 @@ ComboBox {
         Rectangle {
             id: comboChrome
             anchors.fill: parent
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
-            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.width: root.activeFocus
+                          ? Theme.px(2)
+                          : (Theme.customFrameExclusive ? 0 : Theme.px(1))
             border.color: root.activeFocus ? Theme.focusColor
                                            : (root.popup.visible ? Theme.primaryBright
                                                                  : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -106,6 +108,16 @@ ComboBox {
                 opacity: root.popup.visible ? 0.42 : (root.hovered ? 0.30 : 0.20)
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 120 } }
             }
+
+            ControlStatusTicks {
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.px(7)
+                anchors.top: parent.top
+                anchors.topMargin: Theme.px(3)
+                activeState: root.activeFocus || root.popup.visible
+                hoveredState: root.hovered
+                warningState: root.popup.visible
+            }
         }
     }
 
@@ -134,7 +146,7 @@ ComboBox {
 
         background: Rectangle {
             color: delegateRoot.highlighted ? Theme.comboHighlight : "transparent"
-            radius: Theme.px(6)
+            radius: Theme.framedRadius(Theme.px(6))
         }
     }
 
@@ -149,9 +161,9 @@ ComboBox {
             Rectangle {
                 id: popupChrome
                 anchors.fill: parent
-                radius: Theme.px(10)
+                radius: Theme.framedRadius(Theme.px(10))
                 color: Theme.comboPopupSurface
-                border.width: Theme.px(1)
+                border.width: Theme.customFrameExclusive ? 0 : Theme.px(1)
                 border.color: Theme.borderStrong
                 clip: true
 
@@ -190,7 +202,7 @@ ComboBox {
             model: root.popup.visible ? root.delegateModel : null
             currentIndex: root.highlightedIndex
             highlightMoveDuration: Theme.reducedMotion ? 0 : 90
-            ScrollIndicator.vertical: ScrollIndicator { }
+            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
         }
     }
 }

@@ -148,7 +148,7 @@ Item {
                         onClicked: editorService.select(index)
                     }
 
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                 }
             }
         }

@@ -11,7 +11,7 @@ UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 PAGES = [
     "create", "outputs", "community", "editor", "help", "settings",
-    "tools", "images", "reports", "update",
+    "tools", "images", "reports", "update", "credits",
 ]
 DEFAULT_SIZES = [
     (1360, 820),
@@ -20,6 +20,9 @@ DEFAULT_SIZES = [
     (2560, 1440),
     (3440, 1440),
 ]
+
+sys.path.insert(0, str(UI / "src"))
+from kfps_ui.theme_catalog import KNOWN_THEME_NAMES  # noqa: E402
 
 
 def parse_size(value: str) -> tuple[int, int]:
@@ -32,6 +35,7 @@ def main() -> int:
     parser.add_argument("--size", action="append", type=parse_size, dest="sizes")
     parser.add_argument("--page", action="append", choices=PAGES, dest="pages")
     parser.add_argument("--ui-scale", type=float, default=1.0)
+    parser.add_argument("--theme", choices=sorted(KNOWN_THEME_NAMES))
     parser.add_argument("--output", type=Path, default=UI / "Previews" / "layout-audit")
     args = parser.parse_args()
 
@@ -43,6 +47,8 @@ def main() -> int:
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     env.setdefault("QT_QUICK_BACKEND", "software")
     env.setdefault("QSG_RHI_BACKEND", "software")
+    if os.name == "nt":
+        env.setdefault("QT_QPA_FONTDIR", str(Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"))
     env["KFPS_APP_ROOT"] = str(ROOT)
 
     failures: list[dict] = []
@@ -60,6 +66,8 @@ def main() -> int:
             "--ui-scale", str(args.ui_scale),
             "--layout-report-dir", str(case_dir),
         ]
+        if args.theme:
+            command.extend(["--theme-preview", args.theme])
         run = subprocess.run(
             command,
             cwd=ROOT,
@@ -93,7 +101,9 @@ def main() -> int:
             clipped = [
                 control["name"]
                 for control in payload.get("controls", [])
-                if control.get("intersectsWindow") and not control.get("fullyInsideWindow")
+                if (control.get("intersectsWindow")
+                    and not control.get("fullyInsideWindow")
+                    and not control.get("clippedByAncestor"))
             ]
             summary = {
                 "page": page,
@@ -113,12 +123,16 @@ def main() -> int:
         "sizes": sizes,
         "pages": pages,
         "uiScale": args.ui_scale,
+        "theme": args.theme or "persisted",
         "cases": summaries,
         "failures": failures,
     }
     (args.output / "summary.json").write_text(json.dumps(aggregate, indent=2), encoding="utf-8")
 
-    print(f"Audited {len(summaries)} page/size cases at UI scale {args.ui_scale:.2f}.")
+    print(
+        f"Audited {len(summaries)} page/size cases for {args.theme or 'the persisted theme'} "
+        f"at UI scale {args.ui_scale:.2f}."
+    )
     if failures:
         print(f"FAILED: {len(failures)} case(s). See {args.output / 'summary.json'}")
         return 1

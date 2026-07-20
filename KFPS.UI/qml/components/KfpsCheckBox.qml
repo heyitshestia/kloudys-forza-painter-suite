@@ -32,18 +32,25 @@ CheckBox {
         implicitHeight: implicitWidth
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
-        radius: Theme.px(5)
-        color: root.checked ? Theme.checkboxCheckedSurface : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
-        border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+        radius: Theme.customFrameExclusive ? Theme.px(6) : Theme.px(5)
+        color: root.checked
+               ? (root.hovered ? Theme.primaryBright : Theme.checkboxCheckedSurface)
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
+        border.width: root.activeFocus
+                      ? Theme.px(2)
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))
         border.color: root.activeFocus ? Theme.focusColor
-                                       : (root.checked ? Theme.primaryBright
+                                       : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
+        scale: root.pressed ? 0.88 : (root.hovered ? 1.06 : 1.0)
+        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 105 } }
+        Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
         Text {
             anchors.centerIn: parent
             text: "✓"
             visible: root.checked
-            color: Theme.primaryText
+            color: root.hovered ? Theme.backgroundA : Theme.primaryText
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(dense ? 10 : 12)
             font.bold: true
@@ -60,6 +67,8 @@ CheckBox {
         font.family: Theme.fontFamily
         font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
         color: root.enabled ? Theme.text : Theme.subtle
+        opacity: root.hovered ? 1.0 : 0.92
+        Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
         maximumLineCount: 2

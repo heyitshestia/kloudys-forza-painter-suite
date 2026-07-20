@@ -101,6 +101,7 @@ Item {
 
                 delegate: Button {
                     id: categoryButton
+                    objectName: "HelpCategory:" + categoryButton.title
                     required property int index
                     required property string key
                     required property string title
@@ -111,6 +112,8 @@ Item {
                     height: Theme.px(54)
                     hoverEnabled: true
                     focusPolicy: Qt.StrongFocus
+                    scale: down ? 0.985 : 1.0
+                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
                     onClicked: {
                         categoryList.currentIndex = index;
                         helpService.setCategory(key);
@@ -122,10 +125,20 @@ Item {
                     }
 
                     background: Rectangle {
-                        radius: Theme.px(12)
-                        color: categoryButton.index === categoryList.currentIndex ? Theme.helpCategorySelected : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
-                        border.width: Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1))
-                        border.color: categoryButton.index === categoryList.currentIndex ? Theme.primaryBright : (categoryButton.hovered ? Theme.primary : Theme.borderSoft)
+                        radius: Theme.framedRadius(Theme.px(12))
+                        color: categoryButton.index === categoryList.currentIndex
+                               ? (categoryButton.hovered ? Theme.primaryDeep : Theme.helpCategorySelected)
+                               : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
+                        border.width: categoryButton.activeFocus
+                                      ? Theme.px(2)
+                                      : (Theme.customFrameExclusive
+                                         ? 0
+                                         : Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1)))
+                        border.color: categoryButton.activeFocus
+                                      ? Theme.focusColor
+                                      : (categoryButton.index === categoryList.currentIndex
+                                         ? Theme.primaryBright
+                                         : (categoryButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
                     }
@@ -185,6 +198,7 @@ Item {
 
                 delegate: Button {
                     id: topicButton
+                    objectName: "HelpTopic:" + topicButton.title
                     required property int index
                     required property string title
                     required property string summary
@@ -195,6 +209,8 @@ Item {
                     height: Theme.px(86)
                     hoverEnabled: true
                     focusPolicy: Qt.StrongFocus
+                    scale: down ? 0.985 : 1.0
+                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
                     onClicked: {
                         topicList.currentIndex = index;
                         helpService.select(index);
@@ -206,10 +222,20 @@ Item {
                     }
 
                     background: Rectangle {
-                        radius: Theme.px(13)
-                        color: topicButton.index === topicList.currentIndex ? Theme.helpTopicSelected : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
-                        border.width: Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1))
-                        border.color: topicButton.index === topicList.currentIndex ? Theme.primaryBright : (topicButton.hovered ? Theme.primary : Theme.borderSoft)
+                        radius: Theme.framedRadius(Theme.px(13))
+                        color: topicButton.index === topicList.currentIndex
+                               ? (topicButton.hovered ? Theme.primaryDeep : Theme.helpTopicSelected)
+                               : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
+                        border.width: topicButton.activeFocus
+                                      ? Theme.px(2)
+                                      : (Theme.customFrameExclusive
+                                         ? 0
+                                         : Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1)))
+                        border.color: topicButton.activeFocus
+                                      ? Theme.focusColor
+                                      : (topicButton.index === topicList.currentIndex
+                                         ? Theme.primaryBright
+                                         : (topicButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
                     }

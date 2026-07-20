@@ -16,6 +16,7 @@ Button {
     property color labelColor: accentText ? Theme.primaryBright : Theme.text
     property bool showArrow: false
     property bool dense: false
+    property bool auditAllowOutsideFeedback: false
     property real minimumWidth: Theme.px(dense ? 74 : 96)
     property real maximumTextWidth: Number.POSITIVE_INFINITY
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
@@ -50,7 +51,7 @@ Button {
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -61,6 +62,8 @@ Button {
     }
 
     background: Item {
+        clip: true
+
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
@@ -68,7 +71,7 @@ Button {
             anchors.leftMargin: Theme.px(2)
             anchors.rightMargin: Theme.px(2)
             height: Theme.px(root.dense ? 3 : 5)
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: Theme.ghostShadow
             opacity: root.down ? 0.02 : (root.hovered ? 0.05 : 0.025)
             antialiasing: true
@@ -80,11 +83,11 @@ Button {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Math.min(parent.height, root.lipDepth + Theme.px(root.dense ? 3 : 5))
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             antialiasing: true
             color: root.down ? Theme.ghostPressedSurface
                              : (root.checkedState ? Theme.primaryDeep : Theme.panelGradientBottom(false, false))
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: root.checkedState ? Theme.primaryHot
                                             : (root.hovered ? Theme.primaryBright : Theme.borderSoft)
             opacity: root.enabled ? (root.checkedState ? 0.72 : 0.36) : 0.14
@@ -99,9 +102,11 @@ Button {
             anchors.top: parent.top
             height: Math.max(Theme.px(8), parent.height - (root.down ? Theme.px(1.0) : root.lipDepth))
             y: root.capTravel
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             antialiasing: true
-            border.width: root.activeFocus || root.checkedState ? Theme.px(2) : Theme.px(1)
+            border.width: root.activeFocus || root.checkedState
+                          ? Theme.px(2)
+                          : (Theme.customFrameExclusive ? 0 : Theme.px(1))
             border.color: root.activeFocus ? Theme.focusColor
                                            : (root.checkedState ? Theme.primaryHot
                                                                 : (root.hovered ? Theme.primaryBright : Theme.borderSoft))
@@ -168,7 +173,7 @@ Button {
 
             BorderImage {
                 anchors.fill: parent
-                visible: Theme.panelEdgeFile.length > 0
+                visible: !Theme.customFrameExclusive && Theme.panelEdgeFile.length > 0
                 source: visible ? assetRoot + "/" + Theme.panelEdgeFile : ""
                 border.left: 42
                 border.right: 42
@@ -203,7 +208,7 @@ Button {
                 anchors.margins: Theme.px(1.4)
                 radius: Math.max(0, chrome.radius - Theme.px(1.4))
                 color: "transparent"
-                border.width: Math.max(1, Theme.px(1))
+                border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.primaryButtonGlassTop
                 opacity: root.down ? 0.10 : (root.hovered ? 0.30 : 0.18)
                 antialiasing: true
@@ -257,6 +262,14 @@ Button {
                 opacity: root.down ? 0.14 : 0
                 antialiasing: true
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 80 } }
+            }
+
+            ButtonLensOverlay {
+                anchors.fill: parent
+                hovered: root.hovered || root.checkedState
+                pressed: root.down
+                latched: root.checkedState
+                strength: root.checkedState ? 0.86 : 0.58
             }
 
             Rectangle {

@@ -12,6 +12,8 @@ ListView {
     maximumFlickVelocity: 100000
     flickDeceleration: 12000
 
+    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
+
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
     }

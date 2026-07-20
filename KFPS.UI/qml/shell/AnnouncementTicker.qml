@@ -8,8 +8,12 @@ import "../components"
 GlassPanel {
     id: root
 
+    objectName: "AnnouncementTicker"
+
     property bool compact: false
     property bool paused: false
+    readonly property bool hovered: tickerMouse.containsMouse
+    readonly property bool pressed: tickerMouse.pressed
     readonly property string severity: announcementService.severity
     readonly property string effectiveText: announcementService.enabled
                                            ? announcementService.displayText
@@ -24,10 +28,20 @@ GlassPanel {
 
     visible: true
     height: Theme.px(compact ? 28 : 32)
-    radius: height / 2
+    radius: Theme.framedRadius(height / 2)
     soft: true
     glow: visible
     clip: true
+
+    Rectangle {
+        anchors.fill: parent
+        radius: root.radius
+        color: Theme.hover
+        opacity: tickerMouse.pressed
+                 ? (Theme.customFrameExclusive ? 0.92 : 0.18)
+                 : (tickerMouse.containsMouse ? (Theme.customFrameExclusive ? 0.72 : 0.10) : 0)
+        Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }
+    }
 
     function restartScroll() {
         if (!visible || Theme.reducedMotion || paused)

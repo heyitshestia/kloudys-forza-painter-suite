@@ -21,7 +21,9 @@ Item {
             id: petal
             width: Theme.px(modelData.s)
             height: width * 0.72
-            source: assetRoot + "/" + Theme.backdropPetalFile
+            source: Theme.backdropPetalsVisible && Theme.backdropPetalFile.length > 0
+                    ? assetRoot + "/" + Theme.backdropPetalFile
+                    : ""
             fillMode: Image.PreserveAspectFit
             smooth: true
             mipmap: true

@@ -90,9 +90,17 @@ Item {
         }
     }
 
+    FastScrollView {
+        id: pageScroll
+        anchors.fill: parent
+        contentWidth: availableWidth
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
     GridLayout {
         id: pageGrid
-        anchors.fill: parent
+        width: pageScroll.availableWidth
+        height: root.threeColumns ? pageScroll.availableHeight : implicitHeight
         columns: root.threeColumns ? 3 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
@@ -100,13 +108,17 @@ Item {
         HoverCard {
             id: sourceSetupCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.threeColumns
+            Layout.preferredHeight: root.threeColumns
+                                    ? -1
+                                    : Math.max(Theme.px(620), sourceSetupContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.threeColumns ? Theme.px(390) : -1
             Layout.minimumWidth: root.threeColumns ? Theme.px(350) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
             ColumnLayout {
+                id: sourceSetupContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 7 : 9)
 
@@ -361,12 +373,16 @@ Item {
         HoverCard {
             id: previewCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.threeColumns
+            Layout.preferredHeight: root.threeColumns
+                                    ? -1
+                                    : Math.max(Theme.px(500), previewContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.threeColumns ? Theme.px(610) : -1
             Layout.minimumWidth: root.threeColumns ? Theme.px(460) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
 
             ColumnLayout {
+                id: previewContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 7 : 9)
 
@@ -463,14 +479,19 @@ Item {
         }
 
         HoverCard {
+            id: sourceCheckCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.threeColumns
+            Layout.preferredHeight: root.threeColumns
+                                    ? -1
+                                    : Math.max(Theme.px(500), sourceCheckContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.threeColumns ? Theme.px(380) : -1
             Layout.minimumWidth: root.threeColumns ? Theme.px(330) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
             ColumnLayout {
+                id: sourceCheckContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 8 : 10)
 
@@ -620,7 +641,7 @@ Item {
                                 onTextChanged: sideLiveLogPinTimer.restart()
                             }
 
-                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                         }
                     }
                 }
@@ -635,6 +656,7 @@ Item {
                 }
             }
         }
+    }
     }
 
     MessageDialog {

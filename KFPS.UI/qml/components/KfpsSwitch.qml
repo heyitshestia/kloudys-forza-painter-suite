@@ -37,11 +37,18 @@ Switch {
         implicitHeight: Theme.px(dense ? 20 : 22)
         y: Math.round((root.height - height) / 2)
         radius: height / 2
-        color: root.checked ? Theme.primaryDeep : Theme.switchTrackOff
-        border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+        color: root.checked
+               ? (root.hovered ? Theme.primary : Theme.primaryDeep)
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff)
+        border.width: root.activeFocus
+                      ? Theme.px(2)
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))
         border.color: root.activeFocus ? Theme.focusColor
-                                       : (root.checked ? Theme.primaryBright
+                                       : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
+        scale: root.pressed ? 0.96 : (root.hovered ? 1.025 : 1.0)
+        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
+        Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
         Rectangle {
             width: Theme.px(dense ? 14 : 16)
@@ -49,12 +56,15 @@ Switch {
             radius: width / 2
             y: Math.round((parent.height - height) / 2)
             x: root.checked ? parent.width - width - Theme.px(3) : Theme.px(3)
-            color: root.checked ? Theme.primaryText : Theme.muted
+            color: root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted)
+            scale: root.pressed ? 0.88 : (root.hovered ? 1.08 : 1.0)
 
             Behavior on x {
                 enabled: !Theme.reducedMotion
                 NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
             }
+            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 100 } }
+            Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
         }
     }
 
@@ -65,6 +75,8 @@ Switch {
         font.family: Theme.fontFamily
         font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
         color: root.enabled ? Theme.text : Theme.subtle
+        opacity: root.hovered ? 1.0 : 0.92
+        Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
         maximumLineCount: 2

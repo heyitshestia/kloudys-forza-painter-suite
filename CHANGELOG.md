@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.88
+- Added the supporter-only Overdrive 200X theme with custom military-science-fiction hardware, animated perimeter lighting, micro-LED feedback, and theme-specific transitions.
+- Expanded the modular theme system with isolated backdrop, foreground, control, icon, link, scrollbar, and page-transition treatments while preserving every existing theme.
+- Refined shared QML controls and interaction states for consistent clipping, rounded surfaces, scrolling, hover feedback, reduced-motion behavior, and responsive layouts.
+
 ## 3.0.87
 - Fixed FH5 Microsoft Store library scans by detecting direct and compressed C_group data inside opaque WGS save files instead of relying on filenames.
 - Removed the 180-vinyl save-library scan ceiling and preserved valid cached vinyls that were not part of a later partial scan.

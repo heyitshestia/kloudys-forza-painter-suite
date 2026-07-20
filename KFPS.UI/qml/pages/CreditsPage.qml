@@ -310,16 +310,24 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "KFPS' offline save-library direction was informed by studying the public <a href=\"https://github.com/Arstz/ForzaLiveryStudio\">ForzaLiveryStudio</a> project, especially its documented C_group, C_livery, header, and save-file-first approach."
+                            Layout.minimumHeight: Math.ceil(paintedHeight)
+                            text: "KFPS' offline save-library direction was informed by studying the public ForzaLiveryStudio project, especially its documented C_group, C_livery, header, and save-file-first approach."
                             color: Theme.text
-                            linkColor: Theme.primaryBright
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(12.4)
-                            textFormat: Text.RichText
                             wrapMode: Text.WordWrap
                             lineHeight: 1.3
                             lineHeightMode: Text.ProportionalHeight
-                            onLinkActivated: link => Qt.openUrlExternally(link)
+                        }
+
+                        KfpsLinkText {
+                            Layout.fillWidth: true
+                            text: "Open ForzaLiveryStudio on GitHub"
+                            url: "https://github.com/Arstz/ForzaLiveryStudio"
+                            toolTipText: "Open the public ForzaLiveryStudio repository used for research reference."
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(11.6)
+                            font.weight: Font.DemiBold
                         }
 
                         Text {
@@ -411,19 +419,15 @@ Item {
                             Layout.fillWidth: true
                             spacing: Theme.px(8)
 
-                            Text {
+                            KfpsLinkText {
                                 Layout.fillWidth: true
-                                text: creditCard.modelData.link.length > 0
-                                      ? "<a href=\"" + creditCard.modelData.link + "\">" + creditCard.modelData.name + "</a>"
-                                      : creditCard.modelData.name
-                                color: Theme.primaryBright
-                                linkColor: Theme.primaryBright
+                                text: creditCard.modelData.name
+                                url: creditCard.modelData.link
+                                toolTipText: url.length > 0 ? "Open the credited project or contributor page." : ""
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(13.2)
                                 font.weight: Font.DemiBold
-                                textFormat: Text.RichText
                                 wrapMode: Text.Wrap
-                                onLinkActivated: link => Qt.openUrlExternally(link)
                             }
 
                             Text {
@@ -492,19 +496,15 @@ Item {
                                 width: flsDetailContent.width
                                 spacing: Theme.px(2)
 
-                                Text {
+                                KfpsLinkText {
                                     Layout.fillWidth: true
-                                    text: modelData.link.length > 0
-                                          ? "<a href=\"" + modelData.link + "\">" + modelData.name + "</a>"
-                                          : modelData.name
-                                    color: Theme.primaryBright
-                                    linkColor: Theme.primaryBright
+                                    text: modelData.name
+                                    url: modelData.link
+                                    toolTipText: url.length > 0 ? "Open this contributor's public profile." : ""
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(11.6)
                                     font.weight: Font.DemiBold
-                                    textFormat: Text.RichText
                                     wrapMode: Text.Wrap
-                                    onLinkActivated: link => Qt.openUrlExternally(link)
                                 }
 
                                 Text {

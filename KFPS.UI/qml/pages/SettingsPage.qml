@@ -35,8 +35,16 @@ Item {
         }
     }
 
-    GridLayout {
+    FastScrollView {
+        id: pageScroll
         anchors.fill: parent
+        contentWidth: availableWidth
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+    GridLayout {
+        width: pageScroll.availableWidth
+        height: root.wide ? pageScroll.availableHeight : implicitHeight
         columns: root.wide ? 3 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
@@ -44,13 +52,17 @@ Item {
         HoverCard {
             id: interfaceCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.wide
+            Layout.preferredHeight: root.wide
+                                    ? -1
+                                    : Math.max(Theme.px(610), interfaceContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.wide ? Theme.px(390) : -1
             Layout.minimumWidth: root.wide ? Theme.px(330) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
             ColumnLayout {
+                id: interfaceContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 7 : 10)
 
@@ -87,7 +99,7 @@ Item {
                     Layout.fillWidth: true
                     text: supporterService.unlocked
                           ? "Unlocked for " + supporterService.supporterLabel + ". Thank you for supporting KFPS."
-                          : "Night Blossom is active."
+                          : Theme.activeThemeName + " is active."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.2)
@@ -265,10 +277,10 @@ Item {
 
                 KfpsSwitch {
                     Layout.fillWidth: true
-                    text: "Ambient branch and petals"
+                    text: "Ambient background motion"
                     checked: settings.ambientMotion
                     enabled: !settings.reducedMotion
-                    toolTipText: "Show or hide the animated branch and petals in the app background."
+                    toolTipText: "Show or hide the current theme's quiet background animation."
                     onToggled: settings.ambientMotion = checked
                 }
 
@@ -287,12 +299,16 @@ Item {
         HoverCard {
             id: foldersCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.wide
+            Layout.preferredHeight: root.wide
+                                    ? -1
+                                    : Math.max(Theme.px(350), foldersContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.wide ? Theme.px(520) : -1
             Layout.minimumWidth: root.wide ? Theme.px(420) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
 
             ColumnLayout {
+                id: foldersContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 5 : 7)
 
@@ -387,14 +403,19 @@ Item {
         }
 
         HoverCard {
+            id: maintenanceCard
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: root.wide
+            Layout.preferredHeight: root.wide
+                                    ? -1
+                                    : Math.max(Theme.px(210), maintenanceContent.implicitHeight + padding * 2)
             Layout.preferredWidth: root.wide ? Theme.px(390) : -1
             Layout.minimumWidth: root.wide ? Theme.px(330) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
             ColumnLayout {
+                id: maintenanceContent
                 anchors.fill: parent
                 spacing: Theme.px(root.compactHeight ? 8 : 10)
 
@@ -423,5 +444,6 @@ Item {
                 Item { Layout.fillHeight: true }
             }
         }
+    }
     }
 }

@@ -69,6 +69,7 @@ HoverCard {
             }
 
             GhostButton {
+                auditAllowOutsideFeedback: true
                 Layout.alignment: Qt.AlignLeft
                 text: root.buttonText
                 accentText: true

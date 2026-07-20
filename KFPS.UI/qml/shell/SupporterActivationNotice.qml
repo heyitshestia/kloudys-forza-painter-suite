@@ -19,7 +19,7 @@ GlassPanel {
     visible: supporterService.problemVisible
     opacity: visible ? 1 : 0
     border.color: Theme.danger
-    border.width: Math.max(1, Theme.px(1.5))
+    border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1.5))
 
     Behavior on opacity {
         NumberAnimation {

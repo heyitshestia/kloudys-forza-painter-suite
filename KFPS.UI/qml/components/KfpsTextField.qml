@@ -46,9 +46,11 @@ TextField {
         Rectangle {
             id: fieldChrome
             anchors.fill: parent
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
-            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.width: root.activeFocus
+                          ? Theme.px(2)
+                          : (Theme.customFrameExclusive ? 0 : Theme.px(1))
             border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
             opacity: root.enabled ? 1.0 : 0.62
             clip: true
@@ -81,6 +83,15 @@ TextField {
                 }
                 opacity: root.activeFocus ? 0.38 : (root.hovered ? 0.30 : 0.20)
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 120 } }
+            }
+
+            ControlStatusTicks {
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.px(7)
+                anchors.top: parent.top
+                anchors.topMargin: Theme.px(3)
+                activeState: root.activeFocus
+                hoveredState: root.hovered
             }
         }
     }

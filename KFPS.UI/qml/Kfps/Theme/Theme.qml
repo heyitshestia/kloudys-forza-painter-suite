@@ -17,15 +17,24 @@ QtObject {
     readonly property QtObject nightBlossom: PaletteNightBlossom {}
     readonly property QtObject patronsAtelier: PalettePatronsAtelier {}
     readonly property QtObject carbonDark: PaletteCarbonDark {}
+    readonly property QtObject overdrive200X: PaletteOverdrive200X {}
+    readonly property var palettes: [nightBlossom, patronsAtelier, carbonDark, overdrive200X]
 
     readonly property string defaultThemeName: nightBlossom.name
-    readonly property bool requestedPatronsAtelier: themeName === patronsAtelier.name
-    readonly property bool requestedCarbonDark: themeName === carbonDark.name
-    readonly property bool activePatronsAtelier: requestedPatronsAtelier && supporterUnlocked
-    readonly property bool activeCarbonDark: requestedCarbonDark && supporterUnlocked
-    readonly property string activeThemeName: activePatronsAtelier ? patronsAtelier.name : (activeCarbonDark ? carbonDark.name : nightBlossom.name)
-    readonly property bool supporterTheme: activePatronsAtelier || activeCarbonDark
-    readonly property var palette: activePatronsAtelier ? patronsAtelier : (activeCarbonDark ? carbonDark : nightBlossom)
+    readonly property var requestedPalette: paletteForName(themeName)
+    readonly property bool requestedThemeAllowed: !requestedPalette.supporterOnly || supporterUnlocked
+    readonly property var palette: requestedThemeAllowed ? requestedPalette : nightBlossom
+    readonly property string activeThemeName: palette.name
+    readonly property bool supporterTheme: palette.supporterOnly
+
+    function paletteForName(name) {
+        var requestedName = String(name || "").trim()
+        for (var index = 0; index < palettes.length; ++index) {
+            if (palettes[index].name === requestedName)
+                return palettes[index]
+        }
+        return nightBlossom
+    }
 
     // Core color contract retained for existing pages/components.
     readonly property color backgroundA: palette.backgroundA
@@ -83,6 +92,8 @@ QtObject {
     readonly property real panelRefractionOpacity: palette.panelRefractionOpacity
     readonly property string panelEdgeFile: palette.panelEdgeFile
     readonly property real panelEdgeOpacity: palette.panelEdgeOpacity
+    readonly property bool customFrameExclusive: palette.customFrameExclusive
+    readonly property real customFrameRadius: palette.customFrameRadius
     readonly property string goldTrimFile: palette.goldTrimFile
     readonly property real goldTrimOpacity: palette.goldTrimOpacity
     readonly property bool glassBackdropEnabled: palette.glassBackdropEnabled
@@ -95,6 +106,33 @@ QtObject {
     readonly property real glassBackdropSaturation: palette.glassBackdropSaturation
     readonly property real glassBackdropDownsample: palette.glassBackdropDownsample
     readonly property string logoFile: palette.logoFile
+    readonly property string iconFolder: palette.iconFolder
+    readonly property bool iconColorize: palette.iconColorize
+    readonly property color iconTint: palette.iconTint
+    readonly property string backdropComponentFile: palette.backdropComponentFile
+    readonly property string foregroundComponentFile: palette.foregroundComponentFile
+    readonly property string pageTransitionComponentFile: palette.pageTransitionComponentFile
+    readonly property bool equipmentAccentsEnabled: palette.equipmentAccentsEnabled
+    readonly property bool ambientScanEnabled: palette.ambientScanEnabled
+    readonly property bool controlSignalEnabled: palette.controlSignalEnabled
+    readonly property bool navSignalEnabled: palette.navSignalEnabled
+    readonly property bool panelLocatorEnabled: palette.panelLocatorEnabled
+    readonly property bool headerSignalEnabled: palette.headerSignalEnabled
+    readonly property string logoDialFile: palette.logoDialFile
+    readonly property real logoDialOpacity: palette.logoDialOpacity
+    readonly property bool logoColorize: palette.logoColorize
+    readonly property color logoTint: palette.logoTint
+    readonly property color signalPrimary: palette.signalPrimary
+    readonly property color signalSecondary: palette.signalSecondary
+    readonly property color signalDanger: palette.signalDanger
+    readonly property color signalSuccess: palette.signalSuccess
+    readonly property color signalOff: palette.signalOff
+    readonly property color transitionSweep: palette.transitionSweep
+    readonly property color transitionTrail: palette.transitionTrail
+    readonly property real interactionSweepDuration: palette.interactionSweepDuration
+    readonly property real interactionSweepWidth: palette.interactionSweepWidth
+    readonly property real pageTransitionDuration: palette.pageTransitionDuration
+    readonly property real locatorOpacity: palette.locatorOpacity
     readonly property bool backdropBranchesVisible: palette.backdropBranchesVisible
     readonly property bool backdropPetalsVisible: palette.backdropPetalsVisible
     readonly property real backdropTopBranchOpacity: palette.backdropTopBranchOpacity
@@ -196,8 +234,8 @@ QtObject {
     readonly property color stepBadge: palette.stepBadge
     readonly property color richAccent: palette.richAccent
 
-    readonly property string fontFamily: Qt.platform.os === "windows" ? "Segoe UI Variable Text" : "Inter"
-    readonly property string displayFamily: Qt.platform.os === "windows" ? "Segoe UI Variable Display" : "Inter"
+    readonly property string fontFamily: Qt.platform.os === "windows" ? "Segoe UI" : "Inter"
+    readonly property string displayFamily: Qt.platform.os === "windows" ? "Segoe UI" : "Inter"
     readonly property string monoFamily: Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace"
 
     readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
@@ -216,6 +254,10 @@ QtObject {
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function withAlpha(colorValue, alpha) {
+        return Qt.rgba(colorValue.r, colorValue.g, colorValue.b, clamp(alpha, 0.0, 1.0))
     }
 
     function panelGradientTop(soft, strong) {
@@ -240,5 +282,9 @@ QtObject {
 
     function panelOverlayOpacity(soft) {
         return soft ? palette.panelOverlaySoftOpacity : palette.panelOverlayOpacity
+    }
+
+    function framedRadius(defaultRadius) {
+        return customFrameExclusive ? px(customFrameRadius) : defaultRadius
     }
 }

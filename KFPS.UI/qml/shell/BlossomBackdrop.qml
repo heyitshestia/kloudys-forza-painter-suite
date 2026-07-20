@@ -15,7 +15,9 @@ Item {
     Image {
         id: topBranch
         visible: Theme.backdropBranchesVisible
-        source: assetRoot + "/" + Theme.backdropBranchTopFile
+        source: visible && Theme.backdropBranchTopFile.length > 0
+                ? assetRoot + "/" + Theme.backdropBranchTopFile
+                : ""
         width: parent.width * 0.70
         height: parent.height * 0.46
         anchors.right: parent.right
@@ -38,7 +40,9 @@ Item {
     Image {
         id: bottomBranch
         visible: Theme.backdropBranchesVisible
-        source: assetRoot + "/" + Theme.backdropBranchBottomFile
+        source: visible && Theme.backdropBranchBottomFile.length > 0
+                ? assetRoot + "/" + Theme.backdropBranchBottomFile
+                : ""
         width: parent.width * 0.36
         height: parent.height * 0.42
         anchors.left: parent.left

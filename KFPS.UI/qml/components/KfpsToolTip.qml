@@ -40,9 +40,9 @@ ToolTip {
     }
 
     background: Rectangle {
-        radius: Theme.px(6)
+        radius: Theme.framedRadius(Theme.px(6))
         color: Theme.surfaceRaised
-        border.width: Math.max(1, Theme.px(1))
+        border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
         border.color: Theme.primary
         opacity: 0.98
     }

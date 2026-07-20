@@ -88,7 +88,9 @@ Item {
 
     Image {
         visible: Theme.backdropBranchesVisible
-        source: assetRoot + "/" + Theme.backdropBranchBottomFile
+        source: visible && Theme.backdropBranchBottomFile.length > 0
+                ? assetRoot + "/" + Theme.backdropBranchBottomFile
+                : ""
         width: root.width * (root.compact ? 2.6 : 1.95)
         height: root.height * 0.37
         anchors.left: parent.left
@@ -133,13 +135,11 @@ Item {
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
 
-                    Image {
+                    ThemedLogo {
                         anchors.fill: parent
                         anchors.margins: Theme.px(3)
-                        source: assetRoot + "/" + Theme.logoFile
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                        mipmap: true
+                        showDial: Theme.logoDialFile.length > 0
+                        logoMargin: Theme.px(3)
                     }
                 }
 
@@ -179,12 +179,11 @@ Item {
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
 
-                    Image {
+                    ThemedLogo {
                         anchors.fill: parent
                         anchors.margins: Theme.px(3)
-                        source: assetRoot + "/" + Theme.logoFile
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
+                        showDial: Theme.logoDialFile.length > 0
+                        logoMargin: Theme.px(3)
                     }
                 }
 
@@ -265,7 +264,7 @@ Item {
                 onClicked: root.route(modelData.page)
             }
 
-            ScrollBar.vertical: ScrollBar {
+            ScrollBar.vertical: KfpsScrollBar {
                 policy: navList.contentHeight > navList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
             }
 

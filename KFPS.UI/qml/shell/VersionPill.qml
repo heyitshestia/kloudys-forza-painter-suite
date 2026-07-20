@@ -11,8 +11,30 @@ GlassPanel {
 
     width: Theme.px(compact ? 198 : 230)
     height: Theme.px(38)
-    radius: height / 2
+    radius: Theme.framedRadius(height / 2)
     soft: true
+
+    Row {
+        visible: Theme.headerSignalEnabled
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.px(3)
+        spacing: Theme.px(3)
+
+        Repeater {
+            model: 4
+            Rectangle {
+                required property int index
+                width: Theme.px(index === 3 ? 8 : 4)
+                height: Theme.px(1.5)
+                radius: height / 2
+                color: versionService.updateAvailable
+                       ? Theme.signalDanger
+                       : (index === 3 ? Theme.signalSuccess : Theme.signalPrimary)
+                opacity: 0.68
+            }
+        }
+    }
 
     RowLayout {
         anchors.centerIn: parent

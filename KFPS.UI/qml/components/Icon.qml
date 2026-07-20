@@ -10,10 +10,10 @@ Item {
     property real iconSize: Theme.px(22)
     property real iconOpacity: 1
     property bool glow: false
-    property bool colorize: Theme.activeCarbonDark
-    property color tint: Theme.activeCarbonDark ? Theme.primary : Theme.primaryBright
+    property bool colorize: Theme.iconColorize
+    property color tint: Theme.iconTint
     property color glowColor: Theme.primary
-    readonly property string iconFolder: Theme.activeCarbonDark ? "icons-carbon" : "icons"
+    readonly property string iconFolder: Theme.iconFolder
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -31,12 +31,12 @@ Item {
         smooth: true
         mipmap: true
         asynchronous: true
-        layer.enabled: (root.glow || root.colorize) && !screenshotMode
+        layer.enabled: root.colorize || (root.glow && !screenshotMode)
         layer.smooth: true
         layer.effect: MultiEffect {
             colorization: root.colorize ? 1.0 : 0.0
             colorizationColor: root.tint
-            shadowEnabled: root.glow
+            shadowEnabled: root.glow && !screenshotMode
             shadowColor: root.glowColor
             shadowBlur: 0.72
             shadowOpacity: 0.92

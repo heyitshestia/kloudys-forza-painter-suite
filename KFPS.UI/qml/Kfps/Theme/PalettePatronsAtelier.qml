@@ -2,6 +2,36 @@ import QtQuick 6.7
 
 QtObject {
     readonly property string name: "Patron's Atelier"
+    readonly property bool supporterOnly: true
+    readonly property string iconFolder: "icons"
+    readonly property bool iconColorize: false
+    readonly property color iconTint: primaryBright
+
+    // Optional capabilities consumed generically by shared UI components.
+    readonly property string backdropComponentFile: "BlossomBackdrop.qml"
+    readonly property string foregroundComponentFile: ""
+    readonly property string pageTransitionComponentFile: ""
+    readonly property bool equipmentAccentsEnabled: false
+    readonly property bool ambientScanEnabled: false
+    readonly property bool controlSignalEnabled: false
+    readonly property bool navSignalEnabled: false
+    readonly property bool panelLocatorEnabled: false
+    readonly property bool headerSignalEnabled: false
+    readonly property string logoDialFile: ""
+    readonly property real logoDialOpacity: 0.0
+    readonly property bool logoColorize: false
+    readonly property color logoTint: primaryBright
+    readonly property color signalPrimary: primaryBright
+    readonly property color signalSecondary: warning
+    readonly property color signalDanger: danger
+    readonly property color signalSuccess: success
+    readonly property color signalOff: "#2f5b4934"
+    readonly property color transitionSweep: primaryBright
+    readonly property color transitionTrail: warning
+    readonly property real interactionSweepDuration: 300
+    readonly property real interactionSweepWidth: 0.42
+    readonly property real pageTransitionDuration: 190
+    readonly property real locatorOpacity: 0.0
 
     readonly property color backgroundA: "#f2dce4"
     readonly property color backgroundB: "#fff7fa"
@@ -174,6 +204,8 @@ QtObject {
     readonly property real panelRefractionOpacity: 0.012
     readonly property string panelEdgeFile: "themes/patrons-atelier/glass-edge-prism.png"
     readonly property real panelEdgeOpacity: 0.24
+    readonly property bool customFrameExclusive: false
+    readonly property real customFrameRadius: 6.0
     readonly property string goldTrimFile: "themes/patrons-atelier/gold-foil-tile.png"
     readonly property real goldTrimOpacity: 0.16
     readonly property bool glassBackdropEnabled: true

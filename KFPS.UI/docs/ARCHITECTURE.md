@@ -41,4 +41,4 @@ Existing KFPS Python/native backend
 
 ## Themes
 
-Night Blossom is the only selectable preset. `Kfps.Theme/Theme.qml` is a semantic token contract so additional presets can later share the same components without changing page structure.
+Night Blossom is the public default; Patron's Atelier, Carbon Dark, and Overdrive 200X are supporter presets. `Kfps.Theme/Theme.qml` selects a palette behind one semantic token contract so themes share components without changing page structure. Generic shell loaders allow a palette to opt into a custom backdrop or page transition without adding theme-name branches to shared controls. See `THEME_SYSTEM.md` for the contract and new-theme checklist.

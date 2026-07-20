@@ -6,6 +6,8 @@ import Kfps.Theme 1.0
 Item {
     id: root
 
+    objectName: root.clickable ? "HoverCard:" + root.toolTipText : ""
+
     default property alias contentData: content.data
     property bool clickable: false
     property bool strong: false
@@ -13,6 +15,7 @@ Item {
     property string toolTipText: ""
     property real padding: Theme.px(18)
     property alias hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
     signal clicked()
     signal doubleClicked()
 
@@ -27,7 +30,7 @@ Item {
 
     transform: Translate {
         id: hoverLift
-        y: hover.hovered && root.clickable ? -Theme.px(2) : 0
+        y: hover.hovered && root.clickable && !Theme.customFrameExclusive ? -Theme.px(2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -61,7 +64,9 @@ Item {
         anchors.fill: parent
         radius: panel.radius
         color: Theme.hover
-        opacity: hover.hovered && root.clickable ? 0.10 : 0
+        opacity: hover.hovered && root.clickable
+                 ? (Theme.customFrameExclusive ? 0.72 : 0.10)
+                 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }
 

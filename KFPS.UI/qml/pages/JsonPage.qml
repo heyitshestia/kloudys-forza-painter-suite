@@ -401,7 +401,7 @@ Item {
                                 onTextChanged: transferLiveLogPinTimer.restart()
                             }
 
-                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                         }
                         }
                     }
@@ -578,14 +578,25 @@ Item {
                                         required property string detailText
                                         required property string folder
                                         required property int index
+                                        readonly property bool hovered: cardHover.hovered
+                                        readonly property bool pressed: cardMouse.pressed
+
+                                        objectName: "JsonTile:" + fileCard.displayName
 
                                         width: files.cellWidth - Theme.px(8)
                                         height: files.cellHeight - Theme.px(8)
-                                        radius: Theme.px(16)
-                                        color: jsonService.selectedPath === path ? Theme.primarySoft : (cardHover.hovered ? Theme.hover : Theme.panelGradientTop(false, false))
-                                        border.width: Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
+                                        radius: Theme.framedRadius(Theme.px(16))
+                                        color: jsonService.selectedPath === path
+                                               ? (cardHover.hovered ? Theme.primaryDeep : Theme.primarySoft)
+                                               : (cardHover.hovered ? Theme.helpTopicHover : Theme.panelGradientTop(false, false))
+                                        border.width: Theme.customFrameExclusive
+                                                      ? 0
+                                                      : Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1))
                                         border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
                                         antialiasing: true
+                                        scale: cardMouse.pressed ? 0.985 : 1.0
+                                        Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
+                                        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
 
                                         Column {
                                             anchors.fill: parent
@@ -652,6 +663,7 @@ Item {
                                         }
 
                                         MouseArea {
+                                            id: cardMouse
                                             anchors.fill: parent
                                             acceptedButtons: Qt.LeftButton
                                             onClicked: mouse => {
@@ -685,7 +697,7 @@ Item {
                                         }
                                     }
 
-                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                                 }
 
                                 EmptyState {
@@ -752,7 +764,7 @@ Item {
         background: Rectangle {
             radius: Theme.px(24)
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
             antialiasing: true
         }
@@ -864,7 +876,7 @@ Item {
         background: Rectangle {
             radius: Theme.px(24)
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
             antialiasing: true
         }
@@ -946,11 +958,14 @@ Item {
 
                         delegate: Rectangle {
                             id: creatorRow
+                            objectName: "Fm8CreatorRow:" + creatorRow.displayName
                             required property string creator
                             required property string displayName
                             required property string detailText
                             required property int score
                             required property bool recommended
+                            readonly property bool hovered: creatorHover.hovered
+                            readonly property bool pressed: creatorTap.pressed
 
                             width: fm8CreatorList.width
                             height: Theme.px(76)
@@ -999,6 +1014,7 @@ Item {
                             }
 
                             TapHandler {
+                                id: creatorTap
                                 onTapped: event => {
                                     event.accepted = true
                                     root.fm8PendingCreator = creatorRow.creator
@@ -1008,7 +1024,7 @@ Item {
                             }
                         }
 
-                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                     }
                 }
 

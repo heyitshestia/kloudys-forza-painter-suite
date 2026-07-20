@@ -10,6 +10,9 @@ HEX = re.compile(r'#[0-9a-fA-F]{6,8}')
 ALLOW_EXACT = {
     # The facade may contain transparent utility values and palette wiring.
     Path("Kfps/Theme/Theme.qml"),
+    # This full-window source-download lock deliberately remains independent
+    # from selectable app themes so its warning treatment cannot be softened.
+    Path("SourceDownloadBlocker.qml"),
 }
 
 

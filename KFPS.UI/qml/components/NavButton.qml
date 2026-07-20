@@ -17,6 +17,31 @@ Button {
     readonly property real activeLipDepth: Theme.px(dense ? 2.0 : 3.2)
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
     readonly property real capTravel: down ? Theme.px(dense ? 1.1 : 2.0) : 0
+    property real signalPhase: screenshotMode && active && Theme.navSignalEnabled ? 3.0 : 0.0
+    property real revealProgress: screenshotMode && active && Theme.navSignalEnabled ? 1.0 : 0.0
+
+    onActiveChanged: {
+        if (!Theme.navSignalEnabled)
+            return
+        if (active) {
+            if (Theme.reducedMotion || screenshotMode) {
+                signalPhase = 3.0
+                revealProgress = 1.0
+            } else {
+                navSelectionAnimation.restart()
+            }
+        } else {
+            signalPhase = 0.0
+            revealProgress = 0.0
+        }
+    }
+
+    Component.onCompleted: {
+        if (Theme.navSignalEnabled && active) {
+            signalPhase = 3.0
+            revealProgress = 1.0
+        }
+    }
 
     implicitHeight: Theme.px(compact ? Metrics.compactNavButtonHeight : (dense ? 42 : Metrics.navButtonHeight))
     implicitWidth: Theme.px(compact ? Metrics.compactSidebar - 18 : Metrics.wideSidebar - 20)
@@ -32,7 +57,7 @@ Button {
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down ? -Theme.px(1) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -43,11 +68,13 @@ Button {
     }
 
     background: Item {
+        clip: true
+
         Rectangle {
             id: activeGlow
             anchors.fill: parent
             anchors.margins: -Theme.px(2)
-            radius: Theme.px(11)
+            radius: Theme.framedRadius(Theme.px(11))
             color: "transparent"
             opacity: root.active ? 1 : 0
             layer.enabled: Theme.glassEffects && root.active && !screenshotMode
@@ -68,7 +95,7 @@ Button {
             anchors.leftMargin: Theme.px(2)
             anchors.rightMargin: Theme.px(2)
             height: Theme.px(root.dense ? 3 : 5)
-            radius: Theme.px(9)
+            radius: Theme.framedRadius(Theme.px(9))
             color: Theme.primaryButtonHoverShadow
             opacity: root.active ? (root.down ? 0.02 : 0.04) : 0
             antialiasing: true
@@ -81,10 +108,10 @@ Button {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Math.min(parent.height, root.activeLipDepth + Theme.px(root.dense ? 3 : 5))
-            radius: Theme.px(9)
+            radius: Theme.framedRadius(Theme.px(9))
             antialiasing: true
             color: root.active ? (root.down ? Theme.primaryButtonLipPressed : Theme.primaryButtonLip) : "transparent"
-            border.width: root.active ? Math.max(1, Theme.px(1)) : 0
+            border.width: root.active && !Theme.customFrameExclusive ? Math.max(1, Theme.px(1)) : 0
             border.color: root.active ? Theme.primaryButtonBorder : "transparent"
             opacity: root.active ? 0.42 : 0
             Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
@@ -98,10 +125,12 @@ Button {
             anchors.top: parent.top
             height: root.active ? Math.max(Theme.px(8), parent.height - (root.down ? Theme.px(1) : root.activeLipDepth)) : parent.height
             y: root.active ? root.capTravel : 0
-            radius: Theme.px(9)
+            radius: Theme.framedRadius(Theme.px(9))
             antialiasing: true
             color: root.active ? "transparent" : (root.hovered ? Theme.navHoverSurface : "transparent")
-            border.width: root.active || root.hovered || root.activeFocus ? Theme.px(1) : 0
+            border.width: root.activeFocus
+                          ? Theme.px(2)
+                          : ((!Theme.customFrameExclusive && (root.active || root.hovered)) ? Theme.px(1) : 0)
             border.color: root.activeFocus ? Theme.focusColor : (root.active ? (root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder) : Theme.borderSoft)
             gradient: root.active ? activeGradient : undefined
             clip: true
@@ -150,7 +179,7 @@ Button {
 
             BorderImage {
                 anchors.fill: parent
-                visible: root.active && Theme.panelEdgeFile.length > 0
+                visible: !Theme.customFrameExclusive && root.active && Theme.panelEdgeFile.length > 0
                 source: visible ? assetRoot + "/" + Theme.panelEdgeFile : ""
                 border.left: 42
                 border.right: 42
@@ -211,7 +240,7 @@ Button {
                 radius: Math.max(0, chrome.radius - Theme.px(1.4))
                 visible: root.active
                 color: "transparent"
-                border.width: Math.max(1, Theme.px(1))
+                border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.primaryButtonGlassTop
                 opacity: root.down ? 0.12 : (root.hovered ? 0.34 : 0.22)
                 antialiasing: true
@@ -256,6 +285,64 @@ Button {
                 opacity: root.down ? 0.14 : 0
                 antialiasing: true
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 80 } }
+            }
+
+            ButtonLensOverlay {
+                anchors.fill: parent
+                active: root.active
+                hovered: root.hovered
+                pressed: root.down
+                latched: root.active
+                strength: 0.82
+            }
+
+            Item {
+                visible: Theme.navSignalEnabled && root.active
+                anchors.fill: parent
+                clip: true
+
+                Rectangle {
+                    x: -width * (1.0 - root.revealProgress)
+                    width: parent.width
+                    height: parent.height
+                    color: Theme.signalPrimary
+                    opacity: 0.09
+                    Behavior on x {
+                        enabled: !Theme.reducedMotion
+                        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+
+            Row {
+                visible: Theme.navSignalEnabled && root.active
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.px(root.compact ? 7 : 25)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(3)
+                spacing: Theme.px(2)
+
+                Repeater {
+                    model: 3
+                    Rectangle {
+                        required property int index
+                        width: Theme.px(index === 2 ? 7 : 4)
+                        height: Theme.px(2)
+                        radius: height / 2
+                        color: root.signalPhase > index
+                               ? (index === 2 ? Theme.signalSecondary : Theme.signalPrimary)
+                               : Theme.signalOff
+                        opacity: root.signalPhase > index ? 0.92 : 0.16
+                        Behavior on opacity {
+                            enabled: !Theme.reducedMotion
+                            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on color {
+                            enabled: !Theme.reducedMotion
+                            ColorAnimation { duration: 90 }
+                        }
+                    }
+                }
             }
         }
 
@@ -362,6 +449,30 @@ Button {
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
                 anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+    }
+
+    ParallelAnimation {
+        id: navSelectionAnimation
+        SequentialAnimation {
+            PropertyAction { target: root; property: "signalPhase"; value: 0.0 }
+            NumberAnimation {
+                target: root
+                property: "signalPhase"
+                to: 3.0
+                duration: 240
+                easing.type: Easing.OutCubic
+            }
+        }
+        SequentialAnimation {
+            PropertyAction { target: root; property: "revealProgress"; value: 0.0 }
+            NumberAnimation {
+                target: root
+                property: "revealProgress"
+                to: 1.0
+                duration: 260
+                easing.type: Easing.OutCubic
             }
         }
     }

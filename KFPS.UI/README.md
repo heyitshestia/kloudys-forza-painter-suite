@@ -28,11 +28,12 @@ The shipped executable is intentionally small. It prefers the packaged `python/`
 ## Structure
 
 - `qml/` — the entire interface and reusable visual system
-- `assets/` — original Night Blossom artwork and SVG icons
+- `assets/` — original theme artwork and SVG icon sets
 - `src/kfps_ui/` — small Python services exposed to QML
 - `bridges/` — thin subprocess adapters to the unchanged backend
 - `tests/` — non-destructive service tests
 - `tools/` — screenshot and visual-QA helpers
 - `docs/` — architecture, behavior, build, and validation notes
 
-See `docs/ARCHITECTURE.md` before changing application state or process handling.
+See `docs/ARCHITECTURE.md` before changing application state or process handling, and
+`docs/THEME_SYSTEM.md` before adding or changing a theme.

@@ -521,7 +521,7 @@ Item {
                                         onDoubleClicked: root.openArtworkInspector(index)
                                     }
 
-                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                                 }
 
                                 EmptyState {
@@ -697,13 +697,21 @@ Item {
                                 spacing: Theme.px(8)
 
                                 Rectangle {
+                                    objectName: "CommunityDetailPreview"
+                                    readonly property bool hovered: detailPreviewHover.hovered
+                                    readonly property bool pressed: detailPreviewTap.pressed
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.px(root.compactHeight ? 190 : 250)
-                                    radius: Theme.px(7)
-                                    color: Theme.previewSurface
-                                    border.width: Math.max(1, Theme.px(1))
-                                    border.color: Theme.borderStrong
+                                    radius: Theme.framedRadius(Theme.px(7))
+                                    color: detailPreviewHover.hovered ? Theme.fieldHoverSurface : Theme.previewSurface
+                                    border.width: Theme.customFrameExclusive
+                                                  ? 0
+                                                  : Math.max(1, Theme.px(1))
+                                    border.color: detailPreviewHover.hovered ? Theme.primary : Theme.borderStrong
                                     clip: true
+                                    scale: detailPreviewTap.pressed ? 0.99 : 1.0
+                                    Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
+                                    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
 
                                     Image {
                                         id: detailPreview
@@ -739,6 +747,7 @@ Item {
                                     }
 
                                     TapHandler {
+                                        id: detailPreviewTap
                                         onDoubleTapped: root.openArtworkInspector(communityService.selectedIndex)
                                     }
 
@@ -1172,7 +1181,7 @@ Item {
                                             }
                                         }
 
-                                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                        ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
                                     }
 
                                     EmptyState {
@@ -1924,9 +1933,9 @@ Item {
         padding: Theme.px(20)
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -2212,9 +2221,9 @@ Item {
         onClosed: previewZoom = 1.0
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -2361,7 +2370,7 @@ Item {
                             }
                         }
 
-                        ScrollBar.vertical: ScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+                        ScrollBar.vertical: KfpsScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
                         ScrollBar.horizontal: ScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
                     }
 
@@ -2574,9 +2583,9 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -2694,9 +2703,9 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.warning
         }
 
@@ -2800,9 +2809,9 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -2942,9 +2951,9 @@ Item {
         onAboutToShow: editTagsField.text = String(communityService.selectedArtwork.tagsText || "")
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -3008,9 +3017,9 @@ Item {
         }
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.borderStrong
         }
 
@@ -3087,9 +3096,9 @@ Item {
         padding: Theme.px(18)
 
         background: Rectangle {
-            radius: Theme.px(8)
+            radius: Theme.framedRadius(Theme.px(8))
             color: Theme.surfaceRaised
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: Theme.danger
         }
 

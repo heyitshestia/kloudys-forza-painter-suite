@@ -444,7 +444,8 @@ These examples show prepared source art next to high-layer final preview output 
 
 ## Theme Showcase
 
-KFPS uses the native Night Blossom interface in the current release.
+Night Blossom is the public default. Supporter presets include Patron's Atelier,
+Carbon Dark, and the custom animated Overdrive 200X hardware-console theme.
 
 <p align="center">
   <img src="docs/images/kfps-theme-showcase.gif" alt="Animated KFPS native UI showcase" width="900">

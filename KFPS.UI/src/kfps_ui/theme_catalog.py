@@ -6,6 +6,7 @@ from dataclasses import dataclass
 DEFAULT_THEME = "Night Blossom"
 PATRONS_ATELIER_THEME = "Patron's Atelier"
 CARBON_DARK_THEME = "Carbon Dark"
+OVERDRIVE_200X_THEME = "Overdrive 200X"
 
 
 @dataclass(frozen=True)
@@ -13,17 +14,20 @@ class ThemePreset:
     """Python-side registry entry for selectable QML theme presets.
 
     QML owns the actual palette tokens. Python owns persistence, validation,
-    and entitlement-gated visibility in Settings.
+    QML component identity for contract checks, and entitlement-gated
+    visibility in Settings.
     """
 
     name: str
+    qml_component: str
     supporter_only: bool = False
 
 
 THEME_PRESETS: tuple[ThemePreset, ...] = (
-    ThemePreset(DEFAULT_THEME),
-    ThemePreset(PATRONS_ATELIER_THEME, supporter_only=True),
-    ThemePreset(CARBON_DARK_THEME, supporter_only=True),
+    ThemePreset(DEFAULT_THEME, "PaletteNightBlossom"),
+    ThemePreset(PATRONS_ATELIER_THEME, "PalettePatronsAtelier", supporter_only=True),
+    ThemePreset(CARBON_DARK_THEME, "PaletteCarbonDark", supporter_only=True),
+    ThemePreset(OVERDRIVE_200X_THEME, "PaletteOverdrive200X", supporter_only=True),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

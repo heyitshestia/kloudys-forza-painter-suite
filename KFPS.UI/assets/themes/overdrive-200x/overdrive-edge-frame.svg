@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="alloy" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4fbfc" stop-opacity=".72"/>
+      <stop offset=".24" stop-color="#8ca0a5" stop-opacity=".2"/>
+      <stop offset=".7" stop-color="#05080a" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#62efff" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#62efff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#62efff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#62efff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="30" fill="none" stroke="url(#alloy)" stroke-width="7"/>
+  <rect x="13" y="13" width="230" height="230" rx="23" fill="none" stroke="#09151a" stroke-opacity=".85" stroke-width="5"/>
+  <path d="M28 7h74M154 249h74" fill="none" stroke="url(#cyan)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="22" cy="22" r="4" fill="#ffc45a" fill-opacity=".82"/>
+  <circle cx="234" cy="234" r="3" fill="#62efff" fill-opacity=".78"/>
+</svg>

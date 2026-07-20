@@ -640,7 +640,12 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn("Theme.classificationToolmade", line)
         self.assertIn("classificationHandmade: palette.classificationHandmade", theme)
         self.assertIn("classificationToolmade: palette.classificationToolmade", theme)
-        for palette_name in ("PaletteNightBlossom.qml", "PalettePatronsAtelier.qml", "PaletteCarbonDark.qml"):
+        for palette_name in (
+            "PaletteNightBlossom.qml",
+            "PalettePatronsAtelier.qml",
+            "PaletteCarbonDark.qml",
+            "PaletteOverdrive200X.qml",
+        ):
             palette = (UI / "qml" / "Kfps" / "Theme" / palette_name).read_text(encoding="utf-8")
             self.assertIn("property color classificationHandmade", palette)
             self.assertIn("property color classificationToolmade", palette)

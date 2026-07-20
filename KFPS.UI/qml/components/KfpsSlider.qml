@@ -32,15 +32,19 @@ Slider {
         width: root.availableWidth
         height: Theme.px(5)
         radius: height / 2
-        color: Theme.sliderTrack
-        border.width: Math.max(1, Theme.px(1))
+        color: root.hovered ? Theme.checkboxHoverSurface : Theme.sliderTrack
+        border.width: root.activeFocus
+                      ? Theme.px(2)
+                      : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
         border.color: root.activeFocus ? Theme.focusColor : Theme.borderSoft
+        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
 
         Rectangle {
             width: root.visualPosition * parent.width
             height: parent.height
             radius: parent.radius
-            color: Theme.primary
+            color: root.hovered ? Theme.primaryBright : Theme.primary
+            Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
         }
     }
 
@@ -50,13 +54,16 @@ Slider {
         width: Theme.px(18)
         height: width
         radius: width / 2
-        color: root.pressed ? Theme.primaryBright : Theme.text
-        border.width: Math.max(1, Theme.px(1))
+        color: root.pressed ? Theme.primaryBright : (root.hovered ? Theme.primaryHot : Theme.text)
+        border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
         border.color: Theme.primaryBright
+        scale: root.pressed ? 0.88 : (root.hovered ? 1.10 : 1.0)
 
         Behavior on x {
             enabled: !root.pressed && !Theme.reducedMotion
             NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
         }
+        Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 100 } }
+        Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
     }
 }

@@ -55,7 +55,7 @@ ApplicationWindow {
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
     Binding { target: Theme; property: "themeName"; value: settings.theme }
-    Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked }
+    Binding { target: Theme; property: "supporterUnlocked"; value: supporterService.unlocked || themePreviewUnlocked }
 
     Connections {
         target: versionService
@@ -69,9 +69,14 @@ ApplicationWindow {
         }
     }
 
-    BlossomBackdrop {
+    ThemedBackdrop {
         id: backdropLayer
         anchors.fill: parent
+    }
+
+    ThemedForeground {
+        anchors.fill: parent
+        z: 180
     }
 
     Rectangle {
@@ -331,6 +336,10 @@ ApplicationWindow {
                             if (!Theme.reducedMotion) {
                                 opacity = 0
                                 pageFade.restart()
+                                pageTransition.play()
+                            } else {
+                                pageFade.stop()
+                                opacity = 1
                             }
                         }
 
@@ -340,7 +349,7 @@ ApplicationWindow {
                             property: "opacity"
                             from: 0
                             to: 1
-                            duration: 190
+                            duration: Theme.reducedMotion ? 110 : Math.min(280, Theme.pageTransitionDuration)
                             easing.type: Easing.OutCubic
                         }
                     }
@@ -355,6 +364,12 @@ ApplicationWindow {
                         collapsed: settings.consoleCollapsed
                         onToggle: settings.consoleCollapsed = !settings.consoleCollapsed
                     }
+                }
+
+                ThemedPageTransition {
+                    id: pageTransition
+                    anchors.fill: parent
+                    z: 140
                 }
             }
         }

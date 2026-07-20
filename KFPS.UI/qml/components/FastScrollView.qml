@@ -10,6 +10,12 @@ ScrollView {
 
     clip: true
 
+    ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
+    ScrollBar.horizontal: KfpsScrollBar {
+        orientation: Qt.Horizontal
+        policy: ScrollBar.AsNeeded
+    }
+
     Component.onCompleted: tuneFlickable()
     onContentItemChanged: tuneFlickable()
 

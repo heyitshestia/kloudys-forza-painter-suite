@@ -27,12 +27,10 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.px(7)
 
-        Image {
-            source: assetRoot + "/" + Theme.logoFile
+        ThemedLogo {
             width: Theme.px(16)
             height: width
-            fillMode: Image.PreserveAspectFit
-            smooth: true
+            logoMargin: 0
         }
 
         Text {
@@ -58,6 +56,8 @@ Rectangle {
             delegate: Rectangle {
                 id: button
                 required property string modelData
+
+                objectName: "TitleBarButton:" + button.modelData
 
                 width: Theme.px(46)
                 height: parent.height
@@ -130,6 +130,25 @@ Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Row {
+        visible: Theme.equipmentAccentsEnabled
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Theme.px(4)
+        opacity: 0.68
+
+        Repeater {
+            model: 7
+            Rectangle {
+                required property int index
+                width: Theme.px(index === 3 ? 12 : 5)
+                height: Theme.px(2)
+                radius: height / 2
+                color: index === 5 ? Theme.signalSecondary : Theme.signalPrimary
             }
         }
     }

@@ -176,7 +176,7 @@ Item {
                         width: parent.width
                         height: Theme.px(145)
                         soft: true
-                        border.width: Math.max(1, Theme.px(2))
+                        border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(2))
                         border.color: sourceService.severity === "red" ? Theme.danger : (sourceService.severity === "yellow" ? Theme.warning : (sourceService.severity === "green" ? Theme.success : Theme.border))
 
                         Column {

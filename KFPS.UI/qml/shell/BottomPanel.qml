@@ -134,7 +134,7 @@ GlassPanel {
                 }
             }
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
         }
     }
 
@@ -166,7 +166,7 @@ GlassPanel {
                 }
             }
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
         }
     }
 }

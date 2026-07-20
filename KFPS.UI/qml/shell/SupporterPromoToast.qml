@@ -8,11 +8,15 @@ import "../components"
 GlassPanel {
     id: root
 
+    objectName: "SupporterPromo"
+
     readonly property string promoUrl: "https://ko-fi.com/s/2d1507698d"
     property bool compact: false
     property bool expired: false
     readonly property bool eligible: Theme.activeThemeName === Theme.defaultThemeName
                                      && supporterService.activationState === "no_key"
+    readonly property bool hovered: promoMouse.containsMouse
+    readonly property bool pressed: promoMouse.pressed
 
     width: Theme.px(compact ? 330 : 430)
     height: Theme.px(compact ? 74 : 88)

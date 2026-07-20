@@ -110,6 +110,20 @@ class QmlRefinementTests(unittest.TestCase):
             "components/KfpsCheckBox.qml",
             "components/KfpsSwitch.qml",
             "components/KfpsSlider.qml",
+            "components/KfpsLinkText.qml",
+        ):
+            self.assertIn("objectName:", self.read(relative), relative)
+
+        for relative in (
+            "components/HoverCard.qml",
+            "components/QuickActionRow.qml",
+            "components/RecentJsonRow.qml",
+            "shell/AnnouncementTicker.qml",
+            "shell/AppTitleBar.qml",
+            "shell/SupporterPromoToast.qml",
+            "pages/HelpPage.qml",
+            "pages/JsonPage.qml",
+            "pages/CommunityPage.qml",
         ):
             self.assertIn("objectName:", self.read(relative), relative)
 
@@ -127,6 +141,7 @@ class QmlRefinementTests(unittest.TestCase):
             "components/HoverCard.qml",
             "components/QuickActionRow.qml",
             "components/RecentJsonRow.qml",
+            "components/KfpsLinkText.qml",
         ):
             content = self.read(relative)
             self.assertIn("toolTipText", content, relative)
@@ -137,11 +152,17 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("wrapMode: Text.Wrap", tooltip)
         self.assertIn("color: Theme.surfaceRaised", tooltip)
 
+    def test_link_text_uses_padding_for_a_readable_click_target(self):
+        link = self.read("components/KfpsLinkText.qml")
+        self.assertIn("topPadding: Theme.px(7)", link)
+        self.assertIn("bottomPadding: Theme.px(7)", link)
+        self.assertNotIn("implicitHeight:", link)
+
     def test_every_reusable_control_instance_has_specific_hover_help(self):
         control_pattern = re.compile(
             r"^\s*(PrimaryButton|GhostButton|NavButton|KfpsTextField|KfpsTextArea|"
             r"KfpsComboBox|KfpsCheckBox|KfpsSwitch|KfpsSlider|QuickActionRow|"
-            r"RecentJsonRow|WorkflowCard)\s*\{"
+            r"RecentJsonRow|KfpsLinkText|WorkflowCard)\s*\{"
         )
         missing: list[str] = []
         for folder_name in ("pages", "shell"):
@@ -253,6 +274,16 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("root.syncManualOverrideDefaults(true)", create)
         for label in ("Max resolution", "Random samples", "Mutated samples", "Seed"):
             self.assertIn(f'text: "{label}"', create)
+
+    def test_create_and_settings_stack_into_scrollable_cards(self):
+        create = self.read("pages/CreatePage.qml")
+        settings = self.read("pages/SettingsPage.qml")
+        self.assertIn("id: pageScroll", create)
+        self.assertIn("height: root.threeColumns ? pageScroll.availableHeight : implicitHeight", create)
+        self.assertIn("Layout.fillHeight: root.threeColumns", create)
+        self.assertIn("id: pageScroll", settings)
+        self.assertIn("height: root.wide ? pageScroll.availableHeight : implicitHeight", settings)
+        self.assertIn("Layout.fillHeight: root.wide", settings)
 
     def test_generation_previews_reload_overwritten_milestones(self):
         for page in ("pages/CreatePage.qml", "pages/GeneratePage.qml"):

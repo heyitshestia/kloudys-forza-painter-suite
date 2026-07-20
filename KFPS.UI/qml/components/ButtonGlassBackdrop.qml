@@ -104,13 +104,4 @@ Item {
         opacity: 0.42 * root.extraOpacity
     }
 
-    Image {
-        anchors.fill: parent
-        visible: root.backdropActive && Theme.primaryButtonLensOverlayFile.length > 0
-        source: visible ? assetRoot + "/" + Theme.primaryButtonLensOverlayFile : ""
-        fillMode: Image.Stretch
-        opacity: Theme.primaryButtonLensOverlayOpacity * root.extraOpacity
-        smooth: true
-        mipmap: true
-    }
 }

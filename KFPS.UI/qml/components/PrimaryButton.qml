@@ -23,6 +23,7 @@ Button {
     readonly property real sideGap: reserveSideSlots ? Theme.px(7) : 0
     readonly property real lipDepth: Theme.px(dense ? 2.8 : 4.2)
     readonly property real capTravel: down ? Theme.px(dense ? 1.8 : 3.0) : 0
+    property real signalPhase: screenshotMode && Theme.controlSignalEnabled ? 3.0 : 0.0
 
     implicitHeight: Math.max(
                         Theme.px(dense ? Metrics.denseButtonHeight : Metrics.buttonHeight),
@@ -46,7 +47,7 @@ Button {
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down ? -Theme.px(1.2) : 0
+        y: root.hovered && !root.down && !Theme.customFrameExclusive ? -Theme.px(1.2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -59,6 +60,8 @@ Button {
     }
 
     background: Item {
+        clip: true
+
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
@@ -66,7 +69,7 @@ Button {
             anchors.leftMargin: Theme.px(2)
             anchors.rightMargin: Theme.px(2)
             height: Theme.px(root.dense ? 5 : 7)
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.hovered ? Theme.primaryButtonHoverShadow : Theme.primaryButtonShadow
             opacity: root.down ? 0.03 : (root.hovered ? 0.07 : 0.045)
             antialiasing: true
@@ -79,10 +82,10 @@ Button {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Math.min(parent.height, root.lipDepth + Theme.px(root.dense ? 4 : 7))
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             antialiasing: true
             color: root.down ? Theme.primaryButtonLipPressed : Theme.primaryButtonLip
-            border.width: Math.max(1, Theme.px(1))
+            border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
             border.color: root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder
             opacity: root.enabled ? 0.34 : 0.14
             layer.enabled: Theme.glassEffects && !screenshotMode
@@ -105,9 +108,9 @@ Button {
             anchors.top: parent.top
             height: Math.max(Theme.px(8), parent.height - (root.down ? Theme.px(1.4) : root.lipDepth))
             y: root.capTravel
-            radius: Theme.px(Metrics.controlRadius)
+            radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             antialiasing: true
-            border.width: root.activeFocus ? Theme.px(2) : Theme.px(1)
+            border.width: root.activeFocus ? Theme.px(2) : (Theme.customFrameExclusive ? 0 : Theme.px(1))
             border.color: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder)
             opacity: root.enabled ? 1.0 : 0.42
             clip: true
@@ -162,7 +165,7 @@ Button {
 
             BorderImage {
                 anchors.fill: parent
-                visible: Theme.panelEdgeFile.length > 0
+                visible: !Theme.customFrameExclusive && Theme.panelEdgeFile.length > 0
                 source: visible ? assetRoot + "/" + Theme.panelEdgeFile : ""
                 border.left: 42
                 border.right: 42
@@ -240,7 +243,7 @@ Button {
                 anchors.margins: Theme.px(1.4)
                 radius: Math.max(0, chrome.radius - Theme.px(1.4))
                 color: "transparent"
-                border.width: Math.max(1, Theme.px(1))
+                border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.primaryButtonGlassTop
                 opacity: root.down ? 0.20 : (root.hovered ? 0.68 : 0.52)
                 antialiasing: true
@@ -306,9 +309,15 @@ Button {
                 Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 80 } }
             }
 
+            ButtonLensOverlay {
+                anchors.fill: parent
+                hovered: root.hovered
+                pressed: root.down
+            }
+
             Rectangle {
                 id: sheen
-                width: parent.width * 0.42
+                width: parent.width * Theme.interactionSweepWidth
                 height: parent.height * 1.7
                 y: -parent.height * 0.35
                 x: -width * 1.8
@@ -319,6 +328,40 @@ Button {
                     GradientStop { position: 0; color: Theme.primaryButtonSheenTransparent }
                     GradientStop { position: 0.5; color: Theme.primaryButtonSheen }
                     GradientStop { position: 1; color: Theme.primaryButtonSheenTransparent }
+                }
+            }
+
+            Row {
+                visible: Theme.controlSignalEnabled
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(root.dense ? 7 : 9)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(root.dense ? 2 : 3)
+                spacing: Theme.px(2)
+
+                Repeater {
+                    model: 3
+
+                    Rectangle {
+                        required property int index
+                        width: Theme.px(index === 2 ? 6 : 4)
+                        height: Theme.px(2)
+                        radius: height / 2
+                        color: root.down || root.signalPhase > index
+                               ? (index === 2 ? Theme.signalSecondary : Theme.signalPrimary)
+                               : Theme.signalOff
+                        opacity: root.down
+                                 ? 0.94
+                                 : (root.signalPhase > index ? 0.86 : 0.16)
+                        Behavior on opacity {
+                            enabled: !Theme.reducedMotion
+                            NumberAnimation { duration: 85; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on color {
+                            enabled: !Theme.reducedMotion
+                            ColorAnimation { duration: 85 }
+                        }
+                    }
                 }
             }
         }
@@ -383,7 +426,26 @@ Button {
         }
     }
 
-    onHoveredChanged: if (hovered && !Theme.reducedMotion) sheenAnimation.restart()
+    onHoveredChanged: {
+        if (hovered) {
+            if (!Theme.reducedMotion) {
+                sheenAnimation.restart()
+                if (Theme.controlSignalEnabled)
+                    signalAnimation.restart()
+            } else if (Theme.controlSignalEnabled) {
+                signalPhase = 3.0
+            }
+        } else if (!down && !screenshotMode) {
+            signalPhase = 0.0
+        }
+    }
+
+    onDownChanged: {
+        if (Theme.controlSignalEnabled && down)
+            signalPhase = 3.0
+        else if (Theme.controlSignalEnabled && hovered && !Theme.reducedMotion)
+            signalAnimation.restart()
+    }
 
     KfpsToolTip {
         visible: root.hovered && root.effectiveToolTipText.length > 0
@@ -398,9 +460,21 @@ Button {
             property: "x"
             from: -sheen.width * 1.8
             to: root.width + sheen.width
-            duration: 430
+            duration: Theme.interactionSweepDuration
             easing.type: Easing.OutCubic
         }
         PropertyAction { target: sheen; property: "opacity"; value: 0 }
+    }
+
+    SequentialAnimation {
+        id: signalAnimation
+        PropertyAction { target: root; property: "signalPhase"; value: 0.0 }
+        NumberAnimation {
+            target: root
+            property: "signalPhase"
+            to: 3.0
+            duration: Math.min(210, Theme.interactionSweepDuration)
+            easing.type: Easing.OutCubic
+        }
     }
 }

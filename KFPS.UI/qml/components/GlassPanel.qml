@@ -15,11 +15,18 @@ Rectangle {
     readonly property point backdropOrigin: backdropSource ? mapToItem(backdropSource, 0, 0) : Qt.point(0, 0)
     readonly property bool backdropBlurActive: Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
     readonly property bool roundedContentMaskActive: radius > 0 && width > 2 && height > 2
+    readonly property bool locatorVisible: Theme.panelLocatorEnabled && (strong || raised)
+    readonly property bool telemetryVisible: Theme.equipmentAccentsEnabled
+                                               && (strong || raised)
+                                               && width >= Theme.px(130)
+                                               && height >= Theme.px(54)
+    property real locatorProgress: screenshotMode && locatorVisible ? 0.62 : 0.0
+    property real telemetryPhase: screenshotMode && telemetryVisible ? 3.4 : 1.0
 
-    radius: Theme.px(14)
+    radius: Theme.framedRadius(Theme.px(14))
     color: "transparent"
     opacity: panelOpacity
-    border.width: Math.max(1, Theme.px(1))
+    border.width: Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1))
     border.color: raised ? Theme.borderStrong : (strong ? Theme.borderStrong : (soft ? Theme.borderSoft : Theme.border))
     antialiasing: true
     clip: true
@@ -178,6 +185,7 @@ Rectangle {
             anchors.topMargin: Theme.px(1)
             height: Math.max(1, Theme.px(root.strong ? 2.6 : 1.8))
             radius: Math.max(0, root.radius - Theme.px(1))
+            visible: !Theme.customFrameExclusive
             color: Theme.panelTopHighlight
             opacity: Theme.panelHighlightOpacity(root.soft, root.strong)
         }
@@ -186,6 +194,7 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: Theme.px(1)
             radius: Math.max(0, root.radius - Theme.px(1))
+            visible: !Theme.customFrameExclusive
             color: "transparent"
             border.width: Math.max(1, Theme.px(1))
             border.color: root.strong ? Theme.panelStrongInnerBorder : Theme.panelInnerBorder
@@ -291,6 +300,120 @@ Rectangle {
             fillMode: Image.TileVertically
             opacity: Theme.goldTrimOpacity * (root.strong || root.raised ? 0.58 : 0.26)
             smooth: true
+        }
+
+        Rectangle {
+            visible: root.locatorVisible
+            x: Theme.px(14) + Math.max(0, root.width - Theme.px(62)) * root.locatorProgress
+            y: Theme.px(2)
+            width: Theme.px(24)
+            height: Math.max(1, Theme.px(2))
+            radius: height / 2
+            color: Theme.signalPrimary
+            opacity: Theme.locatorOpacity * (locatorHover.hovered ? 1.0 : 0.54)
+            Behavior on opacity {
+                enabled: !Theme.reducedMotion
+                NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+            }
+        }
+    }
+
+    Item {
+        anchors.fill: parent
+        z: 80
+        enabled: false
+        visible: root.telemetryVisible
+
+        Row {
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.px(15)
+            anchors.top: parent.top
+            anchors.topMargin: Theme.px(2)
+            spacing: Theme.px(2)
+
+            Repeater {
+                model: 5
+
+                Rectangle {
+                    required property int index
+                    width: Theme.px(index === 4 ? 8 : (index % 2 === 0 ? 4 : 2))
+                    height: Theme.px(2)
+                    radius: height / 2
+                    color: index === 3 ? Theme.signalSecondary : Theme.signalPrimary
+                    opacity: root.telemetryPhase > index ? 0.82 : 0.10
+
+                    Behavior on opacity {
+                        enabled: !Theme.reducedMotion
+                        NumberAnimation { duration: 82; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.px(4)
+            anchors.top: parent.top
+            anchors.topMargin: Theme.px(10)
+            width: Theme.px(2)
+            height: Theme.px(7)
+            radius: width / 2
+            color: Theme.signalSecondary
+            opacity: root.telemetryPhase >= 4.0 ? 0.78 : 0.16
+
+            Behavior on opacity {
+                enabled: !Theme.reducedMotion
+                NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
+            }
+        }
+    }
+
+
+    HoverHandler {
+        id: locatorHover
+        enabled: root.locatorVisible
+        onHoveredChanged: {
+            if (!hovered || screenshotMode)
+                return
+            if (Theme.reducedMotion) {
+                root.locatorProgress = 0.62
+                root.telemetryPhase = 3.4
+            } else {
+                locatorAnimation.restart()
+                panelTelemetryAnimation.restart()
+            }
+        }
+    }
+
+    SequentialAnimation {
+        id: locatorAnimation
+        PropertyAction { target: root; property: "locatorProgress"; value: 0.08 }
+        NumberAnimation {
+            target: root
+            property: "locatorProgress"
+            to: 0.72
+            duration: 300
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    SequentialAnimation {
+        id: panelTelemetryAnimation
+        PropertyAction { target: root; property: "telemetryPhase"; value: 0.0 }
+        NumberAnimation {
+            target: root
+            property: "telemetryPhase"
+            to: 5.0
+            duration: 260
+            easing.type: Easing.OutCubic
+        }
+        PauseAnimation { duration: 110 }
+        NumberAnimation {
+            target: root
+            property: "telemetryPhase"
+            to: 2.0
+            duration: 170
+            easing.type: Easing.InOutCubic
         }
     }
 }

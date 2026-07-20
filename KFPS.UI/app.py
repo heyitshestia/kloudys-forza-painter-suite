@@ -15,7 +15,7 @@ for item in (str(SRC), str(ROOT)):
     if item not in sys.path:
         sys.path.insert(0, item)
 
-from PySide6.QtCore import QCoreApplication, QPointF, Qt, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
@@ -42,7 +42,7 @@ from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
 from kfps_ui.supporter_service import SupporterService
-from kfps_ui.theme_catalog import DEFAULT_THEME, is_supporter_theme
+from kfps_ui.theme_catalog import DEFAULT_THEME, KNOWN_THEME_NAMES, is_supporter_theme, normalize_theme
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
 from kfps_ui.version_service import VersionService
@@ -54,6 +54,9 @@ def parse_args():
     parser.add_argument("--layout-report")
     parser.add_argument("--layout-report-dir")
     parser.add_argument("--screenshot-dir")
+    parser.add_argument("--interaction-capture-dir", help=argparse.SUPPRESS)
+    parser.add_argument("--motion-capture-dir", help=argparse.SUPPRESS)
+    parser.add_argument("--motion-preview", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--page", default="create")
     parser.add_argument("--community-tab", choices=("browse", "upload", "profile"), help=argparse.SUPPRESS)
     parser.add_argument(
@@ -66,6 +69,7 @@ def parse_args():
     parser.add_argument("--height", type=int, default=1040)
     parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--demo", action="store_true")
+    parser.add_argument("--theme-preview", choices=sorted(KNOWN_THEME_NAMES), help=argparse.SUPPRESS)
     parser.add_argument("--allow-unsupported-python", action="store_true")
     parser.add_argument("--allow-source-download", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--skip-startup-index", action="store_true")
@@ -247,7 +251,10 @@ def run_source_download_blocker(
     engine = QQmlApplicationEngine()
     ctx = engine.rootContext()
     ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
-    ctx.setContextProperty("screenshotMode", bool(args.screenshot or args.screenshot_dir))
+    ctx.setContextProperty(
+        "screenshotMode",
+        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir),
+    )
     ctx.setContextProperty("sourceDownloadUrl", status.latest_release_url)
     ctx.setContextProperty("sourceDownloadReason", status.reason)
     ctx.setContextProperty("sourceDownloadDetails", status.details)
@@ -291,6 +298,8 @@ def run_source_download_blocker(
 
 def main():
     args = parse_args()
+    if args.theme_preview and not args.demo:
+        raise SystemExit("--theme-preview is available only with --demo.")
     if args.thumbnail_worker:
         from kfps_ui.json_thumbnail_worker import main as thumbnail_worker_main
         worker_args = [
@@ -330,8 +339,15 @@ def main():
     if source_guard.blocked:
         return run_source_download_blocker(app, paths, source_guard, args, app_icon)
     settings = SettingsService(paths.settings_file)
+    theme_preview = normalize_theme(args.theme_preview) if args.theme_preview else ""
+    if theme_preview:
+        settings._data["theme"] = theme_preview
     if args.ui_scale is not None:
         settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
+    if args.motion_capture_dir or args.motion_preview:
+        settings._data["reducedMotion"] = False
+        settings._data["ambientMotion"] = True
+        settings._data["glassEffects"] = True
 
     preview = PreviewService(paths)
     should_preindex = not args.skip_startup_index and not args.demo and os.environ.get("KFPS_SKIP_STARTUP_INDEX", "").strip() != "1"
@@ -370,7 +386,7 @@ def main():
     supporter.changed.connect(sync_community_supporter_state)
     sync_community_supporter_state()
     def enforce_available_theme():
-        if is_supporter_theme(settings.theme) and not supporter.unlocked:
+        if not theme_preview and is_supporter_theme(settings.theme) and not supporter.unlocked:
             settings.theme = DEFAULT_THEME
 
     enforce_available_theme()
@@ -411,8 +427,12 @@ def main():
     for name, obj in objects.items():
         ctx.setContextProperty(name, obj)
     ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
-    ctx.setContextProperty("screenshotMode", bool(args.screenshot or args.screenshot_dir))
+    ctx.setContextProperty(
+        "screenshotMode",
+        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir),
+    )
     ctx.setContextProperty("demoMode", args.demo)
+    ctx.setContextProperty("themePreviewUnlocked", bool(theme_preview))
 
     qml = paths.qml_root / "Main.qml"
     engine.addImportPath(str(paths.qml_root))
@@ -452,19 +472,75 @@ def main():
 
         QTimer.singleShot(50, select_community_tab)
 
+    interactive_prefixes = (
+        "PrimaryButton:", "GhostButton:", "NavButton:",
+        "KfpsTextField:", "KfpsTextArea:", "KfpsComboBox",
+        "KfpsCheckBox:", "KfpsSwitch:", "KfpsSlider",
+        "HoverCard:", "QuickActionRow:", "RecentJsonRow:",
+        "HelpCategory:", "HelpTopic:", "JsonTile:", "Fm8CreatorRow:",
+        "CommunityDetailPreview", "AnnouncementTicker", "TitleBarButton:",
+        "SupporterPromo", "KfpsLinkText:",
+    )
+
+    def visual_items() -> list[QQuickItem]:
+        root_item = window.contentItem()
+        stack = [root_item]
+        seen = set()
+        items = []
+        while stack:
+            obj = stack.pop()
+            identity = id(obj)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            items.append(obj)
+            stack.extend(obj.childItems())
+        return items
+
+    def visible_interactive_items() -> list[QQuickItem]:
+        items = []
+        for obj in visual_items():
+            name = obj.objectName() or ""
+            if not name.startswith(interactive_prefixes):
+                continue
+            if not obj.isVisible() or obj.opacity() <= 0.01:
+                continue
+            items.append(obj)
+        return items
+
+    def qml_property(obj: QQuickItem, name: str, default=None):
+        if obj.metaObject().indexOfProperty(name) < 0:
+            return default
+        value = obj.property(name)
+        return default if value is None else value
+
+    def interaction_state(obj: QQuickItem, names: tuple[str, ...]) -> tuple[bool, bool]:
+        for name in names:
+            if obj.metaObject().indexOfProperty(name) >= 0:
+                return True, bool(obj.property(name))
+        return False, False
+
+    def scene_rect(obj: QQuickItem) -> QRectF:
+        point = obj.mapToScene(QPointF(0, 0))
+        return QRectF(float(point.x()), float(point.y()), float(obj.width()), float(obj.height()))
+
+    def clipped_by_item_ancestor(obj: QQuickItem) -> bool:
+        bounds = scene_rect(obj)
+        ancestor = obj.parentItem()
+        while ancestor is not None:
+            if ancestor.clip():
+                ancestor_bounds = scene_rect(ancestor)
+                if not ancestor_bounds.contains(bounds):
+                    return True
+            ancestor = ancestor.parentItem()
+        return False
+
     def write_layout_report(target_path: str) -> None:
         target = Path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        prefixes = (
-            "PrimaryButton:", "GhostButton:", "NavButton:",
-            "KfpsTextField:", "KfpsTextArea:", "KfpsComboBox",
-            "KfpsCheckBox:", "KfpsSwitch:", "KfpsSlider",
-        )
         controls = []
-        for obj in window.findChildren(QQuickItem):
+        for obj in visible_interactive_items():
             name = obj.objectName() or ""
-            if not name.startswith(prefixes) or not obj.isVisible() or obj.opacity() <= 0.01:
-                continue
             point = obj.mapToScene(QPointF(0, 0))
             width = float(obj.width())
             height = float(obj.height())
@@ -480,6 +556,36 @@ def main():
                 "enabled": bool(obj.isEnabled()),
                 "intersectsWindow": bool(x + width > 0 and y + height > 0 and x < window.width() and y < window.height()),
                 "fullyInsideWindow": bool(x >= -0.5 and y >= -0.5 and x + width <= window.width() + 0.5 and y + height <= window.height() + 0.5),
+                "clippedByAncestor": clipped_by_item_ancestor(obj),
+            })
+
+        text_items = []
+        for obj in visual_items():
+            if not obj.isVisible() or obj.opacity() <= 0.01:
+                continue
+            text = qml_property(obj, "text")
+            if text is None or not str(text).strip():
+                continue
+            painted_width = qml_property(obj, "paintedWidth")
+            painted_height = qml_property(obj, "paintedHeight")
+            if painted_width is None or painted_height is None:
+                continue
+            point = obj.mapToScene(QPointF(0, 0))
+            width = float(obj.width())
+            height = float(obj.height())
+            text_items.append({
+                "text": str(text)[:240],
+                "class": obj.metaObject().className(),
+                "x": round(float(point.x()), 2),
+                "y": round(float(point.y()), 2),
+                "width": round(width, 2),
+                "height": round(height, 2),
+                "paintedWidth": round(float(painted_width), 2),
+                "paintedHeight": round(float(painted_height), 2),
+                "truncated": bool(qml_property(obj, "truncated", False)),
+                "overflowsOwnBounds": bool(
+                    float(painted_width) > width + 1.0 or float(painted_height) > height + 1.0
+                ),
             })
         payload = {
             "page": controller.currentPage,
@@ -487,12 +593,181 @@ def main():
             "uiScale": settings.uiScale,
             "theme": settings.theme,
             "controls": controls,
+            "textItems": text_items,
             "zeroSize": [item["name"] for item in controls if item["width"] < 1 or item["height"] < 1],
             "tooSmall": [item["name"] for item in controls if item["width"] < 18 or item["height"] < 18],
+            "textOverflow": [item["text"] for item in text_items if item["overflowsOwnBounds"]],
+            "truncatedText": [item["text"] for item in text_items if item["truncated"]],
         }
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    if args.layout_report_dir or args.screenshot_dir:
+    if args.motion_capture_dir:
+        motion_dir = Path(args.motion_capture_dir)
+        motion_dir.mkdir(parents=True, exist_ok=True)
+        frame_times = (700, 1050, 1450, 1950, 3450, 3650, 3950, 4400)
+        motion_started = time.monotonic()
+        motion_index = 0
+
+        def capture_motion_frame():
+            nonlocal motion_index
+            scheduled_ms = frame_times[motion_index]
+            elapsed_ms = round((time.monotonic() - motion_started) * 1000)
+            image = window.grabWindow() if hasattr(window, "grabWindow") else app.primaryScreen().grabWindow(int(window.winId()))
+            image.save(str(motion_dir / f"frame-{motion_index:02d}-{scheduled_ms:04d}ms.png"))
+            motion_index += 1
+            if motion_index >= len(frame_times):
+                metadata = {
+                    "page": controller.currentPage,
+                    "window": {"width": window.width(), "height": window.height()},
+                    "uiScale": settings.uiScale,
+                    "theme": settings.theme,
+                    "scheduledMs": list(frame_times),
+                    "lastElapsedMs": elapsed_ms,
+                }
+                (motion_dir / "motion.json").write_text(
+                    json.dumps(metadata, indent=2), encoding="utf-8"
+                )
+                QTimer.singleShot(50, app.quit)
+                return
+            delay = frame_times[motion_index] - scheduled_ms
+            QTimer.singleShot(delay, capture_motion_frame)
+
+        QTimer.singleShot(frame_times[0], capture_motion_frame)
+    elif args.interaction_capture_dir:
+        interaction_dir = Path(args.interaction_capture_dir)
+        interaction_dir.mkdir(parents=True, exist_ok=True)
+
+        def capture_interactions():
+            from PySide6.QtTest import QTest
+
+            controls = sorted(
+                visible_interactive_items(),
+                key=lambda item: (
+                    round(float(item.mapToScene(QPointF(0, 0)).y()), 2),
+                    round(float(item.mapToScene(QPointF(0, 0)).x()), 2),
+                    item.objectName() or "",
+                ),
+            )
+            outside = QPoint(max(2, window.width() // 2), 3)
+            manifest = {
+                "page": controller.currentPage,
+                "window": {"width": window.width(), "height": window.height()},
+                "uiScale": settings.uiScale,
+                "theme": settings.theme,
+                "controls": [],
+            }
+
+            def save_crop(path: Path, logical_rect: QRect) -> None:
+                image = window.grabWindow()
+                scale_x = image.width() / max(1, window.width())
+                scale_y = image.height() / max(1, window.height())
+                pixel_rect = QRect(
+                    round(logical_rect.x() * scale_x),
+                    round(logical_rect.y() * scale_y),
+                    max(1, round(logical_rect.width() * scale_x)),
+                    max(1, round(logical_rect.height() * scale_y)),
+                )
+                image.copy(pixel_rect).save(str(path))
+
+            QTest.mouseMove(window, outside)
+            QTest.qWait(120)
+            for index, obj in enumerate(controls):
+                name = obj.objectName() or f"control-{index + 1}"
+                point = obj.mapToScene(QPointF(0, 0))
+                x = round(float(point.x()))
+                y = round(float(point.y()))
+                width = max(1, round(float(obj.width())))
+                height = max(1, round(float(obj.height())))
+                fully_inside = (
+                    x >= 0 and y >= 0 and x + width <= window.width() and y + height <= window.height()
+                )
+                safe_name = "-".join(
+                    part for part in "".join(
+                        character if character.isalnum() else " " for character in name
+                    ).split() if part
+                )[:80] or f"control-{index + 1}"
+                control_dir = interaction_dir / f"{index + 1:03d}-{safe_name}"
+                control_dir.mkdir(parents=True, exist_ok=True)
+                padding = 14
+                crop_x = max(0, x - padding)
+                crop_y = max(0, y - padding)
+                crop_right = min(window.width(), x + width + padding)
+                crop_bottom = min(window.height(), y + height + padding)
+                crop_rect = QRect(crop_x, crop_y, crop_right - crop_x, crop_bottom - crop_y)
+                record = {
+                    "name": name,
+                    "class": obj.metaObject().className(),
+                    "folder": control_dir.name,
+                    "enabled": bool(obj.isEnabled()),
+                    "auditAllowOutsideFeedback": bool(
+                        qml_property(obj, "auditAllowOutsideFeedback", False)
+                    ),
+                    "fullyInsideWindow": fully_inside,
+                    "bounds": {"x": x, "y": y, "width": width, "height": height},
+                    "crop": {
+                        "x": crop_x, "y": crop_y,
+                        "width": crop_rect.width(), "height": crop_rect.height(),
+                        "controlX": x - crop_x, "controlY": y - crop_y,
+                    },
+                    "states": [],
+                }
+                manifest["controls"].append(record)
+                if not fully_inside:
+                    continue
+
+                QTest.mouseMove(window, outside)
+                window.contentItem().forceActiveFocus(Qt.OtherFocusReason)
+                QTest.qWait(140)
+                idle_path = control_dir / "idle.png"
+                save_crop(idle_path, crop_rect)
+                record["states"].append("idle")
+
+                center = QPoint(x + width // 2, y + height // 2)
+                QTest.mouseMove(window, center)
+                QTest.qWait(90)
+                save_crop(control_dir / "hover-early.png", crop_rect)
+                record["states"].append("hover-early")
+                QTest.qWait(190)
+                save_crop(control_dir / "hover.png", crop_rect)
+                record["states"].append("hover")
+                hover_available, hover_reached = interaction_state(
+                    obj, ("hovered", "containsMouse")
+                )
+                record["hoverStateAvailable"] = hover_available
+                record["hoverReached"] = hover_reached
+
+                press_safe = not name.startswith("TitleBarButton:")
+                if bool(obj.isEnabled()) and press_safe:
+                    QTest.mousePress(window, Qt.LeftButton, Qt.NoModifier, center)
+                    QTest.qWait(90)
+                    press_available, press_reached = interaction_state(
+                        obj, ("down", "pressed")
+                    )
+                    record["pressStateAvailable"] = press_available
+                    record["pressReached"] = press_reached
+                    save_crop(control_dir / "pressed.png", crop_rect)
+                    record["states"].append("pressed")
+                    QTest.mouseMove(window, outside)
+                    QTest.mouseRelease(window, Qt.LeftButton, Qt.NoModifier, outside)
+                    QTest.qWait(110)
+                else:
+                    QTest.mouseMove(window, outside)
+                    QTest.qWait(80)
+
+                focus_policy = int(qml_property(obj, "focusPolicy", 0) or 0)
+                if bool(obj.isEnabled()) and focus_policy:
+                    obj.forceActiveFocus(Qt.TabFocusReason)
+                    QTest.qWait(130)
+                    save_crop(control_dir / "focus.png", crop_rect)
+                    record["states"].append("focus")
+
+            (interaction_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
+            QTimer.singleShot(50, app.quit)
+
+        QTimer.singleShot(900, capture_interactions)
+    elif args.layout_report_dir or args.screenshot_dir:
         report_dir = Path(args.layout_report_dir) if args.layout_report_dir else None
         screenshot_dir = Path(args.screenshot_dir) if args.screenshot_dir else None
         if report_dir:
@@ -501,7 +776,7 @@ def main():
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         audit_pages = [
             "create", "outputs", "community", "editor", "help", "settings",
-            "tools", "images", "reports", "update",
+            "tools", "images", "reports", "update", "credits",
         ]
         audit_index = 0
 

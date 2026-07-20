@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="128" viewBox="0 0 512 128">
+  <defs>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2=".7">
+      <stop offset="0" stop-color="#f4fbfc" stop-opacity=".32"/>
+      <stop offset=".2" stop-color="#62efff" stop-opacity=".11"/>
+      <stop offset=".56" stop-color="#62efff" stop-opacity=".02"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".25"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#62efff" stop-opacity=".42"/>
+      <stop offset=".34" stop-color="#62efff" stop-opacity="0"/>
+      <stop offset=".82" stop-color="#ffc45a" stop-opacity=".13"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".18"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="128" rx="24" fill="url(#lens)"/>
+  <path d="M20 18C138 4 312 8 492 26v15C328 23 150 23 20 38z" fill="#f4fbfc" fill-opacity=".14"/>
+  <rect x="10" y="8" width="492" height="112" rx="20" fill="none" stroke="url(#edge)" stroke-width="3"/>
+  <path d="M34 108h24m9 0h10m10 0h10" stroke="#62efff" stroke-width="4" stroke-linecap="round" opacity=".52"/>
+</svg>

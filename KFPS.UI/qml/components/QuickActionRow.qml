@@ -6,16 +6,22 @@ import Kfps.Theme 1.0
 Item {
     id: root
 
+    objectName: "QuickActionRow:" + root.title
+
     property string iconName: "images"
     property string title: "Action"
     property string subtitle: ""
     property string toolTipText: ""
     property bool dense: false
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : title
+    readonly property bool hovered: hover.hovered
+    readonly property bool pressed: tap.pressed
     signal clicked
 
     implicitHeight: Theme.px(dense ? 35 : 48)
     Layout.minimumHeight: implicitHeight
+    scale: tap.pressed ? 0.992 : 1.0
+    Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
 
     KfpsToolTip {
         visible: hover.hovered && root.effectiveToolTipText.length > 0
@@ -24,7 +30,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: Theme.px(7)
+        radius: Theme.framedRadius(Theme.px(7))
         color: hover.hovered ? Theme.rowHover : "transparent"
         Behavior on color { ColorAnimation { duration: 110 } }
     }
@@ -89,5 +95,5 @@ Item {
     }
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
-    TapHandler { onTapped: root.clicked() }
+    TapHandler { id: tap; onTapped: root.clicked() }
 }
