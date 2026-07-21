@@ -27,29 +27,30 @@ load another vinyl, or leave the editor while it is scanning.
 
 AUTOMATIC PUBLICATION FOR TRUSTED HELPERS
 -----------------------------------------
-Publication never uses an embedded or shared token. Each helper publishes
-through their own GitHub account, so every RTTI.dat update has an audit trail.
+GitHub, GitHub CLI, and a GitHub account are not required. The standard helper
+folder already contains a reusable, expiring rtti-enrollment.json campaign file.
+The administrator can copy that prepared folder for each trusted helper without
+creating or approving that computer first.
 
-The repository owner must first add the helper as a collaborator with write
-access to:
+On the first normal run on a new PC, the calibrator silently registers that
+Windows account with the isolated KFPS Cloudflare relay. The returned per-device
+credential is protected by Windows DPAPI outside this portable folder. The
+reusable campaign file remains so clean copies can register other trusted PCs;
+it is never used again on a PC that already has a working credential.
 
-  https://github.com/heyitshestia/kloudys-forza-painter-suite
+Each registered PC appears separately in the KFPS Operations Console and can be
+renamed or revoked immediately. The administrator can revoke or rotate the whole
+campaign to prevent the folder from registering more PCs. Existing registered
+PCs remain individually controlled. A seven-day one-time enrollment file is
+used only when the administrator deliberately resets or recovers one helper.
 
-One-time setup on the helper's computer:
+After enrollment, publication is automatic. If one stable high-confidence
+profile is independently rediscovered at all six counts, the relay validates,
+normalizes, audits, and merges it into the shared RTTI.dat registry. The relay
+stores no process paths, PIDs, absolute addresses, or diagnostic samples.
 
-  winget install --id GitHub.cli
-  gh auth login --hostname github.com --web --git-protocol https
-  gh auth status --hostname github.com
-
-Never send anyone a GitHub token and never place a token in this folder.
-
-After setup, normal calibration is automatic. If one stable high-confidence
-profile is seen at all six counts, the tool merges it into the shared RTTI.dat
-registry and creates one GitHub commit. Existing game-build profiles remain in
-the registry. Concurrent updates are refetched and retried once.
-
-If GitHub CLI is unavailable, authentication expired, or repository access is
-missing, calibration still saves its local files. After fixing access, publish
+If enrollment or the network is unavailable, calibration still saves all local
+files. After the administrator restores access or supplies a reset file, publish
 the completed result with:
 
   KFPS_FH6_Locator_Calibrator.exe --publish-result "path\clivery-rtti-latest.json"
@@ -96,7 +97,7 @@ USEFUL OPTIONS
   Run all calibration checks and save RTTI.dat locally only.
 
 --dry-run-publish
-  Validate the publication payload without changing GitHub.
+  Validate the publication payload without changing the Cloudflare relay.
 
 --publish-result PATH
   Validate and publish an already completed six-step result.

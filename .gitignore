@@ -18,6 +18,8 @@ node_modules/
 .wrangler/
 .dev.vars
 .dev.vars.*
+rtti-enrollment.json
+relay-state.dat
 Images/
 imgs/generated/
 imgs/luma-bands/

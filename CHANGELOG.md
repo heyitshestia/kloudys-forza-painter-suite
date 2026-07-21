@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.97
+- Connected live FH6 locator updates to the Cloudflare registry used by trusted calibrators, while retaining GitHub and every existing cached, packaged, built-in, and live-search fallback.
+- Made registry-source changes refresh immediately so an older GitHub cache cannot delay a newly calibrated game build after updating KFPS.
+
 ## 3.0.96
 - Added a yellow MASKS identifier to Community artwork tiles, derived from validated shape data so existing and future masked vinyls are labeled automatically.
 - Added Regenerate Local Thumbnails to Settings, which safely clears the dedicated runtime thumbnail cache, reindexes every local output source, and rebuilds previews in a low-priority worker without changing artwork or JSON files.

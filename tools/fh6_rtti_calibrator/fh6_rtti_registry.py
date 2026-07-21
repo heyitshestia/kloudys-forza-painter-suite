@@ -18,10 +18,12 @@ REGISTRY_FORMAT = "kfps_fh6_rtti_registry_v1"
 DEFAULT_REPOSITORY = "heyitshestia/kloudys-forza-painter-suite"
 DEFAULT_BRANCH = "main"
 DEFAULT_REGISTRY_PATH = "RTTI.dat"
-DEFAULT_REMOTE_URL = (
+DEFAULT_GITHUB_REMOTE_URL = (
     "https://raw.githubusercontent.com/"
     f"{DEFAULT_REPOSITORY}/{DEFAULT_BRANCH}/{DEFAULT_REGISTRY_PATH}"
 )
+DEFAULT_RELAY_REMOTE_URL = "https://kfps-fh6-rtti-registry.hestia-cummings.workers.dev/v1/RTTI.dat"
+DEFAULT_REMOTE_URL = DEFAULT_RELAY_REMOTE_URL
 
 EXPECTED_CALIBRATION_COUNTS = (3000, 2997, 2994, 2991, 2988, 2985)
 MAX_REGISTRY_BYTES = 128 * 1024
@@ -366,18 +368,39 @@ def refresh_registry_cache(
     success_ttl: int = REMOTE_CACHE_TTL_SECONDS,
     failure_ttl: int = REMOTE_FAILURE_TTL_SECONDS,
     downloader: Callable[[str], dict[str, Any]] | None = None,
+    fallback_urls: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     cache_path = Path(cache_path)
     state_path = Path(state_path or cache_path.with_suffix(cache_path.suffix + ".state.json"))
     now = float(time.time() if now is None else now)
     state = _read_state(state_path)
     last_attempt = float(state.get("last_attempt_epoch") or 0)
-    cooldown = success_ttl if state.get("last_result") == "ok" else failure_ttl
-    if not force and last_attempt and now - last_attempt < cooldown:
+    previous_primary = str(state.get("primary_source") or "")
+    previous_source = str(state.get("source") or "")
+    primary_unchanged = previous_primary == remote_url
+    primary_succeeded = state.get("last_result") == "ok" and previous_source == remote_url
+    cooldown = success_ttl if primary_succeeded else failure_ttl
+    if not force and primary_unchanged and last_attempt and now - last_attempt < cooldown:
         return {"attempted": False, "updated": False, "result": "throttled", "error": ""}
 
+    if fallback_urls is None:
+        fallback_urls = (DEFAULT_GITHUB_REMOTE_URL,) if remote_url == DEFAULT_RELAY_REMOTE_URL else ()
+    source_urls = [remote_url]
+    source_urls.extend(url for url in fallback_urls if url and url not in source_urls)
+    registry = None
+    source_url = remote_url
+    errors = []
+    for candidate_url in source_urls:
+        try:
+            registry = downloader(candidate_url) if downloader else download_registry(candidate_url)
+            source_url = candidate_url
+            break
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
     try:
-        registry = downloader(remote_url) if downloader else download_registry(remote_url)
+        if registry is None:
+            raise RegistryError("; ".join(errors) or "all remote registry sources failed")
         write_registry_file(cache_path, registry)
         _try_write_state(
             state_path,
@@ -385,7 +408,8 @@ def refresh_registry_cache(
                 "last_attempt_epoch": now,
                 "last_success_epoch": now,
                 "last_result": "ok",
-                "source": remote_url,
+                "source": source_url,
+                "primary_source": remote_url,
             },
         )
         return {
@@ -393,6 +417,7 @@ def refresh_registry_cache(
             "updated": True,
             "result": "ok",
             "error": "",
+            "source": source_url,
             "profile_count": len(registry["profiles"]),
         }
     except Exception as exc:
@@ -403,6 +428,7 @@ def refresh_registry_cache(
                 "last_success_epoch": state.get("last_success_epoch", 0),
                 "last_result": "error",
                 "source": remote_url,
+                "primary_source": remote_url,
                 "error": f"{type(exc).__name__}: {exc}"[:240],
             },
         )

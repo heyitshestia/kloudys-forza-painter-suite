@@ -17,6 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 import fh6_probe  # noqa: E402
 from fh6_rtti_registry import (  # noqa: E402
+    DEFAULT_GITHUB_REMOTE_URL,
+    DEFAULT_RELAY_REMOTE_URL,
     MAX_REGISTRY_BYTES,
     RegistryError,
     download_registry,
@@ -251,6 +253,76 @@ class RttiRegistryTests(unittest.TestCase):
             self.assertTrue(first["updated"])
             self.assertEqual(second["result"], "throttled")
             self.assertEqual(len(calls), 1)
+
+    def test_default_relay_falls_back_to_github(self):
+        calls = []
+        registry = registry_with_profile(empty_registry(), valid_profile())
+
+        def downloader(url):
+            calls.append(url)
+            if url == DEFAULT_RELAY_REMOTE_URL:
+                raise OSError("relay unavailable")
+            return registry
+
+        with tempfile.TemporaryDirectory() as temp:
+            status = refresh_registry_cache(Path(temp) / "RTTI.dat", now=3200, downloader=downloader)
+            self.assertEqual(status["result"], "ok")
+            self.assertEqual(status["source"], DEFAULT_GITHUB_REMOTE_URL)
+            self.assertEqual(calls, [DEFAULT_RELAY_REMOTE_URL, DEFAULT_GITHUB_REMOTE_URL])
+
+    def test_changing_primary_source_bypasses_old_success_throttle(self):
+        calls = []
+        registry = registry_with_profile(empty_registry(), valid_profile())
+
+        def downloader(url):
+            calls.append(url)
+            return registry
+
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp) / "RTTI.dat"
+            first = refresh_registry_cache(
+                cache,
+                remote_url=DEFAULT_GITHUB_REMOTE_URL,
+                now=3300,
+                downloader=downloader,
+            )
+            second = refresh_registry_cache(
+                cache,
+                remote_url=DEFAULT_RELAY_REMOTE_URL,
+                now=3301,
+                downloader=downloader,
+            )
+            self.assertEqual(first["result"], "ok")
+            self.assertEqual(second["result"], "ok")
+            self.assertEqual(calls, [DEFAULT_GITHUB_REMOTE_URL, DEFAULT_RELAY_REMOTE_URL])
+
+    def test_github_fallback_uses_short_retry_throttle(self):
+        calls = []
+        registry = registry_with_profile(empty_registry(), valid_profile())
+
+        def downloader(url):
+            calls.append(url)
+            if url == DEFAULT_RELAY_REMOTE_URL:
+                raise OSError("relay unavailable")
+            return registry
+
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp) / "RTTI.dat"
+            first = refresh_registry_cache(cache, now=3400, downloader=downloader)
+            second = refresh_registry_cache(cache, now=3430, downloader=downloader)
+            third = refresh_registry_cache(cache, now=3461, downloader=downloader)
+            self.assertEqual(first["source"], DEFAULT_GITHUB_REMOTE_URL)
+            self.assertEqual(second["result"], "throttled")
+            self.assertEqual(third["source"], DEFAULT_GITHUB_REMOTE_URL)
+            self.assertEqual(
+                calls,
+                [
+                    DEFAULT_RELAY_REMOTE_URL,
+                    DEFAULT_GITHUB_REMOTE_URL,
+                    DEFAULT_RELAY_REMOTE_URL,
+                    DEFAULT_GITHUB_REMOTE_URL,
+                ],
+            )
 
     def test_unwritable_cache_never_breaks_locator_startup(self):
         with tempfile.TemporaryDirectory() as temp:

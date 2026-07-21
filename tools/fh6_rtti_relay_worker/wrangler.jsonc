@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kfps-fh6-rtti-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-21",
+  "workers_dev": true,
+  "preview_urls": false,
+  "secrets": {
+    "required": ["ADMIN_HMAC_SECRET"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kfps-fh6-rtti",
+      "database_id": "cacd00ec-c30c-481f-a3e2-a6258f0a08ea",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

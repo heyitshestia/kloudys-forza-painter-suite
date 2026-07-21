@@ -14,19 +14,9 @@ echo   2. Open a flat, ungrouped 3000-layer plain circle template.
 echo   3. Keep the vinyl editor open.
 echo.
 echo Automatic shared-profile publication:
-where gh >nul 2>nul
-if errorlevel 1 (
-  echo   NOT READY - GitHub CLI was not found.
-  echo   Calibration can still finish and save RTTI.dat locally.
-) else (
-  gh auth status --hostname github.com >nul 2>nul
-  if errorlevel 1 (
-    echo   NOT READY - run: gh auth login --hostname github.com --web
-    echo   Calibration can still finish and save RTTI.dat locally.
-  ) else (
-    echo   READY - the signed-in GitHub account will publish after all six scans pass.
-  )
-)
+echo   Uses the KFPS Cloudflare relay. GitHub and GitHub CLI are not required.
+echo   The first run enrolls this Windows account from rtti-enrollment.json.
+echo   Publication only occurs after one profile passes all six scans.
 echo.
 
 if exist "%~dp0KFPS_FH6_Locator_Calibrator.exe" (
@@ -65,7 +55,7 @@ if "%RESULT%"=="0" (
   echo Calibrator completed successfully.
 ) else if "%RESULT%"=="2" (
   echo Calibration succeeded, but automatic publication needs attention.
-  echo See the saved calibration-results folder and README.txt.
+  echo Ask the KFPS administrator to check or reset this helper enrollment.
 ) else (
   echo Calibrator stopped or did not produce one publishable six-scan profile.
 )

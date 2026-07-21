@@ -22,16 +22,17 @@ from ctypes import wintypes
 from pathlib import Path
 
 from fh6_rtti_registry import (
-    DEFAULT_BRANCH,
-    DEFAULT_REPOSITORY,
-    PublishError,
     RegistryError,
     empty_registry,
-    github_publish_readiness,
     profile_from_calibration_result,
-    publish_profile_to_github,
     registry_with_profile,
     write_registry_file,
+)
+from rtti_relay_client import (
+    DEFAULT_RELAY_URL,
+    RelayError,
+    publish_profile_to_relay,
+    relay_publish_readiness,
 )
 
 
@@ -58,7 +59,7 @@ MAX_FH_LAYER_COUNT = 3000
 
 MAX_IMAGE_READ = 256 * 1024 * 1024
 MAX_PRIVATE_READ = 128 * 1024 * 1024
-CALIBRATOR_VERSION = "2.0.0"
+CALIBRATOR_VERSION = "3.0.0"
 
 LEGACY_FH5_DECIMAL_CODES = [
     21530671058802,
@@ -976,8 +977,8 @@ def six_step_template_calibration(
     *,
     auto_publish: bool = True,
     dry_run_publish: bool = False,
-    repository: str = DEFAULT_REPOSITORY,
-    branch: str = DEFAULT_BRANCH,
+    relay_url: str = DEFAULT_RELAY_URL,
+    enrollment_file: Path | None = None,
 ) -> int:
     print()
     print("KFPS FH6 6-Step Locator Calibration")
@@ -1006,7 +1007,10 @@ def six_step_template_calibration(
         publish_ready = True
         publish_status = "dry run; no remote file will be changed"
     elif auto_publish:
-        publish_ready, publish_status = github_publish_readiness()
+        publish_ready, publish_status = relay_publish_readiness(
+            relay_url=relay_url,
+            enrollment_file=enrollment_file,
+        )
 
     log("Using detected FH6 process.")
     log(f"Main module: {module['name']} size={module['size']}")
@@ -1124,17 +1128,16 @@ def six_step_template_calibration(
             return 0
         if not publish_ready:
             print(f"Automatic publication could not run: {publish_status}")
-            print("Install/authenticate GitHub CLI, then use --publish-result with the saved JSON.")
+            print("Ask the KFPS administrator to reset this helper enrollment, then use --publish-result.")
             return 2
         try:
-            publication = publish_profile_to_github(
+            publication = publish_profile_to_relay(
                 profile,
-                repository=repository,
-                branch=branch,
-                existing_registry=empty_registry() if dry_run_publish else None,
+                relay_url=relay_url,
+                enrollment_file=enrollment_file,
                 dry_run=dry_run_publish,
             )
-        except PublishError as exc:
+        except RelayError as exc:
             print(f"Automatic publication failed: {exc}")
             print("RTTI.dat is safe locally; no partial remote update was accepted.")
             return 2
@@ -1142,8 +1145,6 @@ def six_step_template_calibration(
             print("Publication dry run passed. The remote registry was not changed.")
         else:
             print("Shared FH6 locator profile published successfully.")
-            if publication.get("commit_url"):
-                print(publication["commit_url"])
         return 0
 
     print("Calibration did not lock a repeated locator candidate.")
@@ -1156,8 +1157,8 @@ def publish_saved_result(
     *,
     auto_publish: bool,
     dry_run_publish: bool,
-    repository: str,
-    branch: str,
+    relay_url: str,
+    enrollment_file: Path | None,
 ) -> int:
     try:
         result = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1175,40 +1176,37 @@ def publish_saved_result(
         return 0
 
     try:
-        publication = publish_profile_to_github(
+        publication = publish_profile_to_relay(
             profile,
-            repository=repository,
-            branch=branch,
-            existing_registry=empty_registry() if dry_run_publish else None,
+            relay_url=relay_url,
+            enrollment_file=enrollment_file,
             dry_run=dry_run_publish,
         )
-    except PublishError as exc:
+    except RelayError as exc:
         print(f"Publication failed: {exc}")
         return 2
     if publication["dry_run"]:
         print("Publication dry run passed. The remote registry was not changed.")
     else:
         print("Shared FH6 locator profile published successfully.")
-        if publication.get("commit_url"):
-            print(publication["commit_url"])
     return 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Read-only six-step FH6 locator calibrator with privacy-safe shared profile publication."
+            "Read-only six-step FH6 locator calibrator with privacy-safe Cloudflare relay publication."
         )
     )
     parser.add_argument(
         "--no-publish",
         action="store_true",
-        help="Save the validated RTTI.dat locally without updating GitHub.",
+        help="Save the validated RTTI.dat locally without updating the shared relay.",
     )
     parser.add_argument(
         "--dry-run-publish",
         action="store_true",
-        help="Validate the publication payload without changing GitHub.",
+        help="Validate the publication payload without changing the shared relay.",
     )
     parser.add_argument(
         "--publish-result",
@@ -1216,8 +1214,8 @@ def parse_args() -> argparse.Namespace:
         metavar="CALIBRATION_JSON",
         help="Validate and publish a previously completed six-step calibration result.",
     )
-    parser.add_argument("--repository", default=DEFAULT_REPOSITORY, help=argparse.SUPPRESS)
-    parser.add_argument("--branch", default=DEFAULT_BRANCH, help=argparse.SUPPRESS)
+    parser.add_argument("--relay-url", default=DEFAULT_RELAY_URL, help=argparse.SUPPRESS)
+    parser.add_argument("--enrollment-file", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.no_publish and args.dry_run_publish:
         parser.error("--no-publish and --dry-run-publish cannot be used together")
@@ -1231,8 +1229,8 @@ def main() -> int:
             args.publish_result,
             auto_publish=not args.no_publish,
             dry_run_publish=args.dry_run_publish,
-            repository=args.repository,
-            branch=args.branch,
+            relay_url=args.relay_url,
+            enrollment_file=args.enrollment_file,
         )
     if os.name != "nt":
         print("This calibrator only runs on Windows because it reads the FH6 process.")
@@ -1241,8 +1239,8 @@ def main() -> int:
         return six_step_template_calibration(
             auto_publish=not args.no_publish,
             dry_run_publish=args.dry_run_publish,
-            repository=args.repository,
-            branch=args.branch,
+            relay_url=args.relay_url,
+            enrollment_file=args.enrollment_file,
         )
     except KeyboardInterrupt:
         print()
