@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import base64
-import json
+import re
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, QUrl
@@ -13,7 +13,7 @@ from .qt_utils import is_remote_newer
 class VersionService(QObject):
     changed = Signal()
 
-    URL = "https://api.github.com/repos/heyitshestia/kloudys-forza-painter-suite/contents/VERSION?ref=main"
+    URL = "https://raw.githubusercontent.com/heyitshestia/kloudys-forza-painter-suite/main/VERSION"
 
     def __init__(self, version_file: Path, demo=False, parent=None):
         super().__init__(parent)
@@ -24,10 +24,12 @@ class VersionService(QObject):
         self._latest = self._local
         self._available = False
         self._checking = False
+        self._check_succeeded = False
+        self._check_status = "Waiting to check GitHub."
         self._blink = True
         self._network = QNetworkAccessManager(self)
         self._network.finished.connect(self._finished)
-        self._poll = QTimer(self); self._poll.setInterval(60_000); self._poll.timeout.connect(self.checkNow); self._poll.start()
+        self._poll = QTimer(self); self._poll.setInterval(300_000); self._poll.timeout.connect(self.checkNow); self._poll.start()
         self._blink_timer = QTimer(self); self._blink_timer.setInterval(650); self._blink_timer.timeout.connect(self._tick); self._blink_timer.start()
         if not demo:
             QTimer.singleShot(500, self.checkNow)
@@ -40,6 +42,10 @@ class VersionService(QObject):
     def updateAvailable(self): return self._available
     @Property(bool, notify=changed)
     def checking(self): return self._checking
+    @Property(str, notify=changed)
+    def checkStatus(self): return self._check_status
+    @Property(bool, notify=changed)
+    def checkSucceeded(self): return self._check_succeeded
     @Property(bool, notify=changed)
     def blinkOn(self): return self._blink
     @Property(str, notify=changed)
@@ -49,23 +55,37 @@ class VersionService(QObject):
     def checkNow(self):
         if self._checking:
             return
-        self._checking = True; self.changed.emit()
-        request = QNetworkRequest(QUrl(self.URL + "&t=1"))
+        self._checking = True
+        self._check_status = "Checking GitHub for updates..."
+        self.changed.emit()
+        request = QNetworkRequest(QUrl(f"{self.URL}?cache={time.time_ns()}"))
         request.setRawHeader(b"User-Agent", b"KFPS-QML/1.0")
+        request.setRawHeader(b"Cache-Control", b"no-cache, no-store")
+        request.setRawHeader(b"Pragma", b"no-cache")
+        request.setTransferTimeout(15_000)
         self._network.get(request)
 
     def _finished(self, reply: QNetworkReply):
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
+                self._check_succeeded = False
+                self._check_status = f"Update check failed: {reply.errorString()}"
                 return
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
-            encoded = str(payload.get("content", "")).replace("\n", "")
-            remote = base64.b64decode(encoded).decode("utf-8").strip()
-            if remote:
-                self._latest = remote
-                self._available = is_remote_newer(self._local, remote)
-        except Exception:
-            pass
+            remote = bytes(reply.readAll()).decode("utf-8").strip()
+            match = re.fullmatch(r"v?(\d+(?:\.\d+){1,3})", remote, flags=re.IGNORECASE)
+            if not match:
+                raise ValueError("GitHub returned an invalid version file")
+            self._latest = match.group(1)
+            self._available = is_remote_newer(self._local, self._latest)
+            self._check_succeeded = True
+            self._check_status = (
+                f"Update v{self._latest} is available."
+                if self._available
+                else f"Up to date with GitHub main (v{self._latest})."
+            )
+        except Exception as exc:
+            self._check_succeeded = False
+            self._check_status = f"Update check failed: {exc}"
         finally:
             self._checking = False
             reply.deleteLater()

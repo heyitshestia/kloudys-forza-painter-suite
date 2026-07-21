@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.100
+- Replaced the rate-limited GitHub API update check with cache-busted raw version checks, visible connection status, five-minute polling, and patch notes refreshed directly from GitHub.
+- Made forced local thumbnail regeneration survive app restarts by preferring the newest valid managed or adjacent preview while preserving newer personal PNG overrides.
+
 ## 3.0.99
 - Allowed Community Library downloads to use live online import while keeping scanned game-save library items protected as already present in the game.
 

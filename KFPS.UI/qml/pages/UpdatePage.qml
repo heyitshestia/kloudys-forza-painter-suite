@@ -77,9 +77,13 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: root.hasUpdate
+                                text: versionService.checking
+                                      ? "Checking GitHub for the latest KFPS version."
+                                      : root.hasUpdate
                                       ? "A newer version is available. Update from here and KFPS will reopen when the updater finishes."
-                                      : "KFPS is using the latest version reported by GitHub."
+                                      : versionService.checkSucceeded
+                                      ? "KFPS is using the latest version reported by GitHub."
+                                      : "KFPS has not confirmed the latest GitHub version yet."
                                 color: root.hasUpdate ? Theme.warning : Theme.muted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(13)
@@ -121,7 +125,9 @@ Item {
                                         Layout.preferredWidth: Theme.px(12)
                                         Layout.preferredHeight: Theme.px(12)
                                         radius: Theme.corner(width / 2)
-                                        color: root.hasUpdate ? Theme.danger : Theme.success
+                                        color: root.hasUpdate
+                                               ? Theme.danger
+                                               : (versionService.checkSucceeded ? Theme.success : Theme.muted)
                                         opacity: root.hasUpdate ? (versionService.blinkOn ? 1.0 : 0.36) : 1.0
 
                                         Behavior on opacity {
@@ -132,9 +138,13 @@ Item {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: root.hasUpdate
+                                        text: versionService.checking
+                                              ? "Checking for updates..."
+                                              : root.hasUpdate
                                               ? "Update available: v" + versionService.localVersion + " -> v" + root.latestLabel
-                                              : "No update available right now."
+                                              : versionService.checkSucceeded
+                                              ? "No update available right now."
+                                              : "Update status has not been confirmed."
                                         color: Theme.text
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.px(15)
@@ -143,7 +153,7 @@ Item {
                                     }
 
                                     Text {
-                                        text: versionService.checking ? "checking..." : "checked every minute"
+                                        text: versionService.checking ? "checking..." : "automatic check every 5 minutes"
                                         color: Theme.muted
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.px(11)
@@ -237,7 +247,9 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: root.hasUpdate ? "Ready to install" : "GitHub main matches this install"
+                                            text: versionService.checking
+                                                  ? "Checking GitHub..."
+                                                  : versionService.checkStatus
                                             color: Theme.muted
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(12)
@@ -265,9 +277,10 @@ Item {
 
                                 GhostButton {
                                     Layout.preferredWidth: Theme.px(190)
-                                    text: "Check Now"
+                                    text: versionService.checking ? "Checking..." : "Check Now"
                                     iconName: "refresh"
                                     toolTipText: "Check GitHub again for a newer KFPS version."
+                                    enabled: !versionService.checking
                                     onClicked: versionService.checkNow()
                                 }
 
@@ -311,12 +324,22 @@ Item {
 
                                     GhostButton {
                                         dense: true
-                                        text: "Refresh Notes"
+                                        text: changelogService.refreshing ? "Refreshing..." : "Refresh Notes"
                                         iconName: "refresh"
                                         minimumWidth: Theme.px(84)
-                                        toolTipText: "Reload the local patch notes shown here."
+                                        toolTipText: "Refresh the latest patch notes from GitHub."
+                                        enabled: !changelogService.refreshing
                                         onClicked: changelogService.refresh()
                                     }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: changelogService.status
+                                    color: Theme.muted
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(10.5)
+                                    elide: Text.ElideRight
                                 }
 
                                 FastListView {

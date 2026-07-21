@@ -415,7 +415,7 @@ def main():
     reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
     controller = AppController()
-    changelog = ChangelogService(paths.app_root / "CHANGELOG.md")
+    changelog = ChangelogService(paths.app_root / "CHANGELOG.md", auto_refresh=not args.demo)
 
     engine = QQmlApplicationEngine()
     ctx = engine.rootContext()

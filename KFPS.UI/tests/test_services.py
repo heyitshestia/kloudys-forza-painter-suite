@@ -11,6 +11,7 @@ from kfps_ui.json_service import JsonService, build_startup_json_index_cache
 from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command
 from kfps_ui.log_service import LogService
 from kfps_ui.preview_service import PreviewService
+from kfps_ui.qt_utils import file_url
 from kfps_ui.report_service import ReportService
 from kfps_ui.supporter_service import SupporterService
 APP=QCoreApplication.instance() or QCoreApplication([])
@@ -422,6 +423,20 @@ class ServiceTests(unittest.TestCase):
     self.assertNotIn("jsonService.sourceIndex === 3 ? \"Already in Game Library\"",qml)
    finally:
     shutdown_json_service(svc)
+ def test_forced_thumbnail_remains_preferred_after_startup_until_personal_preview_is_newer(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Persistent.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,100,60,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   adjacent=target.with_suffix(".png");adjacent.write_bytes(b"older-personal-preview");os.utime(adjacent,ns=(1_000_000_000,1_000_000_000))
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=PreviewService(paths);managed_url=preview.regenerate_preview_for_json(target,"exported");managed=preview._cache_target(target,"general")
+   self.assertTrue(managed_url);self.assertEqual(managed_url,file_url(managed));self.assertEqual(managed_url,preview.existing_preview_for_json(target,"exported"))
+   self.assertEqual(1,build_startup_json_index_cache(paths,preview=PreviewService(paths)))
+   cache=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   self.assertEqual(managed_url,cache["sources"]["2"]["rows"][0]["previewUrl"])
+   restarted=PreviewService(paths);self.assertEqual(managed_url,restarted.existing_preview_for_json(target,"exported"))
+   newer=managed.stat().st_mtime_ns+1_000_000_000;os.utime(adjacent,ns=(newer,newer))
+   self.assertEqual(file_url(adjacent),restarted.existing_preview_for_json(target,"exported"))
  def test_settings_regeneration_command_uses_the_dedicated_worker_mode(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")

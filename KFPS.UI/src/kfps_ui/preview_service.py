@@ -36,8 +36,8 @@ class PreviewService:
                 if candidate.is_file(): return file_url(candidate)
             return self._render_cached(path, "generated") or self._nearby_url(path)
         if source == "editor":
-            return self._render_cached(path, "editor") or self._nearby_url(path)
-        return self._nearby_url(path) or self._render_cached(path, "general")
+            return self._newest_existing_url(path, "editor") or self._render_cached(path, "editor")
+        return self._newest_existing_url(path, "general") or self._render_cached(path, "general")
 
     def regenerate_preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)
@@ -76,8 +76,30 @@ class PreviewService:
                 if candidate.is_file(): return file_url(candidate)
             return self._cached_url(path, "generated") or self._nearby_url(path)
         if source == "editor":
-            return self._cached_url(path, "editor") or self._nearby_url(path)
-        return self._nearby_url(path) or self._cached_url(path, "general")
+            return self._newest_existing_url(path, "editor")
+        return self._newest_existing_url(path, "general")
+
+    def _newest_existing_url(self, path: Path, namespace: str) -> str:
+        candidates = {}
+        try:
+            managed = self._cache_target(path, namespace)
+            if managed.is_file():
+                candidates[managed.resolve()] = (managed.stat().st_mtime_ns, 1, managed)
+        except OSError:
+            pass
+        for nearby in self._nearby(path):
+            try:
+                if nearby.is_file():
+                    resolved = nearby.resolve()
+                    current = candidates.get(resolved)
+                    candidate = (nearby.stat().st_mtime_ns, 0, nearby)
+                    if current is None or candidate[:2] > current[:2]:
+                        candidates[resolved] = candidate
+            except OSError:
+                continue
+        if not candidates:
+            return ""
+        return file_url(max(candidates.values(), key=lambda item: item[:2])[2])
 
     def _render_cached(self, path: Path, namespace: str) -> str:
         try:
