@@ -356,6 +356,7 @@ def main():
         settings._data["reducedMotion"] = False
         settings._data["ambientMotion"] = True
         settings._data["glassEffects"] = True
+        settings._data["liveStatusVisible"] = True
 
     preview = PreviewService(paths)
     should_preindex = not args.skip_startup_index and not args.demo and os.environ.get("KFPS_SKIP_STARTUP_INDEX", "").strip() != "1"

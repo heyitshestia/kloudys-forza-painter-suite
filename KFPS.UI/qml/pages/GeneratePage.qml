@@ -401,9 +401,20 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         radius: Theme.corner(Theme.px(10))
-                        color: Theme.previewSurfaceSoft
-                        border.width: Math.max(1, Theme.px(1))
+                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurfaceSoft
+                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
+                        clip: true
+
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: Theme.previewSurfaceSoft
+                            borderColor: Theme.borderStrong
+                            accentColor: Theme.signalSecondary
+                            panelFrame: true
+                            enclosedPanel: true
+                        }
+
                         ClassicBevel {
                             anchors.fill: parent
                             sunken: true
@@ -521,9 +532,20 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(210)
                         radius: Theme.corner(Theme.px(10))
-                        color: Theme.previewSurface
-                        border.width: Math.max(1, Theme.px(1))
+                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
+                        clip: true
+
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: Theme.previewSurface
+                            borderColor: Theme.borderStrong
+                            accentColor: Theme.signalSecondary
+                            panelFrame: true
+                            enclosedPanel: true
+                        }
+
                         ClassicBevel {
                             anchors.fill: parent
                             sunken: true
@@ -885,12 +907,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         width: Theme.px(320)
 
-        background: Rectangle {
-            color: Theme.surface
-            border.width: Theme.classicMode ? 0 : Math.max(1, Theme.px(1))
-            border.color: Theme.borderStrong
-            radius: Theme.corner(Theme.px(10))
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surface
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(10)
         }
 
         ColumnLayout {

@@ -68,7 +68,11 @@ class OverdriveThemeTests(unittest.TestCase):
             self.assertTrue(self.bool_properties[name], name)
 
         for path in PALETTE_DIR.glob("Palette*.qml"):
-            if path in (OVERDRIVE_PALETTE, PALETTE_DIR / "PaletteApexVector.qml"):
+            if path in (
+                OVERDRIVE_PALETTE,
+                PALETTE_DIR / "PaletteApexVector.qml",
+                PALETTE_DIR / "PaletteNightCity2077.qml",
+            ):
                 continue
             values = dict(BOOL_PROPERTY_RE.findall(path.read_text(encoding="utf-8")))
             for name in (

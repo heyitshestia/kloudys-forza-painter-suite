@@ -74,11 +74,14 @@ class CommandPromptThemeTests(unittest.TestCase):
         panel = (UI / "qml" / "components" / "GlassPanel.qml").read_text(encoding="utf-8")
         sidebar = (UI / "qml" / "shell" / "Sidebar.qml").read_text(encoding="utf-8")
         self.assertIn("function corner(defaultRadius)", theme)
-        self.assertIn("return (terminalMode || classicMode) ? 0 : defaultRadius", theme)
+        self.assertIn(
+            "return (terminalMode || classicMode || angularControlsEnabled) ? 0 : defaultRadius",
+            theme,
+        )
         self.assertIn('text: Theme.terminalMode ? "> " + root.text : root.text', primary)
         self.assertIn("terminalInverted", primary)
         self.assertIn("effectiveLabelColor", ghost)
-        self.assertIn("Theme.terminalMode && (checkedState || down)", ghost)
+        self.assertIn("(Theme.terminalMode || Theme.angularControlsEnabled) && (checkedState || down)", ghost)
         self.assertIn("border.width: Theme.terminalMode || Theme.classicMode ? 0", panel)
         self.assertIn('supporterService.unlocked', sidebar)
         self.assertIn('"Thank you for supporting the project"', sidebar)

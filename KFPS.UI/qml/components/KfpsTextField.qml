@@ -29,7 +29,10 @@ TextField {
     selectedTextColor: Theme.primaryText
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+    font.pixelSize: Theme.px(Theme.technicalTypographyEnabled
+                             ? (dense ? 11.75 : 13.0)
+                             : (dense ? 10.5 : 11.5))
+    font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
     renderType: TextInput.NativeRendering
     font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: TextInput.AlignVCenter
@@ -43,8 +46,19 @@ TextField {
     }
 
     background: Item {
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
+            borderColor: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
         Rectangle {
             id: fieldChrome
+            visible: !Theme.angularControlsEnabled
             anchors.fill: parent
             radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)

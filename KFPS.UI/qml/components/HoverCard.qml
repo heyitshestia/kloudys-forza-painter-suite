@@ -54,6 +54,8 @@ Item {
         strong: root.strong
         soft: root.soft
         raised: hover.hovered && root.clickable
+        interactionHovered: hover.hovered && root.clickable
+        interactionSelected: root.strong && root.clickable
         glow: hover.hovered && root.clickable
         border.color: hover.hovered && root.clickable ? Theme.primary
                                                        : (root.strong ? Theme.borderStrong : Theme.border)
@@ -61,6 +63,7 @@ Item {
     }
 
     Rectangle {
+        visible: !Theme.angularControlsEnabled
         anchors.fill: parent
         radius: Theme.corner(panel.radius)
         color: Theme.hover

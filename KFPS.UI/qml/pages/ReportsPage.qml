@@ -173,8 +173,8 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         radius: Theme.corner(Theme.px(10))
-                        color: Theme.previewSurfaceSoft
-                        border.width: Math.max(1, Theme.px(1))
+                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurfaceSoft
+                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                         border.color: Theme.borderSoft
                         KfpsTextArea {
                             anchors.fill: parent

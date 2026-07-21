@@ -98,8 +98,20 @@ ComboBox {
     }
 
     background: Item {
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
+            borderColor: root.activeFocus || root.popup.visible ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered || root.popup.visible
+            selected: root.popup.visible
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
         Rectangle {
             id: comboChrome
+            visible: !Theme.angularControlsEnabled
             anchors.fill: parent
             radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.popup.visible ? Theme.comboSurfaceOpen : (root.hovered ? Theme.comboHoverSurface : Theme.fieldSurface)
@@ -193,9 +205,21 @@ ComboBox {
             elide: Text.ElideRight
         }
 
-        background: Rectangle {
-            color: delegateRoot.highlighted ? Theme.comboHighlight : "transparent"
-            radius: Theme.framedRadius(Theme.px(6))
+        background: Item {
+            AngularControlFrame {
+                anchors.fill: parent
+                fillColor: delegateRoot.highlighted ? Theme.comboHighlight : "transparent"
+                borderColor: delegateRoot.highlighted ? Theme.signalSecondary : "transparent"
+                hovered: delegateRoot.highlighted
+                selected: delegateRoot.highlighted
+            }
+
+            Rectangle {
+                visible: !Theme.angularControlsEnabled
+                anchors.fill: parent
+                color: delegateRoot.highlighted ? Theme.comboHighlight : "transparent"
+                radius: Theme.framedRadius(Theme.px(6))
+            }
         }
     }
 
@@ -207,8 +231,18 @@ ComboBox {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
         background: Item {
+            AngularControlFrame {
+                anchors.fill: parent
+                fillColor: Theme.comboPopupSurface
+                borderColor: Theme.borderStrong
+                accentColor: Theme.signalSecondary
+                panelFrame: true
+                enclosedPanel: true
+            }
+
             Rectangle {
                 id: popupChrome
+                visible: !Theme.angularControlsEnabled
                 anchors.fill: parent
                 radius: Theme.framedRadius(Theme.px(10))
                 color: Theme.comboPopupSurface

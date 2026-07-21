@@ -33,10 +33,14 @@ GlassPanel {
     height: Theme.px(compact ? 28 : 32)
     radius: Theme.framedRadius(height / 2)
     soft: true
+    strong: Theme.angularControlsEnabled
+    enclosedFrame: Theme.angularControlsEnabled
     glow: visible
+    interactionHovered: tickerMouse.containsMouse
     clip: true
 
     Rectangle {
+        visible: !Theme.angularControlsEnabled
         anchors.fill: parent
         radius: Theme.corner(root.radius)
         color: Theme.hover

@@ -411,10 +411,19 @@ Item {
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.px(340)
                     radius: Theme.corner(Theme.px(18))
-                    color: Theme.previewSurface
-                    border.width: Math.max(1, Theme.px(1))
+                    color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                    border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
                     clip: true
+
+                    AngularControlFrame {
+                        anchors.fill: parent
+                        fillColor: Theme.previewSurface
+                        borderColor: Theme.borderStrong
+                        accentColor: Theme.signalSecondary
+                        panelFrame: true
+                        enclosedPanel: true
+                    }
 
                     ClassicBevel {
                         anchors.fill: parent
@@ -423,6 +432,7 @@ Item {
                     }
 
                     Rectangle {
+                        visible: !Theme.angularControlsEnabled
                         anchors.fill: parent
                         anchors.margins: Theme.px(1)
                         radius: Theme.corner(parent.radius - Theme.px(1))

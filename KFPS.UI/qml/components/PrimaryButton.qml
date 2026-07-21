@@ -63,7 +63,23 @@ Button {
     background: Item {
         clip: true
 
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.down
+                       ? Theme.primaryButtonHoverBottom
+                       : (root.hovered ? Theme.primaryButtonHoverMiddle : Theme.primaryButtonMiddle)
+            borderColor: root.activeFocus
+                         ? Theme.focusColor
+                         : (root.hovered ? Theme.primaryButtonHoverBorder : Theme.primaryButtonBorder)
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            pressed: root.down
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
         Rectangle {
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -79,6 +95,7 @@ Button {
 
         Rectangle {
             id: keycapLip
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -104,6 +121,7 @@ Button {
 
         Rectangle {
             id: chrome
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
@@ -407,7 +425,9 @@ Button {
             colorize: true
             tint: Theme.terminalMode
                   ? (root.terminalInverted ? Theme.primaryText : Theme.text)
-                  : Theme.primaryButtonText
+                  : (Theme.angularControlsEnabled
+                     ? (root.hovered || root.down ? Theme.primaryText : Theme.text)
+                     : Theme.primaryButtonText)
             glow: false
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -423,12 +443,14 @@ Button {
             text: Theme.terminalMode ? "> " + root.text : root.text
             color: Theme.terminalMode
                    ? (root.terminalInverted ? Theme.primaryText : Theme.text)
-                   : Theme.primaryButtonText
+                   : (Theme.angularControlsEnabled
+                      ? (root.hovered || root.down ? Theme.primaryText : Theme.text)
+                      : Theme.primaryButtonText)
             font.family: Theme.fontFamily
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold
-            font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
-            style: Theme.terminalMode || Theme.classicMode ? Text.Normal : Text.Raised
+            font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
+            style: Theme.terminalMode || Theme.classicMode || Theme.angularControlsEnabled ? Text.Normal : Text.Raised
             styleColor: Theme.terminalMode || Theme.classicMode ? "transparent" : Theme.primaryButtonGlassTop
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
@@ -445,7 +467,9 @@ Button {
             colorize: true
             tint: Theme.terminalMode
                   ? (root.terminalInverted ? Theme.primaryText : Theme.text)
-                  : Theme.primaryButtonText
+                  : (Theme.angularControlsEnabled
+                     ? (root.hovered || root.down ? Theme.primaryText : Theme.text)
+                     : Theme.primaryButtonText)
             glow: false
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter

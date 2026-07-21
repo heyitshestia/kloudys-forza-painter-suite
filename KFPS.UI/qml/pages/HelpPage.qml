@@ -126,16 +126,20 @@ Item {
 
                     background: Rectangle {
                         radius: Theme.framedRadius(Theme.px(12))
-                        color: categoryButton.index === categoryList.currentIndex
+                        color: Theme.angularControlsEnabled
+                               ? "transparent"
+                               : (categoryButton.index === categoryList.currentIndex
                                ? (categoryButton.hovered ? Theme.primaryDeep : Theme.helpCategorySelected)
-                               : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
+                               : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface))
                         border.width: Theme.classicMode
+                                      ? 0
+                                      : (Theme.angularControlsEnabled
                                       ? 0
                                       : (categoryButton.activeFocus
                                       ? Theme.px(2)
                                       : (Theme.customFrameExclusive
                                          ? 0
-                                         : Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1))))
+                                         : Math.max(1, Theme.px(categoryButton.index === categoryList.currentIndex ? 2 : 1)))))
                         border.color: categoryButton.activeFocus
                                       ? Theme.focusColor
                                       : (categoryButton.index === categoryList.currentIndex
@@ -143,6 +147,28 @@ Item {
                                          : (categoryButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: categoryButton.index === categoryList.currentIndex
+                                       ? (categoryButton.hovered ? Theme.primaryBright : Theme.helpCategorySelected)
+                                       : (categoryButton.hovered ? Theme.helpCategoryHover : Theme.helpCategorySurface)
+                            borderColor: categoryButton.activeFocus
+                                         ? Theme.focusColor
+                                         : (categoryButton.index === categoryList.currentIndex
+                                            ? Theme.signalSecondary
+                                            : (categoryButton.hovered ? Theme.primary : Theme.borderSoft))
+                            accentColor: Theme.signalSecondary
+                            hovered: categoryButton.hovered
+                            pressed: categoryButton.down
+                            selected: categoryButton.index === categoryList.currentIndex
+                            focused: categoryButton.activeFocus
+                            panelFrame: Theme.floatingPanelsEnabled
+                                        && categoryButton.index !== categoryList.currentIndex
+                            decorationVisible: categoryButton.index === categoryList.currentIndex
+                                               || categoryButton.hovered
+                                               || categoryButton.activeFocus
+                        }
 
                         ClassicBevel {
                             anchors.fill: parent
@@ -161,7 +187,9 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: categoryButton.title
-                            color: categoryButton.index === categoryList.currentIndex ? Theme.primaryText : Theme.text
+                            color: categoryButton.index === categoryList.currentIndex
+                                   ? Theme.primaryText
+                                   : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.text)
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(13)
                             font.weight: Font.DemiBold
@@ -236,16 +264,20 @@ Item {
 
                     background: Rectangle {
                         radius: Theme.framedRadius(Theme.px(13))
-                        color: topicButton.index === topicList.currentIndex
+                        color: Theme.angularControlsEnabled
+                               ? "transparent"
+                               : (topicButton.index === topicList.currentIndex
                                ? (topicButton.hovered ? Theme.primaryDeep : Theme.helpTopicSelected)
-                               : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
+                               : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface))
                         border.width: Theme.classicMode
+                                      ? 0
+                                      : (Theme.angularControlsEnabled
                                       ? 0
                                       : (topicButton.activeFocus
                                       ? Theme.px(2)
                                       : (Theme.customFrameExclusive
                                          ? 0
-                                         : Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1))))
+                                         : Math.max(1, Theme.px(topicButton.index === topicList.currentIndex ? 2 : 1)))))
                         border.color: topicButton.activeFocus
                                       ? Theme.focusColor
                                       : (topicButton.index === topicList.currentIndex
@@ -253,6 +285,27 @@ Item {
                                          : (topicButton.hovered ? Theme.primary : Theme.borderSoft))
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: topicButton.index === topicList.currentIndex
+                                       ? (topicButton.hovered ? Theme.primaryBright : Theme.helpTopicSelected)
+                                       : (topicButton.hovered ? Theme.helpTopicHover : Theme.helpTopicSurface)
+                            borderColor: topicButton.activeFocus
+                                         ? Theme.focusColor
+                                         : (topicButton.index === topicList.currentIndex
+                                            ? (topicButton.hovered ? Theme.primaryBright : Theme.signalSecondary)
+                                            : (topicButton.hovered ? Theme.primary : Theme.borderSoft))
+                            accentColor: Theme.signalSecondary
+                            hovered: topicButton.hovered
+                            pressed: topicButton.down
+                            selected: topicButton.index === topicList.currentIndex
+                            focused: topicButton.activeFocus
+                            panelFrame: true
+                            decorationVisible: topicButton.index === topicList.currentIndex
+                                               || topicButton.hovered
+                                               || topicButton.activeFocus
+                        }
 
                         ClassicBevel {
                             anchors.fill: parent
@@ -272,7 +325,9 @@ Item {
                         Text {
                             width: parent.width
                             text: topicButton.title
-                            color: topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.text
+                            color: Theme.floatingPanelsEnabled
+                                   ? (topicButton.index === topicList.currentIndex ? Theme.signalPrimary : Theme.text)
+                                   : (topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.text)
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(13.4)
                             font.weight: Font.DemiBold
@@ -281,7 +336,9 @@ Item {
                         Text {
                             width: parent.width
                             text: topicButton.summary
-                            color: topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.muted
+                            color: Theme.floatingPanelsEnabled
+                                   ? (topicButton.index === topicList.currentIndex ? Theme.signalSecondary : Theme.muted)
+                                   : (topicButton.index === topicList.currentIndex ? Theme.primaryText : Theme.muted)
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(11.6)
                             lineHeight: 1.12

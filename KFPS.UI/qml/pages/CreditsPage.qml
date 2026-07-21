@@ -161,10 +161,18 @@ Item {
                             Layout.preferredWidth: Theme.px(root.compact ? 44 : 54)
                             Layout.preferredHeight: Layout.preferredWidth
                             radius: Theme.corner(width / 2)
-                            color: Theme.logoCapsuleSurface
-                            border.width: Math.max(1, Theme.px(1))
+                            color: Theme.angularControlsEnabled ? "transparent" : Theme.logoCapsuleSurface
+                            border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                             border.color: Theme.primaryBright
                             antialiasing: true
+
+                            AngularControlFrame {
+                                anchors.fill: parent
+                                fillColor: Theme.logoCapsuleSurface
+                                borderColor: Theme.primaryBright
+                                accentColor: Theme.signalSecondary
+                                selected: true
+                            }
 
                             Icon {
                                 anchors.centerIn: parent

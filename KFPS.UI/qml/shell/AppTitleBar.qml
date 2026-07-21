@@ -60,10 +60,13 @@ Rectangle {
             text: Theme.terminalMode
                   ? "C:\\WINDOWS\\system32\\cmd.exe - KFPS"
                   : appController.windowTitle
-            color: Theme.classicMode ? Theme.primaryText : Theme.muted
+            color: Theme.classicMode
+                   ? Theme.primaryText
+                   : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted)
             font.family: Theme.fontFamily
             font.pixelSize: Theme.px(Theme.classicMode ? 12 : 10.5)
             font.weight: Theme.classicMode ? Font.Bold : Font.Normal
+            font.capitalization: Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
             renderType: Text.NativeRendering
             font.hintingPreference: Font.PreferFullHinting
             verticalAlignment: Text.AlignVCenter
@@ -92,11 +95,27 @@ Rectangle {
 
                 width: Theme.px(Theme.classicMode ? 24 : 46)
                 height: parent.height
-                color: Theme.classicMode
+                color: Theme.angularControlsEnabled
+                       ? "transparent"
+                       : (Theme.classicMode
                        ? Theme.surface
                        : (hover.hovered
                           ? (modelData === "close" ? Theme.titleBarCloseHover : Theme.titleBarButtonHover)
-                          : "transparent")
+                          : "transparent"))
+
+                AngularControlFrame {
+                    anchors.fill: parent
+                    visible: Theme.angularControlsEnabled && (hover.hovered || buttonTap.pressed)
+                    fillColor: button.modelData === "close" && hover.hovered
+                               ? Theme.titleBarCloseHover
+                               : Theme.titleBarButtonHover
+                    borderColor: button.modelData === "close" ? Theme.signalDanger : Theme.signalSecondary
+                    accentColor: Theme.signalSecondary
+                    hovered: hover.hovered
+                    pressed: buttonTap.pressed
+                    cutOverride: Theme.px(5)
+                    notchOverride: Theme.px(3)
+                }
 
                 ClassicBevel {
                     anchors.fill: parent

@@ -201,7 +201,11 @@ class ApexVectorThemeTests(unittest.TestCase):
         for token in ("Theme.navActiveTop", "Theme.navActiveMiddle", "Theme.navActiveBottom"):
             self.assertIn(token, source)
         self.assertEqual(source.count("Theme.iconColorize || Theme.classicMode || root.active"), 2)
-        self.assertEqual(source.count("root.active ? Theme.primaryButtonText : Theme.iconTint"), 2)
+        self.assertEqual(source.count("Theme.iconTint"), 2)
+        self.assertGreaterEqual(
+            source.count("Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText"),
+            4,
+        )
 
     def test_foreground_telemetry_remains_noninteractive(self):
         host = (UI / "qml" / "shell" / "ThemedForeground.qml").read_text(encoding="utf-8")

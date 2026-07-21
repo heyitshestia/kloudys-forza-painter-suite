@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.94
+- Added the public Night City 2077 theme for supporters and non-supporters, with original angular controls, packaged Rajdhani typography, saturated red/cyan signals, layered depth, scrolling glyph rails, restrained glitches, and custom page transitions.
+- Added theme-owned popup, field, navigation, scrollbar, tooltip, and interaction treatments with clipped glow and readable 105% text while preserving reduced-motion, ambient-motion, and effects preferences.
+- Refined every page and Community subtab around a consistent technical hierarchy: major groups use restrained route rails, previews and readouts are enclosed, repeated content stays lightweight, and the live-status channel remains clear of background telemetry.
+
 ## 3.0.93
 - Added the public Apex Vector theme for supporters and non-supporters, with a flat high-contrast race-control interface, original technical assets, packaged IBM Plex fonts, restrained idle telemetry, and custom page transitions.
 - Expanded the modular theme contract with optional theme fonts, isolated foreground telemetry, live semantic navigation colors, and clipped custom control treatments while preserving existing theme behavior.

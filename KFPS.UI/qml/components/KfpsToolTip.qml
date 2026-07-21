@@ -39,11 +39,25 @@ ToolTip {
         renderType: Text.NativeRendering
     }
 
-    background: Rectangle {
-        radius: Theme.framedRadius(Theme.px(6))
-        color: Theme.surfaceRaised
-        border.width: Theme.classicMode ? Math.max(1, Theme.px(1)) : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-        border.color: Theme.classicMode ? Theme.borderStrong : Theme.primary
-        opacity: 0.98
+    background: Item {
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: Theme.surfaceRaised
+            borderColor: Theme.primary
+            accentColor: Theme.signalSecondary
+            selected: true
+            cutOverride: Theme.px(6)
+            notchOverride: Theme.px(3)
+        }
+
+        Rectangle {
+            visible: !Theme.angularControlsEnabled
+            anchors.fill: parent
+            radius: Theme.framedRadius(Theme.px(6))
+            color: Theme.surfaceRaised
+            border.width: Theme.classicMode ? Math.max(1, Theme.px(1)) : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
+            border.color: Theme.classicMode ? Theme.borderStrong : Theme.primary
+            opacity: 0.98
+        }
     }
 }

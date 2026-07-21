@@ -26,7 +26,8 @@ TextArea {
     selectedTextColor: Theme.primaryText
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(11.5)
+    font.pixelSize: Theme.px(Theme.technicalTypographyEnabled ? 13.0 : 11.5)
+    font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
     renderType: TextEdit.NativeRendering
     font.hintingPreference: Font.PreferFullHinting
     wrapMode: TextEdit.Wrap
@@ -39,8 +40,19 @@ TextArea {
     }
 
     background: Item {
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)
+            borderColor: root.activeFocus ? Theme.focusColor : (root.hovered ? Theme.primary : Theme.borderSoft)
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
         Rectangle {
             id: fieldChrome
+            visible: !Theme.angularControlsEnabled
             anchors.fill: parent
             radius: Theme.framedRadius(Theme.px(Metrics.controlRadius))
             color: root.activeFocus ? Theme.fieldFocusSurface : (root.hovered ? Theme.fieldHoverSurface : Theme.fieldSurface)

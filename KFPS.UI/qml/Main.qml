@@ -187,43 +187,28 @@ ApplicationWindow {
                     headerSafeMargin,
                     width - headerRightReserve - headerSafeMargin
                 )
-                readonly property real headerFallbackBannerWidth: Math.max(
-                    Theme.px(window.compactHeader ? 420 : 540),
-                    Math.min(
-                        Theme.px(supporterPromo.visible ? 760 : (window.compactHeader ? 720 : 900)),
-                        width - Theme.px(window.compactHeader ? 320 : 680)
-                    )
+                // Use the centered Update-card width as one shell-level status
+                // geometry. Page and subtab layouts cannot resize the ticker.
+                readonly property real headerReferenceWidth: Math.min(
+                    Theme.px(1180),
+                    Math.max(Theme.px(320), pageLoader.width - Theme.px(40))
                 )
-                readonly property real headerFallbackBannerX: Theme.clamp(
-                    (width - headerFallbackBannerWidth) / 2 + (supporterPromo.visible ? -Theme.px(220) : -Theme.px(80)),
+                readonly property real headerReferenceX: workspaceLayout.x
+                                                         + pageLoader.x
+                                                         + (pageLoader.width - headerReferenceWidth) / 2
+                readonly property real headerReferenceAvailableWidth: Math.max(
+                    Theme.px(1),
+                    Math.min(headerReferenceWidth, headerRightLimit - headerReferenceX)
+                )
+                readonly property real headerBannerWidth: Math.max(
+                    Theme.px(window.compactHeader ? 420 : 540),
+                    headerReferenceAvailableWidth
+                )
+                readonly property real headerBannerX: Theme.clamp(
+                    headerReferenceX,
                     Theme.px(12),
-                    Math.max(Theme.px(12), width - headerFallbackBannerWidth - Theme.px(12))
+                    Math.max(Theme.px(12), width - headerBannerWidth - Theme.px(12))
                 )
-                readonly property real headerBannerLeft: pageHeaderX("headerBannerLeftX", headerFallbackBannerX)
-                readonly property real headerRawBannerRight: pageHeaderX("headerBannerRightX", headerFallbackBannerX + headerFallbackBannerWidth)
-                readonly property real headerBannerRight: pageHeaderAlignmentAvailable
-                                                          ? Math.min(headerRawBannerRight, headerRightLimit)
-                                                          : headerRawBannerRight
-                readonly property real headerAlignedBannerWidth: Math.max(
-                    Theme.px(window.compactHeader ? 420 : 540),
-                    headerBannerRight - headerBannerLeft
-                )
-                readonly property real headerBannerWidth: pageHeaderAlignmentAvailable
-                                                           ? headerAlignedBannerWidth
-                                                           : (Theme.terminalMode
-                                                              ? Math.max(
-                                                                    Theme.px(180),
-                                                                    Math.min(
-                                                                        headerFallbackBannerWidth,
-                                                                        headerRightLimit - headerFallbackBannerX
-                                                                    )
-                                                                )
-                                                              : headerFallbackBannerWidth)
-                readonly property real headerBannerX: pageHeaderAlignmentAvailable
-                                                      ? Theme.clamp(headerBannerLeft + ((headerBannerRight - headerBannerLeft - headerBannerWidth) / 2),
-                                                                    Theme.px(12),
-                                                                    Math.max(Theme.px(12), width - headerBannerWidth - Theme.px(12)))
-                                                      : headerFallbackBannerX
                 readonly property bool createHeaderAlignmentAvailable: Theme.logical(pageLoader.width) >= 1180
                                                                        && createReferenceSource.width > 0
                                                                        && createReferencePreview.width > 0

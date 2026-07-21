@@ -347,14 +347,14 @@ Item {
                                                 spacing: Theme.px(10)
 
                                                 Text {
-                                                    Layout.preferredWidth: Theme.px(68)
+                                                    Layout.preferredWidth: Math.max(Theme.px(68), implicitWidth)
                                                     Layout.minimumWidth: Layout.preferredWidth
                                                     text: version
                                                     color: Theme.success
                                                     font.family: Theme.monoFamily
                                                     font.pixelSize: Theme.px(10.2)
                                                     font.weight: Font.DemiBold
-                                                    wrapMode: Text.WordWrap
+                                                    wrapMode: Text.NoWrap
                                                     lineHeight: 1.15
                                                 }
 
@@ -365,7 +365,8 @@ Item {
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: Theme.px(10.8)
                                                     font.weight: Font.DemiBold
-                                                    elide: Text.ElideRight
+                                                    wrapMode: Text.WordWrap
+                                                    lineHeight: 1.15
                                                 }
                                             }
 

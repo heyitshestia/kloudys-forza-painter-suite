@@ -33,16 +33,20 @@ CheckBox {
         x: root.leftPadding
         y: Math.round((root.height - height) / 2)
         radius: Theme.corner(Theme.customFrameExclusive ? Theme.px(6) : Theme.px(5))
-        color: Theme.classicMode
+        color: Theme.angularControlsEnabled
+               ? "transparent"
+               : (Theme.classicMode
                ? Theme.checkboxSurface
                : (root.checked
                ? (root.hovered ? Theme.primaryBright : Theme.checkboxCheckedSurface)
-               : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface))
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)))
         border.width: Theme.classicMode
+                      ? 0
+                      : (Theme.angularControlsEnabled
                       ? 0
                       : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -50,9 +54,27 @@ CheckBox {
         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 105 } }
         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.checked
+                       ? (root.hovered ? Theme.primaryBright : Theme.checkboxCheckedSurface)
+                       : (root.hovered ? Theme.checkboxHoverSurface : Theme.checkboxSurface)
+            borderColor: root.activeFocus
+                         ? Theme.focusColor
+                         : (root.checked ? Theme.signalSecondary : (root.hovered ? Theme.primary : Theme.borderSoft))
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            pressed: root.pressed
+            selected: root.checked
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+            cutOverride: Theme.px(4)
+            notchOverride: Theme.px(2)
+        }
+
         Text {
             anchors.centerIn: parent
-            text: Theme.terminalMode || Theme.classicMode ? "X" : "✓"
+            text: Theme.terminalMode || Theme.classicMode || Theme.angularControlsEnabled ? "X" : "✓"
             visible: root.checked
             color: Theme.classicMode ? Theme.borderStrong : (root.hovered ? Theme.backgroundA : Theme.primaryText)
             font.family: Theme.fontFamily

@@ -33,11 +33,16 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_fields_center_content_vertically(self):
         text_field = self.read("components/KfpsTextField.qml")
+        text_area = self.read("components/KfpsTextArea.qml")
         combo = self.read("components/KfpsComboBox.qml")
         self.assertIn("verticalAlignment: TextInput.AlignVCenter", text_field)
         self.assertIn("verticalAlignment: Text.AlignVCenter", combo)
         self.assertIn("Layout.minimumHeight", text_field)
         self.assertIn("Layout.minimumHeight", combo)
+        self.assertIn("Theme.technicalTypographyEnabled", text_field)
+        self.assertIn("Theme.technicalTypographyEnabled", text_area)
+        self.assertIn("Font.DemiBold", text_field)
+        self.assertIn("Font.DemiBold", text_area)
 
     def test_responsive_breakpoints_use_logical_units(self):
         theme = self.read("Kfps/Theme/Theme.qml")
@@ -306,6 +311,9 @@ class QmlRefinementTests(unittest.TestCase):
         update = self.read("pages/UpdatePage.qml")
         self.assertIn("patchNoteContent.implicitHeight", update)
         self.assertIn("visible: details.length > 0", update)
+        self.assertIn("Layout.preferredWidth: Math.max(Theme.px(68), implicitWidth)", update)
+        self.assertIn("wrapMode: Text.NoWrap", update)
+        self.assertIn("wrapMode: Text.WordWrap", update)
         self.assertNotIn("maximumLineCount: 2", update)
 
     def test_positive_geometry_literals_are_scaled(self):

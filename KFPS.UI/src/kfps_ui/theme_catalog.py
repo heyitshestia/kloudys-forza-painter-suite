@@ -10,6 +10,7 @@ PATRONS_ATELIER_THEME = "Patron's Atelier"
 CARBON_DARK_THEME = "Carbon Dark"
 OVERDRIVE_200X_THEME = "Overdrive 200X"
 APEX_VECTOR_THEME = "Apex Vector"
+NIGHT_CITY_2077_THEME = "Night City 2077"
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(CARBON_DARK_THEME, "PaletteCarbonDark", supporter_only=True),
     ThemePreset(OVERDRIVE_200X_THEME, "PaletteOverdrive200X", supporter_only=True),
     ThemePreset(APEX_VECTOR_THEME, "PaletteApexVector"),
+    ThemePreset(NIGHT_CITY_2077_THEME, "PaletteNightCity2077"),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

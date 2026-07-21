@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
+  <defs>
+    <pattern id="dot-grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#f75049" opacity="0.20"/>
+    </pattern>
+    <pattern id="micro-grid" width="12" height="12" patternUnits="userSpaceOnUse">
+      <path d="M12 0H0V12" fill="none" stroke="#f75049" stroke-width="0.55" opacity="0.10"/>
+    </pattern>
+  </defs>
+  <rect width="2560" height="1440" fill="#0e0e17"/>
+  <path d="M0 0H830L740 92H0ZM2560 1440H1640L1732 1348H2560Z" fill="#08080f"/>
+  <rect x="0" y="0" width="2560" height="1440" fill="url(#dot-grid)" opacity="0.48"/>
+  <path d="M0 174H402L438 138H1082M0 204H358L391 171H782" fill="none" stroke="#f75049" stroke-width="2" opacity="0.22"/>
+  <path d="M2560 1118H2190L2146 1162H1672M2560 1149H2230L2198 1181H1900" fill="none" stroke="#f75049" stroke-width="2" opacity="0.20"/>
+  <path d="M1968 0V102L1928 142V430M2012 0V122L1974 160V316" fill="none" stroke="#5ef6ff" stroke-width="1.5" opacity="0.12"/>
+  <path d="M332 1440V1286L370 1248V1052M286 1440V1312L320 1278V1138" fill="none" stroke="#f75049" stroke-width="1.5" opacity="0.16"/>
+  <path d="M2228 182H2488V438H2302L2228 364Z" fill="url(#micro-grid)" stroke="#f75049" stroke-width="1" opacity="0.18"/>
+  <path d="M120 1030H412L488 1106V1324H120Z" fill="url(#micro-grid)" stroke="#f75049" stroke-width="1" opacity="0.14"/>
+  <g fill="#f75049" opacity="0.34">
+    <path d="M76 78H174L158 94H60Z"/>
+    <path d="M188 78H222L206 94H172Z"/>
+    <path d="M236 78H270L254 94H220Z"/>
+    <path d="M2280 1328H2416L2400 1344H2264Z"/>
+    <path d="M2430 1328H2474L2458 1344H2414Z"/>
+  </g>
+  <g fill="#5ef6ff" opacity="0.38">
+    <rect x="174" y="78" width="7" height="16"/>
+    <rect x="2417" y="1328" width="7" height="16"/>
+  </g>
+</svg>

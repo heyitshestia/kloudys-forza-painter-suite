@@ -14,6 +14,7 @@ from kfps_ui.theme_catalog import (  # noqa: E402
     APEX_VECTOR_THEME,
     COMMAND_PROMPT_THEME,
     DEFAULT_THEME,
+    NIGHT_CITY_2077_THEME,
     OVERDRIVE_200X_THEME,
     PUBLIC_THEME_NAMES,
     SUPPORTER_THEME_NAMES,
@@ -48,6 +49,7 @@ class ThemeCatalogTests(unittest.TestCase):
         self.assertIn(DEFAULT_THEME, PUBLIC_THEME_NAMES)
         self.assertIn(COMMAND_PROMPT_THEME, PUBLIC_THEME_NAMES)
         self.assertIn(APEX_VECTOR_THEME, PUBLIC_THEME_NAMES)
+        self.assertIn(NIGHT_CITY_2077_THEME, PUBLIC_THEME_NAMES)
         self.assertIn(WINDOWS_94_THEME, SUPPORTER_THEME_NAMES)
         self.assertIn(OVERDRIVE_200X_THEME, SUPPORTER_THEME_NAMES)
 

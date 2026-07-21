@@ -9,17 +9,26 @@ Rectangle {
     property bool soft: false
     property bool raised: false
     property bool glow: false
+    property bool enclosedFrame: false
+    property bool interactionHovered: false
+    property bool interactionSelected: false
     property real panelOpacity: 1.0
     property real shadowStrength: raised ? 0.86 : (strong ? 0.72 : 0.64)
     readonly property var backdropSource: Window.window && Window.window.glassBackdropSource ? Window.window.glassBackdropSource : null
     readonly property point backdropOrigin: backdropSource ? mapToItem(backdropSource, 0, 0) : Qt.point(0, 0)
     readonly property bool backdropBlurActive: !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
-    readonly property bool roundedContentMaskActive: radius > 0 && width > 2 && height > 2
+    readonly property bool roundedContentMaskActive: !Theme.angularControlsEnabled && radius > 0 && width > 2 && height > 2
     readonly property bool locatorVisible: Theme.panelLocatorEnabled && (strong || raised)
     readonly property bool telemetryVisible: Theme.equipmentAccentsEnabled
                                                && (strong || raised)
                                                && width >= Theme.px(130)
                                                && height >= Theme.px(54)
+    readonly property bool technicalFrameVisible: !Theme.floatingPanelsEnabled
+                                                   || enclosedFrame
+                                                   || strong
+                                                   || raised
+                                                   || interactionHovered
+                                                   || interactionSelected
     property real locatorProgress: screenshotMode && locatorVisible ? 0.62 : 0.0
     property real telemetryPhase: screenshotMode && telemetryVisible ? 3.4 : 1.0
 
@@ -34,19 +43,19 @@ Rectangle {
     gradient: Gradient {
         GradientStop {
             position: 0.0
-            color: Theme.panelGradientTop(root.soft, root.strong)
+            color: Theme.angularControlsEnabled ? "transparent" : Theme.panelGradientTop(root.soft, root.strong)
         }
         GradientStop {
             position: 0.42
-            color: Theme.panelGradientMiddle(root.soft, root.strong)
+            color: Theme.angularControlsEnabled ? "transparent" : Theme.panelGradientMiddle(root.soft, root.strong)
         }
         GradientStop {
             position: 1.0
-            color: Theme.panelGradientBottom(root.soft, root.strong)
+            color: Theme.angularControlsEnabled ? "transparent" : Theme.panelGradientBottom(root.soft, root.strong)
         }
     }
 
-    layer.enabled: !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && !screenshotMode
+    layer.enabled: !Theme.angularControlsEnabled && !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && !screenshotMode
     layer.smooth: true
     layer.effect: MultiEffect {
         shadowEnabled: true
@@ -55,6 +64,18 @@ Rectangle {
         shadowHorizontalOffset: 0
         shadowVerticalOffset: root.raised ? Theme.px(9) : Theme.px(root.strong ? 7 : 5)
         shadowOpacity: root.glow ? 0.82 : root.shadowStrength
+    }
+
+    AngularControlFrame {
+        anchors.fill: parent
+        fillColor: Theme.panelGradientMiddle(root.soft, root.strong)
+        borderColor: root.border.color
+        accentColor: Theme.signalSecondary
+        hovered: root.interactionHovered || locatorHover.hovered
+        selected: root.interactionSelected
+        panelFrame: true
+        enclosedPanel: root.enclosedFrame
+        decorationVisible: root.technicalFrameVisible
     }
 
     Rectangle {
@@ -80,6 +101,7 @@ Rectangle {
 
     Item {
         id: roundedContentLayer
+        visible: !Theme.angularControlsEnabled
         anchors.fill: parent
         layer.enabled: root.roundedContentMaskActive
         layer.smooth: true

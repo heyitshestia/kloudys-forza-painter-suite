@@ -31,8 +31,18 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.framedRadius(Theme.px(7))
-        color: hover.hovered ? Theme.rowHover : "transparent"
+        color: Theme.angularControlsEnabled ? "transparent" : (hover.hovered ? Theme.rowHover : "transparent")
         Behavior on color { ColorAnimation { duration: 110 } }
+    }
+
+    AngularControlFrame {
+        anchors.fill: parent
+        visible: Theme.angularControlsEnabled && (hover.hovered || tap.pressed)
+        fillColor: Theme.rowHover
+        borderColor: hover.hovered ? Theme.primary : Theme.borderSoft
+        accentColor: Theme.signalSecondary
+        hovered: hover.hovered
+        pressed: tap.pressed
     }
 
     Rectangle {

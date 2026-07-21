@@ -16,13 +16,14 @@ Button {
     property color labelColor: accentText ? Theme.primaryBright : Theme.text
     property bool showArrow: false
     property bool dense: false
+    property bool floatingOption: false
     property bool auditAllowOutsideFeedback: false
     property real minimumWidth: Theme.px(dense ? 74 : 96)
     property real maximumTextWidth: Number.POSITIVE_INFINITY
     property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
 
     readonly property bool checkedState: root.selected || (root.checkable && root.checked)
-    readonly property color effectiveLabelColor: Theme.terminalMode && (checkedState || down)
+    readonly property color effectiveLabelColor: (Theme.terminalMode || Theme.angularControlsEnabled) && (checkedState || down)
                                                  ? Theme.primaryText
                                                  : labelColor
     readonly property bool reserveSideSlots: Theme.iconGlyphsVisible && (iconName.length > 0 || showArrow)
@@ -67,7 +68,65 @@ Button {
     background: Item {
         clip: true
 
+        AngularControlFrame {
+            anchors.fill: parent
+            visible: !(Theme.floatingPanelsEnabled && root.floatingOption && !root.checkedState)
+            fillColor: root.down
+                       ? Theme.ghostPressedSurface
+                       : (root.checkedState
+                          ? Theme.navActiveMiddle
+                          : (root.hovered ? Theme.ghostHoverSurface : Theme.ghostSurface))
+            borderColor: root.activeFocus
+                         ? Theme.focusColor
+                         : (root.checkedState
+                            ? Theme.primaryHot
+                            : (root.hovered ? Theme.primaryBright : Theme.borderSoft))
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            pressed: root.down
+            selected: root.checkedState
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
+        Item {
+            anchors.fill: parent
+            visible: Theme.floatingPanelsEnabled && root.floatingOption && !root.checkedState
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(7)
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.px(7)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(4)
+                height: Theme.px(6)
+                color: Theme.withAlpha(root.hovered ? Theme.signalPrimary : root.labelColor,
+                                       root.hovered ? 0.16 : 0.07)
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(7)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(6)
+                width: Math.max(Theme.px(22), (parent.width - Theme.px(14)) * (root.hovered ? 0.94 : 0.38))
+                height: Math.max(1, Theme.px(1.2))
+                color: root.hovered ? Theme.signalPrimary : root.labelColor
+                opacity: root.hovered ? 0.94 : 0.52
+                Behavior on width {
+                    enabled: !Theme.reducedMotion
+                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
+                Behavior on color {
+                    enabled: !Theme.reducedMotion
+                    ColorAnimation { duration: 120 }
+                }
+            }
+        }
+
         Rectangle {
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -82,6 +141,7 @@ Button {
         }
 
         Rectangle {
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -100,6 +160,7 @@ Button {
 
         Rectangle {
             id: chrome
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
@@ -325,7 +386,7 @@ Button {
             name: root.iconName
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: Theme.terminalMode && (root.checkedState || root.down)
+            tint: (Theme.terminalMode || Theme.angularControlsEnabled) && (root.checkedState || root.down)
                   ? Theme.primaryText
                   : (Theme.classicMode ? Theme.borderStrong : (root.accentText ? Theme.primaryBright : Theme.text))
             iconOpacity: root.enabled ? 0.96 : 0.48
@@ -345,7 +406,7 @@ Button {
             font.family: Theme.fontFamily
             font.pixelSize: root.textPixelSize
             font.weight: Font.DemiBold
-            font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
+            font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.NoWrap
@@ -359,7 +420,7 @@ Button {
             name: "chevron-right"
             iconSize: Theme.px(root.dense ? 13 : 15)
             colorize: true
-            tint: Theme.terminalMode && (root.checkedState || root.down)
+            tint: (Theme.terminalMode || Theme.angularControlsEnabled) && (root.checkedState || root.down)
                   ? Theme.primaryText
                   : (Theme.classicMode ? Theme.borderStrong : (root.accentText ? Theme.primaryBright : Theme.muted))
             glow: false

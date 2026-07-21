@@ -135,9 +135,20 @@ Item {
                     width: Theme.px(root.denseNavigation ? 48 : 56)
                     height: width
                     radius: Theme.corner(width / 2)
-                    color: Theme.logoCapsuleSurface
-                    border.width: Math.max(1, Theme.px(1))
+                    color: Theme.angularControlsEnabled ? "transparent" : Theme.logoCapsuleSurface
+                    border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
+
+                    AngularControlFrame {
+                        anchors.fill: parent
+                        fillColor: Theme.logoCapsuleSurface
+                        borderColor: Theme.borderStrong
+                        accentColor: Theme.signalSecondary
+                        selected: true
+                        panelFrame: true
+                        cutOverride: Theme.px(10)
+                        notchOverride: Theme.px(5)
+                    }
 
                     ThemedLogo {
                         anchors.fill: parent
@@ -181,9 +192,20 @@ Item {
                     width: Theme.px(root.denseNavigation ? 42 : 50)
                     height: width
                     radius: Theme.corner(width / 2)
-                    color: Theme.logoCapsuleSurface
-                    border.width: Math.max(1, Theme.px(1))
+                    color: Theme.angularControlsEnabled ? "transparent" : Theme.logoCapsuleSurface
+                    border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
+
+                    AngularControlFrame {
+                        anchors.fill: parent
+                        fillColor: Theme.logoCapsuleSurface
+                        borderColor: Theme.borderStrong
+                        accentColor: Theme.signalSecondary
+                        selected: true
+                        panelFrame: true
+                        cutOverride: Theme.px(9)
+                        notchOverride: Theme.px(4)
+                    }
 
                     ThemedLogo {
                         anchors.fill: parent

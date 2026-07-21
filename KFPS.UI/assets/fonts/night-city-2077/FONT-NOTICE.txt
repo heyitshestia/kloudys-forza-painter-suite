@@ -1,0 +1,10 @@
+Rajdhani is Copyright 2014 The Rajdhani Project Authors.
+
+Source: https://github.com/google/fonts/tree/main/ofl/rajdhani
+License: SIL Open Font License 1.1 (see OFL.txt)
+
+Packaged weights:
+- Rajdhani Regular
+- Rajdhani Medium
+- Rajdhani SemiBold
+- Rajdhani Bold

@@ -70,8 +70,81 @@ Button {
     background: Item {
         clip: true
 
+        AngularControlFrame {
+            anchors.fill: parent
+            visible: !Theme.floatingPanelsEnabled || root.active
+            fillColor: root.active
+                       ? Theme.navActiveMiddle
+                       : (root.hovered ? Theme.navHoverSurface : Theme.withAlpha(Theme.surface, 0.58))
+            borderColor: root.activeFocus
+                         ? Theme.focusColor
+                         : (root.active ? Theme.primaryButtonBorder : (root.hovered ? Theme.primary : Theme.borderSoft))
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            pressed: root.down
+            selected: root.active
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+        }
+
+        Item {
+            anchors.fill: parent
+            visible: Theme.floatingPanelsEnabled && !root.active
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(12)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(7)
+                width: Math.max(Theme.px(38), (parent.width - Theme.px(28)) * (root.hovered ? 0.86 : 0.34))
+                height: Theme.px(6)
+                color: Theme.withAlpha(root.hovered ? Theme.signalPrimary : Theme.signalSecondary,
+                                       root.hovered ? 0.16 : 0.07)
+                Behavior on width {
+                    enabled: !Theme.reducedMotion
+                    NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
+                }
+                Behavior on color {
+                    enabled: !Theme.reducedMotion
+                    ColorAnimation { duration: 120 }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(12)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.px(9)
+                width: Math.max(Theme.px(38), (parent.width - Theme.px(28)) * (root.hovered ? 0.86 : 0.34))
+                height: Math.max(1, Theme.px(1.2))
+                color: root.hovered ? Theme.signalPrimary : Theme.signalSecondary
+                opacity: root.hovered ? 0.92 : 0.42
+                Behavior on width {
+                    enabled: !Theme.reducedMotion
+                    NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
+                }
+                Behavior on color {
+                    enabled: !Theme.reducedMotion
+                    ColorAnimation { duration: 120 }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.px(12)
+                anchors.verticalCenter: parent.verticalCenter
+                width: root.hovered ? Theme.px(5) : Theme.px(2)
+                height: root.hovered ? Theme.px(18) : Theme.px(8)
+                color: root.hovered ? Theme.signalPrimary : Theme.signalSecondary
+                opacity: root.hovered ? 0.90 : 0.34
+                Behavior on width { enabled: !Theme.reducedMotion; NumberAnimation { duration: 120 } }
+                Behavior on height { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            }
+        }
+
         Rectangle {
             id: activeGlow
+            visible: !Theme.angularControlsEnabled
             anchors.fill: parent
             anchors.margins: -Theme.px(2)
             radius: Theme.framedRadius(Theme.px(11))
@@ -89,6 +162,7 @@ Button {
         }
 
         Rectangle {
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -104,6 +178,7 @@ Button {
 
         Rectangle {
             id: navLip
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -120,6 +195,7 @@ Button {
 
         Rectangle {
             id: chrome
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
@@ -350,6 +426,7 @@ Button {
         }
 
         Rectangle {
+            visible: !Theme.angularControlsEnabled
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -415,7 +492,9 @@ Button {
                     colorize: Theme.iconColorize || Theme.classicMode || root.active
                     tint: Theme.classicMode
                           ? Theme.borderStrong
-                          : (root.active ? Theme.primaryButtonText : Theme.iconTint)
+                          : (root.active
+                             ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
+                             : Theme.iconTint)
                     glow: root.active && !Theme.classicMode
                     glowColor: Theme.focusColor
                     iconOpacity: root.active ? 1 : 0.78
@@ -427,11 +506,13 @@ Button {
                     text: root.text
                     color: Theme.classicMode
                            ? Theme.text
-                           : (root.active ? Theme.primaryButtonText : Theme.muted)
+                           : (root.active
+                              ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
+                              : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted))
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
                     font.weight: root.active ? Font.DemiBold : Font.Medium
-                    font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
+                    font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
                     anchors.verticalCenter: parent.verticalCenter
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -443,7 +524,9 @@ Button {
                 width: Theme.px(20)
                 text: "›"
                 visible: !Theme.terminalMode && !Theme.classicMode && (root.active || root.hovered)
-                color: root.active ? Theme.primaryButtonText : Theme.primaryBright
+                color: root.active
+                       ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
+                       : Theme.primaryBright
                 opacity: root.active ? 1 : 0.75
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(24)
@@ -469,7 +552,9 @@ Button {
                 colorize: Theme.iconColorize || Theme.classicMode || root.active
                 tint: Theme.classicMode
                       ? Theme.borderStrong
-                      : (root.active ? Theme.primaryButtonText : Theme.iconTint)
+                      : (root.active
+                         ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
+                         : Theme.iconTint)
                 glow: root.active && !Theme.classicMode
                 glowColor: Theme.focusColor
                 iconOpacity: root.active ? 1 : 0.78
@@ -481,11 +566,13 @@ Button {
                 text: root.text
                 color: Theme.classicMode
                        ? Theme.text
-                       : (root.active ? Theme.primaryButtonText : Theme.muted)
+                       : (root.active
+                          ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
+                          : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted))
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.dense ? 8 : 9)
                 font.weight: Font.DemiBold
-                font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
+                font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight

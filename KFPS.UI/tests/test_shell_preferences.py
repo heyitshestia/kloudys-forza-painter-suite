@@ -53,6 +53,9 @@ class ShellPreferenceTests(unittest.TestCase):
 
         self.assertEqual(main.count("AnnouncementTicker {"), 1)
         self.assertIn("visible: settings.liveStatusVisible", main)
+        self.assertIn("readonly property real headerReferenceWidth", main)
+        self.assertIn("pageLoader.width - Theme.px(40)", main)
+        self.assertIn("Page and subtab layouts cannot resize the ticker", main)
         self.assertIn("readonly property bool headerAlignmentAvailable: root.wide", community)
         self.assertNotIn("headerAlignmentAvailable: root.activeTab", community)
         self.assertIn('text: "Show live status ticker"', settings_page)

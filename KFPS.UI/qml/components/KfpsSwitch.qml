@@ -37,16 +37,20 @@ Switch {
         implicitHeight: Theme.px(Theme.classicMode ? (dense ? 16 : 18) : (dense ? 20 : 22))
         y: Math.round((root.height - height) / 2)
         radius: Theme.corner(height / 2)
-        color: Theme.classicMode
+        color: Theme.angularControlsEnabled
+               ? "transparent"
+               : (Theme.classicMode
                ? Theme.checkboxSurface
                : (root.checked
                ? (root.hovered ? Theme.primary : Theme.primaryDeep)
-               : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff))
+               : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff)))
         border.width: Theme.classicMode
+                      ? 0
+                      : (Theme.angularControlsEnabled
                       ? 0
                       : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
+                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -54,15 +58,49 @@ Switch {
         Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
 
+        AngularControlFrame {
+            anchors.fill: parent
+            fillColor: root.checked
+                       ? (root.hovered ? Theme.primary : Theme.primaryDeep)
+                       : (root.hovered ? Theme.checkboxHoverSurface : Theme.switchTrackOff)
+            borderColor: root.activeFocus
+                         ? Theme.focusColor
+                         : (root.checked ? Theme.signalSecondary : (root.hovered ? Theme.primary : Theme.borderSoft))
+            accentColor: Theme.signalSecondary
+            hovered: root.hovered
+            pressed: root.pressed
+            selected: root.checked
+            focused: root.activeFocus
+            frameEnabled: root.enabled
+            cutOverride: Theme.px(5)
+            notchOverride: Theme.px(2)
+        }
+
         Rectangle {
+            id: switchKnob
             visible: !Theme.terminalMode && !Theme.classicMode
             width: Theme.px(dense ? 14 : 16)
             height: width
-            radius: Theme.corner(width / 2)
+            radius: Theme.angularControlsEnabled ? 0 : Theme.corner(width / 2)
             y: Math.round((parent.height - height) / 2)
             x: root.checked ? parent.width - width - Theme.px(3) : Theme.px(3)
-            color: root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted)
+            color: Theme.angularControlsEnabled
+                   ? "transparent"
+                   : (root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted))
             scale: root.pressed ? 0.88 : (root.hovered ? 1.08 : 1.0)
+
+            AngularControlFrame {
+                anchors.fill: parent
+                fillColor: root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted)
+                borderColor: root.checked ? Theme.primaryText : Theme.signalSecondary
+                accentColor: Theme.signalSecondary
+                hovered: root.hovered
+                pressed: root.pressed
+                selected: root.checked
+                cutOverride: Theme.px(3)
+                notchOverride: Theme.px(1.5)
+                strokeOverride: Math.max(1, Theme.px(0.8))
+            }
 
             Behavior on x {
                 enabled: !Theme.reducedMotion

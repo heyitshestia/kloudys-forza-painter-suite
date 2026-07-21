@@ -783,14 +783,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.corner(Theme.px(24))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            antialiasing: true
-
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(24)
         }
 
         contentItem: ColumnLayout {
@@ -819,10 +815,19 @@ Item {
                 Layout.fillHeight: true
                 Layout.minimumHeight: Theme.px(460)
                 radius: Theme.corner(Theme.px(18))
-                color: Theme.previewSurface
-                border.width: Math.max(1, Theme.px(1))
+                color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.borderStrong
                 clip: true
+
+                AngularControlFrame {
+                    anchors.fill: parent
+                    fillColor: Theme.previewSurface
+                    borderColor: Theme.borderStrong
+                    accentColor: Theme.signalSecondary
+                    panelFrame: true
+                    enclosedPanel: true
+                }
 
                 ClassicBevel {
                     anchors.fill: parent
@@ -909,14 +914,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.corner(Theme.px(24))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            antialiasing: true
-
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(24)
         }
 
         contentItem: ColumnLayout {

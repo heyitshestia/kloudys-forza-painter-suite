@@ -28,7 +28,8 @@ QtObject {
     readonly property QtObject carbonDark: PaletteCarbonDark {}
     readonly property QtObject overdrive200X: PaletteOverdrive200X {}
     readonly property QtObject apexVector: PaletteApexVector {}
-    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector]
+    readonly property QtObject nightCity2077: PaletteNightCity2077 {}
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -136,6 +137,17 @@ QtObject {
     readonly property bool navSignalEnabled: palette.navSignalEnabled
     readonly property bool panelLocatorEnabled: palette.panelLocatorEnabled
     readonly property bool headerSignalEnabled: palette.headerSignalEnabled
+    readonly property bool angularControlsEnabled: palette.angularControlsEnabled
+    readonly property real angularCutSize: palette.angularCutSize
+    readonly property real angularNotchSize: palette.angularNotchSize
+    readonly property real angularPanelCutSize: palette.angularPanelCutSize
+    readonly property real angularStrokeWidth: palette.angularStrokeWidth
+    readonly property bool glitchInteractionsEnabled: palette.glitchInteractionsEnabled
+    readonly property real glitchIntensity: palette.glitchIntensity
+    readonly property bool diagnosticEasterEggsEnabled: palette.diagnosticEasterEggsEnabled
+    readonly property bool technicalTypographyEnabled: palette.technicalTypographyEnabled
+    readonly property bool floatingPanelsEnabled: palette.floatingPanelsEnabled
+    readonly property bool glyphRailsEnabled: palette.glyphRailsEnabled
     readonly property string logoDialFile: palette.logoDialFile
     readonly property real logoDialOpacity: palette.logoDialOpacity
     readonly property bool logoColorize: palette.logoColorize
@@ -323,6 +335,6 @@ QtObject {
     }
 
     function corner(defaultRadius) {
-        return (terminalMode || classicMode) ? 0 : defaultRadius
+        return (terminalMode || classicMode || angularControlsEnabled) ? 0 : defaultRadius
     }
 }

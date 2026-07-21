@@ -31,6 +31,17 @@ QtObject {
     readonly property bool navSignalEnabled: false
     readonly property bool panelLocatorEnabled: false
     readonly property bool headerSignalEnabled: false
+    readonly property bool angularControlsEnabled: false
+    readonly property real angularCutSize: 0.0
+    readonly property real angularNotchSize: 0.0
+    readonly property real angularPanelCutSize: 0.0
+    readonly property real angularStrokeWidth: 1.0
+    readonly property bool glitchInteractionsEnabled: false
+    readonly property real glitchIntensity: 0.0
+    readonly property bool diagnosticEasterEggsEnabled: false
+    readonly property bool technicalTypographyEnabled: false
+    readonly property bool floatingPanelsEnabled: false
+    readonly property bool glyphRailsEnabled: false
     readonly property string logoDialFile: ""
     readonly property real logoDialOpacity: 0.0
     readonly property bool logoColorize: false

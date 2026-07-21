@@ -370,6 +370,7 @@ Item {
                                         required property string modelData
                                         required property int index
                                         dense: true
+                                        floatingOption: true
                                         text: modelData
                                         accentText: communityService.selectedScopeIndex === index
                                         selected: communityService.selectedScopeIndex === index
@@ -703,7 +704,9 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.px(root.compactHeight ? 190 : 250)
                                     radius: Theme.framedRadius(Theme.px(7))
-                                    color: detailPreviewHover.hovered ? Theme.fieldHoverSurface : Theme.previewSurface
+                                    color: Theme.angularControlsEnabled
+                                           ? "transparent"
+                                           : (detailPreviewHover.hovered ? Theme.fieldHoverSurface : Theme.previewSurface)
                                     border.width: Theme.classicMode
                                                   ? 0
                                                   : (Theme.customFrameExclusive
@@ -714,6 +717,17 @@ Item {
                                     scale: Theme.classicMode ? 1.0 : (detailPreviewTap.pressed ? 0.99 : 1.0)
                                     Behavior on color { enabled: !Theme.reducedMotion; ColorAnimation { duration: 110 } }
                                     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
+
+                                    AngularControlFrame {
+                                        anchors.fill: parent
+                                        fillColor: detailPreviewHover.hovered ? Theme.fieldHoverSurface : Theme.previewSurface
+                                        borderColor: detailPreviewHover.hovered ? Theme.signalSecondary : Theme.borderStrong
+                                        accentColor: Theme.signalSecondary
+                                        hovered: detailPreviewHover.hovered
+                                        pressed: detailPreviewTap.pressed
+                                        panelFrame: true
+                                        enclosedPanel: true
+                                    }
 
                                     ClassicBevel {
                                         anchors.fill: parent
@@ -1230,10 +1244,19 @@ Item {
                                         Layout.preferredWidth: Theme.px(root.compactHeight ? 82 : 100)
                                         Layout.fillHeight: true
                                         radius: Theme.corner(Theme.px(6))
-                                        color: Theme.previewSurface
-                                        border.width: Math.max(1, Theme.px(1))
+                                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                                         border.color: Theme.borderSoft
                                         clip: true
+
+                                        AngularControlFrame {
+                                            anchors.fill: parent
+                                            fillColor: Theme.previewSurface
+                                            borderColor: Theme.borderStrong
+                                            accentColor: Theme.signalSecondary
+                                            panelFrame: true
+                                            enclosedPanel: true
+                                        }
 
                                         ClassicBevel {
                                             anchors.fill: parent
@@ -1959,12 +1982,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(20)
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -2018,14 +2039,11 @@ Item {
                 ColumnLayout {
                     spacing: Theme.px(11)
 
-                    Rectangle {
+                    GlassPanel {
                         visible: communityService.githubAuthenticationAvailable
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(138)
-                        radius: Theme.corner(Theme.px(7))
-                        color: Theme.surfaceSoft
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.borderSoft
+                        soft: true
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -2058,14 +2076,11 @@ Item {
                         }
                     }
 
-                    Rectangle {
+                    GlassPanel {
                         visible: communityService.testAuthenticationAvailable
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(126)
-                        radius: Theme.corner(Theme.px(7))
-                        color: Theme.surfaceSoft
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.borderSoft
+                        soft: true
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -2153,9 +2168,18 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.px(112)
                         radius: Theme.corner(Theme.px(7))
-                        color: Theme.previewSurface
-                        border.width: Math.max(1, Theme.px(1))
+                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                         border.color: Theme.primary
+
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: Theme.previewSurface
+                            borderColor: Theme.primary
+                            accentColor: Theme.signalSecondary
+                            panelFrame: true
+                            enclosedPanel: true
+                        }
 
                         ClassicBevel {
                             anchors.fill: parent
@@ -2254,12 +2278,10 @@ Item {
         padding: Theme.px(14)
         onClosed: previewZoom = 1.0
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -2375,10 +2397,19 @@ Item {
                     Layout.preferredWidth: Theme.px(880)
                     Layout.minimumHeight: Theme.px(360)
                     radius: Theme.corner(Theme.px(7))
-                    color: Theme.previewSurface
-                    border.width: Math.max(1, Theme.px(1))
+                    color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                    border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
                     clip: true
+
+                    AngularControlFrame {
+                        anchors.fill: parent
+                        fillColor: Theme.previewSurface
+                        borderColor: Theme.borderStrong
+                        accentColor: Theme.signalSecondary
+                        panelFrame: true
+                        enclosedPanel: true
+                    }
 
                     ClassicBevel {
                         anchors.fill: parent
@@ -2630,12 +2661,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -2751,12 +2780,11 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.warning
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.warning
+            accentColor: Theme.warning
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -2786,9 +2814,18 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.px(72)
                 radius: Theme.corner(Theme.px(6))
-                color: Theme.previewSurface
-                border.width: Math.max(1, Theme.px(1))
+                color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                 border.color: Theme.primary
+
+                AngularControlFrame {
+                    anchors.fill: parent
+                    fillColor: Theme.previewSurface
+                    borderColor: Theme.primary
+                    accentColor: Theme.signalSecondary
+                    panelFrame: true
+                    enclosedPanel: true
+                }
 
                 ClassicBevel {
                     anchors.fill: parent
@@ -2864,12 +2901,10 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -3007,12 +3042,10 @@ Item {
         padding: Theme.px(18)
         onAboutToShow: editTagsField.text = String(communityService.selectedArtwork.tagsText || "")
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -3074,12 +3107,10 @@ Item {
             return ["copyright", "misleading", "abuse", "duplicate", "other"][reportReason.currentIndex]
         }
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.borderStrong
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
@@ -3154,12 +3185,11 @@ Item {
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
 
-        background: Rectangle {
-            radius: Theme.framedRadius(Theme.px(8))
-            color: Theme.surfaceRaised
-            border.width: Theme.classicMode ? 0 : (Theme.customFrameExclusive ? 0 : Math.max(1, Theme.px(1)))
-            border.color: Theme.danger
-            ClassicBevel { anchors.fill: parent }
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.danger
+            accentColor: Theme.danger
+            cornerRadius: Theme.px(8)
         }
 
         contentItem: ColumnLayout {
