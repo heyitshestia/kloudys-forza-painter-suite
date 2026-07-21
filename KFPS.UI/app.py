@@ -88,6 +88,7 @@ def parse_args():
     parser.add_argument("--thumbnail-worker-max-seconds", type=float, default=0.0, help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-max-items", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-preferred-source", help=argparse.SUPPRESS)
+    parser.add_argument("--thumbnail-worker-regenerate", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -324,6 +325,8 @@ def main():
             worker_args.extend(["--max-items", str(args.thumbnail_worker_max_items)])
         if args.thumbnail_worker_preferred_source is not None:
             worker_args.extend(["--preferred-source", str(args.thumbnail_worker_preferred_source)])
+        if args.thumbnail_worker_regenerate:
+            worker_args.append("--regenerate")
         return thumbnail_worker_main(worker_args)
     if sys.version_info[:2] != (3, 12) and not args.allow_unsupported_python:
         raise SystemExit("KFPS requires 64-bit Python 3.12. Use the bundled runtime.")

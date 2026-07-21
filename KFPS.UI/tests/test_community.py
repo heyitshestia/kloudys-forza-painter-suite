@@ -550,10 +550,12 @@ class CommunityBoundaryTests(unittest.TestCase):
                     "download_url": "/v1/artworks/supporter-artwork/download",
                     "preview_sha256": digest,
                     "thumbnail_sha256": digest,
+                    "uses_masks": True,
                     "creator": {"username": "Artist"},
                 }
                 row = service._normalize_artwork(item)
                 self.assertTrue(row["supporterOnly"])
+                self.assertTrue(row["usesMasks"])
                 self.assertEqual(row["previewUrl"], "")
                 self.assertEqual(row["thumbnailUrl"], "")
                 with patch.object(CommunityApiClient, "binary", return_value=(preview, {"Content-Type": "image/png"})) as binary:
@@ -609,6 +611,11 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn('text: "Supporters"', page)
         self.assertIn("root.uploadSupporterOnly", page)
         self.assertIn("cardSupporterOnly", card)
+        self.assertIn("cardUsesMasks", card)
+        self.assertIn('text: "MASKS"', card)
+        self.assertIn('border.color: "#ffd84a"', card)
+        self.assertIn("required property bool usesMasks", page)
+        self.assertIn("cardUsesMasks: usesMasks", page)
         app = (UI / "app.py").read_text(encoding="utf-8")
         self.assertIn("community.supporterEntitlementRequested.connect", app)
         self.assertIn("supporter.communityEntitlementReady.connect", app)

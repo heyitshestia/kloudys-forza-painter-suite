@@ -31,7 +31,7 @@ from .qt_utils import file_url, safe_file_part
 ARTWORK_ROLES = [
     "id", "title", "description", "category", "classification", "classificationLabel", "tagsText", "gamesText", "license",
     "schemaId", "schemaLabel", "schemaKnown", "schemaWarning",
-    "shapeCount", "groupCount", "status", "statusLabel", "rejectionReason", "featured", "supporterOnly", "supporterLabel",
+    "shapeCount", "groupCount", "usesMasks", "status", "statusLabel", "rejectionReason", "featured", "supporterOnly", "supporterLabel",
     "revision", "downloads", "favorites", "favorited", "createdAt", "updatedAt", "publishedAt",
     "previewUrl", "thumbnailUrl", "downloadUrl", "contentSha256", "previewSha256", "thumbnailSha256", "creatorName", "creatorAvatar",
     "creatorBio", "creatorFollowers", "creatorFollowed",
@@ -1667,6 +1667,7 @@ class CommunityService(QObject):
             "schemaWarning": str(item.get("schema_warning") or ""),
             "shapeCount": int(item.get("shape_count") or 0),
             "groupCount": int(item.get("group_count") or 0),
+            "usesMasks": bool(item.get("uses_masks")),
             "status": str(item.get("status") or "published"),
             "statusLabel": str(item.get("status") or "published").replace("_", " ").title(),
             "rejectionReason": str(item.get("rejection_reason") or ""),
@@ -1768,6 +1769,7 @@ class CommunityService(QObject):
                     "shapeCount": 420 + index * 83, "status": "published", "statusLabel": "Published",
                     "featured": index < 2, "revision": 1, "downloads": 80 - index * 3,
                     "favorites": 18 - index, "creatorName": "GalleryCreator",
+                    "usesMasks": index in {0, 3, 6},
                     "supporterOnly": index in {1, 4, 7},
                     "supporterLabel": "Supporters" if index in {1, 4, 7} else "Everyone",
                 }).get(role, False if role in {"favorited", "creatorFollowed"} else 0 if role in {"groupCount", "creatorFollowers"} else "")

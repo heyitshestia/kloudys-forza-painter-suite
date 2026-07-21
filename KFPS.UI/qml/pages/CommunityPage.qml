@@ -499,6 +499,7 @@ Item {
                                         required property int favorites
                                         required property bool featured
                                         required property bool supporterOnly
+                                        required property bool usesMasks
                                         required property string statusLabel
 
                                         width: artworkGrid.cellWidth - Theme.px(7)
@@ -516,6 +517,7 @@ Item {
                                         cardFavorites: favorites
                                         cardFeatured: featured
                                         cardSupporterOnly: supporterOnly
+                                        cardUsesMasks: usesMasks
                                         cardStatusLabel: statusLabel
                                         cardSelected: communityService.selectedIndex === index
                                         onClicked: communityService.selectArtwork(index)

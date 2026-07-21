@@ -30,6 +30,7 @@ def worker_command(
     max_items: int = 0,
     app_executable: str | None = None,
     preferred_source: int | str | None = None,
+    regenerate: bool = False,
 ) -> list[str]:
     python_exe = Path(paths.python_executable)
     cache_file = cache_file or _cache_file(paths)
@@ -49,6 +50,8 @@ def worker_command(
         module_args.extend(["--max-items", str(max(0, int(max_items)))])
     if preferred_source is not None:
         module_args.extend(["--preferred-source", str(preferred_source)])
+    if regenerate:
+        module_args.append("--regenerate")
     app_args = [
         "--thumbnail-worker",
         "--thumbnail-worker-app-root",
@@ -66,6 +69,8 @@ def worker_command(
         app_args.extend(["--thumbnail-worker-max-items", str(max(0, int(max_items)))])
     if preferred_source is not None:
         app_args.extend(["--thumbnail-worker-preferred-source", str(preferred_source)])
+    if regenerate:
+        app_args.append("--thumbnail-worker-regenerate")
     app_script = paths.ui_root / "app.py"
     if python_exe.is_file() and python_exe.name.lower().startswith(("python", "pythonw")):
         if app_script.is_file():
@@ -164,6 +169,16 @@ def warm_thumbnail_cache(
     return updated
 
 
+def regenerate_thumbnail_cache(paths: AppPaths, cache_file: Path | None = None, preview=None) -> tuple[int, int, int]:
+    cache_file = cache_file or _cache_file(paths)
+    preview = preview or PreviewService(paths)
+    removed = int(preview.clear_cached_thumbnails())
+    from .json_service import build_startup_json_index_cache
+    indexed = int(build_startup_json_index_cache(paths, preview=preview))
+    rendered = int(warm_thumbnail_cache(paths, cache_file=cache_file, preview=preview))
+    return rendered, removed, indexed
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-root", required=True)
@@ -173,6 +188,7 @@ def parse_args(argv=None):
     parser.add_argument("--max-seconds", type=float, default=0.0)
     parser.add_argument("--max-items", type=int, default=0)
     parser.add_argument("--preferred-source")
+    parser.add_argument("--regenerate", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -188,13 +204,17 @@ def main(argv=None) -> int:
         runtime_root=Path(args.runtime_root),
         bundled_python=app_root / "python" / "python.exe",
     )
-    count = warm_thumbnail_cache(
-        paths,
-        cache_file=Path(args.cache_file) if args.cache_file else None,
-        max_seconds=max(0.0, float(args.max_seconds or 0.0)),
-        max_items=max(0, int(args.max_items or 0)),
-        preferred_source=args.preferred_source,
-    )
+    cache_file = Path(args.cache_file) if args.cache_file else None
+    if args.regenerate:
+        count, _removed, _indexed = regenerate_thumbnail_cache(paths, cache_file=cache_file)
+    else:
+        count = warm_thumbnail_cache(
+            paths,
+            cache_file=cache_file,
+            max_seconds=max(0.0, float(args.max_seconds or 0.0)),
+            max_items=max(0, int(args.max_items or 0)),
+            preferred_source=args.preferred_source,
+        )
     print(count)
     return 0
 

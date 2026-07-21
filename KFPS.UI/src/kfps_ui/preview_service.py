@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from pathlib import Path
 
 from .app_paths import AppPaths
@@ -13,6 +14,17 @@ class PreviewService:
         self.paths = paths
         self.cache = paths.runtime_root / "qml-json-previews"
         self._renderer_stamp = None
+
+    def clear_cached_thumbnails(self) -> int:
+        runtime_root = self.paths.runtime_root.resolve()
+        cache_root = self.cache.resolve()
+        if cache_root.parent != runtime_root or cache_root.name != "qml-json-previews":
+            raise RuntimeError("Refusing to clear an unexpected thumbnail cache path.")
+        if not cache_root.exists():
+            return 0
+        removed = sum(1 for path in cache_root.rglob("*") if path.is_file() or path.is_symlink())
+        shutil.rmtree(cache_root)
+        return removed
 
     def preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)

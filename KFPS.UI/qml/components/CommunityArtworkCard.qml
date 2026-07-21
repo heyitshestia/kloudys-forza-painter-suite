@@ -19,6 +19,7 @@ Item {
     property int cardFavorites: 0
     property bool cardFeatured: false
     property bool cardSupporterOnly: false
+    property bool cardUsesMasks: false
     property bool cardSelected: false
     property string cardStatusLabel: "Published"
     signal clicked()
@@ -131,6 +132,30 @@ Item {
                         color: Theme.primaryBright
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.px(8.3)
+                        font.weight: Font.Bold
+                    }
+                }
+
+                Rectangle {
+                    visible: root.cardUsesMasks
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Theme.px(6)
+                    width: masksText.implicitWidth + Theme.px(14)
+                    height: Theme.px(22)
+                    radius: Theme.corner(Theme.px(5))
+                    color: "#d0181818"
+                    border.width: Math.max(1, Theme.px(1))
+                    border.color: "#ffd84a"
+                    z: 25
+
+                    Text {
+                        id: masksText
+                        anchors.centerIn: parent
+                        text: "MASKS"
+                        color: "#ffd84a"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(8.6)
                         font.weight: Font.Bold
                     }
                 }

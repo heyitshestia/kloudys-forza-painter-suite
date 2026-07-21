@@ -458,6 +458,25 @@ Item {
                     onClicked: desktop.openRuntime()
                 }
 
+                GhostButton {
+                    Layout.fillWidth: true
+                    text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"
+                    iconName: "refresh"
+                    enabled: !jsonService.thumbnailRegenerating
+                    toolTipText: "Delete cached JSON thumbnails and rebuild them from every local output source with the current renderer. Artwork and JSON files are not changed."
+                    onClicked: jsonService.regenerateLocalThumbnails()
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: jsonService.thumbnailStatus.length > 0
+                    text: jsonService.thumbnailStatus
+                    color: Theme.subtle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(9.4)
+                    wrapMode: Text.Wrap
+                }
+
                 Item { Layout.fillHeight: true }
             }
         }

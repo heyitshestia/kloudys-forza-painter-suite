@@ -248,6 +248,7 @@ class JsonService(QObject):
         self._thumbnail_warm_pending = False
         self._thumbnail_status = ""
         self._thumbnail_active = False
+        self._thumbnail_regenerating = False
         self._thumbnail_poll_timer = QTimer(self)
         self._thumbnail_poll_timer.setInterval(900)
         self._thumbnail_poll_timer.timeout.connect(self._poll_thumbnail_worker)
@@ -293,6 +294,8 @@ class JsonService(QObject):
     def thumbnailStatus(self): return self._thumbnail_status
     @Property(bool, notify=changed)
     def thumbnailActive(self): return self._thumbnail_active
+    @Property(bool, notify=changed)
+    def thumbnailRegenerating(self): return self._thumbnail_regenerating
     @Property(int, notify=changed)
     def outputCount(self): return len(self._all_file_rows)
     @Property(int, notify=changed)
@@ -642,6 +645,39 @@ class JsonService(QObject):
             value = int(default)
         return max(minimum, min(maximum, value))
 
+    def _stop_thumbnail_worker(self):
+        proc = self._thumbnail_process
+        if not proc or proc.poll() is not None:
+            self._thumbnail_process = None
+            return
+        try:
+            proc.terminate()
+            proc.communicate(timeout=0.8)
+        except Exception:
+            try:
+                proc.kill()
+                proc.communicate(timeout=0.8)
+            except Exception:
+                pass
+        self._thumbnail_process = None
+
+    @Slot()
+    def regenerateLocalThumbnails(self):
+        if self._thumbnail_regenerating:
+            return
+        if not self._thumbnail_worker_enabled():
+            self._set_thumbnail_status("Local thumbnail regeneration is unavailable in this session.", False)
+            return
+        self._thumbnail_warm_pending = False
+        self._thumbnail_poll_timer.stop()
+        self._stop_thumbnail_worker()
+        self._preview_queue.clear()
+        self._preview_queued.clear()
+        self._preview_empty.clear()
+        self._thumbnail_regenerating = True
+        self._set_thumbnail_status("Clearing old local thumbnails and rebuilding all sources...", True)
+        self._start_thumbnail_worker(regenerate=True)
+
     @Slot()
     def _schedule_thumbnail_warm(self, delay_ms=0):
         if not self._thumbnail_worker_enabled() or self._thumbnail_warm_pending:
@@ -649,33 +685,37 @@ class JsonService(QObject):
         self._thumbnail_warm_pending = True
         QTimer.singleShot(max(0, int(delay_ms or 0)), self._start_thumbnail_worker)
 
-    def _start_thumbnail_worker(self):
+    def _start_thumbnail_worker(self, regenerate=False):
         self._thumbnail_warm_pending = False
         if not self._thumbnail_worker_enabled():
+            if regenerate:
+                self._thumbnail_regenerating = False
+                self._set_thumbnail_status("Local thumbnail regeneration is unavailable in this session.", False)
             return
         if self._thumbnail_process and self._thumbnail_process.poll() is None:
             if not self._thumbnail_poll_timer.isActive():
                 self._thumbnail_poll_timer.start()
             return
         cache_file = self._index_cache_file()
-        if not cache_file.is_file():
+        if not regenerate and not cache_file.is_file():
             self._set_thumbnail_status("Thumbnail cache is waiting for the output index.", False)
             return
-        if not self._cache_source_has_missing_preview_urls(self._source):
+        if not regenerate and not self._cache_source_has_missing_preview_urls(self._source):
             self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnails are ready.", False)
             if not self._cache_has_missing_preview_urls():
                 return
-        if not self._cache_has_missing_preview_urls():
+        if not regenerate and not self._cache_has_missing_preview_urls():
             return
-        seconds = self._env_float("KFPS_BACKGROUND_THUMBNAIL_SECONDS", 5.0, 1.0, 120.0)
-        max_items = self._env_int("KFPS_BACKGROUND_THUMBNAIL_ITEMS", 40, 1, 500)
+        seconds = 0.0 if regenerate else self._env_float("KFPS_BACKGROUND_THUMBNAIL_SECONDS", 5.0, 1.0, 120.0)
+        max_items = 0 if regenerate else self._env_int("KFPS_BACKGROUND_THUMBNAIL_ITEMS", 40, 1, 500)
         cmd = worker_command(
             paths=self.paths,
             cache_file=cache_file,
             max_seconds=seconds,
             max_items=max_items,
             app_executable=sys.executable,
-            preferred_source=self._source,
+            preferred_source=None if regenerate else self._source,
+            regenerate=bool(regenerate),
         )
         kwargs = {
             "cwd": str(self.paths.ui_root),
@@ -693,10 +733,13 @@ class JsonService(QObject):
             kwargs["creationflags"] = flags
         try:
             self._thumbnail_process = subprocess.Popen(cmd, **kwargs)
-            self._set_thumbnail_status(f"Warming {self._source_label(self._source)} thumbnails...", True)
+            message = "Regenerating all local thumbnails..." if regenerate else f"Warming {self._source_label(self._source)} thumbnails..."
+            self._set_thumbnail_status(message, True)
             self._thumbnail_poll_timer.start()
         except Exception as exc:
             self._thumbnail_process = None
+            if regenerate:
+                self._thumbnail_regenerating = False
             self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnail worker failed to start.", False)
             self.log.append(f"Output thumbnail worker failed to start: {exc}", "warning")
 
@@ -732,22 +775,13 @@ class JsonService(QObject):
         return False
 
     def _restart_thumbnail_warm_for_current_source(self):
+        if self._thumbnail_regenerating:
+            return
         if not self._thumbnail_worker_enabled() or not self._cache_source_has_missing_preview_urls(self._source):
             if self._thumbnail_worker_enabled():
                 self._set_thumbnail_status(f"{self._source_label(self._source)} thumbnails are ready.", False)
             return
-        proc = self._thumbnail_process
-        if proc and proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.communicate(timeout=0.6)
-            except Exception:
-                try:
-                    proc.kill()
-                    proc.communicate(timeout=0.6)
-                except Exception:
-                    pass
-            self._thumbnail_process = None
+        self._stop_thumbnail_worker()
         self._merge_preview_urls_from_cache(force=True)
         self._schedule_thumbnail_warm(100)
 
@@ -772,8 +806,17 @@ class JsonService(QObject):
         merged = self._merge_preview_urls_from_cache(force=True)
         label = self._source_label(self._source)
         if proc.returncode != 0:
+            self._thumbnail_regenerating = False
             self._set_thumbnail_status(f"{label} thumbnail worker exited with code {proc.returncode}.", False)
             self.log.append(f"{label} thumbnail worker exited with code {proc.returncode}.", "warning")
+            self._thumbnail_poll_timer.stop()
+            return
+        if self._thumbnail_regenerating:
+            self._thumbnail_regenerating = False
+            self._reload_regenerated_thumbnail_index()
+            noun = "thumbnail" if count == 1 else "thumbnails"
+            self._set_thumbnail_status(f"Local thumbnails regenerated ({count} {noun} rendered).", False)
+            self.log.append(f"Regenerated the local thumbnail cache with {count} rendered {noun}.", "success")
             self._thumbnail_poll_timer.stop()
             return
         if count > 0 or merged > 0:
@@ -786,6 +829,20 @@ class JsonService(QObject):
             self._schedule_thumbnail_warm(1600)
             return
         self._thumbnail_poll_timer.stop()
+
+    def _reload_regenerated_thumbnail_index(self):
+        self._source_index_cache.clear()
+        self._thumbnail_cache_mtime_ns = 0
+        self._load_index_cache()
+        self._load_source(force=False)
+        self._refresh_recent_from_cache()
+        self._preview_url = ""
+        if self._selected_path:
+            for row in self._all_file_rows:
+                if self._same_path(row.get("path"), self._selected_path):
+                    self._preview_url = str(row.get("previewUrl") or "")
+                    break
+        self.changed.emit()
 
     def _merge_preview_urls_from_cache(self, force=False):
         cache_file = self._index_cache_file()

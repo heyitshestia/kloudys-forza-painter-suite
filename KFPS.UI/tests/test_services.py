@@ -8,8 +8,9 @@ from PySide6.QtCore import QCoreApplication
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
-from kfps_ui.json_thumbnail_worker import warm_thumbnail_cache
+from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command
 from kfps_ui.log_service import LogService
+from kfps_ui.preview_service import PreviewService
 from kfps_ui.report_service import ReportService
 from kfps_ui.supporter_service import SupporterService
 APP=QCoreApplication.instance() or QCoreApplication([])
@@ -350,4 +351,41 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual("",cached["sources"]["2"]["rows"][0]["previewUrl"])
    self.assertEqual("file:///library.png",cached["sources"]["3"]["rows"][0]["previewUrl"])
    self.assertEqual(["library"],preview.calls)
+ def test_regenerate_thumbnail_cache_clears_only_runtime_cache_and_rebuilds_every_source(self):
+  class RebuildPreview:
+   def __init__(self):self.cleared=False;self.calls=[]
+   def clear_cached_thumbnails(self):self.cleared=True;return 2
+   def existing_preview_for_json(self,path,source=""):return ""
+   def preview_for_json(self,path,source=""):
+    self.calls.append((Path(path).name,source));return f"file:///{source}-rebuilt.png"
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Rebuild.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   nearby=target.with_suffix(".png");nearby.write_bytes(b"personal-preview")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   cache=paths.runtime_root/"qml-json-previews";cache.mkdir(parents=True);(cache/"old.png").write_bytes(b"old")
+   outside=paths.runtime_root/"keep.txt";outside.write_text("keep",encoding="utf-8")
+   self.assertEqual(1,PreviewService(paths).clear_cached_thumbnails())
+   self.assertFalse(cache.exists());self.assertTrue(nearby.exists());self.assertTrue(outside.exists())
+   preview=RebuildPreview();rendered,removed,indexed=regenerate_thumbnail_cache(paths,preview=preview)
+   self.assertEqual((1,2,1),(rendered,removed,indexed));self.assertTrue(preview.cleared)
+   self.assertEqual([("Rebuild.json","exported")],preview.calls)
+   payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   self.assertEqual("file:///exported-rebuilt.png",payload["sources"]["2"]["rows"][0]["previewUrl"])
+ def test_settings_regeneration_command_uses_the_dedicated_worker_mode(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(app_root),DummyLog())
+   try:
+    with patch.object(svc,"_thumbnail_worker_enabled",return_value=True), patch.object(svc,"_start_thumbnail_worker") as start:
+     svc.regenerateLocalThumbnails()
+    self.assertTrue(svc.thumbnailRegenerating);self.assertTrue(svc.thumbnailActive)
+    start.assert_called_once_with(regenerate=True)
+    qml=(UI/"qml"/"pages"/"SettingsPage.qml").read_text(encoding="utf-8")
+    self.assertIn('text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"',qml)
+    self.assertIn("jsonService.regenerateLocalThumbnails()",qml)
+    command=worker_command(paths,regenerate=True,app_executable=sys.executable)
+    self.assertIn("--thumbnail-worker-regenerate",command)
+   finally:
+    shutdown_json_service(svc)
 if __name__=="__main__":unittest.main()
