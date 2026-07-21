@@ -15,7 +15,7 @@ PAGES = [
     "create", "outputs", "community", "editor", "help",
     "settings", "tools", "images", "reports", "update", "credits",
 ]
-SIZES = [(1360, 820), (1760, 1040), (1920, 1080), (2560, 1440)]
+SIZES = [(960, 600), (1280, 720), (1760, 1040), (2560, 1440)]
 
 sys.path.insert(0, str(UI / "src"))
 from kfps_ui.theme_catalog import KNOWN_THEME_NAMES  # noqa: E402
@@ -35,7 +35,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--theme", action="append", choices=sorted(KNOWN_THEME_NAMES), dest="themes")
     parser.add_argument("--page", action="append", choices=PAGES, dest="pages")
     parser.add_argument("--size", action="append", type=parse_size, dest="sizes")
-    parser.add_argument("--ui-scale", type=float)
     parser.add_argument("--output", type=Path, default=OUT)
     return parser.parse_args()
 
@@ -45,6 +44,7 @@ def main() -> int:
     pages = args.pages or PAGES
     sizes = args.sizes or SIZES
     themes: list[str | None] = args.themes or [None]
+    args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
@@ -77,8 +77,6 @@ def main() -> int:
                     "--height", str(height),
                     "--screenshot", str(target),
                 ]
-                if args.ui_scale is not None:
-                    command.extend(["--ui-scale", str(args.ui_scale)])
                 if theme:
                     command.extend(["--theme-preview", theme])
                 run = subprocess.run(

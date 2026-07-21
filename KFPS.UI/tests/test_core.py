@@ -17,9 +17,9 @@ class CoreTests(unittest.TestCase):
   self.assertTrue(is_remote_newer("3.0.12","3.0.13"));self.assertFalse(is_remote_newer("3.0.12","3.0.12"));self.assertEqual(version_tuple("v3.0.12"),(3,0,12))
  def test_bridge_events(self):
   self.assertEqual(parse_bridge_line("KFPS_RUN_DIR: C:/run").kind,"run_started");self.assertEqual(parse_bridge_line("WPF_RUN_DIR: C:/run").kind,"run_started");self.assertEqual(parse_bridge_line("normal").kind,"log")
- def test_clean_settings_and_clamp(self):
+ def test_clean_settings_and_window_geometry(self):
   with tempfile.TemporaryDirectory() as td:
-   path=Path(td)/"settings.json";svc=SettingsService(path);self.assertEqual(svc.theme,"Night Blossom");self.assertEqual(svc.uiScale,1.05);svc.uiScale=5;self.assertEqual(svc.uiScale,1.35);self.assertTrue(path.exists())
+   path=Path(td)/"settings.json";path.write_text('{"uiScale": 1.35}',encoding="utf-8");svc=SettingsService(path);self.assertEqual(svc.theme,"Night Blossom");self.assertFalse(hasattr(svc,"uiScale"));svc.save_window_geometry(10,20,1200,700,True);self.assertEqual(svc.window_geometry(),{"x":10,"y":20,"width":1200,"height":700,"maximized":True});self.assertNotIn("uiScale",json.loads(path.read_text(encoding="utf-8")))
  def test_changelog_separates_summary_from_line_preserved_details(self):
   with tempfile.TemporaryDirectory() as td:
    path=Path(td)/"CHANGELOG.md"

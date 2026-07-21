@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.98
+- Replaced the manual UI scale multiplier with native Windows DPI scaling, a freely resizable frameless window, compact responsive layouts down to 960x600, and saved normal/maximized window geometry.
+- Made Regenerate Local Thumbnails force-render every browser-visible local JSON without the normal background item or time limits, replace KFPS-managed previews, preserve personal adjacent PNGs, and report partial failures accurately.
+- Saved the latest validated FH6 RTTI registry during normal app startup so live importing can reuse it offline without replacing the last good cache after a failed network refresh.
+
 ## 3.0.97
 - Connected live FH6 locator updates to the Cloudflare registry used by trusted calibrators, while retaining GitHub and every existing cached, packaged, built-in, and live-search fallback.
 - Made registry-source changes refresh immediately so an older GitHub cache cannot delay a newly calibrated game build after updating KFPS.

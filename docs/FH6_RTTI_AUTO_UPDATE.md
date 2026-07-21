@@ -132,7 +132,7 @@ the normalized privacy-safe profile, never the original calibration evidence.
 4. packaged repository-root `RTTI.dat`;
 5. the built-in profile retained in `fh6_probe.py`.
 
-The remote check is throttled to once every 15 minutes after success and once per minute after failure. Writes are atomic. A failed or invalid download does not replace the last valid cache. Set `KFPS_DISABLE_RTTI_UPDATE=1` to disable network refresh or `KFPS_FORCE_RTTI_UPDATE=1` for one forced check.
+KFPS refreshes this cache during normal application startup as well as before a live locator run. The remote check is throttled to once every 15 minutes after success and once per minute after failure. Writes are atomic, updater-safe runtime data is retained across program updates, and a failed or invalid download does not replace the last valid cache. The most recently validated profile therefore remains available when KFPS or FH6 is later used without internet access. Set `KFPS_DISABLE_RTTI_UPDATE=1` to disable network refresh or `KFPS_FORCE_RTTI_UPDATE=1` for one forced check.
 
 Every candidate is verified against live process memory. If no shared profile matches, KFPS continues through `update-codes.dat`, class-name RTTI scanning, and the slower layout/count fallback.
 

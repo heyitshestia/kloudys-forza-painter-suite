@@ -14,11 +14,12 @@ PAGES = [
     "tools", "images", "reports", "update", "credits",
 ]
 DEFAULT_SIZES = [
+    (960, 600),
+    (1280, 720),
     (1360, 820),
     (1760, 1040),
     (1920, 1080),
     (2560, 1440),
-    (3440, 1440),
 ]
 
 sys.path.insert(0, str(UI / "src"))
@@ -34,13 +35,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit visible QML controls across window sizes.")
     parser.add_argument("--size", action="append", type=parse_size, dest="sizes")
     parser.add_argument("--page", action="append", choices=PAGES, dest="pages")
-    parser.add_argument("--ui-scale", type=float, default=1.0)
     parser.add_argument("--theme", choices=sorted(KNOWN_THEME_NAMES))
     parser.add_argument("--output", type=Path, default=UI / "Previews" / "layout-audit")
     args = parser.parse_args()
 
     sizes = args.sizes or DEFAULT_SIZES
     pages = args.pages or PAGES
+    args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
@@ -54,7 +55,7 @@ def main() -> int:
     failures: list[dict] = []
     summaries: list[dict] = []
     for width, height in sizes:
-        case_dir = args.output / f"{width}x{height}_s{args.ui_scale:.2f}"
+        case_dir = args.output / f"{width}x{height}"
         case_dir.mkdir(parents=True, exist_ok=True)
         command = [
             sys.executable,
@@ -63,7 +64,6 @@ def main() -> int:
             "--demo",
             "--width", str(width),
             "--height", str(height),
-            "--ui-scale", str(args.ui_scale),
             "--layout-report-dir", str(case_dir),
         ]
         if args.theme:
@@ -109,7 +109,7 @@ def main() -> int:
                 "page": page,
                 "width": width,
                 "height": height,
-                "uiScale": args.ui_scale,
+                "devicePixelRatio": payload.get("devicePixelRatio", 1.0),
                 "controlCount": len(payload.get("controls", [])),
                 "zeroSize": payload.get("zeroSize", []),
                 "tooSmall": payload.get("tooSmall", []),
@@ -122,7 +122,7 @@ def main() -> int:
     aggregate = {
         "sizes": sizes,
         "pages": pages,
-        "uiScale": args.ui_scale,
+        "scaling": "native",
         "theme": args.theme or "persisted",
         "cases": summaries,
         "failures": failures,
@@ -131,7 +131,7 @@ def main() -> int:
 
     print(
         f"Audited {len(summaries)} page/size cases for {args.theme or 'the persisted theme'} "
-        f"at UI scale {args.ui_scale:.2f}."
+        "with native Qt/Windows scaling."
     )
     if failures:
         print(f"FAILED: {len(failures)} case(s). See {args.output / 'summary.json'}")

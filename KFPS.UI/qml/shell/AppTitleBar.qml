@@ -92,6 +92,8 @@ Rectangle {
 
                 objectName: "TitleBarButton:" + button.modelData
                 readonly property bool pressed: buttonTap.pressed
+                readonly property bool maximized: root.window.visibility === Window.FullScreen
+                                                   || root.window.visibility === Window.Maximized
 
                 width: Theme.px(Theme.classicMode ? 24 : 46)
                 height: parent.height
@@ -136,14 +138,43 @@ Rectangle {
                         anchors.verticalCenterOffset: Theme.classicMode ? Theme.px(4) : 0
                     }
 
-                    Rectangle {
+                    Item {
                         visible: button.modelData === "max"
-                        width: Theme.px(11)
-                        height: Theme.px(10)
-                        color: "transparent"
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.classicMode ? Theme.borderStrong : Theme.text
+                        width: Theme.px(13)
+                        height: Theme.px(12)
                         anchors.centerIn: parent
+
+                        Rectangle {
+                            visible: !button.maximized
+                            anchors.centerIn: parent
+                            width: Theme.px(11)
+                            height: Theme.px(10)
+                            color: "transparent"
+                            border.width: Math.max(1, Theme.px(1))
+                            border.color: Theme.classicMode ? Theme.borderStrong : Theme.text
+                        }
+
+                        Rectangle {
+                            visible: button.maximized
+                            x: Theme.px(3)
+                            y: 0
+                            width: Theme.px(9)
+                            height: Theme.px(8)
+                            color: root.color
+                            border.width: Math.max(1, Theme.px(1))
+                            border.color: Theme.classicMode ? Theme.borderStrong : Theme.text
+                        }
+
+                        Rectangle {
+                            visible: button.maximized
+                            x: 0
+                            y: Theme.px(3)
+                            width: Theme.px(9)
+                            height: Theme.px(8)
+                            color: root.color
+                            border.width: Math.max(1, Theme.px(1))
+                            border.color: Theme.classicMode ? Theme.borderStrong : Theme.text
+                        }
                     }
 
                     Text {

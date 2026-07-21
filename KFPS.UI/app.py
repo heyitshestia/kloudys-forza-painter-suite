@@ -16,12 +16,13 @@ for item in (str(SRC), str(ROOT)):
         sys.path.insert(0, item)
 
 from PySide6.QtCore import QCoreApplication, QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QCursor, QGuiApplication, QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
+from fh6_rtti_registry import refresh_runtime_registry
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.announcement_service import AnnouncementService
@@ -51,6 +52,7 @@ from kfps_ui.theme_catalog import (
 from kfps_ui.transfer_service import TransferService
 from kfps_ui.update_service import UpdateService
 from kfps_ui.version_service import VersionService
+from kfps_ui.window_geometry import ScreenRect, calculate_window_placement
 
 
 def parse_args():
@@ -70,9 +72,8 @@ def parse_args():
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--community-overlay", choices=("login", "inspector"), help=argparse.SUPPRESS)
-    parser.add_argument("--width", type=int, default=1760)
-    parser.add_argument("--height", type=int, default=1040)
-    parser.add_argument("--ui-scale", type=float)
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--height", type=int)
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--theme-preview", choices=sorted(KNOWN_THEME_NAMES), help=argparse.SUPPRESS)
     parser.add_argument("--terminal-green-text", action="store_true", help=argparse.SUPPRESS)
@@ -231,6 +232,8 @@ def run_startup_output_index(
         app.processEvents()
 
     try:
+        progress("Saving the latest FH6 locator for offline use...", 1, 100)
+        refresh_runtime_registry(paths.app_root)
         build_startup_json_index_cache(paths, preview=preview, progress=progress)
         progress("Output library has been bullied into a cache file.", 100, 100)
         if warm_thumbnails:
@@ -276,8 +279,8 @@ def run_source_download_blocker(
     window = engine.rootObjects()[0]
     if not app_icon.isNull() and hasattr(window, "setIcon"):
         window.setIcon(app_icon)
-    window.setWidth(max(980, args.width))
-    window.setHeight(max(620, args.height))
+    window.setWidth(max(980, int(args.width or 1180)))
+    window.setHeight(max(620, int(args.height or 720)))
 
     screenshot_target = None
     if args.screenshot:
@@ -335,6 +338,9 @@ def main():
         os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
     QCoreApplication.setOrganizationName("Kloudy")
     QCoreApplication.setApplicationName("KFPS")
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     QQuickStyle.setStyle("Basic")
     app = QApplication(sys.argv[:1])
     app.setApplicationDisplayName("KFPS")
@@ -353,8 +359,6 @@ def main():
         settings._data["theme"] = theme_preview
     if args.terminal_green_text:
         settings._data["terminalGreenText"] = True
-    if args.ui_scale is not None:
-        settings._data["uiScale"] = max(0.80, min(1.35, float(args.ui_scale)))
     if args.motion_capture_dir or args.motion_preview:
         settings._data["reducedMotion"] = False
         settings._data["ambientMotion"] = True
@@ -461,9 +465,74 @@ def main():
         window.setPersistentSceneGraph(True)
     except Exception:
         pass
-    window.setWidth(args.width)
-    window.setHeight(args.height)
+    active_screen = QGuiApplication.screenAt(QCursor.pos()) or app.primaryScreen()
+    ordered_screens = [active_screen] if active_screen is not None else []
+    ordered_screens.extend(screen for screen in app.screens() if screen is not active_screen)
+    screens = []
+    for screen in ordered_screens:
+        geometry = screen.availableGeometry()
+        screens.append(ScreenRect(
+            geometry.x(), geometry.y(), geometry.width(), geometry.height()
+        ))
+    placement = calculate_window_placement(
+        screens,
+        settings.window_geometry(),
+        requested_width=args.width,
+        requested_height=args.height,
+    )
+    window.setX(placement.x)
+    window.setY(placement.y)
+    window.setWidth(placement.width)
+    window.setHeight(placement.height)
+
+    persist_window_state = args.width is None and args.height is None and not args.demo
+    normal_geometry = {
+        "x": placement.x,
+        "y": placement.y,
+        "width": placement.width,
+        "height": placement.height,
+    }
+    window_state = {"maximized": placement.maximized}
+
+    def remember_normal_geometry(*_args):
+        if window.visibility() != QWindow.Windowed:
+            return
+        normal_geometry.update({
+            "x": int(window.x()),
+            "y": int(window.y()),
+            "width": int(window.width()),
+            "height": int(window.height()),
+        })
+
+    def remember_window_state(visibility):
+        if visibility == QWindow.Maximized:
+            window_state["maximized"] = True
+        elif visibility == QWindow.Windowed:
+            window_state["maximized"] = False
+            remember_normal_geometry()
+
+    def save_window_state():
+        settings.save_window_geometry(
+            normal_geometry["x"],
+            normal_geometry["y"],
+            normal_geometry["width"],
+            normal_geometry["height"],
+            window_state["maximized"],
+        )
+
+    if persist_window_state:
+        window.xChanged.connect(remember_normal_geometry)
+        window.yChanged.connect(remember_normal_geometry)
+        window.widthChanged.connect(remember_normal_geometry)
+        window.heightChanged.connect(remember_normal_geometry)
+        window.visibilityChanged.connect(remember_window_state)
+        app.aboutToQuit.connect(save_window_state)
+
     controller.navigate(args.page)
+    if placement.maximized and persist_window_state:
+        window.showMaximized()
+    else:
+        window.show()
     if args.page == "community" and (args.community_tab or args.community_scope or args.community_overlay):
         community_tab = {"browse": 0, "upload": 1, "profile": 2}.get(args.community_tab, 0)
         community_scope = {
@@ -602,7 +671,7 @@ def main():
         payload = {
             "page": controller.currentPage,
             "window": {"width": window.width(), "height": window.height()},
-            "uiScale": settings.uiScale,
+            "devicePixelRatio": round(float(window.devicePixelRatio()), 3),
             "theme": settings.theme,
             "controls": controls,
             "textItems": text_items,
@@ -631,7 +700,7 @@ def main():
                 metadata = {
                     "page": controller.currentPage,
                     "window": {"width": window.width(), "height": window.height()},
-                    "uiScale": settings.uiScale,
+                    "devicePixelRatio": round(float(window.devicePixelRatio()), 3),
                     "theme": settings.theme,
                     "scheduledMs": list(frame_times),
                     "lastElapsedMs": elapsed_ms,
@@ -664,7 +733,7 @@ def main():
             manifest = {
                 "page": controller.currentPage,
                 "window": {"width": window.width(), "height": window.height()},
-                "uiScale": settings.uiScale,
+                "devicePixelRatio": round(float(window.devicePixelRatio()), 3),
                 "theme": settings.theme,
                 "controls": [],
             }

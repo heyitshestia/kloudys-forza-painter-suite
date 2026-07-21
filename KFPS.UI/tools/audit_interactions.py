@@ -84,13 +84,12 @@ def main() -> int:
     parser.add_argument("--page", action="append", choices=PAGES, dest="pages")
     parser.add_argument("--community-tab", choices=("browse", "upload", "profile"))
     parser.add_argument("--size", type=parse_size, default=(1360, 820))
-    parser.add_argument("--ui-scale", type=float, default=1.0)
     parser.add_argument("--output", type=Path, default=UI / "Previews" / "interaction-audit")
     args = parser.parse_args()
 
     pages = args.pages or PAGES
     width, height = args.size
-    output = args.output / "themes" / theme_slug(args.theme) / f"{width}x{height}"
+    output = args.output.resolve() / "themes" / theme_slug(args.theme) / f"{width}x{height}"
     output.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
@@ -118,7 +117,6 @@ def main() -> int:
             "--page", page,
             "--width", str(width),
             "--height", str(height),
-            "--ui-scale", str(args.ui_scale),
             "--theme-preview", args.theme,
             "--interaction-capture-dir", str(page_dir),
         ]
@@ -199,7 +197,7 @@ def main() -> int:
     summary = {
         "theme": args.theme,
         "size": {"width": width, "height": height},
-        "uiScale": args.ui_scale,
+        "scaling": "native",
         "pages": pages,
         "controlCount": len(controls),
         "processFailures": process_failures,

@@ -18,7 +18,6 @@ class SettingsService(QObject):
 
     DEFAULTS = {
         "theme": DEFAULT_THEME,
-        "uiScale": 1.05,
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
@@ -26,6 +25,7 @@ class SettingsService(QObject):
         "liveStatusVisible": True,
         "terminalGreenText": False,
         "consoleCollapsed": False,
+        "windowGeometry": {},
     }
     KNOWN_THEMES = set(KNOWN_THEME_NAMES)
 
@@ -45,7 +45,8 @@ class SettingsService(QObject):
         except Exception:
             pass
         self._data["theme"] = normalize_theme(self._data.get("theme"))
-        self._data["uiScale"] = max(0.80, min(1.35, float(self._data["uiScale"])))
+        if not isinstance(self._data.get("windowGeometry"), dict):
+            self._data["windowGeometry"] = {}
 
     def save(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,10 +72,6 @@ class SettingsService(QObject):
     def theme(self): return str(self._get("theme"))
     @theme.setter
     def theme(self, value): self._set_theme(value)
-    @Property(float, notify=changed)
-    def uiScale(self): return float(self._get("uiScale"))
-    @uiScale.setter
-    def uiScale(self, value): self._set("uiScale", max(0.80, min(1.35, float(value))))
     @Property(bool, notify=changed)
     def manualOverrides(self): return bool(self._get("manualOverrides"))
     @manualOverrides.setter
@@ -103,6 +100,23 @@ class SettingsService(QObject):
     def consoleCollapsed(self): return bool(self._get("consoleCollapsed"))
     @consoleCollapsed.setter
     def consoleCollapsed(self, value): self._set("consoleCollapsed", bool(value))
+
+    def window_geometry(self) -> dict:
+        payload = self._data.get("windowGeometry")
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def save_window_geometry(self, x: int, y: int, width: int, height: int, maximized: bool) -> None:
+        payload = {
+            "x": int(x),
+            "y": int(y),
+            "width": max(1, int(width)),
+            "height": max(1, int(height)),
+            "maximized": bool(maximized),
+        }
+        if self._data.get("windowGeometry") == payload:
+            return
+        self._data["windowGeometry"] = payload
+        self.save()
 
     @Slot()
     def reset(self):

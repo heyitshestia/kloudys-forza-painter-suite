@@ -32,10 +32,17 @@ JSON_INDEX_CACHE_VERSION = 1
 
 
 class _StartupJsonIndexBuilder:
-    def __init__(self, paths: AppPaths, preview: PreviewService | None = None, progress=None):
+    def __init__(
+        self,
+        paths: AppPaths,
+        preview: PreviewService | None = None,
+        progress=None,
+        include_existing_previews: bool = True,
+    ):
         self.paths = paths
         self.preview = preview
         self.progress = progress
+        self.include_existing_previews = bool(include_existing_previews)
 
     def source_roots(self):
         return [self.paths.generated_root, self.paths.editor_json_root, self.paths.exported_root, self.paths.library_root]
@@ -177,6 +184,8 @@ class _StartupJsonIndexBuilder:
         }
 
     def existing_preview(self, path, source_name):
+        if not self.include_existing_previews:
+            return ""
         existing = getattr(self.preview, "existing_preview_for_json", None)
         if callable(existing):
             try:
@@ -216,8 +225,18 @@ class _StartupJsonIndexBuilder:
         }
 
 
-def build_startup_json_index_cache(paths: AppPaths, preview: PreviewService | None = None, progress=None):
-    builder = _StartupJsonIndexBuilder(paths, preview=preview, progress=progress)
+def build_startup_json_index_cache(
+    paths: AppPaths,
+    preview: PreviewService | None = None,
+    progress=None,
+    include_existing_previews: bool = True,
+):
+    builder = _StartupJsonIndexBuilder(
+        paths,
+        preview=preview,
+        progress=progress,
+        include_existing_previews=include_existing_previews,
+    )
     payload, total_rows = builder.build_payload()
     JsonService._write_index_cache_payload(paths.runtime_root / "json-browser-index.v1.json", payload)
     return total_rows
@@ -799,8 +818,15 @@ class JsonService(QObject):
             stdout, stderr = "", ""
         self._thumbnail_process = None
         count = 0
+        summary = {}
         try:
-            count = max(0, int((stdout or "0").strip().splitlines()[-1]))
+            final_line = (stdout or "0").strip().splitlines()[-1]
+            if final_line.startswith("{"):
+                parsed = json.loads(final_line)
+                summary = parsed if isinstance(parsed, dict) else {}
+                count = max(0, int(summary.get("rendered") or 0))
+            else:
+                count = max(0, int(final_line))
         except (IndexError, TypeError, ValueError):
             count = 0
         merged = self._merge_preview_urls_from_cache(force=True)
@@ -814,9 +840,20 @@ class JsonService(QObject):
         if self._thumbnail_regenerating:
             self._thumbnail_regenerating = False
             self._reload_regenerated_thumbnail_index()
-            noun = "thumbnail" if count == 1 else "thumbnails"
-            self._set_thumbnail_status(f"Local thumbnails regenerated ({count} {noun} rendered).", False)
-            self.log.append(f"Regenerated the local thumbnail cache with {count} rendered {noun}.", "success")
+            indexed = max(count, int(summary.get("indexed") or count))
+            failed = max(0, int(summary.get("failed") or (indexed - count)))
+            if indexed == 0:
+                message = "No local JSON thumbnails were found to regenerate."
+                level = "warning"
+            elif failed:
+                message = f"Regenerated {count} of {indexed} local thumbnails ({failed} failed)."
+                level = "warning"
+            else:
+                noun = "thumbnail" if indexed == 1 else "thumbnails"
+                message = f"Regenerated all {indexed} local {noun}."
+                level = "success"
+            self._set_thumbnail_status(message, False)
+            self.log.append(message, level)
             self._thumbnail_poll_timer.stop()
             return
         if count > 0 or merged > 0:

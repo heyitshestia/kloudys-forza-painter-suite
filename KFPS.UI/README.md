@@ -11,11 +11,11 @@ python -m pip install -r requirements.txt
 python KFPS.UI\app.py
 ```
 
-The app starts at approximately `1760×1040`, adapts down to `1360×820`, and uses a wide sidebar on normal displays with an automatic compact rail on constrained windows.
+The app prefers `1760×1040`, fits its first launch to the active Windows desktop, and restores the last normal position, size, and maximized state. Qt follows the system DPI setting directly; there is no second app-level scale multiplier. Responsive pages stack and scroll down to the `960×600` resize minimum, with an automatic compact sidebar on constrained windows.
 
 ## Current refinement baseline
 
-The current geometry baseline standardizes centered button content, field alignment, logical scaling breakpoints, creator-first page sizing, and route-aware sidebar scrolling. Use `tools/audit_layout_matrix.py` and `tools/capture_pages.py` for repeatable layout checks.
+The current geometry baseline standardizes centered button content, field alignment, native logical-pixel breakpoints, creator-first page sizing, and route-aware sidebar scrolling. Use `tools/audit_layout_matrix.py` and `tools/capture_pages.py` for repeatable layout checks.
 
 ## Build KFPS.exe
 

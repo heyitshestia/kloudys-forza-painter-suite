@@ -11,7 +11,6 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
-    property real pendingUiScale: settings.uiScale
     readonly property bool activationNeedsRepair: [
         "duplicate", "not_eligible", "network_error", "service_error", "deactivated", "revoked"
     ].indexOf(supporterService.activationState) >= 0
@@ -22,18 +21,6 @@ Item {
     readonly property real headerPreviewCenterX: foldersCard.x + foldersCard.width / 2
     readonly property real headerBannerLeftX: interfaceCard.x
     readonly property real headerBannerRightX: foldersCard.x + foldersCard.width
-
-    function roundedUiScale(value) {
-        return Math.max(0.8, Math.min(1.35, Math.round(value * 20) / 20))
-    }
-
-    Connections {
-        target: settings
-        function onChanged() {
-            if (!uiScaleSlider.pressed)
-                root.pendingUiScale = settings.uiScale
-        }
-    }
 
     FastScrollView {
         id: pageScroll
@@ -115,22 +102,6 @@ Item {
                     checked: settings.terminalGreenText
                     toolTipText: "Switch Command Prompt text between white and phosphor green. This setting affects only the Command Prompt theme."
                     onToggled: settings.terminalGreenText = checked
-                }
-
-                Label { text: "UI scale  •  " + Math.round(root.pendingUiScale * 100) + "%" }
-                KfpsSlider {
-                    id: uiScaleSlider
-                    Layout.fillWidth: true
-                    from: 0.8
-                    to: 1.35
-                    stepSize: 0.05
-                    value: root.pendingUiScale
-                    toolTipText: "Make the whole KFPS interface smaller or larger. The setting is saved when you release the slider."
-                    onMoved: root.pendingUiScale = root.roundedUiScale(value)
-                    onPressedChanged: {
-                        if (!pressed)
-                            settings.uiScale = root.roundedUiScale(root.pendingUiScale)
-                    }
                 }
 
                 Rectangle {
@@ -463,7 +434,7 @@ Item {
                     text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"
                     iconName: "refresh"
                     enabled: !jsonService.thumbnailRegenerating
-                    toolTipText: "Delete cached JSON thumbnails and rebuild them from every local output source with the current renderer. Artwork and JSON files are not changed."
+                    toolTipText: "Force-render every local output JSON with the current renderer. JSON files, source artwork, and personal adjacent PNGs are not changed; KFPS-managed previews are replaced."
                     onClicked: jsonService.regenerateLocalThumbnails()
                 }
 

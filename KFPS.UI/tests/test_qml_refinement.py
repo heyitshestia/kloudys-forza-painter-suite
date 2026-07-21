@@ -81,15 +81,26 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('dashboard: "CreatePage"', main)
         self.assertIn('create: "CreatePage"', main)
 
-    def test_global_scaling_uses_one_continuous_viewport_factor(self):
+    def test_native_scaling_has_no_manual_scene_multiplier(self):
         theme = self.read("Kfps/Theme/Theme.qml")
         main = self.read("Main.qml")
-        self.assertIn("property real viewportScale", theme)
-        self.assertIn("readonly property real effectiveScale", theme)
-        self.assertIn("viewportScale * uiScale", theme)
-        self.assertIn("readonly property real viewportFitScale", main)
-        self.assertIn('property: "viewportScale"', main)
-        self.assertIn("Math.min(width / Metrics.launchWidth", main)
+        settings = self.read("pages/SettingsPage.qml")
+        self.assertIn("return Math.round(value)", theme)
+        self.assertIn("return value", theme)
+        self.assertNotIn("viewportScale", theme)
+        self.assertNotIn("uiScale", theme)
+        self.assertNotIn("viewportFitScale", main)
+        self.assertNotIn("UI scale", settings)
+
+    def test_frameless_window_uses_native_resize_zones(self):
+        main = self.read("Main.qml")
+        frame = self.read("shell/WindowResizeFrame.qml")
+        title_bar = self.read("shell/AppTitleBar.qml")
+        self.assertIn("WindowResizeFrame", main)
+        for edge in ("Qt.TopEdge", "Qt.BottomEdge", "Qt.LeftEdge", "Qt.RightEdge"):
+            self.assertIn(edge, frame)
+        self.assertIn("startSystemResize", frame)
+        self.assertIn("startSystemMove", title_bar)
 
     def test_interactables_have_no_artificial_white_top_strip(self):
         files = [

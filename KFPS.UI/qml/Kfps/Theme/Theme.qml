@@ -6,8 +6,6 @@ QtObject {
 
     // Runtime inputs bound by Main.qml. Components should consume only semantic
     // tokens below, never branch on a page/function name or hard-code a palette.
-    property real viewportScale: 1.0
-    property real uiScale: 1.05
     property bool reducedMotion: false
     property bool ambientMotion: true
     property bool glassEffects: true
@@ -284,14 +282,12 @@ QtObject {
                                                       ? loadedMonoFontFamily
                                                       : (Qt.platform.os === "windows" ? "Cascadia Mono" : "monospace")))
 
-    readonly property real effectiveScale: Math.max(0.72, viewportScale * uiScale)
-
     function px(value) {
-        return Math.round(value * effectiveScale)
+        return Math.round(value)
     }
 
     function logical(value) {
-        return value / effectiveScale
+        return value
     }
 
     function isAtLeast(renderedWidth, designWidth) {

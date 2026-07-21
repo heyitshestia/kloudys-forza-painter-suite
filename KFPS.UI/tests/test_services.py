@@ -355,9 +355,10 @@ class ServiceTests(unittest.TestCase):
   class RebuildPreview:
    def __init__(self):self.cleared=False;self.calls=[]
    def clear_cached_thumbnails(self):self.cleared=True;return 2
-   def existing_preview_for_json(self,path,source=""):return ""
-   def preview_for_json(self,path,source=""):
+   def existing_preview_for_json(self,path,source=""):raise AssertionError("forced rebuild searched stale previews")
+   def regenerate_preview_for_json(self,path,source=""):
     self.calls.append((Path(path).name,source));return f"file:///{source}-rebuilt.png"
+   def preview_for_json(self,path,source=""):raise AssertionError("forced rebuild used the normal preview lookup")
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);target=app_root/"imgs"/"exported"/"Rebuild.json";target.parent.mkdir(parents=True)
    target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
@@ -372,6 +373,33 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual([("Rebuild.json","exported")],preview.calls)
    payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
    self.assertEqual("file:///exported-rebuilt.png",payload["sources"]["2"]["rows"][0]["previewUrl"])
+ def test_regenerate_thumbnail_cache_force_renders_more_than_900_indexed_jsons(self):
+  class BulkPreview:
+   def __init__(self):self.calls=[]
+   def clear_cached_thumbnails(self):return 0
+   def existing_preview_for_json(self,path,source=""):raise AssertionError("bulk rebuild searched stale previews")
+   def regenerate_preview_for_json(self,path,source=""):
+    self.calls.append((Path(path).name,source));return f"file:///rebuilt/{Path(path).stem}.png"
+   def preview_for_json(self,path,source=""):raise AssertionError("forced rebuild skipped its renderer")
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);library=app_root/"imgs"/"library";library.mkdir(parents=True)
+   payload=json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   for index in range(905):(library/f"Local-{index:04d}.json").write_text(payload,encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=BulkPreview();rendered,removed,indexed=regenerate_thumbnail_cache(paths,preview=preview)
+   self.assertEqual((905,0,905),(rendered,removed,indexed))
+   self.assertEqual(905,len(preview.calls))
+   self.assertTrue(all(source=="library" for _name,source in preview.calls))
+ def test_forced_regeneration_keeps_personal_adjacent_png_and_replaces_managed_cache(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Managed.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,100,60,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   adjacent=target.with_suffix(".png");adjacent.write_bytes(b"personal-preview")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=PreviewService(paths);url=preview.regenerate_preview_for_json(target,"exported")
+   managed=preview._cache_target(target,"general")
+   self.assertTrue(url);self.assertTrue(managed.is_file());self.assertTrue(managed.read_bytes().startswith(b"\x89PNG"))
+   self.assertEqual(b"personal-preview",adjacent.read_bytes())
  def test_settings_regeneration_command_uses_the_dedicated_worker_mode(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")

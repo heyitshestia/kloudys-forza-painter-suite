@@ -120,6 +120,7 @@ def warm_thumbnail_cache(
     max_items: int = 0,
     preview=None,
     preferred_source: int | str | None = None,
+    force: bool = False,
 ) -> int:
     cache_file = cache_file or _cache_file(paths)
     payload = _load_payload(cache_file)
@@ -141,7 +142,7 @@ def warm_thumbnail_cache(
             if not isinstance(row, dict):
                 continue
             path = Path(str(row.get("path") or ""))
-            needs_preview = not bool(row.get("previewUrl"))
+            needs_preview = bool(force) or not bool(row.get("previewUrl"))
             if not needs_preview and source_name == "generated":
                 checker = getattr(preview, "generated_preview_needs_persistence", None)
                 needs_preview = bool(callable(checker) and checker(path))
@@ -156,7 +157,10 @@ def warm_thumbnail_cache(
             if not path.is_file():
                 continue
             try:
-                preview_url = str(preview.preview_for_json(path, source_name) or "")
+                renderer = getattr(preview, "regenerate_preview_for_json", None) if force else None
+                if not callable(renderer):
+                    renderer = preview.preview_for_json
+                preview_url = str(renderer(path, source_name) or "")
             except Exception:
                 preview_url = ""
             if preview_url:
@@ -174,8 +178,8 @@ def regenerate_thumbnail_cache(paths: AppPaths, cache_file: Path | None = None, 
     preview = preview or PreviewService(paths)
     removed = int(preview.clear_cached_thumbnails())
     from .json_service import build_startup_json_index_cache
-    indexed = int(build_startup_json_index_cache(paths, preview=preview))
-    rendered = int(warm_thumbnail_cache(paths, cache_file=cache_file, preview=preview))
+    indexed = int(build_startup_json_index_cache(paths, preview=preview, include_existing_previews=False))
+    rendered = int(warm_thumbnail_cache(paths, cache_file=cache_file, preview=preview, force=True))
     return rendered, removed, indexed
 
 
@@ -206,7 +210,13 @@ def main(argv=None) -> int:
     )
     cache_file = Path(args.cache_file) if args.cache_file else None
     if args.regenerate:
-        count, _removed, _indexed = regenerate_thumbnail_cache(paths, cache_file=cache_file)
+        count, removed, indexed = regenerate_thumbnail_cache(paths, cache_file=cache_file)
+        print(json.dumps({
+            "rendered": count,
+            "removed": removed,
+            "indexed": indexed,
+            "failed": max(0, indexed - count),
+        }, separators=(",", ":")))
     else:
         count = warm_thumbnail_cache(
             paths,
@@ -215,7 +225,7 @@ def main(argv=None) -> int:
             max_items=max(0, int(args.max_items or 0)),
             preferred_source=args.preferred_source,
         )
-    print(count)
+        print(count)
     return 0
 
 

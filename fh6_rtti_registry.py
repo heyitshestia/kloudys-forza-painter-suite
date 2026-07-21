@@ -444,6 +444,27 @@ def _truthy_environment(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def refresh_runtime_registry(
+    root: Path,
+    *,
+    remote_url: str | None = None,
+    downloader: Callable[[str], dict[str, Any]] | None = None,
+    now: float | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    if _truthy_environment("KFPS_DISABLE_RTTI_UPDATE"):
+        return {"attempted": False, "updated": False, "result": "disabled", "error": ""}
+    update_url = remote_url or os.environ.get("KFPS_RTTI_UPDATE_URL", "").strip() or DEFAULT_REMOTE_URL
+    cache_path = Path(root) / "runtime" / "fh6-rtti" / DEFAULT_REGISTRY_PATH
+    return refresh_registry_cache(
+        cache_path,
+        remote_url=update_url,
+        now=now,
+        force=bool(force or _truthy_environment("KFPS_FORCE_RTTI_UPDATE")),
+        downloader=downloader,
+    )
+
+
 def load_runtime_profiles(
     root: Path,
     fallback_profile: Any,

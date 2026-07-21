@@ -46,6 +46,11 @@ class GeneratedPreviewPersistenceTests(unittest.TestCase):
             self.assertGreater(expected.stat().st_size, 0)
             self.assertFalse(service.generated_preview_needs_persistence(final_json))
 
+            expected.write_bytes(b"stale-managed-preview")
+            regenerated_url = service.regenerate_preview_for_json(final_json, "generated")
+            self.assertTrue(regenerated_url)
+            self.assertTrue(expected.read_bytes().startswith(b"\x89PNG"))
+
             legacy_cache = service._cache_target(final_json, "generated")
             legacy_cache.parent.mkdir(parents=True, exist_ok=True)
             legacy_cache.write_bytes(expected.read_bytes())

@@ -12,7 +12,7 @@ ApplicationWindow {
     height: Metrics.launchHeight
     minimumWidth: Metrics.minWidth
     minimumHeight: Metrics.minHeight
-    visible: true
+    visible: false
     color: Theme.backgroundA
     title: appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -52,11 +52,6 @@ ApplicationWindow {
         onTriggered: supporterService.refresh()
     }
 
-    readonly property real viewportFitScale: Theme.clamp(
-                                                Math.min(width / Metrics.launchWidth,
-                                                         height / Metrics.launchHeight),
-                                                0.72,
-                                                1.75)
     property bool compactSidebar: Theme.logical(width) < 1240
     property bool shortWindow: Theme.logical(height) < 760
     property bool compactHeader: Theme.logical(width) < 1280
@@ -69,8 +64,6 @@ ApplicationWindow {
     property Item glassBackdropSource: backdropLayer
     property bool updateAutoOpened: false
 
-    Binding { target: Theme; property: "viewportScale"; value: window.viewportFitScale }
-    Binding { target: Theme; property: "uiScale"; value: settings.uiScale }
     Binding { target: Theme; property: "reducedMotion"; value: settings.reducedMotion }
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
     Binding { target: Theme; property: "glassEffects"; value: settings.glassEffects }
@@ -423,5 +416,11 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    WindowResizeFrame {
+        anchors.fill: parent
+        window: window
+        z: 1000
     }
 }

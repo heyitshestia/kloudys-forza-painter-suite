@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import uuid
 from pathlib import Path
 
 from .app_paths import AppPaths
@@ -37,6 +38,34 @@ class PreviewService:
         if source == "editor":
             return self._render_cached(path, "editor") or self._nearby_url(path)
         return self._nearby_url(path) or self._render_cached(path, "general")
+
+    def regenerate_preview_for_json(self, json_path: str | Path, source: str = "") -> str:
+        path = Path(json_path)
+        if not path.is_file():
+            return ""
+        source = (source or self._source_for_path(path)).lower()
+        namespace = "generated" if source == "generated" else ("editor" if source == "editor" else "general")
+        target = self._generated_preview_target(path) if namespace == "generated" else self._cache_target(path, namespace)
+        temporary = None
+        try:
+            from json_preview_renderer import render_json_preview
+
+            data = render_json_preview(path, max_size=900)
+            if not data:
+                return ""
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+            temporary.write_bytes(data)
+            temporary.replace(target)
+            return file_url(target)
+        except Exception:
+            return ""
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def existing_preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)

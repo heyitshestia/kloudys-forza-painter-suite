@@ -2,12 +2,12 @@ pragma Singleton
 import QtQuick 6.7
 
 QtObject {
-    // Larger creator-first launch size. The main workflow is designed to show
-    // all primary options without page scrolling at this size.
+    // The preferred launch size is fitted to the active screen by app.py.
+    // Compact layouts stack and scroll down to the native resize minimum.
     readonly property int launchWidth: 1760
     readonly property int launchHeight: 1040
-    readonly property int minWidth: 1360
-    readonly property int minHeight: 820
+    readonly property int minWidth: 960
+    readonly property int minHeight: 600
 
     // Shell dimensions in design units.
     readonly property real titleHeight: 30

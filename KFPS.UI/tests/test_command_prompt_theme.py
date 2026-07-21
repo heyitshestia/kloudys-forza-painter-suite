@@ -45,7 +45,6 @@ class CommandPromptThemeTests(unittest.TestCase):
             path = Path(directory) / "settings.json"
             settings = SettingsService(path)
             self.assertFalse(settings.terminalGreenText)
-            self.assertEqual(settings.uiScale, 1.05)
             self.assertIn("property bool greenText: false", PALETTE.read_text(encoding="utf-8"))
             settings.terminalGreenText = True
             self.assertTrue(settings.terminalGreenText)

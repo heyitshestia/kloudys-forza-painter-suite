@@ -29,7 +29,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--theme", required=True, choices=sorted(KNOWN_THEME_NAMES))
     parser.add_argument("--page", default="create")
     parser.add_argument("--size", type=parse_size, default=(1360, 820))
-    parser.add_argument("--ui-scale", type=float, default=1.0)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -37,7 +36,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     width, height = args.size
-    target = args.output / "themes" / theme_slug(args.theme) / args.page / f"{width}x{height}"
+    target = args.output.resolve() / "themes" / theme_slug(args.theme) / args.page / f"{width}x{height}"
     target.mkdir(parents=True, exist_ok=True)
 
     environment = os.environ.copy()
@@ -60,7 +59,6 @@ def main() -> int:
         "--page", args.page,
         "--width", str(width),
         "--height", str(height),
-        "--ui-scale", str(args.ui_scale),
         "--motion-capture-dir", str(target),
     ]
     run = subprocess.run(

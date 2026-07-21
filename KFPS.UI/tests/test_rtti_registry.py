@@ -31,6 +31,7 @@ from fh6_rtti_registry import (  # noqa: E402
     profile_from_calibration_result,
     publish_profile_to_github,
     refresh_registry_cache,
+    refresh_runtime_registry,
     registry_bytes,
     registry_with_profile,
     write_registry_file,
@@ -323,6 +324,33 @@ class RttiRegistryTests(unittest.TestCase):
                     DEFAULT_GITHUB_REMOTE_URL,
                 ],
             )
+
+    def test_startup_refresh_persists_last_good_registry_for_offline_use(self):
+        registry = registry_with_profile(empty_registry(), valid_profile(game_build="10.0.0.1"))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.dict(os.environ, {"KFPS_DISABLE_RTTI_UPDATE": ""}, clear=False):
+                online = refresh_runtime_registry(
+                    root,
+                    remote_url="https://registry.test/RTTI.dat",
+                    now=3500,
+                    downloader=lambda _url: registry,
+                )
+                cache = root / "runtime" / "fh6-rtti" / "RTTI.dat"
+                saved = cache.read_bytes()
+                offline = refresh_runtime_registry(
+                    root,
+                    remote_url="https://offline.test/RTTI.dat",
+                    now=3600,
+                    force=True,
+                    downloader=lambda _url: (_ for _ in ()).throw(OSError("offline")),
+                )
+            self.assertEqual("ok", online["result"])
+            self.assertEqual("error", offline["result"])
+            self.assertEqual(saved, cache.read_bytes())
+            self.assertEqual("10.0.0.1", load_registry_file(cache)["profiles"][0]["game_build"])
+            app_source = (UI / "app.py").read_text(encoding="utf-8")
+            self.assertIn("refresh_runtime_registry(paths.app_root)", app_source)
 
     def test_unwritable_cache_never_breaks_locator_startup(self):
         with tempfile.TemporaryDirectory() as temp:
