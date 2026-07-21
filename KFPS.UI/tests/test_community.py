@@ -24,7 +24,7 @@ from PySide6.QtGui import QImage
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.community_client import CommunityApiClient, CommunityApiError
 from kfps_ui.community_credentials import CommunityCredentialStore
-from kfps_ui.community_service import CommunityService, configured_community_api_url
+from kfps_ui.community_service import CommunityService, _versioned_asset_url, configured_community_api_url
 from kfps_ui.community_validation import detect_payload_schema, inspect_upload, validate_download
 
 
@@ -40,6 +40,21 @@ def wait_for(predicate, timeout=12.0):
         time.sleep(0.01)
     APP.processEvents()
     return bool(predicate())
+
+
+class CommunityAssetUrlTests(unittest.TestCase):
+    def test_asset_hash_versions_public_and_private_preview_urls(self):
+        digest = "a" * 64
+
+        self.assertEqual(
+            "https://community.example/v1/artworks/id/preview?v=aaaaaaaaaaaaaaaa",
+            _versioned_asset_url("https://community.example/v1/artworks/id/preview", digest),
+        )
+        self.assertEqual(
+            "https://community.example/v1/artworks/id/preview?size=full&v=aaaaaaaaaaaaaaaa",
+            _versioned_asset_url("https://community.example/v1/artworks/id/preview?size=full", digest),
+        )
+        self.assertEqual("/preview", _versioned_asset_url("/preview", "not-a-hash"))
 
 
 def write_design(path: Path, accent=100):

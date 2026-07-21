@@ -148,6 +148,19 @@ def _color_tuple(value) -> tuple[int, int, int, int] | None:
     return out[0], out[1], out[2], out[3]
 
 
+def _shape_mask_flag(shape: dict, data: list) -> bool:
+    """Read every mask spelling accepted by the FH import/export path."""
+    for key in ("mask", "is_mask", "isMask"):
+        if key in shape:
+            return bool(shape.get(key))
+    if len(data) > 6:
+        try:
+            return bool(int(float(data[6])))
+        except (TypeError, ValueError):
+            return bool(data[6])
+    return False
+
+
 def _compensated_ellipse_size(width: float, height: float) -> tuple[float, float]:
     major = max(width, height)
     minor = max(1.0, min(width, height))
@@ -309,7 +322,9 @@ def _transform_resource_polygon(points: list[tuple[float, float]], data: list) -
 def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     from PIL import Image, ImageDraw
 
-    all_points = [point for item in polygons for poly in item["polygons"] for point in poly]
+    visible_items = [item for item in polygons if not item.get("mask")]
+    bounds_items = visible_items or polygons
+    all_points = [point for item in bounds_items for poly in item["polygons"] for point in poly]
     if not all_points:
         return None
     min_x = min(point[0] for point in all_points)
@@ -327,18 +342,47 @@ def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX, transpar
     def to_canvas(point: tuple[float, float]) -> tuple[float, float]:
         return ((point[0] - min_x + padding) * scale, (max_y - point[1] + padding) * scale)
 
-    image = Image.new("RGBA", (width, height), (0, 0, 0, 0)) if transparent_background else _checkerboard((width, height))
+    if not any(item.get("mask") for item in polygons):
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0)) if transparent_background else _checkerboard((width, height))
+        for item in polygons:
+            color = item["color"]
+            if color[3] <= 0:
+                continue
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(layer, "RGBA")
+            for poly in item["polygons"]:
+                points = [to_canvas(point) for point in poly]
+                if len(points) >= 3:
+                    draw.polygon(points, fill=color)
+            image = Image.alpha_composite(image, layer)
+        out = io.BytesIO()
+        image.save(out, format="PNG")
+        return out.getvalue()
+
+    artwork = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     for item in polygons:
-        color = item["color"]
-        if color[3] <= 0:
+        if item.get("mask"):
+            cutout = Image.new("L", (width, height), 0)
+            draw = ImageDraw.Draw(cutout)
+            for poly in item["polygons"]:
+                points = [to_canvas(point) for point in poly]
+                if len(points) >= 3:
+                    draw.polygon(points, fill=255)
+            if cutout.getbbox():
+                artwork.paste((0, 0, 0, 0), (0, 0, width, height), cutout)
             continue
-        layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(layer, "RGBA")
-        for poly in item["polygons"]:
-            points = [to_canvas(point) for point in poly]
-            if len(points) >= 3:
-                draw.polygon(points, fill=color)
-        image = Image.alpha_composite(image, layer)
+
+        color = item["color"]
+        if color[3] > 0:
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(layer, "RGBA")
+            for poly in item["polygons"]:
+                points = [to_canvas(point) for point in poly]
+                if len(points) >= 3:
+                    draw.polygon(points, fill=color)
+            artwork = Image.alpha_composite(artwork, layer)
+
+    image = artwork if transparent_background else Image.alpha_composite(_checkerboard((width, height)), artwork)
     out = io.BytesIO()
     image.save(out, format="PNG")
     return out.getvalue()
@@ -390,11 +434,12 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparen
     for shape in shapes:
         if not isinstance(shape, dict):
             continue
-        color = _color_tuple(shape.get("color"))
-        if not color or color[3] <= 0:
-            continue
         data = list(shape.get("data") or [])
         if len(data) < 4:
+            continue
+        is_mask = _shape_mask_flag(shape, data)
+        color = _color_tuple(shape.get("color"))
+        if not is_mask and (not color or color[3] <= 0):
             continue
         try:
             [float(item) for item in data[:4]]
@@ -413,5 +458,5 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparen
             triangles = _fallback_triangles(word)
         transformed = [_transform_resource_polygon(poly, data) for poly in triangles]
         if transformed:
-            polygons.append({"polygons": transformed, "color": color})
+            polygons.append({"polygons": transformed, "color": color, "mask": is_mask})
     return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background) if polygons else None

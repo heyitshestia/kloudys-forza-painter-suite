@@ -99,6 +99,15 @@ def community_file_part(value, fallback):
     return result
 
 
+def _versioned_asset_url(url, digest):
+    value = str(url or "")
+    checksum = str(digest or "").strip().lower()
+    if not value or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        return value
+    separator = "&" if "?" in value else "?"
+    return f"{value}{separator}v={checksum[:16]}"
+
+
 def configured_community_api_url(app_root):
     override = os.environ.get("KFPS_COMMUNITY_API_URL", "").strip()
     if override:
@@ -1634,8 +1643,14 @@ class CommunityService(QObject):
     def _normalize_artwork(self, item):
         creator = dict(item.get("creator") or {})
         supporter_only = bool(item.get("supporter_only"))
-        preview_asset_url = self._client.url(str(item.get("preview_url") or ""))
-        thumbnail_asset_url = self._client.url(str(item.get("thumbnail_url") or item.get("preview_url") or ""))
+        preview_digest = str(item.get("preview_sha256") or "")
+        thumbnail_digest = str(item.get("thumbnail_sha256") or preview_digest)
+        preview_asset_url = _versioned_asset_url(
+            self._client.url(str(item.get("preview_url") or "")), preview_digest,
+        )
+        thumbnail_asset_url = _versioned_asset_url(
+            self._client.url(str(item.get("thumbnail_url") or item.get("preview_url") or "")), thumbnail_digest,
+        )
         return {
             "id": str(item.get("id") or ""),
             "title": str(item.get("title") or "Untitled"),
@@ -1669,8 +1684,8 @@ class CommunityService(QObject):
             "thumbnailUrl": "" if supporter_only else thumbnail_asset_url,
             "downloadUrl": self._client.url(str(item.get("download_url") or "")),
             "contentSha256": str(item.get("content_sha256") or ""),
-            "previewSha256": str(item.get("preview_sha256") or ""),
-            "thumbnailSha256": str(item.get("thumbnail_sha256") or item.get("preview_sha256") or ""),
+            "previewSha256": preview_digest,
+            "thumbnailSha256": thumbnail_digest,
             "creatorName": str(creator.get("username") or "Unknown"),
             "creatorAvatar": str(creator.get("avatar_url") or ""),
             "creatorBio": str(creator.get("bio") or ""),

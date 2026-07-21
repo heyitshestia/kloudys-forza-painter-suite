@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.95
+- Rendered Forza mask layers as ordered cutouts in Outputs, Community uploads, and editor-browser thumbnails while preserving detail layers placed above each mask.
+- Kept mask-free preview rendering byte-for-byte compatible with the previous renderer and added focused coverage for legacy mask flags, transparent output, checkerboards, artwork bounds, and layer order.
+- Versioned Community preview and thumbnail URLs by their verified hashes so regenerated server assets replace stale cached images immediately.
+
 ## 3.0.94
 - Added the public Night City 2077 theme for supporters and non-supporters, with original angular controls, packaged Rajdhani typography, saturated red/cyan signals, layered depth, scrolling glyph rails, restrained glitches, and custom page transitions.
 - Added theme-owned popup, field, navigation, scrollbar, tooltip, and interaction treatments with clipped glow and readable 105% text while preserving reduced-motion, ambient-motion, and effects preferences.
