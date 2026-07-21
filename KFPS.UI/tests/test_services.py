@@ -400,6 +400,28 @@ class ServiceTests(unittest.TestCase):
    managed=preview._cache_target(target,"general")
    self.assertTrue(url);self.assertTrue(managed.is_file());self.assertTrue(managed.read_bytes().startswith(b"\x89PNG"))
    self.assertEqual(b"personal-preview",adjacent.read_bytes())
+ def test_online_import_guard_distinguishes_community_downloads_from_save_scans(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   community=paths.library_root/"Community"/"Creator"/"Artwork"/"Artwork.json"
+   scanned=paths.library_root/"0001E505-save-scan"/"Scanned.json"
+   community.parent.mkdir(parents=True);scanned.parent.mkdir(parents=True)
+   payload=json.dumps({"shapes":[]})
+   community.write_text(payload,encoding="utf-8");scanned.write_text(payload,encoding="utf-8")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(community),DummyLog())
+   try:
+    svc.selectPath(str(community))
+    self.assertFalse(svc.selectedIsGameLibraryItem)
+    svc.selectPath(str(scanned))
+    self.assertTrue(svc.selectedIsGameLibraryItem)
+    exported=paths.exported_root/"Manual.json";exported.parent.mkdir(parents=True,exist_ok=True);exported.write_text(payload,encoding="utf-8")
+    svc.selectPath(str(exported))
+    self.assertFalse(svc.selectedIsGameLibraryItem)
+    qml=(UI/"qml"/"pages"/"JsonPage.qml").read_text(encoding="utf-8")
+    self.assertIn("jsonService.selectedIsGameLibraryItem",qml)
+    self.assertNotIn("jsonService.sourceIndex === 3 ? \"Already in Game Library\"",qml)
+   finally:
+    shutdown_json_service(svc)
  def test_settings_regeneration_command_uses_the_dedicated_worker_mode(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")

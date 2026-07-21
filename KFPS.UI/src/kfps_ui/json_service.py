@@ -293,6 +293,14 @@ class JsonService(QObject):
     def sourceIndex(self): return self._source
     @Property(str, notify=changed)
     def selectedPath(self): return self._selected_path
+    @Property(bool, notify=changed)
+    def selectedIsGameLibraryItem(self):
+        if not self._selected_path:
+            return False
+        selected = Path(self._selected_path)
+        if not self._path_is_within(selected, self.paths.library_root):
+            return False
+        return not self._path_is_within(selected, self.paths.library_root / "Community")
     @Property(str, notify=changed)
     def previewUrl(self): return self._preview_url
     @Property(str, notify=changed)
@@ -998,6 +1006,15 @@ class JsonService(QObject):
             return str(Path(str(left)).resolve()).casefold() == str(Path(str(right)).resolve()).casefold()
         except Exception:
             return str(left).casefold() == str(right).casefold()
+
+    @staticmethod
+    def _path_is_within(path, root):
+        try:
+            resolved_path = os.path.normcase(str(Path(path).resolve()))
+            resolved_root = os.path.normcase(str(Path(root).resolve()))
+            return os.path.commonpath([resolved_path, resolved_root]) == resolved_root
+        except (OSError, ValueError):
+            return False
 
     @staticmethod
     def _row_matches_search(row, query):

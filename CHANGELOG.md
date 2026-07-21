@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.0.99
+- Allowed Community Library downloads to use live online import while keeping scanned game-save library items protected as already present in the game.
+
 ## 3.0.98
 - Replaced the manual UI scale multiplier with native Windows DPI scaling, a freely resizable frameless window, compact responsive layouts down to 960x600, and saved normal/maximized window geometry.
 - Made Regenerate Local Thumbnails force-render every browser-visible local JSON without the normal background item or time limits, replace KFPS-managed previews, preserve personal adjacent PNGs, and report partial failures accurately.

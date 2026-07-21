@@ -217,7 +217,7 @@
       "sections": [
         {"heading": "Manual JSON files", "body": "Add JSON lets you choose a compatible file outside the normal folders. When a supported Forza Designer 6 shapes file is chosen, KFPS detects and converts it in the background without changing the original file."},
         {"heading": "Thumbnails", "body": "KFPS caches previews so later starts are faster. A missing preview does not make a valid JSON unusable; select or refresh the source and allow the thumbnail index to finish."},
-        {"heading": "Library items", "body": "Library items came from local game save files. They are already in that game's saved library, so the live online-import button is intentionally unavailable for that source."}
+        {"heading": "Library items", "body": "Items scanned from local game save files are already in that game's saved library, so live online import stays unavailable for them. Artwork downloaded from the Community folder is not a save scan and can be imported normally."}
       ],
       "pitfalls": [
         "Output search only filters the source currently selected.",

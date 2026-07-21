@@ -410,12 +410,12 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: jsonService.sourceIndex === 3 ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Game")
+                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Game")
                     iconName: "transfer"
-                    toolTipText: jsonService.sourceIndex === 3
+                    toolTipText: jsonService.selectedIsGameLibraryItem
                                  ? "Library items already came from game save files and cannot be imported through live memory from this view."
                                  : "Replace layers in the template currently open in the running game with the selected JSON."
-                    enabled: !transferService.running && jsonService.selectedPath.length > 0 && jsonService.sourceIndex !== 3
+                    enabled: !transferService.running && jsonService.selectedPath.length > 0 && !jsonService.selectedIsGameLibraryItem
                     onClicked: transferService.importJson(game.currentText, jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
                 }
 
