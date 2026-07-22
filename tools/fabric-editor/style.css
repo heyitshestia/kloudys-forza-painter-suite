@@ -212,7 +212,7 @@ small,
   min-width: 0;
   flex: 1;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -220,6 +220,7 @@ small,
 }
 
 .menuGroup {
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -228,6 +229,10 @@ small,
   border: 1px solid rgba(var(--accent-rgb), 0.18);
   border-radius: 12px;
   background: rgba(var(--panel-rgb), 0.72);
+}
+
+.menuGroup:first-child {
+  margin-left: auto;
 }
 
 .menuGroup > span {
@@ -981,12 +986,40 @@ body.guideMode #canvas {
 }
 
 #layers {
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
   max-height: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+#layersPane.active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layersViewport {
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 10px -5px 0 0;
+  padding-right: 5px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+#layers.layerVirtualized .layerRow,
+#layers.layerVirtualized .layerGroupRow {
+  box-sizing: border-box;
+  height: 56px;
+  margin: 0 0 6px;
+}
+
+#layers.layerVirtualized .layerGroupRow.collapsed {
+  margin: 0 0 6px;
 }
 
 .layerRow {
@@ -2264,6 +2297,24 @@ dialog::backdrop {
 }
 
 @media (max-width: 1320px) {
+  .appBar {
+    gap: 8px;
+    padding-inline: 10px 8px;
+  }
+  .appMenus {
+    gap: 6px;
+  }
+  .menuGroup {
+    gap: 3px;
+    padding: 4px;
+  }
+  .menuGroup > span {
+    display: none;
+  }
+  .menuGroup button {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
   .workspace {
     grid-template-columns: 64px minmax(560px, 1fr) 440px;
   }

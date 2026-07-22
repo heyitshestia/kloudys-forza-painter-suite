@@ -187,18 +187,30 @@ const ALPHA_MESH_RASTER_SCALE = 8;
 const ALPHA_MESH_RASTER_MIN_SIZE = 512;
 const ALPHA_MESH_RASTER_MAX_SIZE = 2048;
 const SELECTION_OUTLINE_SCREEN_WIDTH = 1.65;
+const MAX_VINYL_LAYERS = 3000;
+const OBJECT_BUILD_CONCURRENCY = 24;
 const HYBRID_RENDER_MIN_LAYERS = 300;
 const HYBRID_RENDER_PREWARM_CHUNK = 64;
 const HYBRID_RENDER_SETTLE_MS = 260;
 const resourceCache = new Map();
+const resourcePathPromiseCache = new Map();
 const resourceOutlineCache = new Map();
 const resourcePayloadCache = new Map();
+const resourcePayloadPromiseCache = new Map();
 const alphaMeshImageCache = new Map();
+const fabricImageElementPromiseCache = new Map();
 const fabricPathDataCache = new Map();
 const selectionOutlinePathPromises = new Map();
 const hybridMeshCache = new Map();
 const textVinylMeshCache = new Map();
 let canvas;
+const vinylObjectRegistry = new KfpsEditorCore.OrderedObjectRegistry((object) => (
+  Boolean(object?.kloudy)
+  && !object.kloudyGuide
+  && !object.kloudyMaskOutline
+  && !object.kloudyMaskCutout
+));
+const guideObjectRegistry = new KfpsEditorCore.OrderedObjectRegistry((object) => Boolean(object?.kloudyGuide));
 let hybridRenderer = null;
 let hybridRenderActive = false;
 let hybridRenderFrame = null;
@@ -216,6 +228,10 @@ let history = [];
 let historyIndex = -1;
 let historyLocked = false;
 let protectedHistoryIndex = -1;
+let lastHistoryReason = "";
+let lastHistoryAt = 0;
+let nudgeHistoryTimer = null;
+let nudgeHistoryPending = false;
 let showFavoritesOnly = false;
 let favorites = loadFavoriteShapes();
 let shapeNames = { families: {} };
@@ -259,11 +275,19 @@ let overlayLayerMode = normalizeOverlayLayerMode(localStorage.getItem(OVERLAY_LA
 let maskPreviewOutlines = new Map();
 let maskPreviewCutouts = new Map();
 let layerListRows = new Map();
+let layerListEntries = [];
+let layerVirtualLayout = KfpsEditorCore.buildVirtualLayout([]);
+let layerVirtualRenderFrame = null;
+let renderedLayerEntries = [];
+let layerVirtualStart = -1;
+let layerVirtualEnd = -1;
+let lastLayerFilter = "";
 let lastLayerListKey = null;
 let layerDragState = null;
 let layerDragGhost = null;
 let suppressLayerClick = false;
 let nextLayerListObjectId = 1;
+let nextEditorObjectId = 1;
 let layerRefreshFrame = null;
 let canvasRenderFrame = null;
 let canvasGeometryFrame = null;
@@ -805,24 +829,30 @@ function isGradientObject(object) {
   });
 }
 
-function applyObjectColor(object, color) {
+function applyObjectColor(object, color, options = {}) {
   if (!object) return;
   const normalized = normalizeColor(color);
   const hex = colorToHex(normalized);
   if (object.kloudy?.mask) {
     object.kloudy.maskOriginalColor = normalized.slice();
     object.set({ fill: hex, opacity: normalized[3] / 255 });
-    applyMaskVisual(object);
+    applyMaskVisual(object, { deferPreview: true });
     return;
   }
   object.set({ fill: hex, opacity: normalized[3] / 255 });
   if (isGradientObject(object) && fabric?.Image?.filters?.BlendColor) {
+    if (options.deferImageFilter) {
+      object.__kloudyPendingTint = normalized.slice();
+      if (hybridRenderActive && canvas) requestHybridRender();
+      return;
+    }
     object.filters = [new fabric.Image.filters.BlendColor({
       color: hex,
       mode: "tint",
       alpha: 1,
     })];
     object.applyFilters();
+    object.__kloudyPendingTint = null;
   }
   if (hybridRenderActive && canvas) {
     requestHybridRender();
@@ -1515,7 +1545,7 @@ function updateHud(pointer = null, options = {}) {
     setText("bottomLayers", layerText);
     setText("contextSelection", selectionText);
     setText("exportLayerCount", String(stats.count));
-    setText("layerLimitMeter", `${stats.count} / template`);
+    setText("layerLimitMeter", `${stats.count} / ${MAX_VINYL_LAYERS}`);
     setHidden("emptyCanvasHint", stats.count > 0 || Boolean(overlayImage));
   }
   if (pointer) {
@@ -1667,6 +1697,7 @@ function activateDockPanel(panelId) {
     pane.classList.toggle("active", active);
     pane.hidden = !active;
   });
+  if (panelId === "layersPane") requestAnimationFrame(() => renderVirtualLayerWindow(true));
 }
 
 function setToolRailMode(mode, label = null) {
@@ -1740,7 +1771,6 @@ function leaveGuideModeForLayerEdit() {
 }
 
 function resourceCountForFamilyDefinition(family) {
-  if (String(family).startsWith("Upper_Letters_")) return 26;
   return 40;
 }
 
@@ -1807,20 +1837,30 @@ async function loadResourcePath(typeCode) {
 async function loadResourcePathForResolved(resolved) {
   const cacheKey = resourceCacheKey(resolved);
   if (resourceCache.has(cacheKey)) return resourceCache.get(cacheKey);
-  const payload = await loadResourcePayloadForResolved(resolved);
-  const vertices = payload.Vertices || [];
-  const indices = payload.Indices || [];
-  const chunks = [];
-  for (let i = 0; i + 2 < indices.length; i += 3) {
-    const p0 = vertices[indices[i]];
-    const p1 = vertices[indices[i + 1]];
-    const p2 = vertices[indices[i + 2]];
-    if (!p0 || !p1 || !p2) continue;
-    chunks.push(`M ${fmt(p0.X)} ${fmt(p0.Y)} L ${fmt(p1.X)} ${fmt(p1.Y)} L ${fmt(p2.X)} ${fmt(p2.Y)} Z`);
+  if (resourcePathPromiseCache.has(cacheKey)) return resourcePathPromiseCache.get(cacheKey);
+  const pending = (async () => {
+    const payload = await loadResourcePayloadForResolved(resolved);
+    const vertices = payload.Vertices || [];
+    const indices = payload.Indices || [];
+    const chunks = [];
+    for (let i = 0; i + 2 < indices.length; i += 3) {
+      const p0 = vertices[indices[i]];
+      const p1 = vertices[indices[i + 1]];
+      const p2 = vertices[indices[i + 2]];
+      if (!p0 || !p1 || !p2) continue;
+      chunks.push(`M ${fmt(p0.X)} ${fmt(p0.Y)} L ${fmt(p1.X)} ${fmt(p1.Y)} L ${fmt(p2.X)} ${fmt(p2.Y)} Z`);
+    }
+    const d = chunks.join(" ");
+    resourceCache.set(cacheKey, d);
+    return d;
+  })();
+  resourcePathPromiseCache.set(cacheKey, pending);
+  try {
+    return await pending;
+  } catch (err) {
+    resourcePathPromiseCache.delete(cacheKey);
+    throw err;
   }
-  const d = chunks.join(" ");
-  resourceCache.set(cacheKey, d);
-  return d;
 }
 
 function resourceCacheKey(resolved) {
@@ -1830,12 +1870,22 @@ function resourceCacheKey(resolved) {
 async function loadResourcePayloadForResolved(resolved) {
   const cacheKey = resourceCacheKey(resolved);
   if (resourcePayloadCache.has(cacheKey)) return resourcePayloadCache.get(cacheKey);
-  const url = await resolveVinylResourceUrl(resolved.family, resolved.index, "");
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Missing shape resource: ${url}`);
-  const payload = await response.json();
-  resourcePayloadCache.set(cacheKey, payload);
-  return payload;
+  if (resourcePayloadPromiseCache.has(cacheKey)) return resourcePayloadPromiseCache.get(cacheKey);
+  const pending = (async () => {
+    const url = await resolveVinylResourceUrl(resolved.family, resolved.index, "");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Missing shape resource: ${url}`);
+    const payload = await response.json();
+    resourcePayloadCache.set(cacheKey, payload);
+    return payload;
+  })();
+  resourcePayloadPromiseCache.set(cacheKey, pending);
+  try {
+    return await pending;
+  } catch (err) {
+    resourcePayloadPromiseCache.delete(cacheKey);
+    throw err;
+  }
 }
 
 function edgeKey(a, b) {
@@ -2061,13 +2111,24 @@ async function loadAlphaMeshFabricImageForResolved(resolved, payload) {
   return image;
 }
 
-function loadFabricImage(url) {
-  return new Promise((resolve, reject) => {
-    fabric.Image.fromURL(url, (image) => {
-      if (!image) reject(new Error(`Failed to load image resource: ${url}`));
-      else resolve(image);
-    }, { crossOrigin: "anonymous" });
-  });
+async function loadFabricImage(url) {
+  let pending = fabricImageElementPromiseCache.get(url);
+  if (!pending) {
+    pending = new Promise((resolve, reject) => {
+      const element = new Image();
+      element.crossOrigin = "anonymous";
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error(`Failed to load image resource: ${url}`));
+      element.src = url;
+    });
+    fabricImageElementPromiseCache.set(url, pending);
+  }
+  try {
+    return new fabric.Image(await pending);
+  } catch (err) {
+    fabricImageElementPromiseCache.delete(url);
+    throw err;
+  }
 }
 
 function compileHybridShader(gl, type, source) {
@@ -2132,6 +2193,120 @@ function createHybridProgram(gl) {
   };
 }
 
+function createHybridTextureProgram(gl) {
+  const vertex = compileHybridShader(gl, gl.VERTEX_SHADER, `
+    attribute vec2 a_position;
+    attribute vec2 a_texcoord;
+    uniform mat3 u_world;
+    uniform mat3 u_view;
+    uniform vec2 u_resolution;
+    uniform vec2 u_size;
+    varying vec2 v_texcoord;
+    void main() {
+      vec2 local = a_position * u_size;
+      vec3 world = u_world * vec3(local, 1.0);
+      vec3 screen = u_view * world;
+      vec2 clip = vec2((screen.x / u_resolution.x) * 2.0 - 1.0, 1.0 - (screen.y / u_resolution.y) * 2.0);
+      gl_Position = vec4(clip, 0.0, 1.0);
+      v_texcoord = a_texcoord;
+    }
+  `);
+  const fragment = compileHybridShader(gl, gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    uniform sampler2D u_texture;
+    uniform float u_opacity;
+    varying vec2 v_texcoord;
+    void main() {
+      vec4 sampled = texture2D(u_texture, v_texcoord);
+      gl_FragColor = vec4(sampled.rgb, sampled.a * u_opacity);
+    }
+  `);
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  gl.deleteShader(vertex);
+  gl.deleteShader(fragment);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const message = gl.getProgramInfoLog(program) || "unknown texture shader error";
+    gl.deleteProgram(program);
+    throw new Error(message);
+  }
+  return {
+    program,
+    attributes: {
+      position: gl.getAttribLocation(program, "a_position"),
+      texcoord: gl.getAttribLocation(program, "a_texcoord"),
+    },
+    uniforms: {
+      world: gl.getUniformLocation(program, "u_world"),
+      view: gl.getUniformLocation(program, "u_view"),
+      resolution: gl.getUniformLocation(program, "u_resolution"),
+      size: gl.getUniformLocation(program, "u_size"),
+      texture: gl.getUniformLocation(program, "u_texture"),
+      opacity: gl.getUniformLocation(program, "u_opacity"),
+    },
+  };
+}
+
+function createHybridInstancedProgram(gl) {
+  const vertex = compileHybridShader(gl, gl.VERTEX_SHADER, `
+    attribute vec2 a_position;
+    attribute float a_alpha;
+    attribute vec3 a_world0;
+    attribute vec3 a_world1;
+    attribute vec3 a_world2;
+    attribute vec4 a_color;
+    uniform mat3 u_view;
+    uniform vec2 u_resolution;
+    varying float v_alpha;
+    varying vec4 v_color;
+    void main() {
+      mat3 world_matrix = mat3(a_world0, a_world1, a_world2);
+      vec3 world = world_matrix * vec3(a_position, 1.0);
+      vec3 screen = u_view * world;
+      vec2 clip = vec2((screen.x / u_resolution.x) * 2.0 - 1.0, 1.0 - (screen.y / u_resolution.y) * 2.0);
+      gl_Position = vec4(clip, 0.0, 1.0);
+      v_alpha = a_alpha;
+      v_color = a_color;
+    }
+  `);
+  const fragment = compileHybridShader(gl, gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    varying float v_alpha;
+    varying vec4 v_color;
+    void main() {
+      gl_FragColor = vec4(v_color.rgb, v_color.a * v_alpha);
+    }
+  `);
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  gl.deleteShader(vertex);
+  gl.deleteShader(fragment);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const message = gl.getProgramInfoLog(program) || "unknown instanced shader error";
+    gl.deleteProgram(program);
+    throw new Error(message);
+  }
+  return {
+    program,
+    attributes: {
+      position: gl.getAttribLocation(program, "a_position"),
+      alpha: gl.getAttribLocation(program, "a_alpha"),
+      world0: gl.getAttribLocation(program, "a_world0"),
+      world1: gl.getAttribLocation(program, "a_world1"),
+      world2: gl.getAttribLocation(program, "a_world2"),
+      color: gl.getAttribLocation(program, "a_color"),
+    },
+    uniforms: {
+      view: gl.getUniformLocation(program, "u_view"),
+      resolution: gl.getUniformLocation(program, "u_resolution"),
+    },
+  };
+}
+
 function initHybridRenderer() {
   if (hybridRenderer || hybridDisabledReason) return hybridRenderer;
   const element = $("hybridRenderCanvas");
@@ -2152,12 +2327,45 @@ function initHybridRenderer() {
   }
   try {
     const program = createHybridProgram(gl);
+    const textureProgram = createHybridTextureProgram(gl);
+    const instancedExtension = gl.getExtension("ANGLE_instanced_arrays");
+    const instancedProgram = instancedExtension ? createHybridInstancedProgram(gl) : null;
+    const overlayBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, overlayBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -0.5, -0.5, 0, 1,
+       0.5, -0.5, 1, 1,
+      -0.5,  0.5, 0, 0,
+      -0.5,  0.5, 0, 0,
+       0.5, -0.5, 1, 1,
+       0.5,  0.5, 1, 0,
+    ]), gl.STATIC_DRAW);
+    const overlayTexture = gl.createTexture();
+    const instanceBuffer = instancedExtension ? gl.createBuffer() : null;
     gl.useProgram(program.program);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
-    hybridRenderer = { element, gl, ...program };
+    hybridRenderer = {
+      element,
+      gl,
+      ...program,
+      viewMatrix: new Float32Array(9),
+      overlay: {
+        ...textureProgram,
+        buffer: overlayBuffer,
+        texture: overlayTexture,
+        source: null,
+      },
+      instanced: instancedExtension && instancedProgram ? {
+        ...instancedProgram,
+        extension: instancedExtension,
+        buffer: instanceBuffer,
+        data: new Float32Array(MAX_VINYL_LAYERS * 13),
+      } : null,
+      pipelineWarmed: false,
+    };
   } catch (err) {
     hybridDisabledReason = err?.message || String(err);
     console.warn("Hybrid renderer disabled.", err);
@@ -2229,15 +2437,21 @@ function hybridMeshForObject(object) {
   const vertices = payload?.Vertices || payload?.vertices || [];
   const rawIndices = payload?.Indices || payload?.indices || payload?.triangles || [];
   if (!vertices.length || !rawIndices.length) return null;
-  const decodedAlphas = decodeVertexAlphas(payload, vertices.length);
+  // Some opaque resources contain vertex-alpha bytes that the normal Fabric
+  // path renderer intentionally ignores. Honor them only for resources that
+  // use the editor's gradient/alpha-mesh rendering path.
+  const usesVertexAlpha = isGradientObject(object);
+  const decodedAlphas = usesVertexAlpha ? decodeVertexAlphas(payload, vertices.length) : null;
   const indices = payloadTriangleIndices(rawIndices);
   const packed = [];
   for (const rawIndex of indices) {
     const index = Number(rawIndex);
     const point = pointFromPayloadVertex(vertices[index]);
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
-    const decoded = decodedAlphas[index];
-    const alpha = decoded === undefined ? point.alpha : Math.max(0, Math.min(1, decoded / 255));
+    const decoded = decodedAlphas?.[index];
+    const alpha = usesVertexAlpha
+      ? (decoded === undefined ? point.alpha : Math.max(0, Math.min(1, decoded / 255)))
+      : 1;
     packed.push(point.x, point.y, alpha);
   }
   if (packed.length < 9) return null;
@@ -2245,28 +2459,34 @@ function hybridMeshForObject(object) {
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(packed), gl.STATIC_DRAW);
-  const mesh = { buffer, count: packed.length / 3 };
+  const mesh = { buffer, count: packed.length / 3, usesVertexAlpha };
   hybridMeshCache.set(key, mesh);
   return mesh;
 }
 
-function hybridMat3FromFabric(matrix) {
-  const m = Array.isArray(matrix) ? matrix : [1, 0, 0, 1, 0, 0];
-  return new Float32Array([
-    Number(m[0]) || 0, Number(m[1]) || 0, 0,
-    Number(m[2]) || 0, Number(m[3]) || 0, 0,
-    Number(m[4]) || 0, Number(m[5]) || 0, 1,
-  ]);
+function hybridMat3FromFabric(matrix, target = new Float32Array(9)) {
+  const m = matrix || [1, 0, 0, 1, 0, 0];
+  target[0] = Number(m[0]) || 0;
+  target[1] = Number(m[1]) || 0;
+  target[2] = 0;
+  target[3] = Number(m[2]) || 0;
+  target[4] = Number(m[3]) || 0;
+  target[5] = 0;
+  target[6] = Number(m[4]) || 0;
+  target[7] = Number(m[5]) || 0;
+  target[8] = 1;
+  return target;
 }
 
-function hybridObjectColor(object) {
-  const color = hexToRgb(object.fill || "#ffffff", (object.opacity ?? 1) * 255);
-  return [
-    Math.max(0, Math.min(1, color[0] / 255)),
-    Math.max(0, Math.min(1, color[1] / 255)),
-    Math.max(0, Math.min(1, color[2] / 255)),
-    Math.max(0, Math.min(1, color[3] / 255)),
-  ];
+function hybridObjectColor(object, target = new Float32Array(4)) {
+  const source = object.kloudy?.mask && Array.isArray(object.kloudy.maskOriginalColor)
+    ? normalizeColor(object.kloudy.maskOriginalColor)
+    : hexToRgb(object.fill || "#ffffff", (object.opacity ?? 1) * 255);
+  target[0] = Math.max(0, Math.min(1, source[0] / 255));
+  target[1] = Math.max(0, Math.min(1, source[1] / 255));
+  target[2] = Math.max(0, Math.min(1, source[2] / 255));
+  target[3] = Math.max(0, Math.min(1, source[3] / 255));
+  return target;
 }
 
 function hybridLayerEligible(object) {
@@ -2277,16 +2497,14 @@ function hybridLayerEligible(object) {
     && !object.kloudyGuide
     && !object.kloudyMaskOutline
     && !object.kloudyMaskCutout
-    && !meta.mask
     && meta.resource_family
     && objectEditorVisible(object)
-    && (object.opacity ?? 1) > 0
+    && (meta.mask ? (meta.maskOriginalColor?.[3] ?? 255) > 0 : (object.opacity ?? 1) > 0)
   );
 }
 
-function hybridHasUnsupportedLayers(objects = vinylObjects()) {
-  if (overlayImage && overlayImage.visible !== false) return true;
-  return objects.some((object) => object?.kloudy?.mask);
+function hybridHasUnsupportedLayers(_objects = vinylObjects()) {
+  return false;
 }
 
 function hybridShouldUse(objects = vinylObjects()) {
@@ -2313,6 +2531,12 @@ async function prewarmHybridMeshesForObjects(objects = vinylObjects()) {
       await nextFrame();
     }
   }
+  if (hybridRenderNow()) {
+    // Draw every newly loaded resource set once while load progress is still
+    // visible. Drivers can defer buffer specialization as well as shader work.
+    if (!hybridRenderer.pipelineWarmed) hybridRenderer.gl.finish();
+    hybridRenderer.pipelineWarmed = true;
+  }
 }
 
 function hybridSetFabricLowerVisible(visible) {
@@ -2338,6 +2562,222 @@ function restoreHybridFabricBulkObjects() {
   hybridFabricVisibleObjects = new Set();
 }
 
+function hybridRenderStateForObject(object) {
+  const state = object.__kloudyHybridRenderState || {
+    world: new Float32Array(9),
+    color: new Float32Array(4),
+    fill: null,
+    opacity: null,
+    mask: null,
+    maskColor: null,
+  };
+  hybridMat3FromFabric(object.calcTransformMatrix(), state.world);
+  const maskColor = object.kloudy?.maskOriginalColor;
+  const colorChanged = state.fill !== object.fill
+    || state.opacity !== object.opacity
+    || state.mask !== Boolean(object.kloudy?.mask)
+    || state.maskColor !== maskColor
+    || (Array.isArray(maskColor) && (
+      state.maskR !== maskColor[0]
+      || state.maskG !== maskColor[1]
+      || state.maskB !== maskColor[2]
+      || state.maskA !== maskColor[3]
+    ));
+  if (colorChanged) {
+    hybridObjectColor(object, state.color);
+    state.fill = object.fill;
+    state.opacity = object.opacity;
+    state.mask = Boolean(object.kloudy?.mask);
+    state.maskColor = maskColor;
+    [state.maskR, state.maskG, state.maskB, state.maskA] = Array.isArray(maskColor) ? maskColor : [null, null, null, null];
+  }
+  object.__kloudyHybridRenderState = state;
+  return state;
+}
+
+function prepareHybridShapeProgram(renderer, viewMatrix, maskPass) {
+  const gl = renderer.gl;
+  gl.useProgram(renderer.program);
+  gl.uniform2f(renderer.uniforms.resolution, renderer.element.width, renderer.element.height);
+  gl.uniformMatrix3fv(renderer.uniforms.view, false, viewMatrix);
+  gl.enableVertexAttribArray(renderer.attributes.position);
+  gl.enableVertexAttribArray(renderer.attributes.alpha);
+  if (maskPass) {
+    gl.blendFuncSeparate(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+  } else {
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  }
+}
+
+function drawHybridShapePassFallback(renderer, objects, viewMatrix, maskPass) {
+  const gl = renderer.gl;
+  prepareHybridShapeProgram(renderer, viewMatrix, maskPass);
+  let boundBuffer = null;
+  for (const object of objects) {
+    if (!hybridLayerEligible(object) || Boolean(object.kloudy?.mask) !== maskPass) continue;
+    const mesh = hybridMeshForObject(object);
+    if (!mesh) continue;
+    if (mesh.buffer !== boundBuffer) {
+      boundBuffer = mesh.buffer;
+      gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
+      gl.vertexAttribPointer(renderer.attributes.position, 2, gl.FLOAT, false, 12, 0);
+      gl.vertexAttribPointer(renderer.attributes.alpha, 1, gl.FLOAT, false, 12, 8);
+    }
+    const state = hybridRenderStateForObject(object);
+    gl.uniformMatrix3fv(renderer.uniforms.world, false, state.world);
+    gl.uniform4fv(renderer.uniforms.color, state.color);
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+  }
+}
+
+function prepareHybridInstancedProgram(renderer, viewMatrix, maskPass) {
+  const gl = renderer.gl;
+  const instanced = renderer.instanced;
+  gl.useProgram(instanced.program);
+  gl.uniform2f(instanced.uniforms.resolution, renderer.element.width, renderer.element.height);
+  gl.uniformMatrix3fv(instanced.uniforms.view, false, viewMatrix);
+  Object.values(instanced.attributes).forEach((location) => gl.enableVertexAttribArray(location));
+  if (maskPass) {
+    gl.blendFuncSeparate(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+  } else {
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  }
+}
+
+function drawHybridInstancedRun(renderer, mesh, states) {
+  if (!mesh || !states.length) return;
+  const gl = renderer.gl;
+  const instanced = renderer.instanced;
+  const extension = instanced.extension;
+  const stride = 13;
+  states.forEach((state, index) => {
+    const offset = index * stride;
+    instanced.data.set(state.world, offset);
+    instanced.data.set(state.color, offset + 9);
+  });
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
+  gl.vertexAttribPointer(instanced.attributes.position, 2, gl.FLOAT, false, 12, 0);
+  gl.vertexAttribPointer(instanced.attributes.alpha, 1, gl.FLOAT, false, 12, 8);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.position, 0);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.alpha, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, instanced.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, instanced.data.subarray(0, states.length * stride), gl.DYNAMIC_DRAW);
+  const byteStride = stride * 4;
+  gl.vertexAttribPointer(instanced.attributes.world0, 3, gl.FLOAT, false, byteStride, 0);
+  gl.vertexAttribPointer(instanced.attributes.world1, 3, gl.FLOAT, false, byteStride, 12);
+  gl.vertexAttribPointer(instanced.attributes.world2, 3, gl.FLOAT, false, byteStride, 24);
+  gl.vertexAttribPointer(instanced.attributes.color, 4, gl.FLOAT, false, byteStride, 36);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.world0, 1);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.world1, 1);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.world2, 1);
+  extension.vertexAttribDivisorANGLE(instanced.attributes.color, 1);
+  extension.drawArraysInstancedANGLE(gl.TRIANGLES, 0, mesh.count, states.length);
+}
+
+function resetHybridInstancedDivisors(renderer) {
+  const instanced = renderer.instanced;
+  if (!instanced) return;
+  const extension = instanced.extension;
+  Object.values(instanced.attributes).forEach((location) => extension.vertexAttribDivisorANGLE(location, 0));
+}
+
+function hybridInstancingEffective(objects, maskPass) {
+  let eligible = 0;
+  let runs = 0;
+  let previousMesh = null;
+  for (const object of objects) {
+    if (!hybridLayerEligible(object) || Boolean(object.kloudy?.mask) !== maskPass) continue;
+    const mesh = hybridMeshForObject(object);
+    if (!mesh) continue;
+    eligible += 1;
+    if (mesh !== previousMesh) {
+      runs += 1;
+      previousMesh = mesh;
+    }
+  }
+  return eligible >= 4 && runs <= eligible * 0.65;
+}
+
+function drawHybridShapePass(renderer, objects, viewMatrix, maskPass) {
+  if (!renderer.instanced || !hybridInstancingEffective(objects, maskPass)) {
+    drawHybridShapePassFallback(renderer, objects, viewMatrix, maskPass);
+    return;
+  }
+  prepareHybridInstancedProgram(renderer, viewMatrix, maskPass);
+  let activeMesh = null;
+  let states = [];
+  const flush = () => {
+    if (activeMesh && states.length) drawHybridInstancedRun(renderer, activeMesh, states);
+    states = [];
+  };
+  for (const object of objects) {
+    if (!hybridLayerEligible(object) || Boolean(object.kloudy?.mask) !== maskPass) continue;
+    const mesh = hybridMeshForObject(object);
+    if (!mesh) continue;
+    if (activeMesh && mesh !== activeMesh) flush();
+    activeMesh = mesh;
+    states.push(hybridRenderStateForObject(object));
+  }
+  flush();
+  resetHybridInstancedDivisors(renderer);
+}
+
+function drawHybridOverlay(renderer, viewMatrix) {
+  if (!overlayImage || overlayImage.visible === false || (overlayImage.opacity ?? 1) <= 0) return false;
+  const source = overlayImage.getElement?.() || overlayImage._element;
+  if (!source) return false;
+  const gl = renderer.gl;
+  const overlay = renderer.overlay;
+  gl.useProgram(overlay.program);
+  gl.bindBuffer(gl.ARRAY_BUFFER, overlay.buffer);
+  gl.enableVertexAttribArray(overlay.attributes.position);
+  gl.enableVertexAttribArray(overlay.attributes.texcoord);
+  gl.vertexAttribPointer(overlay.attributes.position, 2, gl.FLOAT, false, 16, 0);
+  gl.vertexAttribPointer(overlay.attributes.texcoord, 2, gl.FLOAT, false, 16, 8);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, overlay.texture);
+  if (overlay.source !== source) {
+    try {
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      overlay.source = source;
+    } catch (err) {
+      console.warn("GPU source overlay upload skipped.", err);
+      return false;
+    }
+  }
+  hybridMat3FromFabric(overlayImage.calcTransformMatrix(), overlay.world || (overlay.world = new Float32Array(9)));
+  gl.uniformMatrix3fv(overlay.uniforms.world, false, overlay.world);
+  gl.uniformMatrix3fv(overlay.uniforms.view, false, viewMatrix);
+  gl.uniform2f(overlay.uniforms.resolution, renderer.element.width, renderer.element.height);
+  gl.uniform2f(overlay.uniforms.size, Math.max(1, Number(overlayImage.width) || 1), Math.max(1, Number(overlayImage.height) || 1));
+  gl.uniform1i(overlay.uniforms.texture, 0);
+  gl.uniform1f(overlay.uniforms.opacity, Math.max(0, Math.min(1, Number(overlayImage.opacity) || 0)));
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  return true;
+}
+
+function hybridCanvasBackgroundColor(renderer) {
+  const raw = String(canvas.backgroundColor || cssColorVar("--fabric-canvas-bg", "#ffffff")).trim();
+  if (renderer.backgroundRaw === raw && renderer.backgroundColor) return renderer.backgroundColor;
+  let color = [255, 255, 255, 255];
+  if (/^#[0-9a-f]{6}$/i.test(raw)) {
+    color = hexToRgb(raw, 255);
+  } else {
+    const match = raw.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (match) color = normalizeColor([Number(match[1]), Number(match[2]), Number(match[3]), 255]);
+  }
+  renderer.backgroundRaw = raw;
+  renderer.backgroundColor = color;
+  return color;
+}
+
 function hybridRenderNow() {
   if (!resizeHybridRenderer()) return false;
   const objects = vinylObjects();
@@ -2345,24 +2785,15 @@ function hybridRenderNow() {
   const renderer = hybridRenderer;
   const gl = renderer.gl;
   gl.viewport(0, 0, renderer.element.width, renderer.element.height);
-  gl.clearColor(0, 0, 0, 0);
+  const background = hybridCanvasBackgroundColor(renderer);
+  gl.clearColor(background[0] / 255, background[1] / 255, background[2] / 255, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.useProgram(renderer.program);
-  gl.uniform2f(renderer.uniforms.resolution, renderer.element.width, renderer.element.height);
-  gl.uniformMatrix3fv(renderer.uniforms.view, false, hybridMat3FromFabric(canvas.viewportTransform));
-  gl.enableVertexAttribArray(renderer.attributes.position);
-  gl.enableVertexAttribArray(renderer.attributes.alpha);
-  for (const object of objects) {
-    if (!hybridLayerEligible(object)) continue;
-    const mesh = hybridMeshForObject(object);
-    if (!mesh) continue;
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.buffer);
-    gl.vertexAttribPointer(renderer.attributes.position, 2, gl.FLOAT, false, 12, 0);
-    gl.vertexAttribPointer(renderer.attributes.alpha, 1, gl.FLOAT, false, 12, 8);
-    gl.uniformMatrix3fv(renderer.uniforms.world, false, hybridMat3FromFabric(object.calcTransformMatrix()));
-    gl.uniform4fv(renderer.uniforms.color, new Float32Array(hybridObjectColor(object)));
-    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
-  }
+  const viewMatrix = hybridMat3FromFabric(canvas.viewportTransform, renderer.viewMatrix);
+  if (overlayLayerMode === "below") drawHybridOverlay(renderer, viewMatrix);
+  drawHybridShapePass(renderer, objects, viewMatrix, false);
+  if (overlayLayerMode === "above") drawHybridOverlay(renderer, viewMatrix);
+  drawHybridShapePass(renderer, objects, viewMatrix, true);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   return true;
 }
 
@@ -2524,6 +2955,20 @@ function normalizeInputShape(shape, index, legacyOffset = { x: 0, y: 0 }) {
   return null;
 }
 
+function allocateEditorObjectId() {
+  return `e${nextEditorObjectId++}`;
+}
+
+function assignUniqueEditorIds(shapes) {
+  const seen = new Set();
+  return shapes.map((shape) => {
+    let editorId = shape?.editor_id ? String(shape.editor_id) : "";
+    if (!editorId || seen.has(editorId)) editorId = allocateEditorObjectId();
+    seen.add(editorId);
+    return shape.editor_id === editorId ? shape : { ...shape, editor_id: editorId };
+  });
+}
+
 async function makeFabricObject(shape, name = null) {
   const typeCode = Number(shape.type);
   const typeResolved = typeCodeToResource(typeCode);
@@ -2580,6 +3025,7 @@ async function makeFabricObject(shape, name = null) {
   }
   const resolvedShapeWord = Number(resolved?.shapeWord ?? shape.type_word ?? (typeCode & 0xffff));
   object.kloudy = {
+    editor_id: shape.editor_id ? String(shape.editor_id) : allocateEditorObjectId(),
     name: name || (resolved ? shapeDisplayName(resolved.family, resolved.index) : (shape.shape_name || typeLabel(typeCode))),
     type: typeCode,
     type_word: Number.isFinite(resolvedShapeWord) ? resolvedShapeWord : (typeCode & 0xffff),
@@ -2608,7 +3054,10 @@ async function makeFabricObject(shape, name = null) {
     },
   };
   applyObjectColor(object, color);
-  applyMaskVisual(object);
+  // The object is not on the canvas yet. Batch callers synchronize mask
+  // helpers once after insertion; doing it here rescans the old canvas for
+  // every layer and turns large design loads into quadratic work.
+  applyMaskVisual(object, { deferPreview: true });
   if (shape.editor_hidden) object.visible = false;
   if (object.kloudy.locked) setObjectLocked(object, true);
   styleObjectTransformControls(object);
@@ -2658,11 +3107,12 @@ function shapeSearchText(family, index, typeCode) {
 function shapeCountForFamily(family) {
   const named = shapeNames?.families?.[family];
   if (named && Object.keys(named).length) {
-    return Math.max(...Object.keys(named).map((key) => Number(key) || 0));
+    return Math.max(
+      resourceCountForFamilyDefinition(family),
+      ...Object.keys(named).map((key) => Number(key) || 0),
+    );
   }
-  if (family.startsWith("Upper_Letters_")) return 26;
-  if (family.startsWith("Lower_Letters_")) return 39;
-  return 40;
+  return resourceCountForFamilyDefinition(family);
 }
 
 async function loadShapeNames() {
@@ -2759,13 +3209,16 @@ function previewEditorColor(color) {
   rememberedColor = normalized;
   const selected = selectedVinylObjects();
   const editable = unlockedObjects(selected);
-  editable.forEach((obj) => {
-    applyObjectColor(obj, normalized);
-    obj.setCoords();
-  });
+  if (editable.length) beginHybridRender("color preview");
+  editable.forEach((obj) => applyObjectColor(obj, normalized, { deferImageFilter: hybridRenderActive }));
   refreshColorUiFast(normalized);
   syncSelectedShapeOutlines(selected);
-  if (canvas && editable.length) canvas.requestRenderAll();
+  if (canvas && editable.length) {
+    if (hybridRenderActive) {
+      requestHybridRender();
+      settleHybridRender(500);
+    } else canvas.requestRenderAll();
+  }
 }
 
 function scheduleDialogColorPreview(color) {
@@ -2798,7 +3251,6 @@ function applyEditorColor(color, reason = "color") {
     }
     rememberColor(normalized);
     applyObjectColor(selected[0], normalized);
-    selected[0].setCoords();
     syncSelectedShapeOutlines(selected);
     canvas.requestRenderAll();
     updateSelectionPanel();
@@ -2816,7 +3268,6 @@ function applyEditorColor(color, reason = "color") {
     rememberColor(normalized);
     editable.forEach((obj) => {
       applyObjectColor(obj, normalized);
-      obj.setCoords();
     });
     syncSelectedShapeOutlines(selected);
     canvas.requestRenderAll();
@@ -2926,7 +3377,6 @@ function vinylObjectAtCanvasPoint(x, y) {
   for (let index = objects.length - 1; index >= 0; index--) {
     const object = objects[index];
     if (object.visible === false || object.evented === false) continue;
-    object.setCoords();
     if (object.containsPoint(point)) return object;
   }
   return null;
@@ -3121,6 +3571,7 @@ function objectToShape(object, options = {}) {
     legacy_offset: Array.isArray(meta.legacy_offset) ? meta.legacy_offset.slice(0, 2) : null,
   };
   if (includeEditorMeta) {
+    shape.editor_id = meta.editor_id || null;
     shape.editor_hidden = !objectEditorVisible(object);
     shape.editor_locked = Boolean(meta.locked);
     shape.editor_group_id = meta.group_id || null;
@@ -3155,12 +3606,9 @@ function applyCollapsedLayerGroups(groupIds) {
 function persistCollapsedLayerState() {
   const collapsed = collapsedLayerGroupIds();
   if (historyIndex >= 0 && history[historyIndex]) {
-    try {
-      const state = JSON.parse(history[historyIndex]);
-      state.editor_collapsed_groups = collapsed;
-      history[historyIndex] = JSON.stringify(state);
-    } catch (_err) {
-      // Keep collapse state best-effort; geometry history remains valid.
+    const state = history[historyIndex];
+    if (state && typeof state === "object") {
+      history[historyIndex] = { ...state, editor_collapsed_groups: collapsed };
     }
   }
   try {
@@ -3179,14 +3627,84 @@ function snapshotEditorState() {
   };
 }
 
+function historyShapeSignature(shape) {
+  return JSON.stringify(shape);
+}
+
+function setHistoryShapeSignature(shape, signature) {
+  Object.defineProperty(shape, "__historySignature", {
+    value: signature,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+  return shape;
+}
+
+function captureSharedHistoryState(previousState = null) {
+  const previousById = new Map(
+    (Array.isArray(previousState?.shapes) ? previousState.shapes : [])
+      .map((shape) => [String(shape?.editor_id || ""), shape])
+      .filter(([editorId]) => editorId),
+  );
+  const shapes = vinylObjects().map((object) => {
+    const shape = objectToShape(object, { includeEditorMeta: true });
+    const signature = historyShapeSignature(shape);
+    const editorId = String(shape.editor_id || "");
+    const attached = object.__kloudyHistoryShape;
+    const previous = attached?.editor_id === editorId ? attached : previousById.get(editorId);
+    if (previous && previous.__historySignature === signature) {
+      object.__kloudyHistoryShape = previous;
+      return previous;
+    }
+    const next = setHistoryShapeSignature(shape, signature);
+    object.__kloudyHistoryShape = next;
+    return next;
+  });
+  return {
+    version: 3,
+    shapes,
+    editor_guides: savedGuideState(),
+    editor_collapsed_groups: collapsedLayerGroupIds(),
+  };
+}
+
+function historyStatesEqual(left, right) {
+  if (!left || !right || !Array.isArray(left.shapes) || !Array.isArray(right.shapes)) return false;
+  if (left.shapes.length !== right.shapes.length) return false;
+  if (!left.shapes.every((shape, index) => shape === right.shapes[index])) return false;
+  if (JSON.stringify(left.editor_guides || null) !== JSON.stringify(right.editor_guides || null)) return false;
+  return JSON.stringify(left.editor_collapsed_groups || []) === JSON.stringify(right.editor_collapsed_groups || []);
+}
+
+function historyStorageEstimate() {
+  const uniqueShapes = new Set();
+  let referenceBytes = 0;
+  let metadataBytes = 0;
+  history.forEach((state) => {
+    if (!state || typeof state !== "object") return;
+    (state.shapes || []).forEach((shape) => uniqueShapes.add(shape));
+    referenceBytes += (state.shapes?.length || 0) * 8;
+    metadataBytes += JSON.stringify({
+      editor_guides: state.editor_guides || null,
+      editor_collapsed_groups: state.editor_collapsed_groups || [],
+    }).length;
+  });
+  const shapeBytes = [...uniqueShapes].reduce((total, shape) => total + (shape.__historySignature?.length || JSON.stringify(shape).length), 0);
+  return { bytes: shapeBytes + referenceBytes + metadataBytes, uniqueShapes: uniqueShapes.size };
+}
+
 async function restoreShapes(shapes, options = {}) {
   const previousCollapsed = new Set(collapsedLayerGroups);
   historyLocked = true;
   clearVinylObjects({ preserveCollapsed: true });
-  for (const shape of shapes) {
-    const object = await makeFabricObject(shape);
-    canvas.add(object);
-  }
+  const normalizedShapes = assignUniqueEditorIds(shapes);
+  const objects = await KfpsEditorCore.mapWithConcurrency(
+    normalizedShapes,
+    OBJECT_BUILD_CONCURRENCY,
+    (shape) => makeFabricObject(shape),
+  );
+  objects.forEach((object) => canvas.add(object));
   if (Array.isArray(options.collapsedGroups)) applyCollapsedLayerGroups(options.collapsedGroups);
   else {
     collapsedLayerGroups = previousCollapsed;
@@ -3200,18 +3718,125 @@ async function restoreShapes(shapes, options = {}) {
   canvas.requestRenderAll();
 }
 
+function objectMatchesHistoryShape(object, shape) {
+  if (!object?.kloudy || !shape) return false;
+  return Number(object.kloudy.type) === Number(shape.type)
+    && String(object.kloudy.resource_family || "") === String(shape.resource_family || "")
+    && Number(object.kloudy.resource_index || 0) === Number(shape.resource_index || 0);
+}
+
+function applyHistoryShapeToObject(object, shape) {
+  const data = Array.isArray(shape.data) ? shape.data : [0, 0, 1, 1, 0, 0, 0];
+  const color = normalizeColor(shape.color);
+  const props = fabricPropsFromFh6Data(data);
+  const renderScale = Math.max(0.000001, Number(object.kloudy?.render_scale) || 1);
+  object.set({
+    ...props,
+    scaleX: props.scaleX * renderScale,
+    scaleY: props.scaleY * renderScale,
+    visible: !shape.editor_hidden,
+  });
+  Object.assign(object.kloudy, {
+    editor_id: String(shape.editor_id || object.kloudy.editor_id || allocateEditorObjectId()),
+    name: shape.shape_name || object.kloudy.name,
+    type: Number(shape.type),
+    type_word: Number(shape.type_word ?? (Number(shape.type) & 0xffff)),
+    resource_family: shape.resource_family || object.kloudy.resource_family || null,
+    resource_index: shape.resource_index || object.kloudy.resource_index || null,
+    source_format: shape.source_format || "fh6_typecode",
+    legacy_type: shape.legacy_type ?? null,
+    legacy_divisor: shape.legacy_divisor ?? null,
+    legacy_offset: Array.isArray(shape.legacy_offset) ? shape.legacy_offset.slice(0, 2) : null,
+    score: Number(shape.score) || 0,
+    extra: data.slice(5),
+    mask: Boolean(shape.mask || data[6]),
+    locked: Boolean(shape.editor_locked),
+    group_id: shape.editor_group_id ? String(shape.editor_group_id) : null,
+    group_name: shape.editor_group_name ? String(shape.editor_group_name) : null,
+    scaleSigns: {
+      x: (Number(data[2]) || 1) < 0 ? -1 : 1,
+      y: (Number(data[3]) || 1) < 0 ? -1 : 1,
+    },
+  });
+  if (object.kloudy.mask) {
+    object.kloudy.maskOriginalColor = color.slice();
+    object.set({ fill: colorToHex(color), opacity: color[3] / 255 });
+    applyMaskVisual(object, { deferPreview: true });
+  } else {
+    object.kloudy.maskOriginalColor = null;
+    applyObjectColor(object, color);
+    applyMaskVisual(object, { deferPreview: true });
+  }
+  setObjectLocked(object, object.kloudy.locked);
+  applyObjectHitTestMode(object);
+  styleObjectTransformControls(object);
+  object.__kloudyHistoryShape = shape;
+  object.setCoords();
+  return object;
+}
+
 async function restoreEditorState(snapshot) {
   const state = Array.isArray(snapshot)
-    ? { shapes: snapshot, editor_guides: null }
+    ? { shapes: snapshot, editor_guides: null, editor_collapsed_groups: [] }
     : (snapshot && typeof snapshot === "object" ? snapshot : {});
-  await restoreShapes(Array.isArray(state.shapes) ? state.shapes : []);
-  applySavedGuideState(state.editor_guides || null);
+  const targetShapes = assignUniqueEditorIds(Array.isArray(state.shapes) ? state.shapes : []);
+  const currentObjects = vinylObjects().slice();
+  const currentById = new Map(currentObjects.map((object) => [String(object.kloudy?.editor_id || ""), object]));
+  const selectedIds = new Set(selectedVinylObjects().map((object) => String(object.kloudy?.editor_id || "")));
+  if (isActiveSelectionObject(canvas.getActiveObject())) canvas.discardActiveObject();
+  const reused = new Set();
+  historyLocked = true;
+  try {
+    const targetObjects = await KfpsEditorCore.mapWithConcurrency(
+      targetShapes,
+      OBJECT_BUILD_CONCURRENCY,
+      async (shape) => {
+        const existing = currentById.get(String(shape.editor_id || ""));
+        if (existing && objectMatchesHistoryShape(existing, shape)) {
+          reused.add(existing);
+          if (existing.__kloudyHistoryShape !== shape) applyHistoryShapeToObject(existing, shape);
+          return existing;
+        }
+        const object = await makeFabricObject(shape);
+        object.__kloudyHistoryShape = shape;
+        return object;
+      },
+    );
+    currentObjects.forEach((object) => {
+      if (!reused.has(object)) canvas.remove(object);
+    });
+    targetObjects.forEach((object) => {
+      if (object.canvas !== canvas) canvas.add(object);
+    });
+    setVinylStackOrder(targetObjects);
+    applyCollapsedLayerGroups(state.editor_collapsed_groups || []);
+    applySavedGuideState(state.editor_guides || null);
+    syncMaskPreviewOutlines();
+    bringGuidesToBack();
+    const restoredSelection = targetObjects.filter((object) => selectedIds.has(String(object.kloudy?.editor_id || "")));
+    if (restoredSelection.length === 1) canvas.setActiveObject(restoredSelection[0]);
+    else if (restoredSelection.length > 1) canvas.setActiveObject(styledActiveSelection(restoredSelection));
+    else canvas.discardActiveObject();
+    invalidateVinylObjectRegistry();
+    refreshLayers();
+    syncCanvasObjectCoords(restoredSelection);
+    await prewarmHybridMeshesForObjects(targetObjects);
+    canvas.requestRenderAll();
+    updateSelectionPanel();
+  } finally {
+    historyLocked = false;
+  }
 }
 
 function resetHistory() {
+  if (nudgeHistoryTimer) clearTimeout(nudgeHistoryTimer);
+  nudgeHistoryTimer = null;
+  nudgeHistoryPending = false;
   history = [];
   historyIndex = -1;
   protectedHistoryIndex = -1;
+  lastHistoryReason = "";
+  lastHistoryAt = 0;
 }
 
 function autosavePayloadFromState(state) {
@@ -3227,13 +3852,6 @@ function autosavePayloadFromState(state) {
 
 function writeAutosavePayload(payload) {
   if (!payload || !Array.isArray(payload.shapes)) return false;
-  let localOk = true;
-  try {
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
-  } catch (err) {
-    localOk = false;
-    console.warn("Browser autosave skipped.", err);
-  }
   pendingAutosavePayload = payload;
   if (!autosaveWriteTimer) {
     autosaveWriteTimer = setTimeout(() => {
@@ -3241,16 +3859,32 @@ function writeAutosavePayload(payload) {
       pendingAutosavePayload = null;
       autosaveWriteTimer = null;
       if (!nextPayload) return;
+      let serialized;
+      try {
+        serialized = JSON.stringify(nextPayload);
+        localStorage.setItem(AUTOSAVE_KEY, serialized);
+      } catch (err) {
+        console.warn("Browser autosave skipped.", err);
+      }
       fetch(EDITOR_AUTOSAVE_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextPayload),
+        body: serialized || JSON.stringify(nextPayload),
       }).catch((err) => {
         console.warn("App-folder autosave skipped.", err);
       });
     }, 350);
   }
-  return localOk;
+  return true;
+}
+
+function flushPendingAutosaveToBrowser() {
+  if (!pendingAutosavePayload) return;
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(pendingAutosavePayload));
+  } catch (err) {
+    console.warn("Final browser autosave skipped.", err);
+  }
 }
 
 function clearAutosave() {
@@ -3275,48 +3909,73 @@ function clearAutosave() {
 
 function pushHistory(reason = "change") {
   if (historyLocked) return;
-  const snapshot = JSON.stringify(snapshotEditorState());
-  if (history[historyIndex] === snapshot) return;
-  history = history.slice(0, historyIndex + 1);
-  history.push(snapshot);
-  if (history.length > 80) {
-    history.shift();
-    if (protectedHistoryIndex >= 0) protectedHistoryIndex = Math.max(0, protectedHistoryIndex - 1);
+  const previous = historyIndex >= 0 && typeof history[historyIndex] === "object" ? history[historyIndex] : null;
+  const snapshot = captureSharedHistoryState(previous);
+  if (historyStatesEqual(previous, snapshot)) return;
+  const now = performance.now();
+  const coalesce = reason === "nudge"
+    && lastHistoryReason === reason
+    && now - lastHistoryAt < 400
+    && historyIndex === history.length - 1
+    && historyIndex > Math.max(0, protectedHistoryIndex);
+  if (coalesce) {
+    history[historyIndex] = snapshot;
+  } else {
+    history = history.slice(0, historyIndex + 1);
+    history.push(snapshot);
+    if (history.length > 80) {
+      history.shift();
+      if (protectedHistoryIndex >= 0) protectedHistoryIndex = Math.max(0, protectedHistoryIndex - 1);
+    }
+    historyIndex = history.length - 1;
   }
-  historyIndex = history.length - 1;
-  let autosaveOk = true;
-  try {
-    const state = JSON.parse(snapshot);
-    autosaveOk = writeAutosavePayload(autosavePayloadFromState(state));
-  } catch (err) {
-    autosaveOk = false;
-    console.warn("Autosave skipped.", err);
-  }
+  lastHistoryReason = reason;
+  lastHistoryAt = now;
+  const autosaveOk = writeAutosavePayload(autosavePayloadFromState(snapshot));
   setStatus(`Saved ${reason}.${autosaveOk ? " Autosave updated." : " Autosave skipped because browser storage is full."}`);
+}
+
+function flushPendingNudgeHistory() {
+  if (nudgeHistoryTimer) clearTimeout(nudgeHistoryTimer);
+  nudgeHistoryTimer = null;
+  if (!nudgeHistoryPending) return false;
+  nudgeHistoryPending = false;
+  pushHistory("nudge");
+  return true;
+}
+
+function scheduleNudgeHistory() {
+  nudgeHistoryPending = true;
+  if (nudgeHistoryTimer) clearTimeout(nudgeHistoryTimer);
+  nudgeHistoryTimer = setTimeout(flushPendingNudgeHistory, 180);
 }
 
 function ensureHistoryBaseline() {
   if (historyLocked || historyIndex >= 0) return;
-  history = [JSON.stringify(snapshotEditorState())];
+  history = [captureSharedHistoryState()];
   historyIndex = 0;
   protectedHistoryIndex = -1;
 }
 
 async function undo() {
+  flushPendingNudgeHistory();
   const floor = Math.max(0, protectedHistoryIndex);
   if (historyIndex <= floor) {
     setStatus(protectedHistoryIndex >= 0 ? "Undo stopped at loaded source." : "Nothing to undo.");
     return;
   }
+  lastHistoryReason = "";
   historyIndex--;
-  await restoreEditorState(JSON.parse(history[historyIndex]));
+  await restoreEditorState(history[historyIndex]);
   setStatus("Undo.");
 }
 
 async function redo() {
+  flushPendingNudgeHistory();
   if (historyIndex >= history.length - 1) return;
+  lastHistoryReason = "";
   historyIndex++;
-  await restoreEditorState(JSON.parse(history[historyIndex]));
+  await restoreEditorState(history[historyIndex]);
   setStatus("Redo.");
 }
 
@@ -3338,11 +3997,14 @@ function requestCanvasRender() {
   });
 }
 
-function syncCanvasObjectCoords() {
+function syncCanvasObjectCoords(objects = null) {
   if (!canvas) return;
   canvas.calcOffset();
-  canvas.getObjects().forEach((object) => object.setCoords?.());
-  canvas.getActiveObject()?.setCoords?.();
+  const active = canvas.getActiveObject();
+  const targets = Array.isArray(objects)
+    ? objects
+    : [active, ...selectedVinylObjects()];
+  [...new Set(targets.filter(Boolean))].forEach((object) => object.setCoords?.());
 }
 
 function finishCanvasPan() {
@@ -3384,7 +4046,7 @@ function initCanvas() {
     renderOnAddRemove: false,
     enableRetinaScaling: false,
     skipOffscreen: true,
-    perPixelTargetFind: true,
+    perPixelTargetFind: false,
     targetFindTolerance: VINYL_HIT_TOLERANCE,
     defaultCursor: "default",
     hoverCursor: "default",
@@ -3416,16 +4078,18 @@ function initCanvas() {
     updateSelectionPanel();
   });
   canvas.on("object:added", (event) => {
+    if (event.target?.kloudyGuide) guideObjectRegistry.invalidate();
     if (event.target?.kloudy) {
-      invalidateLayerStats();
+      invalidateVinylObjectRegistry();
       styleObjectTransformControls(event.target);
       event.target.setCoords();
       if (hybridRenderActive) requestHybridRender();
     }
   });
   canvas.on("object:removed", (event) => {
+    if (event.target?.kloudyGuide) guideObjectRegistry.invalidate();
     if (event.target?.kloudy) {
-      invalidateLayerStats();
+      invalidateVinylObjectRegistry();
       if (hybridRenderActive) requestHybridRender();
     }
   });
@@ -3435,6 +4099,7 @@ function initCanvas() {
       constrainSourceOverlayTransform();
       clearSnapOverlay();
       updateHud();
+      if (hybridRenderActive) requestHybridRender();
       setStatus("Source overlay moved. It remains reference-only and will not export.");
       return;
     }
@@ -3454,8 +4119,10 @@ function initCanvas() {
   });
   canvas.on("object:moving", (event) => {
     if (event.target?.kloudyOverlay) {
+      beginHybridRender("source overlay move");
       constrainSourceOverlayTransform();
       snapSourceOverlayToGuides(event);
+      if (hybridRenderActive) requestHybridRender();
       return;
     }
     beginHybridRender("move");
@@ -3473,8 +4140,10 @@ function initCanvas() {
   ["object:scaling", "object:skewing"].forEach((eventName) => {
     canvas.on(eventName, (event) => {
       if (event.target?.kloudyOverlay) {
+        beginHybridRender("source overlay transform");
         constrainSourceOverlayTransform();
         snapSourceOverlayToGuides(event);
+        if (hybridRenderActive) requestHybridRender();
         return;
       }
       beginHybridRender(eventName);
@@ -3490,7 +4159,9 @@ function initCanvas() {
   });
   canvas.on("object:rotating", (event) => {
     if (event.target?.kloudyOverlay) {
+      beginHybridRender("source overlay rotate");
       constrainSourceOverlayTransform();
+      if (hybridRenderActive) requestHybridRender();
       return;
     }
     beginHybridRender("rotate");
@@ -3702,7 +4373,8 @@ function drawBounds() {
 }
 
 function editorGuideObjects() {
-  return canvas ? canvas.getObjects().filter((obj) => obj.kloudyGuide) : [];
+  if (!canvas) return [];
+  return guideObjectRegistry.read(canvas._objects || canvas.getObjects());
 }
 
 function clampGuideSize(value) {
@@ -4829,9 +5501,8 @@ function clearSnapOverlay() {
     snapOverlayObjects = [];
     return;
   }
-  const stale = new Set(snapOverlayObjects);
-  canvas.getObjects().forEach((obj) => {
-    if (obj.kloudySnapOverlay || stale.has(obj)) canvas.remove(obj);
+  snapOverlayObjects.slice().forEach((object) => {
+    if (object?.canvas === canvas || canvas.getObjects().includes(object)) canvas.remove(object);
   });
   snapOverlayObjects = [];
 }
@@ -5741,25 +6412,37 @@ async function loadPayload(payload) {
   if (!shapes.length) throw new Error("JSON shapes list is empty.");
   const hasLegacyGeometry = shapes.some((shape) => LEGACY_RECTANGLE_TYPES.has(Number(shape.type)) || LEGACY_ELLIPSE_TYPES.has(Number(shape.type)));
   const legacyOffset = hasLegacyGeometry ? computeLegacyOffset(shapes) : { x: 0, y: 0 };
-  const normalized = shapes.map((shape, index) => normalizeInputShape(shape, index, legacyOffset)).filter(Boolean);
+  const normalized = assignUniqueEditorIds(
+    shapes.map((shape, index) => normalizeInputShape(shape, index, legacyOffset)).filter(Boolean),
+  );
   if (!normalized.length) throw new Error("JSON did not contain any usable FH6 vinyl layers.");
+  if (normalized.length > MAX_VINYL_LAYERS) {
+    throw new Error(`This design has ${normalized.length} editable layers. The editor supports up to ${MAX_VINYL_LAYERS} layers per vinyl.`);
+  }
   setBusy(`Building ${normalized.length} editable layer(s)...`);
   await nextFrame();
-  const builtObjects = [];
+  let completed = 0;
   let failed = 0;
-  for (const shape of normalized) {
-    try {
-      const object = await makeFabricObject(shape);
-      builtObjects.push(object);
-    } catch (err) {
-      failed++;
-      console.warn(err);
-    }
-    if ((builtObjects.length + failed) % 100 === 0) {
-      setBusy(`Building layers: ${builtObjects.length}/${normalized.length}`);
-      await nextFrame();
-    }
-  }
+  const results = await KfpsEditorCore.mapWithConcurrency(
+    normalized,
+    OBJECT_BUILD_CONCURRENCY,
+    async (shape) => {
+      try {
+        return await makeFabricObject(shape);
+      } catch (err) {
+        failed += 1;
+        console.warn(err);
+        return null;
+      } finally {
+        completed += 1;
+        if (completed % 100 === 0 || completed === normalized.length) {
+          setBusy(`Building layers: ${completed - failed}/${normalized.length}`);
+          await nextFrame();
+        }
+      }
+    },
+  );
+  const builtObjects = results.filter(Boolean);
   if (!builtObjects.length) {
     throw new Error(`JSON did not contain any loadable FH6 vinyl layers. Failed to build ${failed}/${normalized.length}. Current canvas was left unchanged.`);
   }
@@ -5799,7 +6482,25 @@ function clearVinylObjects(options = {}) {
 }
 
 function vinylObjects() {
-  return canvas.getObjects().filter((obj) => obj.kloudy && !obj.kloudyGuide && !obj.kloudyMaskOutline && !obj.kloudyMaskCutout);
+  if (!canvas) return [];
+  return vinylObjectRegistry.read(canvas._objects || canvas.getObjects());
+}
+
+function invalidateVinylObjectRegistry() {
+  vinylObjectRegistry.invalidate();
+  invalidateLayerStats();
+}
+
+function remainingLayerCapacity() {
+  return Math.max(0, MAX_VINYL_LAYERS - vinylObjects().length);
+}
+
+function requireLayerCapacity(additionalLayers, action = "add layers") {
+  const requested = Math.max(0, Math.floor(Number(additionalLayers)) || 0);
+  const available = remainingLayerCapacity();
+  if (requested <= available) return true;
+  setStatus(`Cannot ${action}: ${requested} new layer(s) would exceed the ${MAX_VINYL_LAYERS}-layer maximum. ${available} slot(s) remain.`);
+  return false;
 }
 
 function interactiveVinylTarget(target) {
@@ -5867,7 +6568,6 @@ function setActiveObjectsForSelectionLock(objects) {
     if (active && (isActiveSelectionObject(active) || !selectionSetEquals(selectedVinylObjects(), normalized))) {
       canvas.discardActiveObject();
     }
-    normalized.forEach((obj) => obj.setCoords());
     if (normalized.length === 1) canvas.setActiveObject(normalized[0]);
     else canvas.setActiveObject(styledActiveSelection(normalized));
     canvas.requestRenderAll();
@@ -6030,16 +6730,14 @@ function layerListObjectKey(object) {
 function registerLayerListRow(element, key, objects, displayIndex) {
   element.dataset.layerListKey = key;
   element.draggable = false;
-  layerListRows.set(key, {
+  const entry = layerListRows.get(key) || {
     key,
     objects: objects.filter(Boolean),
     displayIndex,
-    element,
-  });
+  };
+  entry.element = element;
+  layerListRows.set(key, entry);
   element.addEventListener("pointerdown", handleLayerPointerDown);
-  element.addEventListener("pointermove", handleLayerPointerMove);
-  element.addEventListener("pointerup", handleLayerPointerUp);
-  element.addEventListener("pointercancel", cancelLayerDrag);
 }
 
 function layerRowFromEventTarget(target) {
@@ -6090,7 +6788,15 @@ function clearLayerDropPreview() {
 }
 
 function layerScrollPane() {
-  return $("layersPane");
+  return $("layersViewport") || $("layersPane");
+}
+
+function scheduleVirtualLayerRender() {
+  if (layerVirtualRenderFrame) return;
+  layerVirtualRenderFrame = requestAnimationFrame(() => {
+    layerVirtualRenderFrame = null;
+    renderVirtualLayerWindow();
+  });
 }
 
 function layerRowAtPoint(x, y) {
@@ -6127,9 +6833,8 @@ function visibleLayerBlocks() {
   const displayIndex = new Map(displayObjects.map((obj, index) => [obj, index]));
   const seen = new Set();
   const blocks = [];
-  document.querySelectorAll("#layers [data-layer-list-key]").forEach((row) => {
-    const key = row.dataset.layerListKey;
-    const entry = layerListRows.get(key);
+  layerListEntries.forEach((entry) => {
+    const key = entry.key;
     if (!entry?.objects?.length) return;
     if (isGroupLayerKey(key)) {
       const objects = entry.objects
@@ -6137,13 +6842,13 @@ function visibleLayerBlocks() {
         .sort((a, b) => displayIndex.get(a) - displayIndex.get(b));
       if (!objects.length) return;
       objects.forEach((obj) => seen.add(obj));
-      blocks.push({ key, objects, element: row });
+      blocks.push({ key, objects, element: entry.element || null });
       return;
     }
     const object = entry.objects[0];
     if (!object || seen.has(object)) return;
     seen.add(object);
-    blocks.push({ key, objects: [object], element: row });
+    blocks.push({ key, objects: [object], element: entry.element || null });
   });
   return blocks;
 }
@@ -6163,7 +6868,7 @@ function reorderCandidateBlocks(dragObjects = []) {
       ...block,
       objects: block.objects.filter((obj) => !selectedSet.has(obj)),
     }))
-    .filter((block) => block.objects.length && block.element?.isConnected);
+    .filter((block) => block.objects.length);
 }
 
 function layerDropSlotAtPoint(event) {
@@ -6174,32 +6879,31 @@ function layerDropSlotAtPoint(event) {
   if (!paneRect || event.clientX < paneRect.left || event.clientX > paneRect.right || event.clientY < paneRect.top || event.clientY > paneRect.bottom) return null;
   const blocks = reorderCandidateBlocks(layerDragState.objects);
   if (!blocks.length) return { index: 0, blocks };
-  const rows = blocks.map((block) => ({ block, rect: block.element.getBoundingClientRect() }));
-  const gaps = [{ index: 0, y: rows[0].rect.top, block: rows[0].block, side: "before" }];
-  for (let index = 1; index < rows.length; index += 1) {
-    gaps.push({
-      index,
-      y: (rows[index - 1].rect.bottom + rows[index].rect.top) / 2,
-      block: rows[index].block,
-      side: "before",
-    });
-  }
-  gaps.push({
-    index: rows.length,
-    y: rows[rows.length - 1].rect.bottom,
-    block: rows[rows.length - 1].block,
-    side: "after",
-  });
-  let best = gaps[0];
-  let bestDistance = Math.abs(event.clientY - best.y);
-  gaps.slice(1).forEach((gap) => {
-    const distance = Math.abs(event.clientY - gap.y);
-    if (distance < bestDistance) {
-      best = gap;
-      bestDistance = distance;
+  const rows = blocks
+    .map((block, index) => ({ block, index, rect: block.element?.isConnected ? block.element.getBoundingClientRect() : null }))
+    .filter((row) => row.rect);
+  if (!rows.length) return null;
+  let nearest = rows[0];
+  let nearestDistance = Infinity;
+  rows.forEach((row) => {
+    const center = row.rect.top + row.rect.height / 2;
+    const distance = event.clientY < row.rect.top
+      ? row.rect.top - event.clientY
+      : event.clientY > row.rect.bottom
+        ? event.clientY - row.rect.bottom
+        : Math.abs(event.clientY - center) * 0.01;
+    if (distance < nearestDistance) {
+      nearest = row;
+      nearestDistance = distance;
     }
   });
-  return { index: best.index, blocks, markerBlock: best.block, markerSide: best.side };
+  const after = event.clientY >= nearest.rect.top + nearest.rect.height / 2;
+  return {
+    index: nearest.index + (after ? 1 : 0),
+    blocks,
+    markerBlock: nearest.block,
+    markerSide: after ? "after" : "before",
+  };
 }
 
 function updateLayerDropPreview(event) {
@@ -6237,6 +6941,7 @@ function scrollLayerPaneDuringDrag(clientY) {
   const edge = 42;
   if (clientY < rect.top + edge) pane.scrollTop -= Math.max(8, Math.round((rect.top + edge - clientY) * 0.55));
   else if (clientY > rect.bottom - edge) pane.scrollTop += Math.max(8, Math.round((clientY - (rect.bottom - edge)) * 0.55));
+  scheduleVirtualLayerRender();
 }
 
 function handleLayerDragWheel(event) {
@@ -6244,6 +6949,7 @@ function handleLayerDragWheel(event) {
   const pane = layerScrollPane();
   if (!pane) return;
   pane.scrollTop += event.deltaY;
+  renderVirtualLayerWindow();
   updateLayerDropPreview(event);
   event.preventDefault();
 }
@@ -6374,6 +7080,9 @@ function handleLayerPointerDown(event) {
     startY: event.clientY,
     active: false,
   };
+  document.addEventListener("pointermove", handleLayerPointerMove, true);
+  document.addEventListener("pointerup", handleLayerPointerUp, true);
+  document.addEventListener("pointercancel", cancelLayerDrag, true);
   document.body.classList.add("layerDragMaybe");
 }
 
@@ -6424,6 +7133,9 @@ function handleLayerPointerUp(event) {
 }
 
 function cancelLayerDrag() {
+  document.removeEventListener("pointermove", handleLayerPointerMove, true);
+  document.removeEventListener("pointerup", handleLayerPointerUp, true);
+  document.removeEventListener("pointercancel", cancelLayerDrag, true);
   layerDragState = null;
   document.body.classList.remove("layerDragMaybe", "layerGroupingActive", "layerReorderActive");
   clearLayerDropPreview();
@@ -6435,14 +7147,6 @@ function cancelLayerDrag() {
   setTimeout(() => { suppressLayerClick = false; }, 0);
 }
 
-function updateLayerSelectionStyles() {
-  const activeSet = new Set(selectedVinylObjects());
-  layerListRows.forEach((entry) => {
-    const active = entry.objects.some((obj) => activeSet.has(obj));
-    entry.element.classList.toggle("active", active);
-  });
-  updateHud();
-}
 
 function scheduleRefreshLayers() {
   if (layerRefreshFrame) return;
@@ -6452,6 +7156,126 @@ function scheduleRefreshLayers() {
   });
 }
 
+
+function createVirtualLayerElement(entry, activeSet) {
+  if (entry.kind === "group") {
+    const li = document.createElement("li");
+    const active = entry.objects.some((object) => activeSet.has(object));
+    li.className = `layerGroupRow${active ? " active" : ""}${entry.collapsed ? " collapsed" : ""}`;
+    li.innerHTML = `
+      <button class="layerGroupTwist" type="button" title="${entry.collapsed ? "Expand group" : "Collapse group"}">${entry.collapsed ? "+" : "-"}</button>
+      <span class="layerGroupTitle">${escapeHtml(entry.groupName)}</span>
+      <span class="layerGroupMeta">${entry.objects.length} layers | ${entry.visibility.hidden ? `${entry.visibility.hidden} hidden` : "visible"} | ${entry.locks.locked ? `${entry.locks.locked} locked` : "unlocked"}</span>
+      <button class="layerIcon layerGroupVisibility" type="button" title="Hide/show this group">${entry.visibility.visible ? "V" : "H"}</button>
+      <button class="layerIcon layerGroupLock" type="button" title="Lock/unlock this group">${entry.locks.unlocked ? "U" : "L"}</button>
+    `;
+    li.querySelector(".layerGroupTwist").addEventListener("click", (event) => {
+      event.stopPropagation();
+      setCollapsedGroup(entry.groupId, !entry.collapsed);
+    });
+    li.querySelector(".layerGroupVisibility").addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectObjects(entry.objects, entry.groupName);
+      toggleSelectedGroupVisibility();
+    });
+    li.querySelector(".layerGroupLock").addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectObjects(entry.objects, entry.groupName);
+      toggleSelectedGroupLock();
+    });
+    li.addEventListener("click", (event) => {
+      if (suppressLayerClick) return;
+      if (event.shiftKey && lastLayerListKey && selectLayerRangeByKeys(lastLayerListKey, entry.key)) return;
+      if ((event.ctrlKey || event.metaKey) && selectLayerToggleByKey(entry.key, "layer multi-select")) return;
+      selectObjects(entry.objects, entry.groupName);
+      lastLayerListKey = entry.key;
+    });
+    registerLayerListRow(li, entry.key, entry.objects, entry.displayIndex);
+    return li;
+  }
+
+  const obj = entry.object;
+  const li = document.createElement("li");
+  li.className = "layerRow";
+  if (entry.groupId) li.classList.add("groupedLayer");
+  if (activeSet.has(obj)) li.classList.add("active");
+  if (obj.visible === false) li.classList.add("hiddenLayer");
+  if (obj.kloudy?.locked) li.classList.add("lockedLayer");
+  const color = hexToRgb(obj.fill || "#ffffff", (obj.opacity ?? 1) * 255);
+  const groupBadge = entry.groupId
+    ? `<button class="layerGroupBadge" type="button" title="Select all layers in ${escapeHtml(entry.groupName)}.">${escapeHtml(entry.groupName)} (${entry.groupCount})</button>`
+    : "";
+  const data = fh6DataFromObject(obj);
+  li.innerHTML = `
+    <button class="layerIcon layerVisibility" type="button" title="${obj.visible === false ? "Show layer" : "Hide layer"}">${obj.visible === false ? "H" : "V"}</button>
+    <button class="layerIcon layerLock" type="button" title="${obj.kloudy?.locked ? "Unlock layer" : "Lock layer"}">${obj.kloudy?.locked ? "L" : "U"}</button>
+    <span class="layerColorChip" style="--swatch:${colorToHex(color)}"></span>
+    <span class="layerMain">
+      <b>${escapeHtml(entry.label)}</b>
+      <small>${groupBadge} Type ${escapeHtml(obj.kloudy?.type || "unknown")} | X ${round(data[0])} Y ${round(data[1])}</small>
+    </span>
+  `;
+  li.querySelector(".layerGroupBadge")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    selectGroupForObject(obj);
+  });
+  li.querySelector(".layerVisibility").addEventListener("click", (event) => {
+    event.stopPropagation();
+    obj.visible = obj.visible === false;
+    canvas.requestRenderAll();
+    refreshLayers();
+    pushHistory("layer visibility");
+  });
+  li.querySelector(".layerLock").addEventListener("click", (event) => {
+    event.stopPropagation();
+    setObjectLocked(obj, !obj.kloudy?.locked);
+    canvas.requestRenderAll();
+    refreshLayers();
+    updateSelectionPanel();
+    pushHistory("layer lock");
+  });
+  li.addEventListener("click", (event) => {
+    if (suppressLayerClick) return;
+    if (event.shiftKey && lastLayerListKey && selectLayerRangeByKeys(lastLayerListKey, entry.key)) return;
+    if ((event.ctrlKey || event.metaKey) && selectLayerToggleByKey(entry.key, "layer multi-select")) return;
+    selectLayerEntryByKey(entry.key, "layer row");
+  });
+  registerLayerListRow(li, entry.key, entry.objects, entry.displayIndex);
+  return li;
+}
+
+function renderVirtualLayerWindow(force = false) {
+  const list = $("layers");
+  const viewport = layerScrollPane();
+  if (!list || !viewport) return;
+  const range = KfpsEditorCore.virtualRange(
+    layerVirtualLayout,
+    viewport.scrollTop,
+    viewport.clientHeight || 720,
+    496,
+  );
+  if (!force && range.start === layerVirtualStart && range.end === layerVirtualEnd) return;
+  layerVirtualStart = range.start;
+  layerVirtualEnd = range.end;
+  renderedLayerEntries.forEach((entry) => { entry.element = null; });
+  renderedLayerEntries = layerListEntries.slice(range.start, range.end);
+  const activeSet = new Set(selectedVinylObjects());
+  const fragment = document.createDocumentFragment();
+  renderedLayerEntries.forEach((entry) => fragment.appendChild(createVirtualLayerElement(entry, activeSet)));
+  list.style.paddingTop = `${range.padTop}px`;
+  list.style.paddingBottom = `${range.padBottom}px`;
+  list.replaceChildren(fragment);
+}
+
+function updateLayerSelectionStyles() {
+  const activeSet = new Set(selectedVinylObjects());
+  renderedLayerEntries.forEach((entry) => {
+    if (!entry.element?.isConnected) return;
+    entry.element.classList.toggle("active", entry.objects.some((obj) => activeSet.has(obj)));
+  });
+  updateHud();
+}
+
 function refreshLayers() {
   if (layerRefreshFrame) {
     cancelAnimationFrame(layerRefreshFrame);
@@ -6459,24 +7283,23 @@ function refreshLayers() {
   }
   invalidateLayerStats();
   const list = $("layers");
-  const fragment = document.createDocumentFragment();
-  layerListRows = new Map();
+  const viewport = layerScrollPane();
   const objects = vinylObjects();
-  layerStatsCache = {
-    objects,
-    count: objects.length,
-    visible: objects.filter((obj) => obj.visible !== false && (obj.opacity ?? 1) > 0).length,
-  };
   const activeSet = new Set(selectedVinylObjects());
   const filter = ($("layerSearch")?.value || "").trim().toLowerCase();
-  const groupCounts = new Map();
+  let visibleCount = 0;
+  const groupMembers = new Map();
   const groupNames = new Map();
   const groupVisibility = new Map();
   const groupLocks = new Map();
   objects.forEach((obj) => {
-    const groupId = obj.kloudy?.group_id;
-    if (!groupId) return;
-    groupCounts.set(groupId, (groupCounts.get(groupId) || 0) + 1);
+    if (obj.visible !== false && (obj.opacity ?? 1) > 0) visibleCount += 1;
+    const rawGroupId = obj.kloudy?.group_id;
+    if (!rawGroupId) return;
+    const groupId = String(rawGroupId);
+    const members = groupMembers.get(groupId) || [];
+    members.push(obj);
+    groupMembers.set(groupId, members);
     groupNames.set(groupId, groupNameForObject(obj));
     const visibility = groupVisibility.get(groupId) || { visible: 0, hidden: 0 };
     if (obj.visible === false) visibility.hidden += 1;
@@ -6487,109 +7310,69 @@ function refreshLayers() {
     else locks.unlocked += 1;
     groupLocks.set(groupId, locks);
   });
+  layerStatsCache = { objects, count: objects.length, visible: visibleCount };
   $("layerInfo").textContent = activeSet.size > 1
     ? `${activeSet.size} selected / ${objects.length} editable layer(s). Drag selection to move together.`
     : `${objects.length} editable layer(s). Export writes bottom-to-top order.`;
-  const displayObjects = objects.slice().reverse();
+
+  const entries = [];
   const renderedGroups = new Set();
-  displayObjects.forEach((obj, reverseIndex) => {
-    const actualIndex = objects.length - reverseIndex;
+  const displayObjects = objects.slice().reverse();
+  displayObjects.forEach((obj, displayIndex) => {
+    const actualIndex = objects.length - displayIndex;
     const label = `${actualIndex}. ${obj.kloudy?.name || typeLabel(obj.kloudy?.type || 0)}`;
-    const groupId = obj.kloudy?.group_id || null;
-    const groupName = groupId ? groupNames.get(groupId) || groupNameForObject(obj) : "";
+    const groupId = obj.kloudy?.group_id ? String(obj.kloudy.group_id) : null;
+    const groupName = groupId ? (groupNames.get(groupId) || groupNameForObject(obj)) : "";
     const searchText = `${label} ${groupName} ${obj.kloudy?.type || ""} ${obj.kloudy?.type_word || ""}`.toLowerCase();
     if (filter && !searchText.includes(filter)) return;
     if (groupId && !renderedGroups.has(groupId)) {
       renderedGroups.add(groupId);
-      const groupMembers = membersForGroupIds([groupId]);
-      const groupActive = groupMembers.some((member) => activeSet.has(member));
-      const visibility = groupVisibility.get(groupId) || { visible: 0, hidden: 0 };
-      const locks = groupLocks.get(groupId) || { locked: 0, unlocked: 0 };
-      const collapsed = collapsedLayerGroups.has(groupId);
-      const groupLi = document.createElement("li");
-      groupLi.className = `layerGroupRow${groupActive ? " active" : ""}${collapsed ? " collapsed" : ""}`;
-      groupLi.innerHTML = `
-        <button class="layerGroupTwist" type="button" title="${collapsed ? "Expand group" : "Collapse group"}">${collapsed ? "+" : "-"}</button>
-        <span class="layerGroupTitle">${escapeHtml(groupName)}</span>
-        <span class="layerGroupMeta">${groupMembers.length} layers | ${visibility.hidden ? `${visibility.hidden} hidden` : "visible"} | ${locks.locked ? `${locks.locked} locked` : "unlocked"}</span>
-        <button class="layerIcon layerGroupVisibility" type="button" title="Hide/show this group">${visibility.visible ? "V" : "H"}</button>
-        <button class="layerIcon layerGroupLock" type="button" title="Lock/unlock this group">${locks.unlocked ? "U" : "L"}</button>
-      `;
-      groupLi.querySelector(".layerGroupTwist").addEventListener("click", (event) => {
-        event.stopPropagation();
-        setCollapsedGroup(groupId, !collapsed);
+      const members = groupMembers.get(groupId) || [obj];
+      entries.push({
+        kind: "group",
+        key: `group:${groupId}`,
+        objects: members,
+        displayIndex,
+        groupId,
+        groupName,
+        collapsed: collapsedLayerGroups.has(groupId),
+        visibility: groupVisibility.get(groupId) || { visible: 0, hidden: 0 },
+        locks: groupLocks.get(groupId) || { locked: 0, unlocked: 0 },
+        height: 62,
+        element: null,
       });
-      groupLi.querySelector(".layerGroupVisibility").addEventListener("click", (event) => {
-        event.stopPropagation();
-        selectObjects(groupMembers, groupName);
-        toggleSelectedGroupVisibility();
-      });
-      groupLi.querySelector(".layerGroupLock").addEventListener("click", (event) => {
-        event.stopPropagation();
-        selectObjects(groupMembers, groupName);
-        toggleSelectedGroupLock();
-      });
-      registerLayerListRow(groupLi, `group:${groupId}`, groupMembers, reverseIndex);
-      groupLi.addEventListener("click", (event) => {
-        if (suppressLayerClick) return;
-        if (event.shiftKey && lastLayerListKey && selectLayerRangeByKeys(lastLayerListKey, `group:${groupId}`)) return;
-        if ((event.ctrlKey || event.metaKey) && selectLayerToggleByKey(`group:${groupId}`, "layer multi-select")) return;
-        selectObjects(groupMembers, groupName);
-        lastLayerListKey = `group:${groupId}`;
-      });
-      fragment.appendChild(groupLi);
     }
     if (groupId && collapsedLayerGroups.has(groupId)) return;
-    const li = document.createElement("li");
-    li.className = "layerRow";
-    if (groupId) li.classList.add("groupedLayer");
-    if (activeSet.has(obj)) li.classList.add("active");
-    if (obj.visible === false) li.classList.add("hiddenLayer");
-    if (obj.kloudy?.locked) li.classList.add("lockedLayer");
-    const color = hexToRgb(obj.fill || "#ffffff", (obj.opacity ?? 1) * 255);
-    const groupBadge = obj.kloudy?.group_id
-      ? `<button class="layerGroupBadge" type="button" title="Select all layers in ${escapeHtml(groupNameForObject(obj))}.">${escapeHtml(groupNameForObject(obj))} (${groupCounts.get(obj.kloudy.group_id) || 1})</button>`
-      : "";
-    li.innerHTML = `
-      <button class="layerIcon layerVisibility" type="button" title="${obj.visible === false ? "Show layer" : "Hide layer"}">${obj.visible === false ? "H" : "V"}</button>
-      <button class="layerIcon layerLock" type="button" title="${obj.kloudy?.locked ? "Unlock layer" : "Lock layer"}">${obj.kloudy?.locked ? "L" : "U"}</button>
-      <span class="layerColorChip" style="--swatch:${colorToHex(color)}"></span>
-      <span class="layerMain">
-        <b>${escapeHtml(label)}</b>
-        <small>${groupBadge} Type ${escapeHtml(obj.kloudy?.type || "unknown")} | X ${round(fh6DataFromObject(obj)[0])} Y ${round(fh6DataFromObject(obj)[1])}</small>
-      </span>
-    `;
-    li.querySelector(".layerGroupBadge")?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      selectGroupForObject(obj);
+    entries.push({
+      kind: "layer",
+      key: layerListObjectKey(obj),
+      object: obj,
+      objects: [obj],
+      displayIndex,
+      groupId,
+      groupName,
+      groupCount: groupId ? (groupMembers.get(groupId)?.length || 1) : 0,
+      label,
+      height: 62,
+      element: null,
     });
-    li.querySelector(".layerVisibility").addEventListener("click", (event) => {
-      event.stopPropagation();
-      obj.visible = obj.visible === false;
-      canvas.requestRenderAll();
-      refreshLayers();
-      pushHistory("layer visibility");
-    });
-    li.querySelector(".layerLock").addEventListener("click", (event) => {
-      event.stopPropagation();
-      const locked = !obj.kloudy?.locked;
-      setObjectLocked(obj, locked);
-      canvas.requestRenderAll();
-      refreshLayers();
-      updateSelectionPanel();
-      pushHistory("layer lock");
-    });
-    li.addEventListener("click", (event) => {
-      if (suppressLayerClick) return;
-      const key = layerListObjectKey(obj);
-      if (event.shiftKey && lastLayerListKey && selectLayerRangeByKeys(lastLayerListKey, key)) return;
-      if ((event.ctrlKey || event.metaKey) && selectLayerToggleByKey(key, "layer multi-select")) return;
-      selectLayerEntryByKey(key, "layer row");
-    });
-    registerLayerListRow(li, layerListObjectKey(obj), [obj], reverseIndex);
-    fragment.appendChild(li);
   });
-  list.replaceChildren(fragment);
+
+  layerListEntries = entries;
+  layerListRows = new Map(entries.map((entry) => [entry.key, entry]));
+  layerVirtualLayout = KfpsEditorCore.buildVirtualLayout(entries, 62);
+  layerVirtualStart = -1;
+  layerVirtualEnd = -1;
+  renderedLayerEntries = [];
+  list.classList.add("layerVirtualized");
+  list.setAttribute("aria-rowcount", String(entries.length));
+  if (viewport && filter !== lastLayerFilter) viewport.scrollTop = 0;
+  lastLayerFilter = filter;
+  if (viewport && !viewport.dataset.virtualLayersBound) {
+    viewport.dataset.virtualLayersBound = "true";
+    viewport.addEventListener("scroll", scheduleVirtualLayerRender, { passive: true });
+  }
+  renderVirtualLayerWindow(true);
   setText("exportWarningCount", "0");
   setText("normalExportStatus", "Compatible");
   setText("exportReadyChip", objects.length ? "Ready" : "No JSON");
@@ -6661,10 +7444,7 @@ function applySelectionFields() {
     }
     const alpha = Math.max(0, Math.min(255, Math.round(Number($("opacitySlider").value) || 0)));
     const color = hexToRgb($("colorPicker").value || colorToHex(rememberedColor), alpha);
-    editable.forEach((obj) => {
-      applyObjectColor(obj, color);
-      obj.setCoords();
-    });
+    editable.forEach((obj) => applyObjectColor(obj, color));
     rememberColor(color);
     canvas.requestRenderAll();
     updateSelectionPanel();
@@ -6709,7 +7489,7 @@ function applySelectionFields() {
   pushHistory("field edit");
 }
 
-function applyMaskVisual(obj) {
+function applyMaskVisual(obj, options = {}) {
   if (!obj || !obj.kloudy) return;
   if (obj.kloudy.mask) {
     if (!Array.isArray(obj.kloudy.maskOriginalColor)) {
@@ -6744,7 +7524,7 @@ function applyMaskVisual(obj) {
     applyObjectHitTestMode(obj);
     obj.kloudy.maskOriginalColor = null;
   }
-  syncMaskPreviewOutlines();
+  if (!options.deferPreview) syncMaskPreviewOutlines();
 }
 
 function makeMaskHelperBaseForObject(obj) {
@@ -6829,20 +7609,23 @@ function syncMaskHelperTransform(obj, helper) {
 
 function syncMaskPreviewOutlines() {
   if (!canvas) return;
-  const wanted = new Set(vinylObjects().filter((obj) => obj.kloudy?.mask));
+  const canvasObjectSet = new Set(canvas.getObjects());
+  const wantedObjects = vinylObjects().filter((obj) => obj.kloudy?.mask);
+  const wanted = new Set(wantedObjects);
   maskPreviewCutouts.forEach((cutout, obj) => {
-    if (!wanted.has(obj) || !canvas.getObjects().includes(obj)) {
+    if (!wanted.has(obj) || !canvasObjectSet.has(obj)) {
       canvas.remove(cutout);
       maskPreviewCutouts.delete(obj);
     }
   });
   maskPreviewOutlines.forEach((outline, obj) => {
-    if (!wanted.has(obj) || !canvas.getObjects().includes(obj)) {
+    if (!wanted.has(obj) || !canvasObjectSet.has(obj)) {
       canvas.remove(outline);
       maskPreviewOutlines.delete(obj);
     }
   });
-  wanted.forEach((obj) => {
+  const orderedHelpers = [];
+  wantedObjects.forEach((obj) => {
     let cutout = maskPreviewCutouts.get(obj);
     if (!cutout) {
       cutout = makeMaskCutoutForObject(obj);
@@ -6857,9 +7640,16 @@ function syncMaskPreviewOutlines() {
     }
     syncMaskHelperTransform(obj, cutout);
     syncMaskHelperTransform(obj, outline);
-    cutout.bringToFront();
-    outline.bringToFront();
+    orderedHelpers.push(cutout, outline);
   });
+  if (!orderedHelpers.length) return;
+  const helperSet = new Set(orderedHelpers);
+  const nextObjects = canvas.getObjects().filter((object) => !helperSet.has(object)).concat(orderedHelpers);
+  if (!nextObjects.every((object, index) => canvas._objects[index] === object)) {
+    canvas._objects = nextObjects;
+    nextObjects.forEach((object) => { object.canvas = canvas; });
+    invalidateVinylObjectRegistry();
+  }
 }
 
 function syncMaskPreviewForTarget(target) {
@@ -6891,9 +7681,9 @@ function toggleSelectedMaskLayers() {
     if (!obj.kloudy) return;
     if (Boolean(obj.kloudy.mask) !== shouldMask) changed += 1;
     obj.kloudy.mask = shouldMask;
-    applyMaskVisual(obj);
-    obj.setCoords();
+    applyMaskVisual(obj, { deferPreview: true });
   });
+  syncMaskPreviewOutlines();
   canvas.requestRenderAll();
   updateSelectionPanel();
   pushHistory(shouldMask ? "make mask layer" : "clear mask layer");
@@ -6916,10 +7706,7 @@ function equalizeSelectedAlpha() {
     return;
   }
   const alpha = alphaForObject(editable[0]);
-  editable.forEach((obj) => {
-    obj.set({ opacity: alpha / 255 });
-    obj.setCoords();
-  });
+  editable.forEach((obj) => obj.set({ opacity: alpha / 255 }));
   $("opacitySlider").value = alpha;
   rememberColor([rememberedColor[0], rememberedColor[1], rememberedColor[2], alpha]);
   canvas.requestRenderAll();
@@ -7354,6 +8141,32 @@ function updateShapeResourceOnShape(shape, family, index) {
   };
 }
 
+async function replaceObjectsWithResource(objects, family, index) {
+  const sourceObjects = objects.slice();
+  const sourceSet = new Set(sourceObjects);
+  const originalOrder = vinylObjects().slice();
+  const replacements = await KfpsEditorCore.mapWithConcurrency(
+    sourceObjects,
+    OBJECT_BUILD_CONCURRENCY,
+    async (oldObject) => {
+      const shape = updateShapeResourceOnShape(objectToShape(oldObject, { includeEditorMeta: true }), family, index);
+      const replacement = await makeFabricObject(shape);
+      replacement.visible = oldObject.visible;
+      return { oldObject, replacement };
+    },
+  );
+  const replacementByObject = new Map(replacements.map((item) => [item.oldObject, item.replacement]));
+  sourceObjects.forEach((object) => canvas.remove(object));
+  replacements.forEach(({ replacement }) => {
+    canvas.add(replacement);
+    if (isFontFamily(family)) rememberFontShapeTransform(replacement);
+  });
+  setVinylStackOrder(originalOrder.map((object) => (
+    sourceSet.has(object) ? replacementByObject.get(object) : object
+  )));
+  return replacements.map((item) => item.replacement);
+}
+
 async function replaceSelectedShapes(family, index) {
   const selected = orderedSelectedVinylObjects();
   if (!selected.length) {
@@ -7365,24 +8178,8 @@ async function replaceSelectedShapes(family, index) {
     setStatus("Selected layers are locked. Unlock them before replacing shape type.");
     return;
   }
-  const replacements = [];
-  for (const oldObject of editable) {
-    const oldIndex = canvas.getObjects().indexOf(oldObject);
-    const shape = updateShapeResourceOnShape(objectToShape(oldObject, { includeEditorMeta: true }), family, index);
-    const replacement = await makeFabricObject(shape);
-    replacement.visible = oldObject.visible;
-    replacements.push({ oldObject, oldIndex, replacement });
-  }
-  replacements.forEach(({ oldObject }) => canvas.remove(oldObject));
-  replacements.forEach(({ oldIndex, replacement }) => {
-    canvas.add(replacement);
-    replacement.moveTo(Math.max(0, oldIndex));
-    if (isFontFamily(family)) rememberFontShapeTransform(replacement);
-  });
-  syncMaskPreviewOutlines();
-  bringGuidesToBack();
-  syncCanvasObjectCoords();
-  selectObjects(replacements.map((item) => item.replacement), "shape replacement");
+  const replacements = await replaceObjectsWithResource(editable, family, index);
+  selectObjects(replacements, "shape replacement");
   canvas.requestRenderAll();
   refreshLayers();
   pushHistory("replace shape type");
@@ -7409,25 +8206,9 @@ async function replaceMatchingShapeWords(source, family, index) {
     setStatus("Matching layers are locked. Unlock them before replacing shape type.");
     return;
   }
-  const replacements = [];
-  for (const oldObject of editable) {
-    const oldIndex = canvas.getObjects().indexOf(oldObject);
-    const shape = updateShapeResourceOnShape(objectToShape(oldObject, { includeEditorMeta: true }), family, index);
-    const replacement = await makeFabricObject(shape);
-    replacement.visible = oldObject.visible;
-    replacements.push({ oldObject, oldIndex, replacement });
-  }
-  replacements.forEach(({ oldObject }) => canvas.remove(oldObject));
-  replacements.forEach(({ oldIndex, replacement }) => {
-    canvas.add(replacement);
-    replacement.moveTo(Math.max(0, oldIndex));
-    if (isFontFamily(family)) rememberFontShapeTransform(replacement);
-  });
+  const replacements = await replaceObjectsWithResource(editable, family, index);
   pendingGlobalShapeReplacement = null;
-  syncMaskPreviewOutlines();
-  bringGuidesToBack();
-  syncCanvasObjectCoords();
-  selectObjects(replacements.map((item) => item.replacement), "global shape replacement");
+  selectObjects(replacements, "global shape replacement");
   canvas.requestRenderAll();
   refreshLayers();
   pushHistory("replace shape globally");
@@ -7444,6 +8225,7 @@ async function addShape(family, index) {
     await replaceSelectedShapes(family, index);
     return;
   }
+  if (!requireLayerCapacity(1, "add this shape")) return;
   const typeCode = resourceToTypeCode(family, index);
   const shapeWord = resourceToShapeWord(family, index);
   const shape = {
@@ -7797,24 +8579,25 @@ async function generatePixelArtRectangles() {
       clearBusy("No visible pixel-art cells found.");
       return;
     }
-    if (runs.length > 3000) {
-      const ok = window.confirm(`This will create ${runs.length} layers. FH6 supports 3000 layers per vinyl. Continue anyway?`);
-      if (!ok) {
-        setText("pixelArtStatus", "Pixel-art generation cancelled.");
-        clearBusy("Pixel-art generation cancelled.");
-        return;
-      }
+    const clearPrevious = Boolean($("pixelArtClearPrevious")?.checked);
+    const previousCount = clearPrevious ? vinylObjects().filter((obj) => obj.kloudy?.pixel_art_generated).length : 0;
+    const projectedCount = vinylObjects().length - previousCount + runs.length;
+    if (projectedCount > MAX_VINYL_LAYERS) {
+      const message = `Pixel-art generation needs ${projectedCount} total layers, above the ${MAX_VINYL_LAYERS}-layer maximum. Increase Cell px or reduce the source size.`;
+      setText("pixelArtStatus", message);
+      clearBusy(message);
+      return;
     }
-    const removed = $("pixelArtClearPrevious")?.checked ? clearPreviousPixelArtLayers() : 0;
+    const removed = clearPrevious ? clearPreviousPixelArtLayers() : 0;
     const layout = pixelArtCanvasLayout(gridW, gridH, "height");
     const groupId = `pixel-art-${Date.now().toString(36)}`;
     const groupName = `Pixel Art ${gridW}x${gridH}`;
     const typeCode = resourceToTypeCode("Primitives", 1);
     const shapeWord = resourceToShapeWord("Primitives", 1);
-    const created = [];
+    let created = [];
     historyLocked = true;
     try {
-      for (const run of runs) {
+      created = await KfpsEditorCore.mapWithConcurrency(runs, OBJECT_BUILD_CONCURRENCY, async (run) => {
         const width = run.width * layout.cellW;
         const height = (run.height || 1) * layout.cellH;
         const centerX = layout.left + (run.x * layout.cellW) + width / 2;
@@ -7842,9 +8625,9 @@ async function generatePixelArtRectangles() {
         };
         const object = await makeFabricObject(shape);
         object.kloudy.pixel_art_generated = true;
-        canvas.add(object);
-        created.push(object);
-      }
+        return object;
+      });
+      created.forEach((object) => canvas.add(object));
     } finally {
       historyLocked = false;
     }
@@ -9312,25 +10095,26 @@ async function generateTextVinylShapes() {
       clearBusy("No supported Forza letter shapes found.");
       return;
     }
-    if (shapeSpecs.length > 3000) {
-      const ok = window.confirm(`This text needs ${shapeSpecs.length} layers. FH6 supports 3000 layers per vinyl. Increase Cell/Band px or continue anyway?`);
-      if (!ok) {
-        setTextVinylStatus("Text vinyl generation cancelled.");
-        clearBusy("Text vinyl generation cancelled.");
-        return;
-      }
+    const clearPrevious = Boolean($("textVinylClearPrevious")?.checked);
+    const previousCount = clearPrevious ? vinylObjects().filter((obj) => obj.kloudy?.source_format === TEXT_VINYL_SOURCE_FLAG).length : 0;
+    const projectedCount = vinylObjects().length - previousCount + shapeSpecs.length;
+    if (projectedCount > MAX_VINYL_LAYERS) {
+      const message = `Text generation needs ${projectedCount} total layers, above the ${MAX_VINYL_LAYERS}-layer maximum. Increase Cell/Band px or simplify the source.`;
+      setTextVinylStatus(message);
+      clearBusy(message);
+      return;
     }
     setBusy(`Building ${shapeSpecs.length} text vinyl layer(s)...`);
-    const removed = $("textVinylClearPrevious")?.checked ? clearPreviousTextVinylLayers() : 0;
-    const created = [];
+    const removed = clearPrevious ? clearPreviousTextVinylLayers() : 0;
+    let created = [];
     historyLocked = true;
     try {
-      for (const shape of shapeSpecs) {
+      created = await KfpsEditorCore.mapWithConcurrency(shapeSpecs, OBJECT_BUILD_CONCURRENCY, async (shape) => {
         const object = await makeFabricObject(shape);
         object.kloudy.source_format = TEXT_VINYL_SOURCE_FLAG;
-        canvas.add(object);
-        created.push(object);
-      }
+        return object;
+      });
+      created.forEach((object) => canvas.add(object));
     } finally {
       historyLocked = false;
     }
@@ -9441,6 +10225,7 @@ async function duplicateSelected() {
     setStatus("Selected layers are locked. Unlock them before duplicating.");
     return;
   }
+  if (!requireLayerCapacity(objects.length, "duplicate this selection")) return;
   if (objects.length !== selected.length) {
     setStatus(`Duplicating ${objects.length} unlocked layer(s). Skipped ${selected.length - objects.length} locked layer(s).`);
   }
@@ -9461,9 +10246,9 @@ async function duplicateSelected() {
     }
   });
   try {
-    const clones = [];
-    for (const obj of objects) {
+    const clones = await KfpsEditorCore.mapWithConcurrency(objects, OBJECT_BUILD_CONCURRENCY, async (obj) => {
       const shape = objectToShape(obj, { includeEditorMeta: true });
+      delete shape.editor_id;
       shape.data = Array.isArray(shape.data) ? shape.data.slice() : [];
       shape.data[0] = round((Number(shape.data[0]) || 0) + 30);
       shape.data[1] = round((Number(shape.data[1]) || 0) - 30);
@@ -9481,8 +10266,8 @@ async function duplicateSelected() {
       clone.hoverCursor = "pointer";
       clone.moveCursor = "move";
       styleObjectTransformControls(clone);
-      clones.push(clone);
-    }
+      return clone;
+    });
     const mode = shapePlacementMode();
     const placement = insertDuplicateVinylObjects(clones, objects, mode);
     if (clones.length === 1) {
@@ -9564,9 +10349,9 @@ function setVinylStackOrder(order) {
   const nonVinyl = currentObjects.filter((obj) => !currentVinylSet.has(obj));
   if (restoreSelection.length) canvas.discardActiveObject();
   canvas._objects = nonVinyl.concat(nextVinyl);
+  invalidateVinylObjectRegistry();
   nextVinyl.forEach((obj) => {
     obj.canvas = canvas;
-    obj.setCoords?.();
   });
   layerEditorHelpers();
   if (restoreSelection.length === 1) canvas.setActiveObject(restoreSelection[0]);
@@ -9576,7 +10361,7 @@ function setVinylStackOrder(order) {
 
 function moveLayerBlock(objects, direction) {
   const selectedSet = new Set(objects);
-  const order = vinylObjects();
+  const order = vinylObjects().slice();
   if (!order.some((obj) => selectedSet.has(obj))) return false;
   let moved = false;
   if (direction > 0) {
@@ -9636,7 +10421,6 @@ function selectObjects(objects, reason) {
   }
   const active = canvas.getActiveObject();
   if (isActiveSelectionObject(active)) canvas.discardActiveObject();
-  normalized.forEach((obj) => obj.setCoords());
   if (normalized.length === 1) canvas.setActiveObject(normalized[0]);
   else canvas.setActiveObject(styledActiveSelection(normalized));
   canvas.requestRenderAll();
@@ -9759,21 +10543,32 @@ function nudgeSelected(dx, dy) {
     setStatus("Selected layers are locked. Unlock them before nudging.");
     return;
   }
-  objects.forEach((obj) => {
-    obj.set({ left: (obj.left || 0) + dx, top: (obj.top || 0) + dy });
-    obj.setCoords();
-  });
+  beginHybridRender("nudge");
+  const active = canvas.getActiveObject();
+  if (isActiveSelectionObject(active) && objects.length === selected.length) {
+    active.set({ left: (active.left || 0) + dx, top: (active.top || 0) + dy });
+    active.setCoords();
+    active.dirty = true;
+  } else {
+    objects.forEach((obj) => {
+      obj.set({ left: (obj.left || 0) + dx, top: (obj.top || 0) + dy });
+      obj.setCoords();
+    });
+  }
   applyLiveOverlayColor();
-  canvas.requestRenderAll();
+  if (hybridRenderActive) {
+    requestHybridRender();
+    settleHybridRender();
+  } else canvas.requestRenderAll();
   updateSelectionPanel();
-  pushHistory("nudge");
+  scheduleNudgeHistory();
   if (objects.length !== selected.length) setStatus(`Nudged ${objects.length} unlocked layer(s). Skipped ${selected.length - objects.length} locked layer(s).`);
 }
 
 function setPixelSelection(enabled) {
   if ($("pixelSelect")) $("pixelSelect").checked = enabled;
   if ($("boxVisibleOnly")) $("boxVisibleOnly").checked = enabled;
-  canvas.perPixelTargetFind = enabled;
+  canvas.perPixelTargetFind = false;
   canvas.targetFindTolerance = enabled ? VINYL_HIT_TOLERANCE : 0;
   vinylObjects().forEach((obj) => {
     applyObjectHitTestMode(obj, enabled);
@@ -11054,6 +11849,7 @@ function bindUi() {
   document.addEventListener("keyup", (event) => {
     if (event.target && event.target.classList?.contains("shortcutCapture")) return;
     if (event.target && ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) flushPendingNudgeHistory();
     if (shortcutMatches(event, "axisLockX") || normalizeShortcutKey(event.key) === shortcutPrimaryKey("axisLockX")) {
       event.preventDefault();
       clearDragAxisLock("x");
@@ -11072,10 +11868,17 @@ function bindUi() {
     }
   });
   document.addEventListener("wheel", handleLayerDragWheel, { passive: false });
+  document.addEventListener("pointerdown", flushPendingNudgeHistory, true);
   window.addEventListener("blur", () => {
+    flushPendingNudgeHistory();
     if (vBoxSelectActive) setVBoxSelectActive(false);
   });
 }
+
+window.addEventListener("beforeunload", () => {
+  flushPendingNudgeHistory();
+  flushPendingAutosaveToBrowser();
+});
 
 document.addEventListener("DOMContentLoaded", async () => {
   initCanvas();

@@ -12,8 +12,17 @@ from PIL import Image
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools" / "fabric-editor"))
 
-from json_preview_renderer import _ellipse_points, _rect_points, _render_polygons, _shape_mask_flag, render_json_preview
+from json_preview_renderer import (
+    _ellipse_points,
+    _rect_points,
+    _render_polygons,
+    _resolve_full_type_resource,
+    _shape_mask_flag,
+    render_json_preview,
+)
+from start_fabric_editor import _resolve_full_type_resource as editor_resolve_full_type_resource
 
 
 def _span(points, axis):
@@ -31,6 +40,17 @@ def _open_preview(data):
 
 
 class JsonPreviewRendererTests(unittest.TestCase):
+    def test_all_upper_letter_resource_slots_are_resolved(self):
+        cases = {
+            1051503: ("Upper_Letters_7", 27),
+            1051512: ("Upper_Letters_7", 36),
+            1051516: ("Upper_Letters_7", 40),
+        }
+        for type_code, expected in cases.items():
+            with self.subTest(type_code=type_code):
+                self.assertEqual(expected, _resolve_full_type_resource(type_code))
+                self.assertEqual(expected, editor_resolve_full_type_resource(type_code))
+
     def test_legacy_ellipse_dimensions_are_radii(self):
         points = _ellipse_points(10.0, -5.0, 40.0, 30.0, 0.0)
 

@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.0
+- Upgraded the manual vinyl editor for responsive work at the full 3,000-layer FH6 limit with indexed canvas state, bounded parallel resource loading, reusable caches, and a virtualized searchable layer browser.
+- Added a transient GPU interaction renderer for smooth pan, zoom, transforms, masks, and source overlays while retaining the exact Fabric render after each interaction settles.
+- Reworked editor history and autosave around shared unchanged layers, differential object restoration, deferred writes, stable editor IDs, and faster bulk selection, replacement, grouping, and layer-order operations.
+- Enforced the 3,000-layer maximum across imports and creation tools, completed all 40 upper-letter resource slots, preserved editable project metadata, and kept exported FH6 JSON free of editor-only fields.
+- Added repeatable 3,000-layer performance, project/export compatibility, mask, fallback-renderer, autosave, history, interaction, responsive-layout, and layer-order regression coverage.
+
 ## 3.0.100
 - Replaced the rate-limited GitHub API update check with cache-busted raw version checks, visible connection status, five-minute polling, and patch notes refreshed directly from GitHub.
 - Made forced local thumbnail regeneration survive app restarts by preferring the newest valid managed or adjacent preview while preserving newer personal PNG overrides.

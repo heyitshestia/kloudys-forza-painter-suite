@@ -149,7 +149,7 @@ def resource_shape_word(family: str, index: int) -> int | None:
     if base is None:
         return None
     if family.startswith("Upper_Letters_"):
-        return (base & 0xFFFF) + index - 1 if index <= 26 else None
+        return (base & 0xFFFF) + index - 1 if index <= 40 else None
     if family.startswith("Lower_Letters_"):
         # Lower-letter tabs have special symbols and historic ordering quirks.
         # Prefer explicit words for now unless a fixture proves every slot.

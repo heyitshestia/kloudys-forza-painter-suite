@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KFPS Vinyl Editor</title>
+  <link rel="icon" href="../../assets/kfps-logo.ico">
   <script>
     document.documentElement.dataset.editorTheme = localStorage.getItem("kloudyFabricTheme") || "pastel";
   </script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?engine=3000-v3">
   <script src="vendor/fabric.min.js"></script>
 </head>
 <body>
@@ -152,7 +153,7 @@
                 <h2>Layers</h2>
                 <p>Top rows draw over lower rows.</p>
               </div>
-              <b id="layerLimitMeter">0 / template</b>
+              <b id="layerLimitMeter">0 / 3000</b>
             </div>
             <div id="layerInfo">No JSON loaded.</div>
             <input id="layerSearch" placeholder="Filter layers by name, type, or number">
@@ -177,7 +178,9 @@
               </div>
               <div id="globalShapeReplaceList" class="globalShapeReplaceList"></div>
             </div>
-            <ol id="layers"></ol>
+            <div id="layersViewport" class="layersViewport">
+              <ol id="layers"></ol>
+            </div>
           </section>
 
           <section id="propertiesPane" class="dockPane" hidden>
@@ -810,6 +813,7 @@
     </div>
   </dialog>
 
-  <script src="editor.js"></script>
+  <script src="editor-core.js?engine=3000-v13"></script>
+  <script src="editor.js?engine=3000-v13"></script>
 </body>
 </html>

@@ -94,8 +94,6 @@ SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
 
 
 def _resource_count_for_family(family: str) -> int:
-    if str(family).startswith("Upper_Letters_"):
-        return 26
     return 40
 
 
