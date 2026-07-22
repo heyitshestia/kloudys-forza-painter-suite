@@ -6,7 +6,7 @@
 - Reworked editor history and autosave around shared unchanged layers, differential object restoration, deferred writes, stable editor IDs, and faster bulk selection, replacement, grouping, and layer-order operations.
 - Enforced the 3,000-layer maximum across imports and creation tools, completed all 40 upper-letter resource slots, preserved editable project metadata, and kept exported FH6 JSON free of editor-only fields.
 - Added repeatable 3,000-layer performance, project/export compatibility, mask, fallback-renderer, autosave, history, interaction, responsive-layout, and layer-order regression coverage.
-- Prevented Git-checkout updates from deleting local worker dependencies, Wrangler state and databases, `.dev.vars` secrets, or local virtual environments.
+- Prevented Git-checkout updates from deleting ignored local state such as worker dependencies, Wrangler databases, `.dev.vars` secrets, local virtual environments, previews, or rollback files, and made file verification independent of the optional `Get-FileHash` PowerShell command.
 
 ## 3.0.100
 - Replaced the rate-limited GitHub API update check with cache-busted raw version checks, visible connection status, five-minute polling, and patch notes refreshed directly from GitHub.
