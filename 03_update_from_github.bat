@@ -69,7 +69,7 @@ if exist ".git\" (
         call :log "Generated outputs are stored separately and are not intentionally removed."
         goto :fail
     )
-    git clean -fdx -e runtime/ -e imgs/ -e webui-data/ -e python/ -e "*.kfpskey"
+    git clean -fd -e runtime/ -e imgs/ -e webui-data/ -e python/ -e "*.kfpskey" -e node_modules/ -e .wrangler/ -e ".dev.vars" -e ".dev.vars.*" -e .venv/
     if errorlevel 1 (
         call :log "Warning: Git cleanup of untracked program files reported an error."
     )
