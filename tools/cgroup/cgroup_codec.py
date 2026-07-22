@@ -380,7 +380,12 @@ def parse_flat_payload(payload: bytes) -> dict[str, Any]:
         if markers[index] == 1:
             layers[index - 1]["mask"] = True
     if layers:
-        layers[-1]["mask"] = False
+        trailer = payload[offset:]
+        layers[-1]["mask"] = bool(
+            len(trailer) >= 2
+            and trailer[0] == 0x01
+            and all(byte == 0x01 for byte in trailer[1:])
+        )
     return {
         "format": "kfps_flat_cgroup_parse_v1",
         "version": struct.unpack_from("<I", payload, 4)[0],
@@ -389,6 +394,7 @@ def parse_flat_payload(payload: bytes) -> dict[str, Any]:
         "child_blocks": child_blocks,
         "layers": layers,
         "payload_size": len(payload),
+        "trailer_hex": payload[offset:].hex(),
     }
 
 

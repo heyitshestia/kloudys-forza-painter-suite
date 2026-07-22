@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.1
+- Fixed local Forza mask decoding so terminal and nested mask markers render correctly without hiding ordinary colored shapes.
+- Made Regenerate Local Thumbnails replace every managed preview across Generated, Editor, Game Export, and Library sources, retain those replacements after restart, and invalidate caches by renderer content instead of file timestamps.
+- Fixed the 300-layer editor GPU handoff so source overlays keep their orientation, saved project layer IDs cannot collide during duplication, and rapid duplicate, undo, and redo commands execute in order without losing layers.
+
 ## 3.1.0
 - Upgraded the manual vinyl editor for responsive work at the full 3,000-layer FH6 limit with indexed canvas state, bounded parallel resource loading, reusable caches, and a virtualized searchable layer browser.
 - Added a transient GPU interaction renderer for smooth pan, zoom, transforms, masks, and source overlays while retaining the exact Fabric render after each interaction settles.

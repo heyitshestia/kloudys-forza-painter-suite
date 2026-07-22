@@ -10,7 +10,7 @@ from kfps_ui.generation_service import GenerationService
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
 from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command
 from kfps_ui.log_service import LogService
-from kfps_ui.preview_service import PreviewService
+from kfps_ui.preview_service import PreviewService, _stable_renderer_stamp
 from kfps_ui.qt_utils import file_url
 from kfps_ui.report_service import ReportService
 from kfps_ui.supporter_service import SupporterService
@@ -25,6 +25,16 @@ class DummyDesktop:
 class DummyLog:
  def __init__(self):self.messages=[]
  def append(self,message,level="info"):self.messages.append((message,level))
+
+class PreviewCacheIdentityTests(unittest.TestCase):
+ def test_renderer_stamp_uses_content_not_file_timestamp(self):
+  with tempfile.TemporaryDirectory() as td:
+   target=Path(td)/"renderer.py";target.write_text("value = 1\n",encoding="utf-8")
+   first=_stable_renderer_stamp(target)
+   os.utime(target,ns=(9_000_000_000,9_000_000_000))
+   self.assertEqual(first,_stable_renderer_stamp(target))
+   target.write_text("value = 2\n",encoding="utf-8")
+   self.assertNotEqual(first,_stable_renderer_stamp(target))
 
 def wait_for(predicate,timeout=3.0):
  deadline=time.monotonic()+timeout
@@ -363,6 +373,7 @@ class ServiceTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);target=app_root/"imgs"/"exported"/"Rebuild.json";target.parent.mkdir(parents=True)
    target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   library=app_root/"imgs"/"library"/"Cloud.json";library.parent.mkdir(parents=True);library.write_text(target.read_text(encoding="utf-8"),encoding="utf-8")
    nearby=target.with_suffix(".png");nearby.write_bytes(b"personal-preview")
    paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
    cache=paths.runtime_root/"qml-json-previews";cache.mkdir(parents=True);(cache/"old.png").write_bytes(b"old")
@@ -370,11 +381,12 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(1,PreviewService(paths).clear_cached_thumbnails())
    self.assertFalse(cache.exists());self.assertTrue(nearby.exists());self.assertTrue(outside.exists())
    preview=RebuildPreview();rendered,removed,indexed=regenerate_thumbnail_cache(paths,preview=preview)
-   self.assertEqual((1,2,1),(rendered,removed,indexed));self.assertTrue(preview.cleared)
-   self.assertEqual([("Rebuild.json","exported")],preview.calls)
+   self.assertEqual((2,2,2),(rendered,removed,indexed));self.assertTrue(preview.cleared)
+   self.assertEqual([("Rebuild.json","exported"),("Cloud.json","library")],preview.calls)
    payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
    self.assertEqual("file:///exported-rebuilt.png",payload["sources"]["2"]["rows"][0]["previewUrl"])
- def test_regenerate_thumbnail_cache_force_renders_more_than_900_indexed_jsons(self):
+   self.assertEqual("file:///library-rebuilt.png",payload["sources"]["3"]["rows"][0]["previewUrl"])
+ def test_regenerate_thumbnail_cache_force_renders_more_than_900_library_jsons(self):
   class BulkPreview:
    def __init__(self):self.calls=[]
    def clear_cached_thumbnails(self):return 0
@@ -400,6 +412,7 @@ class ServiceTests(unittest.TestCase):
    preview=PreviewService(paths);url=preview.regenerate_preview_for_json(target,"exported")
    managed=preview._cache_target(target,"general")
    self.assertTrue(url);self.assertTrue(managed.is_file());self.assertTrue(managed.read_bytes().startswith(b"\x89PNG"))
+   self.assertTrue(preview._forced_marker(managed).is_file())
    self.assertEqual(b"personal-preview",adjacent.read_bytes())
  def test_online_import_guard_distinguishes_community_downloads_from_save_scans(self):
   with tempfile.TemporaryDirectory() as td:
@@ -423,7 +436,7 @@ class ServiceTests(unittest.TestCase):
     self.assertNotIn("jsonService.sourceIndex === 3 ? \"Already in Game Library\"",qml)
    finally:
     shutdown_json_service(svc)
- def test_forced_thumbnail_remains_preferred_after_startup_until_personal_preview_is_newer(self):
+ def test_forced_thumbnail_remains_preferred_after_startup_even_if_adjacent_preview_is_newer(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);target=app_root/"imgs"/"exported"/"Persistent.json";target.parent.mkdir(parents=True)
    target.write_text(json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,100,60,0],"color":[255,255,255,255]}]}),encoding="utf-8")
@@ -436,7 +449,7 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(managed_url,cache["sources"]["2"]["rows"][0]["previewUrl"])
    restarted=PreviewService(paths);self.assertEqual(managed_url,restarted.existing_preview_for_json(target,"exported"))
    newer=managed.stat().st_mtime_ns+1_000_000_000;os.utime(adjacent,ns=(newer,newer))
-   self.assertEqual(file_url(adjacent),restarted.existing_preview_for_json(target,"exported"))
+   self.assertEqual(managed_url,restarted.existing_preview_for_json(target,"exported"))
  def test_settings_regeneration_command_uses_the_dedicated_worker_mode(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")

@@ -434,7 +434,7 @@ Item {
                     text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"
                     iconName: "refresh"
                     enabled: !jsonService.thumbnailRegenerating
-                    toolTipText: "Force-render every local output JSON with the current renderer. JSON files, source artwork, and personal adjacent PNGs are not changed; KFPS-managed previews are replaced."
+                    toolTipText: "Replace every Generated, Editor, Game Export, and Library thumbnail with the current renderer. JSON files, source artwork, and personal adjacent PNGs are not changed; KFPS-managed previews are replaced."
                     onClicked: jsonService.regenerateLocalThumbnails()
                 }
 

@@ -702,7 +702,7 @@ class JsonService(QObject):
         self._preview_queued.clear()
         self._preview_empty.clear()
         self._thumbnail_regenerating = True
-        self._set_thumbnail_status("Clearing old local thumbnails and rebuilding all sources...", True)
+        self._set_thumbnail_status("Clearing and replacing every local thumbnail...", True)
         self._start_thumbnail_worker(regenerate=True)
 
     @Slot()
@@ -760,7 +760,7 @@ class JsonService(QObject):
             kwargs["creationflags"] = flags
         try:
             self._thumbnail_process = subprocess.Popen(cmd, **kwargs)
-            message = "Regenerating all local thumbnails..." if regenerate else f"Warming {self._source_label(self._source)} thumbnails..."
+            message = "Replacing every local thumbnail..." if regenerate else f"Warming {self._source_label(self._source)} thumbnails..."
             self._set_thumbnail_status(message, True)
             self._thumbnail_poll_timer.start()
         except Exception as exc:

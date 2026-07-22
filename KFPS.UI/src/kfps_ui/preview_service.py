@@ -10,6 +10,17 @@ from .app_paths import AppPaths
 from .qt_utils import file_url
 
 
+PREVIEW_RENDERER_CACHE_VERSION = 3
+
+
+def _stable_renderer_stamp(path: Path) -> str:
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:20]
+    except OSError:
+        digest = "embedded"
+    return f"v{PREVIEW_RENDERER_CACHE_VERSION}:{digest}"
+
+
 class PreviewService:
     def __init__(self, paths: AppPaths):
         self.paths = paths
@@ -47,6 +58,7 @@ class PreviewService:
         namespace = "generated" if source == "generated" else ("editor" if source == "editor" else "general")
         target = self._generated_preview_target(path) if namespace == "generated" else self._cache_target(path, namespace)
         temporary = None
+        marker_temporary = None
         try:
             from json_preview_renderer import render_json_preview
 
@@ -57,6 +69,11 @@ class PreviewService:
             temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
             temporary.write_bytes(data)
             temporary.replace(target)
+            if namespace != "generated":
+                marker = self._forced_marker(target)
+                marker_temporary = marker.with_name(f".{marker.name}.{uuid.uuid4().hex}.tmp")
+                marker_temporary.write_text("forced-local-thumbnail-v1", encoding="ascii")
+                marker_temporary.replace(marker)
             return file_url(target)
         except Exception:
             return ""
@@ -64,6 +81,11 @@ class PreviewService:
             if temporary is not None:
                 try:
                     temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if marker_temporary is not None:
+                try:
+                    marker_temporary.unlink(missing_ok=True)
                 except OSError:
                     pass
 
@@ -84,6 +106,8 @@ class PreviewService:
         try:
             managed = self._cache_target(path, namespace)
             if managed.is_file():
+                if self._forced_marker(managed).is_file():
+                    return file_url(managed)
                 candidates[managed.resolve()] = (managed.stat().st_mtime_ns, 1, managed)
         except OSError:
             pass
@@ -100,6 +124,10 @@ class PreviewService:
         if not candidates:
             return ""
         return file_url(max(candidates.values(), key=lambda item: item[:2])[2])
+
+    @staticmethod
+    def _forced_marker(target: Path) -> Path:
+        return target.with_suffix(target.suffix + ".forced")
 
     def _render_cached(self, path: Path, namespace: str) -> str:
         try:
@@ -149,15 +177,15 @@ class PreviewService:
         fingerprint = f"{namespace}|{path.resolve()}|{path.stat().st_mtime_ns}|{path.stat().st_size}|{renderer_stamp}"
         return self.cache / (hashlib.sha256(fingerprint.encode()).hexdigest()[:20] + ".png")
 
-    def _json_preview_renderer_stamp(self) -> int:
+    def _json_preview_renderer_stamp(self) -> str:
         if self._renderer_stamp is not None:
             return self._renderer_stamp
         try:
             from json_preview_renderer import render_json_preview
             renderer_path = Path(render_json_preview.__code__.co_filename)
-            self._renderer_stamp = renderer_path.stat().st_mtime_ns if renderer_path.is_file() else 0
+            self._renderer_stamp = _stable_renderer_stamp(renderer_path)
         except Exception:
-            self._renderer_stamp = 0
+            self._renderer_stamp = f"v{PREVIEW_RENDERER_CACHE_VERSION}:embedded"
         return self._renderer_stamp
 
     def _nearby_url(self, path: Path) -> str:

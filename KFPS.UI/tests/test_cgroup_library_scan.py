@@ -14,8 +14,18 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from kfps_ui.cgroup_library_service import CGroupLibraryService
-from tools.cgroup.cgroup_codec import CGroupLayer, build_flat_payload, wrap_payload
-from tools.cgroup.forza_source_decoder import decode_forza_source, probe_forza_source_kind
+from tools.cgroup.cgroup_codec import CGroupLayer, build_flat_payload, parse_flat_payload, wrap_payload
+from tools.cgroup.forza_source_decoder import (
+    GroupNode,
+    ShapeNode,
+    WalkState,
+    cgroup_to_layers,
+    decode_forza_source,
+    flatten_tree,
+    mark_previous_direct_shape_as_mask,
+    mark_previous_terminal_shape_as_mask,
+    probe_forza_source_kind,
+)
 
 
 def write_wrapped(path: Path, payload: bytes) -> None:
@@ -24,6 +34,64 @@ def write_wrapped(path: Path, payload: bytes) -> None:
 
 
 class CGroupLibraryScanTests(unittest.TestCase):
+    @staticmethod
+    def _shape(color=(255, 255, 255, 255)) -> ShapeNode:
+        return ShapeNode(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, color, 0)
+
+    def test_final_root_close_preserves_last_flat_mask(self):
+        payload = bytearray(
+            build_flat_payload(
+                [CGroupLayer(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, (204, 231, 249, 255))]
+            )
+        )
+        payload[-2:] = b"\x01\x01"
+
+        layers, report = cgroup_to_layers(bytes(payload), game="fh6")
+        parsed = parse_flat_payload(bytes(payload))
+
+        self.assertEqual(report["decoded_layers"], 1)
+        self.assertTrue(layers[0]["mask"])
+        self.assertTrue(parsed["layers"][0]["mask"])
+        self.assertEqual(parsed["trailer_hex"], "0101")
+
+    def test_normal_root_close_keeps_last_flat_shape_visible(self):
+        payload = build_flat_payload(
+            [CGroupLayer(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, (204, 231, 249, 255))]
+        )
+
+        layers, _report = cgroup_to_layers(payload, game="fh6")
+
+        self.assertFalse(layers[0]["mask"])
+        self.assertFalse(parse_flat_payload(payload)["layers"][0]["mask"])
+
+    def test_mask_markers_respect_parent_boundaries(self):
+        nested_shape = self._shape()
+        nested = GroupNode(items=[nested_shape])
+        root = GroupNode(expected_children=2, items=[nested])
+        state = WalkState(stack=[root])
+
+        self.assertFalse(mark_previous_direct_shape_as_mask(state))
+        self.assertFalse(nested_shape.mask)
+        self.assertTrue(mark_previous_terminal_shape_as_mask(state))
+        self.assertTrue(nested_shape.mask)
+
+    def test_explicit_mask_group_remains_authoritative_for_colored_shapes(self):
+        colored = self._shape((204, 231, 249, 255))
+        root = GroupNode(items=[GroupNode(mask=True, items=[colored])])
+
+        layers = flatten_tree(root)
+
+        self.assertTrue(layers[0]["mask"])
+
+    def test_ambiguous_colored_record_mask_is_not_promoted(self):
+        colored = self._shape((204, 231, 249, 255))
+        colored.mask = True
+        root = GroupNode(items=[colored])
+
+        layers = flatten_tree(root)
+
+        self.assertFalse(layers[0]["mask"])
+
     def test_fh5_wgs_discovers_opaque_direct_and_wrapped_groups(self):
         with tempfile.TemporaryDirectory() as temp:
             root = (

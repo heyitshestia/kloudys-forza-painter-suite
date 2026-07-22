@@ -288,6 +288,8 @@ let layerDragGhost = null;
 let suppressLayerClick = false;
 let nextLayerListObjectId = 1;
 let nextEditorObjectId = 1;
+let editorMutationRunning = false;
+const editorMutationQueue = [];
 let layerRefreshFrame = null;
 let canvasRenderFrame = null;
 let canvasGeometryFrame = null;
@@ -2333,12 +2335,12 @@ function initHybridRenderer() {
     const overlayBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, overlayBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-      -0.5, -0.5, 0, 1,
-       0.5, -0.5, 1, 1,
-      -0.5,  0.5, 0, 0,
-      -0.5,  0.5, 0, 0,
-       0.5, -0.5, 1, 1,
-       0.5,  0.5, 1, 0,
+      -0.5, -0.5, 0, 0,
+       0.5, -0.5, 1, 0,
+      -0.5,  0.5, 0, 1,
+      -0.5,  0.5, 0, 1,
+       0.5, -0.5, 1, 0,
+       0.5,  0.5, 1, 1,
     ]), gl.STATIC_DRAW);
     const overlayTexture = gl.createTexture();
     const instanceBuffer = instancedExtension ? gl.createBuffer() : null;
@@ -2955,17 +2957,40 @@ function normalizeInputShape(shape, index, legacyOffset = { x: 0, y: 0 }) {
   return null;
 }
 
-function allocateEditorObjectId() {
-  return `e${nextEditorObjectId++}`;
+function observeEditorObjectId(value) {
+  const match = /^e(\d+)$/i.exec(String(value || ""));
+  if (!match) return;
+  const numericId = Number(match[1]);
+  if (Number.isSafeInteger(numericId) && numericId >= nextEditorObjectId) {
+    nextEditorObjectId = numericId + 1;
+  }
+}
+
+function allocateEditorObjectId(reservedIds = null) {
+  let editorId;
+  do {
+    editorId = `e${nextEditorObjectId++}`;
+  } while (reservedIds?.has(editorId));
+  return editorId;
 }
 
 function assignUniqueEditorIds(shapes) {
+  const reservedIds = new Set();
+  shapes.forEach((shape) => {
+    const editorId = shape?.editor_id ? String(shape.editor_id) : "";
+    if (!editorId) return;
+    reservedIds.add(editorId);
+    observeEditorObjectId(editorId);
+  });
   const seen = new Set();
   return shapes.map((shape) => {
     let editorId = shape?.editor_id ? String(shape.editor_id) : "";
-    if (!editorId || seen.has(editorId)) editorId = allocateEditorObjectId();
+    if (!editorId || seen.has(editorId)) {
+      editorId = allocateEditorObjectId(reservedIds);
+      reservedIds.add(editorId);
+    }
     seen.add(editorId);
-    return shape.editor_id === editorId ? shape : { ...shape, editor_id: editorId };
+    return shape?.editor_id === editorId ? shape : { ...shape, editor_id: editorId };
   });
 }
 
@@ -3024,8 +3049,10 @@ async function makeFabricObject(shape, name = null) {
     });
   }
   const resolvedShapeWord = Number(resolved?.shapeWord ?? shape.type_word ?? (typeCode & 0xffff));
+  const editorId = shape.editor_id ? String(shape.editor_id) : allocateEditorObjectId();
+  observeEditorObjectId(editorId);
   object.kloudy = {
-    editor_id: shape.editor_id ? String(shape.editor_id) : allocateEditorObjectId(),
+    editor_id: editorId,
     name: name || (resolved ? shapeDisplayName(resolved.family, resolved.index) : (shape.shape_name || typeLabel(typeCode))),
     type: typeCode,
     type_word: Number.isFinite(resolvedShapeWord) ? resolvedShapeWord : (typeCode & 0xffff),
@@ -3957,7 +3984,32 @@ function ensureHistoryBaseline() {
   protectedHistoryIndex = -1;
 }
 
-async function undo() {
+function queueEditorMutation(operation) {
+  return new Promise((resolve, reject) => {
+    editorMutationQueue.push({ operation, resolve, reject });
+    drainEditorMutationQueue();
+  });
+}
+
+async function drainEditorMutationQueue() {
+  if (editorMutationRunning) return;
+  editorMutationRunning = true;
+  try {
+    while (editorMutationQueue.length) {
+      const task = editorMutationQueue.shift();
+      try {
+        task.resolve(await task.operation());
+      } catch (error) {
+        task.reject(error);
+      }
+    }
+  } finally {
+    editorMutationRunning = false;
+    if (editorMutationQueue.length) drainEditorMutationQueue();
+  }
+}
+
+async function undoNow() {
   flushPendingNudgeHistory();
   const floor = Math.max(0, protectedHistoryIndex);
   if (historyIndex <= floor) {
@@ -3970,13 +4022,21 @@ async function undo() {
   setStatus("Undo.");
 }
 
-async function redo() {
+function undo() {
+  return queueEditorMutation(undoNow);
+}
+
+async function redoNow() {
   flushPendingNudgeHistory();
   if (historyIndex >= history.length - 1) return;
   lastHistoryReason = "";
   historyIndex++;
   await restoreEditorState(history[historyIndex]);
   setStatus("Redo.");
+}
+
+function redo() {
+  return queueEditorMutation(redoNow);
 }
 
 function round(value) {
@@ -10215,7 +10275,7 @@ function toggleFavorite(family, index) {
   renderShapeGrid();
 }
 
-async function duplicateSelected() {
+async function duplicateSelectedNow() {
   const selected = selectedVinylObjects();
   const selectedSet = new Set(selected);
   const orderedSelection = orderedSelectedVinylObjects();
@@ -10286,6 +10346,10 @@ async function duplicateSelected() {
     showError("Duplicate failed", err);
     setStatus(`Duplicate failed: ${err.message || err}`);
   }
+}
+
+function duplicateSelected() {
+  return queueEditorMutation(duplicateSelectedNow);
 }
 
 function deleteSelected() {

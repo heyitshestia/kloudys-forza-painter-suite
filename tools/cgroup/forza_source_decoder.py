@@ -68,6 +68,7 @@ class ShapeNode:
     marker: bytes = b""
     flags: int = 0
     mask: bool = False
+    mask_authoritative: bool = False
     section: str | None = None
 
 
@@ -342,6 +343,7 @@ def decode_shape_at(data: bytes, pos: int, is_mask: bool = False, flags: int = 0
         marker=data[pos : pos + marker_len],
         flags=flags,
         mask=is_mask,
+        mask_authoritative=is_mask,
     )
 
 
@@ -571,6 +573,44 @@ def close_complete_stack(stack: list[GroupNode]) -> None:
         stack.pop()
 
 
+def mark_previous_direct_shape_as_mask(state: WalkState, authoritative: bool = False) -> bool:
+    if not state.stack or not state.stack[-1].items:
+        return False
+    previous = state.stack[-1].items[-1]
+    if not isinstance(previous, ShapeNode):
+        return False
+    previous.mask = True
+    previous.mask_authoritative = previous.mask_authoritative or authoritative
+    previous.flags |= 0x40
+    return True
+
+
+def mark_previous_terminal_shape_as_mask(state: WalkState, authoritative: bool = False) -> bool:
+    if not state.stack or not state.stack[-1].items:
+        return False
+    previous: ShapeNode | GroupNode = state.stack[-1].items[-1]
+    while isinstance(previous, GroupNode):
+        if not previous.items:
+            return False
+        previous = previous.items[-1]
+    previous.mask = True
+    previous.mask_authoritative = previous.mask_authoritative or authoritative
+    previous.flags |= 0x40
+    return True
+
+
+def consume_root_close_suffix(data: bytes, pos: int, state: WalkState) -> bool:
+    """Consume an exact FH root close sequence and preserve its final mask bit."""
+    if not state.stack or not group_complete(state.stack[0]):
+        return False
+    suffix = data[pos:]
+    if len(suffix) < 2 or suffix[0] not in (0x00, 0x01) or any(byte != 0x01 for byte in suffix[1:]):
+        return False
+    if suffix[0] & 0x01:
+        mark_previous_terminal_shape_as_mask(state, authoritative=True)
+    return True
+
+
 def push_markerless_group(data: bytes, pos: int, end: int, info: GroupInfo, state: WalkState, livery: bool = False) -> int:
     inline_for_first = bool(
         info.inline_transform
@@ -635,6 +675,10 @@ def walk_step(
         return pos + counted.size
 
     if is_valid_shape_at(data, pos, end):
+        if bytes_at(data, pos, b"\x01\x02", end):
+            # Shape leads carry mask state for the preceding direct sibling.
+            # A flat root has no competing nested-control interpretation.
+            mark_previous_direct_shape_as_mask(state, authoritative=not livery and len(state.stack) == 1)
         if state.pending_transform:
             node = GroupNode(
                 transform=state.pending_transform,
@@ -666,6 +710,8 @@ def walk_step(
     transform_record = read_transform_record(data, pos, end, livery=False, game=game)
     if transform_record:
         size, transform, marker = transform_record
+        if marker and marker[0] & 0x01:
+            mark_previous_terminal_shape_as_mask(state)
         state.pending_transform = transform
         state.pending_marker = state.pending_prefix + marker
         state.pending_prefix = b""
@@ -675,6 +721,8 @@ def walk_step(
         livery_transform = read_livery_transform(data, pos, end)
         if livery_transform:
             size, transform, marker = livery_transform
+            if marker and marker[0] & 0x01:
+                mark_previous_terminal_shape_as_mask(state)
             state.pending_transform = transform
             state.pending_marker = marker
             state.pending_prefix = b""
@@ -727,6 +775,9 @@ def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNo
     while pos < len(layer_data) and guard < len(layer_data) + 4096:
         guard += 1
         close_complete_stack(state.stack)
+        if consume_root_close_suffix(layer_data, pos, state):
+            pos = len(layer_data)
+            break
         next_pos = walk_step(layer_data, pos, len(layer_data), state, game=game_key)
         if next_pos <= pos:
             warnings.append(f"decoder made no progress at layer-data offset 0x{pos:x}")
@@ -876,9 +927,8 @@ def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = No
             if isinstance(item, ShapeNode):
                 effective = matmul(node_matrix, shape_matrix(item))
                 x, y, sx, sy, rotation, skew = decompose_matrix(effective)
-                is_mask = current_mask or item.mask
-                if has_color_data(item.color_rgba):
-                    is_mask = False
+                record_mask = item.mask and (item.mask_authoritative or not has_color_data(item.color_rgba))
+                is_mask = current_mask or record_mask
                 layers.append(
                     {
                         "shape_id": item.shape_id,
