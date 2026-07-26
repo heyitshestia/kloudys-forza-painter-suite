@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.2
+- Added a dedicated eight-slot Featured gallery before Browse in the Community Hub, with curated artwork removed from ordinary discovery views while remaining available in personal views.
+- Made featured supporter thumbnails visible to everyone with a clear supporter badge and a friendly Ko-fi prompt for locked downloads, while retaining verified access for full previews and JSON files.
+- Added live Featured slot tracking and an enforced eight-artwork limit to the moderation panel, plus scope-aware catalog caching so the complete gallery restores immediately on later launches.
+
 ## 3.1.1
 - Fixed local Forza mask decoding so terminal and nested mask markers render correctly without hiding ordinary colored shapes.
 - Made Regenerate Local Thumbnails replace every managed preview across Generated, Editor, Game Export, and Library sources, retain those replacements after restart, and invalidate caches by renderer content instead of file timestamps.

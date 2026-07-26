@@ -118,21 +118,32 @@ Item {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: Theme.px(6)
-                    width: supporterText.implicitWidth + Theme.px(14)
+                    width: supporterBadgeRow.implicitWidth + Theme.px(14)
                     height: Theme.px(22)
                     radius: Theme.corner(Theme.px(5))
                     color: Theme.surfaceStrong
                     border.width: Math.max(1, Theme.px(1))
                     border.color: Theme.primaryBright
 
-                    Text {
-                        id: supporterText
+                    Row {
+                        id: supporterBadgeRow
                         anchors.centerIn: parent
-                        text: "SUPPORTERS"
-                        color: Theme.primaryBright
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(8.3)
-                        font.weight: Font.Bold
+                        spacing: Theme.px(3)
+
+                        Icon {
+                            name: "heart"
+                            iconSize: Theme.px(11)
+                            tint: Theme.primaryBright
+                            glow: true
+                        }
+
+                        Text {
+                            text: "SUPPORTER"
+                            color: Theme.primaryBright
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(8.3)
+                            font.weight: Font.Bold
+                        }
                     }
                 }
 

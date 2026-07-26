@@ -68,10 +68,10 @@ def parse_args():
     parser.add_argument("--community-tab", choices=("browse", "upload", "profile"), help=argparse.SUPPRESS)
     parser.add_argument(
         "--community-scope",
-        choices=("browse", "handmade", "toolmade", "supporters", "favorites", "following", "mine"),
+        choices=("featured", "browse", "handmade", "toolmade", "supporters", "favorites", "following", "mine"),
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--community-overlay", choices=("login", "inspector"), help=argparse.SUPPRESS)
+    parser.add_argument("--community-overlay", choices=("login", "inspector", "supporter-unlock"), help=argparse.SUPPRESS)
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--demo", action="store_true")
@@ -536,8 +536,8 @@ def main():
     if args.page == "community" and (args.community_tab or args.community_scope or args.community_overlay):
         community_tab = {"browse": 0, "upload": 1, "profile": 2}.get(args.community_tab, 0)
         community_scope = {
-            "browse": 0, "handmade": 1, "toolmade": 2, "supporters": 3,
-            "favorites": 4, "following": 5, "mine": 6,
+            "featured": 0, "browse": 1, "handmade": 2, "toolmade": 3, "supporters": 4,
+            "favorites": 5, "following": 6, "mine": 7,
         }.get(args.community_scope)
 
         def select_community_tab(attempt=0):

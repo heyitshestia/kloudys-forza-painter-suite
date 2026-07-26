@@ -22,7 +22,8 @@ Item {
     property string testOverlay: ""
     readonly property bool wide: Theme.logical(width) >= 1040
     readonly property bool compactHeight: Theme.logical(height) < 720
-    readonly property bool supporterCatalogLocked: communityService.selectedScopeIndex === 3
+    readonly property bool featuredCatalog: communityService.selectedScopeIndex === 0
+    readonly property bool supporterCatalogLocked: communityService.selectedScopeIndex === 4
                                                    && !communityService.supporterAccess
     readonly property bool activeSupporterKey: communityService.supporterKeyConnected
     // The live-status banner is shell-owned, so keep its page alignment stable
@@ -135,6 +136,20 @@ Item {
         artworkInspector.forceActiveFocus()
     }
 
+    function requestSelectedDownload() {
+        if (!communityService.hasSelection)
+            return
+        if (communityService.selectedSupporterLocked) {
+            supporterUnlockDialog.open()
+            return
+        }
+        if (!communityService.authenticated) {
+            root.openLogin()
+            return
+        }
+        communityService.downloadSelected()
+    }
+
     onActiveTabChanged: {
         if (activeTab === 2)
             communityService.refreshAccount()
@@ -145,6 +160,8 @@ Item {
             loginDialog.open()
         else if (testOverlay === "inspector")
             root.openArtworkInspector(Math.max(0, communityService.selectedIndex))
+        else if (testOverlay === "supporter-unlock")
+            supporterUnlockDialog.open()
     }
 
     Component.onCompleted: {
@@ -318,7 +335,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(8)
-                                visible: !root.supporterCatalogLocked
+                                visible: !root.supporterCatalogLocked && !root.featuredCatalog
 
                                 KfpsTextField {
                                     id: searchField
@@ -374,18 +391,19 @@ Item {
                                         text: modelData
                                         accentText: communityService.selectedScopeIndex === index
                                         selected: communityService.selectedScopeIndex === index
-                                        labelColor: index === 1 ? Theme.classificationHandmade
-                                                               : (index === 2 ? Theme.classificationToolmade
+                                        labelColor: index === 2 ? Theme.classificationHandmade
+                                                               : (index === 3 ? Theme.classificationToolmade
                                                                               : (accentText ? Theme.primaryBright : Theme.text))
-                                        enabled: index < 4 || communityService.authenticated
-                                        toolTipText: index === 0 ? "Show all published community artwork."
-                                                      : index === 1 ? "Show only artwork classified as Handmade."
-                                                      : index === 2 ? "Show only artwork classified as Toolmade."
-                                                      : index === 3 ? (communityService.supporterAccess
+                                        enabled: index < 5 || communityService.authenticated
+                                        toolTipText: index === 0 ? "Show the eight artworks selected for the featured gallery."
+                                                      : index === 1 ? "Show all non-featured published community artwork."
+                                                      : index === 2 ? "Show only non-featured artwork classified as Handmade."
+                                                      : index === 3 ? "Show only non-featured artwork classified as Toolmade."
+                                                      : index === 4 ? (communityService.supporterAccess
                                                                      ? "Show artwork shared only with verified KFPS supporters."
                                                                      : "Open supporter vinyl sharing and access options.")
-                                                      : index === 4 ? "Show artwork you marked as a favorite."
-                                                      : index === 5 ? "Show artwork from creators you follow."
+                                                      : index === 5 ? "Show artwork you marked as a favorite."
+                                                      : index === 6 ? "Show artwork from creators you follow."
                                                                     : "Show your uploads and publication status."
                                         onClicked: communityService.setScopeIndex(index)
                                     }
@@ -428,7 +446,7 @@ Item {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    visible: !root.supporterCatalogLocked
+                                    visible: !root.supporterCatalogLocked && !root.featuredCatalog
                                     text: communityService.resultSummary
                                     color: Theme.subtle
                                     font.family: Theme.fontFamily
@@ -534,7 +552,9 @@ Item {
                                     anchors.centerIn: parent
                                     iconName: "json"
                                     title: "No matching artwork"
-                                    message: "Try another search, filter, or personal view."
+                                    message: root.featuredCatalog
+                                             ? "Featured picks will appear here as they are selected."
+                                             : "Try another search, filter, or personal view."
                                 }
 
                                 Item {
@@ -640,7 +660,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.px(8)
-                                visible: !root.supporterCatalogLocked
+                                visible: !root.supporterCatalogLocked && !root.featuredCatalog
 
                                 GhostButton {
                                     dense: true
@@ -974,13 +994,16 @@ Item {
                                         Layout.fillWidth: true
                                         dense: true
                                         iconName: "transfer"
-                                        text: communityService.authenticated ? "Download to Library" : "Connect to Download"
+                                        text: communityService.selectedSupporterLocked
+                                              ? "Supporter Download"
+                                              : (communityService.authenticated ? "Download to Library" : "Connect to Download")
                                         enabled: !communityService.busy
-                                        toolTipText: communityService.authenticated
+                                        toolTipText: communityService.selectedSupporterLocked
+                                                     ? "See how to unlock this supporter vinyl."
+                                                     : communityService.authenticated
                                                      ? "Download, verify, and add this JSON to Outputs > Library."
                                                      : "Connect a Community account before downloading this JSON."
-                                        onClicked: communityService.authenticated
-                                                   ? communityService.downloadSelected() : root.openLogin()
+                                        onClicked: root.requestSelectedDownload()
                                     }
 
                                     GhostButton {
@@ -1970,6 +1993,94 @@ Item {
     }
 
     Popup {
+        id: supporterUnlockDialog
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min(root.width - Theme.px(48), Theme.px(560))
+        height: Theme.px(330)
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(22)
+
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.primary
+            cornerRadius: Theme.px(8)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(13)
+
+            Icon {
+                Layout.alignment: Qt.AlignHCenter
+                name: "heart"
+                iconSize: Theme.px(50)
+                glow: true
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: root.activeSupporterKey ? "Let's check your supporter access" : "Like this vinyl?"
+                color: Theme.text
+                font.family: Theme.displayFamily
+                font.pixelSize: Theme.px(22)
+                font.weight: Font.Bold
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: root.activeSupporterKey
+                      ? "This vinyl is shared with supporters. Your key is already connected, so KFPS just needs to confirm your Community access."
+                      : "Unlock this vinyl and many more, plus instant imports and exports and new supporter themes, by becoming a KFPS supporter."
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.px(11.3)
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                lineHeight: 1.08
+            }
+
+            Item { Layout.fillHeight: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.px(8)
+
+                GhostButton {
+                    Layout.fillWidth: true
+                    text: "No thank you"
+                    toolTipText: "Close this message and keep browsing."
+                    onClicked: supporterUnlockDialog.close()
+                }
+
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    iconName: "external"
+                    showArrow: true
+                    text: root.activeSupporterKey ? "Check my access" : "Take me there"
+                    toolTipText: root.activeSupporterKey
+                                 ? "Confirm the supporter key already connected to this KFPS installation."
+                                 : "Open the KFPS supporter-key page on Ko-fi."
+                    onClicked: {
+                        supporterUnlockDialog.close()
+                        if (!root.activeSupporterKey) {
+                            desktop.openUrl("https://ko-fi.com/s/2d1507698d")
+                        } else if (!communityService.authenticated) {
+                            root.openLogin()
+                        } else {
+                            communityService.refreshSupporterEntitlement()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
         id: loginDialog
         modal: true
         focus: true
@@ -2626,13 +2737,16 @@ Item {
                                 Layout.fillWidth: true
                                 dense: true
                                 iconName: "transfer"
-                                text: communityService.authenticated ? "Download to Library" : "Connect to Download"
+                                text: communityService.selectedSupporterLocked
+                                      ? "Supporter Download"
+                                      : (communityService.authenticated ? "Download to Library" : "Connect to Download")
                                 enabled: !communityService.busy
-                                toolTipText: communityService.authenticated
+                                toolTipText: communityService.selectedSupporterLocked
+                                             ? "See how to unlock this supporter vinyl."
+                                             : communityService.authenticated
                                              ? "Download and verify this JSON, accepting responsibility for its in-game use."
                                              : "Connect a Community account before downloading this JSON."
-                                onClicked: communityService.authenticated
-                                           ? communityService.downloadSelected() : root.openLogin()
+                                onClicked: root.requestSelectedDownload()
                             }
                             GhostButton {
                                 dense: true

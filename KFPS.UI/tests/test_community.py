@@ -438,6 +438,23 @@ class CommunityBoundaryTests(unittest.TestCase):
                     service.downloadSelected()
                 binary.assert_not_called()
                 self.assertEqual(service.errorMessage, "Sign in before downloading community artwork.")
+
+                service._token = "regular-session"
+                service._session_user = {"id": "regular-viewer", "username": "RegularViewer"}
+                service._supporter = {"active": False, "verified_until": ""}
+                service._selected = {
+                    "id": "supporter-download",
+                    "supporterOnly": True,
+                    "downloadUrl": "/v1/artworks/supporter-download/download",
+                }
+                with patch.object(service, "_submit") as submit:
+                    service.downloadSelected()
+                submit.assert_not_called()
+                self.assertTrue(service.selectedSupporterLocked)
+                self.assertEqual(
+                    service.errorMessage,
+                    "Verified supporter access is required to download this artwork.",
+                )
             finally:
                 service.close()
 
@@ -478,6 +495,10 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertIn("classification=handmade", service._catalog_path())
                 service._scope = "toolmade"
                 self.assertIn("classification=toolmade", service._catalog_path())
+                service._scope = "featured"
+                self.assertIn("scope=featured", service._catalog_path())
+                self.assertIn("limit=8", service._catalog_path())
+                self.assertNotIn("classification=", service._catalog_path())
 
                 service.selectUploadJson(str(folder / "missing.json"))
                 self.assertEqual(service.uploadPath, "")
@@ -534,7 +555,7 @@ class CommunityBoundaryTests(unittest.TestCase):
                     service._scope = "supporters"
                     service.setLocalSupporterState("revoked")
                 self.assertFalse(service.supporterAccess)
-                self.assertEqual(service.selectedScopeIndex, 3)
+                self.assertEqual(service.selectedScopeIndex, 4)
                 self.assertEqual(service.artworkModel.rowCount(), 0)
                 self.assertEqual(submit.call_args.args[0], "supporter_clear")
                 self.assertTrue(service._supporter_clear_required)
@@ -558,6 +579,9 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertTrue(row["usesMasks"])
                 self.assertEqual(row["previewUrl"], "")
                 self.assertEqual(row["thumbnailUrl"], "")
+                featured_row = service._normalize_artwork({**item, "featured": True})
+                self.assertIn("/thumbnail", featured_row["thumbnailUrl"])
+                self.assertEqual(featured_row["previewUrl"], featured_row["thumbnailUrl"])
                 with patch.object(CommunityApiClient, "binary", return_value=(preview, {"Content-Type": "image/png"})) as binary:
                     asset = service._fetch_supporter_asset(
                         row["id"], digest, row["_thumbnailAssetUrl"], "session", "thumbnail",
@@ -582,7 +606,7 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn("use it at your own risk", page)
         self.assertIn("uploadCompatibilityConfirmationRequired", page)
         self.assertIn("Detected format:", page)
-        self.assertIn('text: communityService.authenticated ? "Download to Library" : "Connect to Download"', page)
+        self.assertEqual(page.count("onClicked: root.requestSelectedDownload()"), 2)
         self.assertNotIn("Browsing and downloads work without an account", page)
         self.assertIn("id: usernameConfirmDialog", page)
         self.assertIn('text: "Review Username"', page)
@@ -594,7 +618,7 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn('text: "Import JSON File"', page)
         self.assertIn('Label { text: "Output folder" }', page)
         self.assertIn("CommunityUploadTile", page)
-        self.assertIn('SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Supporters", "Favorites", "Following", "My uploads"]',
+        self.assertIn('SCOPE_LABELS = ["Featured", "Browse", "Handmade", "Toolmade", "Supporters", "Favorites", "Following", "My uploads"]',
                       (UI / "src" / "kfps_ui" / "community_service.py").read_text(encoding="utf-8"))
         self.assertIn('text: "Handmade"', page)
         self.assertIn('text: "Toolmade"', page)
@@ -607,7 +631,11 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn("root.resetMetadataForNewUpload(path)", page)
         self.assertIn('"Get access to supporter vinyl sharing"', page)
         self.assertIn('desktop.openUrl("https://ko-fi.com/s/2d1507698d")', page)
-        self.assertIn("enabled: index < 4 || communityService.authenticated", page)
+        self.assertIn("enabled: index < 5 || communityService.authenticated", page)
+        self.assertIn("id: supporterUnlockDialog", page)
+        self.assertIn('text: root.activeSupporterKey ? "Check my access" : "Take me there"', page)
+        self.assertIn('text: "No thank you"', page)
+        self.assertIn("communityService.selectedSupporterLocked", page)
         self.assertIn('text: "Supporters"', page)
         self.assertIn("root.uploadSupporterOnly", page)
         self.assertIn("cardSupporterOnly", card)
@@ -650,8 +678,8 @@ class CommunityBoundaryTests(unittest.TestCase):
         ghost = (UI / "qml" / "components" / "GhostButton.qml").read_text(encoding="utf-8")
         theme = (UI / "qml" / "Kfps" / "Theme" / "Theme.qml").read_text(encoding="utf-8")
 
-        self.assertIn("index === 1 ? Theme.classificationHandmade", page)
-        self.assertIn("index === 2 ? Theme.classificationToolmade", page)
+        self.assertIn("index === 2 ? Theme.classificationHandmade", page)
+        self.assertIn("index === 3 ? Theme.classificationToolmade", page)
         self.assertIn("labelColor: Theme.classificationHandmade", page)
         self.assertIn("labelColor: Theme.classificationToolmade", page)
         self.assertEqual(page.count("CommunityClassificationLine"), 2)

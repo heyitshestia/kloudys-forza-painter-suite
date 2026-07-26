@@ -37,10 +37,11 @@ ARTWORK_ROLES = [
     "creatorBio", "creatorFollowers", "creatorFollowed",
 ]
 
-SORT_VALUES = ["featured", "trending", "new", "downloads", "favorites", "name"]
-SORT_LABELS = ["Featured", "Trending", "Newest", "Most downloaded", "Most favorited", "Name"]
-SCOPE_VALUES = ["browse", "handmade", "toolmade", "supporters", "favorites", "following", "mine"]
-SCOPE_LABELS = ["Browse", "Handmade", "Toolmade", "Supporters", "Favorites", "Following", "My uploads"]
+FEATURED_ARTWORK_LIMIT = 8
+SORT_VALUES = ["trending", "new", "downloads", "favorites", "name"]
+SORT_LABELS = ["Trending", "Newest", "Most downloaded", "Most favorited", "Name"]
+SCOPE_VALUES = ["featured", "browse", "handmade", "toolmade", "supporters", "favorites", "following", "mine"]
+SCOPE_LABELS = ["Featured", "Browse", "Handmade", "Toolmade", "Supporters", "Favorites", "Following", "My uploads"]
 WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -142,7 +143,7 @@ class CommunityService(QObject):
         self._root = paths.runtime_root / "community"
         self._base_url = configured_community_api_url(paths.app_root)
         self._endpoint_key = hashlib.sha256(self._base_url.encode("utf-8")).hexdigest()[:20]
-        self._cache_file = self._root / f"catalog-cache.{self._endpoint_key}.v4.json"
+        self._cache_file = self._catalog_cache_file("featured")
         self._credentials = CommunityCredentialStore(paths.runtime_root, self._base_url)
         self._token = self._credentials.load_token()
         self._github_client_id_override = os.environ.get("KFPS_COMMUNITY_GITHUB_CLIENT_ID", "").strip()[:128]
@@ -156,6 +157,7 @@ class CommunityService(QObject):
         self._filter_timer.timeout.connect(self.refresh)
         self._artwork_model = DictListModel(ARTWORK_ROLES)
         self._rows: list[dict] = []
+        self._demo_all_rows: list[dict] = []
         self._selected_index = -1
         self._selection_touched = False
         self._selected: dict = {}
@@ -176,8 +178,8 @@ class CommunityService(QObject):
         self._search = ""
         self._category = "All"
         self._game = "All"
-        self._sort = "featured"
-        self._scope = "browse"
+        self._sort = "trending"
+        self._scope = "featured"
         self._creator_filter = ""
         self._page = 1
         self._page_count = 1
@@ -307,6 +309,9 @@ class CommunityService(QObject):
     def resultSummary(self):
         if self.busy and not self._rows:
             return "Loading community artwork..."
+        if self._scope == "featured":
+            noun = "artwork" if len(self._rows) == 1 else "artworks"
+            return f"{len(self._rows)} featured {noun}"
         noun = "artwork" if self._total == 1 else "artworks"
         return f"{self._total} {noun}  •  page {self._page} of {self._page_count}"
 
@@ -321,6 +326,10 @@ class CommunityService(QObject):
     @Property(bool, notify=changed)
     def hasSelection(self):
         return bool(self._selected.get("id"))
+
+    @Property(bool, notify=changed)
+    def selectedSupporterLocked(self):
+        return bool(self._selected.get("supporterOnly")) and not self.supporterAccess
 
     @Property(bool, notify=changed)
     def canSelectPrevious(self):
@@ -556,13 +565,20 @@ class CommunityService(QObject):
                     expired = True
                 else:
                     raise
-        # Bootstrap through the public catalog. Personal and supporter scopes are
-        # selected only after the session response has been applied on the UI thread.
-        catalog = client.json(self._catalog_path("browse"), authenticated=bool(client.token))
+        # Featured is public metadata, including thumbnails for curated supporter
+        # artwork. Full supporter assets and downloads remain entitlement-protected.
+        catalog = client.json(self._catalog_path("featured"), authenticated=bool(client.token))
         return {"health": health, "config": config, "session": session, "expired": expired, "catalog": catalog}
 
     def _catalog_path(self, selected_scope=None):
         selected_scope = selected_scope or self._scope
+        if selected_scope == "featured":
+            return build_query("artworks", {
+                "sort": "featured",
+                "scope": "featured",
+                "page": 1,
+                "limit": FEATURED_ARTWORK_LIMIT,
+            })
         classification = selected_scope if selected_scope in {"handmade", "toolmade"} else ""
         scope = "browse" if classification else selected_scope
         return build_query("artworks", {
@@ -591,6 +607,8 @@ class CommunityService(QObject):
     @Slot()
     def refresh(self):
         if self.demo:
+            self._apply_demo_catalog()
+            self.changed.emit()
             return
         if self._scope == "supporters" and not self.supporterAccess:
             self._clear_catalog()
@@ -1016,7 +1034,7 @@ class CommunityService(QObject):
         self._supporter_clear_inflight = False
         self._supporter_clear_required = False
         self._supporter_status = "Connect a supporter registration to unlock this catalog."
-        self._scope = "browse"
+        self._scope = "featured"
         self._selection_touched = False
         self._status = "Signed out. Browsing remains available."
         self.changed.emit()
@@ -1207,6 +1225,10 @@ class CommunityService(QObject):
     def downloadSelected(self):
         if not self.hasSelection:
             return
+        if self.selectedSupporterLocked:
+            self._error = "Verified supporter access is required to download this artwork."
+            self.changed.emit()
+            return
         if not self.authenticated:
             self._error = "Sign in before downloading community artwork."
             self.changed.emit()
@@ -1280,6 +1302,8 @@ class CommunityService(QObject):
             return
         for row in self._rows:
             if row.get("supporterOnly"):
+                if not self.supporterAccess:
+                    continue
                 artwork_id = str(row.get("id") or "")
                 digest = str(row.get("thumbnailSha256") or "")
                 memory_key = f"thumbnail:{digest or artwork_id}"
@@ -1325,7 +1349,7 @@ class CommunityService(QObject):
         self._schedule_selected_supporter_preview()
 
     def _schedule_selected_supporter_preview(self):
-        if not self._token or not self._selected.get("supporterOnly"):
+        if not self._token or not self.supporterAccess or not self._selected.get("supporterOnly"):
             return
         artwork_id = str(self._selected.get("id") or "")
         digest = str(self._selected.get("previewSha256") or "")
@@ -1476,7 +1500,7 @@ class CommunityService(QObject):
                 self._client.token = ""
             self._apply_session(value.get("session") or {})
             self._status = "Community library connected."
-            if self._scope == "browse":
+            if self._scope == "featured":
                 self._apply_catalog(value.get("catalog") or {})
                 self._schedule_private_previews()
             else:
@@ -1517,7 +1541,7 @@ class CommunityService(QObject):
                 if self.supporterAccess else "Supporter Community verification expired."
             )
             self._status = "Supporter Community access updated."
-            if self.supporterAccess and self._scope == "supporters":
+            if self.supporterAccess and self._scope in {"supporters", "featured"}:
                 self.refresh()
         elif operation == "supporter_clear":
             self._supporter_clear_inflight = False
@@ -1629,12 +1653,21 @@ class CommunityService(QObject):
 
     def _apply_catalog(self, payload):
         rows = [self._normalize_artwork(item) for item in payload.get("items", []) if isinstance(item, dict)]
+        if self._scope == "featured":
+            rows = [row for row in rows if row.get("featured")][:FEATURED_ARTWORK_LIMIT]
+        elif self._scope in {"browse", "handmade", "toolmade", "supporters", "following"}:
+            rows = [row for row in rows if not row.get("featured")]
         selected_id = str(self._selected.get("id") or "") if self._selection_touched else ""
         self._rows = rows
         self._artwork_model.replace(rows)
-        self._page = max(1, int(payload.get("page") or 1))
-        self._page_count = max(1, int(payload.get("page_count") or 1))
-        self._total = max(0, int(payload.get("total") or 0))
+        if self._scope == "featured":
+            self._page = 1
+            self._page_count = 1
+            self._total = len(rows)
+        else:
+            self._page = max(1, int(payload.get("page") or 1))
+            self._page_count = max(1, int(payload.get("page_count") or 1))
+            self._total = max(0, int(payload.get("total") or 0))
         match = next((index for index, row in enumerate(rows) if row["id"] == selected_id), -1)
         self._selected_index = match if match >= 0 else (0 if rows else -1)
         self._selected = dict(rows[self._selected_index]) if self._selected_index >= 0 else {}
@@ -1643,6 +1676,7 @@ class CommunityService(QObject):
     def _normalize_artwork(self, item):
         creator = dict(item.get("creator") or {})
         supporter_only = bool(item.get("supporter_only"))
+        featured = bool(item.get("featured"))
         preview_digest = str(item.get("preview_sha256") or "")
         thumbnail_digest = str(item.get("thumbnail_sha256") or preview_digest)
         preview_asset_url = _versioned_asset_url(
@@ -1671,7 +1705,7 @@ class CommunityService(QObject):
             "status": str(item.get("status") or "published"),
             "statusLabel": str(item.get("status") or "published").replace("_", " ").title(),
             "rejectionReason": str(item.get("rejection_reason") or ""),
-            "featured": bool(item.get("featured")),
+            "featured": featured,
             "supporterOnly": supporter_only,
             "supporterLabel": "Supporters" if supporter_only else "Everyone",
             "revision": int(item.get("current_revision") or 1),
@@ -1681,8 +1715,8 @@ class CommunityService(QObject):
             "createdAt": str(item.get("created_at") or ""),
             "updatedAt": str(item.get("updated_at") or ""),
             "publishedAt": str(item.get("published_at") or ""),
-            "previewUrl": "" if supporter_only else preview_asset_url,
-            "thumbnailUrl": "" if supporter_only else thumbnail_asset_url,
+            "previewUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else preview_asset_url),
+            "thumbnailUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else thumbnail_asset_url),
             "downloadUrl": self._client.url(str(item.get("download_url") or "")),
             "contentSha256": str(item.get("content_sha256") or ""),
             "previewSha256": preview_digest,
@@ -1705,8 +1739,9 @@ class CommunityService(QObject):
     def _load_cache(self):
         try:
             payload = json.loads(self._cache_file.read_text(encoding="utf-8"))
-            if (payload.get("version") == 4
+            if (payload.get("version") == 5
                     and payload.get("endpoint") == self._endpoint_key
+                    and payload.get("scope") == self._scope
                     and isinstance(payload.get("catalog"), dict)):
                 self._apply_catalog(payload["catalog"])
                 self._status = "Showing cached community artwork while connecting."
@@ -1716,22 +1751,31 @@ class CommunityService(QObject):
     def _write_cache(self, catalog):
         items = catalog.get("items", []) if isinstance(catalog, dict) else []
         if (
-            self._scope not in {"browse", "handmade", "toolmade"}
+            self._scope not in {"featured", "browse", "handmade", "toolmade"}
             or not isinstance(items, list)
-            or any(isinstance(item, dict) and item.get("supporter_only") for item in items)
+            or (
+                self._scope != "featured"
+                and any(isinstance(item, dict) and item.get("supporter_only") for item in items)
+            )
         ):
             return
         try:
             self._root.mkdir(parents=True, exist_ok=True)
+            target = self._catalog_cache_file(self._scope)
             payload = {
-                "version": 4,
+                "version": 5,
                 "endpoint": self._endpoint_key,
+                "scope": self._scope,
                 "saved_at": time.time(),
                 "catalog": catalog,
             }
-            self._atomic_write(self._cache_file, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+            self._atomic_write(target, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
         except Exception:
             pass
+
+    def _catalog_cache_file(self, scope):
+        safe_scope = str(scope or "featured").replace("_", "-")
+        return self._root / f"catalog-cache.{self._endpoint_key}.{safe_scope}.v5.json"
 
     def _load_demo_rows(self):
         self._token = "demo-session"
@@ -1775,8 +1819,33 @@ class CommunityService(QObject):
                 }).get(role, False if role in {"favorited", "creatorFollowed"} else 0 if role in {"groupCount", "creatorFollowers"} else "")
                 for role in ARTWORK_ROLES
             })
+        self._demo_all_rows = rows
+        self._apply_demo_catalog()
+
+    def _apply_demo_catalog(self):
+        rows = [dict(row) for row in self._demo_all_rows]
+        if self._scope == "featured":
+            rows = [row for row in rows if row.get("featured")][:FEATURED_ARTWORK_LIMIT]
+        elif self._scope == "supporters":
+            rows = [row for row in rows if row.get("supporterOnly") and not row.get("featured")]
+        else:
+            rows = [row for row in rows if not row.get("supporterOnly") and not row.get("featured")]
+            if self._scope in {"handmade", "toolmade"}:
+                rows = [row for row in rows if row.get("classification") == self._scope]
+        if self._scope != "featured" and self._search:
+            needle = self._search.casefold()
+            rows = [
+                row for row in rows
+                if needle in " ".join((
+                    str(row.get("title") or ""),
+                    str(row.get("creatorName") or ""),
+                    str(row.get("tagsText") or ""),
+                )).casefold()
+            ]
         self._rows = rows
         self._artwork_model.replace(rows)
-        self._selected_index = 0
-        self._selected = dict(rows[0])
+        self._page = 1
+        self._page_count = 1
         self._total = len(rows)
+        self._selected_index = 0 if rows else -1
+        self._selected = dict(rows[0]) if rows else {}
