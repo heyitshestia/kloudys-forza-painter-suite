@@ -30,7 +30,7 @@ class AppController(QObject):
         "create": "Source, generation, preview, and next step without page scrolling.",
         "outputs": "Select one JSON, inspect it, then import or export.",
         "community": "Browse, share, and download community-made vinyl artwork.",
-        "editor": "Launch the Fabric editor and manage saved editor projects.",
+        "editor": "Open the local vinyl editor and manage saved projects.",
         "help": "Workflow guides, import notes, and troubleshooting.",
         "settings": "Preferences, folders, maintenance, and diagnostics.",
         "generate": "Full generator controls for advanced/manual runs.",

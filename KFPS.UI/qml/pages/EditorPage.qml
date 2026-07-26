@@ -9,7 +9,7 @@ Item {
     anchors.fill: parent
     clip: true
 
-    property bool wide: Theme.logical(width) >= 1120
+    property bool wide: Theme.logical(width) >= 1040
     property bool compactHeight: Theme.logical(height) < 720
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && actionCard.width > 0
@@ -21,7 +21,7 @@ Item {
 
     GridLayout {
         anchors.fill: parent
-        columns: root.wide ? 3 : 1
+        columns: root.wide ? 2 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
 
@@ -29,14 +29,14 @@ Item {
             id: actionCard
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: root.wide ? Theme.px(330) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(300) : 0
-            padding: Theme.px(root.compactHeight ? 14 : 16)
+            Layout.preferredWidth: root.wide ? Theme.px(610) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(460) : 0
+            padding: Theme.px(root.compactHeight ? 13 : 16)
             strong: true
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Theme.px(root.compactHeight ? 8 : 10)
+                spacing: Theme.px(root.compactHeight ? 7 : 10)
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -44,111 +44,195 @@ Item {
 
                     Icon {
                         name: "editor"
-                        iconSize: Theme.px(31)
+                        iconSize: Theme.px(30)
                         glow: true
                         Layout.alignment: Qt.AlignVCenter
                     }
 
                     SectionHeading {
                         Layout.fillWidth: true
-                        title: "1. Editor actions"
-                        subtitle: "Open the editor or refresh projects."
+                        title: "Vinyl Editor"
+                        subtitle: "Create, recover, and reopen editable projects."
+                    }
+
+                    GhostButton {
+                        dense: true
+                        minimumWidth: Theme.px(82)
+                        text: "Folder"
+                        iconName: "folder"
+                        toolTipText: "Open the editor projects folder."
+                        onClicked: editorService.openProjects()
                     }
                 }
 
-                PrimaryButton {
+                GridLayout {
                     Layout.fillWidth: true
-                    text: "New Project"
-                    iconName: "editor"
-                    toolTipText: "Open the manual editor with a blank project in a new browser window."
-                    onClicked: editorService.launch()
-                }
+                    columns: root.width < Theme.px(540) ? 2 : 4
+                    columnSpacing: Theme.px(6)
+                    rowSpacing: Theme.px(6)
 
-                GhostButton {
-                    Layout.fillWidth: true
-                    text: "Refresh Projects"
-                    iconName: "refresh"
-                    toolTipText: "Scan the projects folder again and update this list."
-                    onClicked: editorService.refresh()
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        dense: root.compactHeight
+                        text: editorService.launching ? "Starting..." : "New Canvas"
+                        iconName: "editor"
+                        enabled: !editorService.launching
+                        toolTipText: "Open a blank vinyl canvas. The same local editor service is reused on later launches."
+                        onClicked: editorService.launch()
+                    }
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        dense: root.compactHeight
+                        text: "Import JSON"
+                        iconName: "json"
+                        enabled: !editorService.launching
+                        toolTipText: "Open the editor directly to its JSON browser."
+                        onClicked: editorService.launchJsonBrowser()
+                    }
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        dense: root.compactHeight
+                        text: "Refresh"
+                        iconName: "refresh"
+                        toolTipText: "Scan the saved editor projects folder again."
+                        onClicked: editorService.refresh()
+                    }
+
+                    GhostButton {
+                        Layout.fillWidth: true
+                        dense: root.compactHeight
+                        text: "Tutorial"
+                        iconName: "help"
+                        toolTipText: "Reset the first-run editor tutorial, then show it on the next launch."
+                        onClicked: editorService.resetTutorial()
+                    }
                 }
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 130 : 152)
+                    Layout.preferredHeight: statusColumn.implicitHeight + Theme.px(18)
                     soft: true
 
                     ColumnLayout {
+                        id: statusColumn
                         anchors.fill: parent
-                        anchors.margins: Theme.px(12)
-                        spacing: Theme.px(6)
+                        anchors.margins: Theme.px(9)
+                        spacing: Theme.px(3)
 
-                        Text {
+                        StatusRow {
                             Layout.fillWidth: true
-                            text: "Project files vs exports"
-                            color: Theme.primaryBright
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(13)
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
+                            dense: true
+                            label: editorService.launching ? "Local editor service" : "Editor"
+                            value: editorService.launching ? "Starting" : (editorService.running ? "Connected" : "Ready")
+                            state: editorService.lastError.length > 0 ? "bad" : (editorService.launching ? "warn" : "ok")
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            text: "Projects preserve editor state and overlays. Export JSONs from the editor, then use Outputs to import them into the game template. Folder shortcuts live in Settings."
+                            text: editorService.status
                             color: Theme.muted
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.5)
+                            font.pixelSize: Theme.px(9.4)
                             wrapMode: Text.Wrap
-                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: editorService.lastError.length > 0
+                            text: editorService.lastError
+                            color: Theme.danger
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(9.1)
+                            wrapMode: Text.Wrap
                         }
                     }
                 }
 
-                Item { Layout.fillHeight: true }
-            }
-        }
-
-        HoverCard {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.preferredWidth: root.wide ? Theme.px(430) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(340) : 0
-            padding: Theme.px(root.compactHeight ? 14 : 16)
-
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: Theme.px(root.compactHeight ? 7 : 9)
-
-                SectionHeading {
+                RowLayout {
                     Layout.fillWidth: true
-                    title: "2. Project browser"
-                    subtitle: "Select exactly one saved editor project."
+                    spacing: Theme.px(8)
+
+                    KfpsTextField {
+                        id: projectSearch
+                        Layout.fillWidth: true
+                        dense: root.compactHeight
+                        placeholderText: "Search saved projects"
+                        toolTipText: "Filter projects by project name or shape count."
+                        text: editorService.searchText
+                        onTextChanged: editorService.searchText = text
+                    }
+
+                    Text {
+                        text: projects.count
+                              + (projectSearch.text.length > 0 ? " shown" : " saved")
+                        color: Theme.subtle
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(9.6)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
                 }
 
                 FastListView {
                     id: projects
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: Theme.px(360)
+                    Layout.minimumHeight: Theme.px(root.wide ? 300 : 250)
                     clip: true
                     model: editorService.projectModel
-                    spacing: Theme.px(5)
+                    spacing: Theme.px(3)
 
-                    delegate: GhostButton {
+                    delegate: Item {
                         required property string name
+                        required property string path
                         required property string modifiedLabel
+                        required property string shapeLabel
                         required property int index
                         width: projects.width
-                        minimumWidth: 0
-                        maximumTextWidth: Math.max(Theme.px(160), width - Theme.px(40))
-                        text: name + "  •  " + modifiedLabel
-                        toolTipText: "Select this saved editor project."
-                        dense: root.compactHeight
-                        onClicked: editorService.select(index)
+                        height: projectRow.implicitHeight
+
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: path === editorService.selectedPath
+                            radius: Theme.framedRadius(Theme.px(6))
+                            color: Theme.rowSelectedSurface
+                            border.width: Math.max(1, Theme.px(1))
+                            border.color: Theme.primary
+                        }
+
+                        QuickActionRow {
+                            id: projectRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            dense: root.compactHeight
+                            iconName: "editor"
+                            title: name
+                            subtitle: shapeLabel + "  •  " + modifiedLabel
+                            toolTipText: "Select " + name + ". Double-clicking opens it immediately."
+                            onClicked: editorService.select(index)
+
+                            TapHandler {
+                                acceptedButtons: Qt.LeftButton
+                                onDoubleTapped: {
+                                    editorService.select(index)
+                                    editorService.launchSelected()
+                                }
+                            }
+                        }
                     }
 
                     ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
+
+                    EmptyState {
+                        anchors.centerIn: parent
+                        visible: projects.count === 0
+                        iconName: "editor"
+                        title: projectSearch.text.length > 0 ? "No matching projects" : "No saved projects"
+                        message: projectSearch.text.length > 0
+                                 ? "Clear the search or try another project name."
+                                 : "Start a blank canvas or import a JSON, then save it as a project."
+                    }
                 }
             }
         }
@@ -157,26 +241,41 @@ Item {
             id: selectedProjectCard
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: root.wide ? Theme.px(620) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(430) : 0
-            padding: Theme.px(root.compactHeight ? 14 : 16)
+            Layout.preferredWidth: root.wide ? Theme.px(800) : -1
+            Layout.minimumWidth: root.wide ? Theme.px(500) : 0
+            padding: Theme.px(root.compactHeight ? 13 : 16)
             strong: true
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Theme.px(root.compactHeight ? 7 : 9)
+                spacing: Theme.px(root.compactHeight ? 7 : 10)
 
-                SectionHeading {
+                RowLayout {
                     Layout.fillWidth: true
-                    title: editorService.selectedName === "—" ? "3. Selected project" : "3. " + editorService.selectedName
-                    subtitle: editorService.selectedPath || "Select a project from the browser."
+                    spacing: Theme.px(8)
+
+                    SectionHeading {
+                        Layout.fillWidth: true
+                        title: editorService.selectedName === "—" ? "Project Preview" : editorService.selectedName
+                        subtitle: editorService.selectedPath || "Select a saved project to inspect or reopen it."
+                    }
+
+                    GhostButton {
+                        visible: editorService.selectedPath.length > 0
+                        dense: true
+                        minimumWidth: Theme.px(72)
+                        text: "Clear"
+                        iconName: ""
+                        toolTipText: "Clear the selected project."
+                        onClicked: editorService.clearSelection()
+                    }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: Theme.px(330)
-                    radius: Theme.corner(Theme.px(18))
+                    Layout.minimumHeight: Theme.px(root.wide ? 390 : 300)
+                    radius: Theme.corner(Theme.px(12))
                     color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
                     border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
                     border.color: Theme.borderStrong
@@ -191,21 +290,9 @@ Item {
                         enclosedPanel: true
                     }
 
-                    ClassicBevel {
+                    ArtworkPreviewBackdrop {
                         anchors.fill: parent
-                        sunken: true
-                        z: 20
-                    }
-
-                    Rectangle {
-                        visible: !Theme.classicMode
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(1)
-                        radius: Theme.corner(parent.radius - Theme.px(1))
-                        color: "transparent"
-                        border.width: Math.max(1, Theme.px(1))
-                        border.color: Theme.innerHighlight
-                        opacity: 0.92
+                        anchors.margins: Theme.px(2)
                     }
 
                     Image {
@@ -222,36 +309,64 @@ Item {
                         visible: !editorService.previewUrl
                         anchors.centerIn: parent
                         iconName: "editor"
-                        title: "Select a project"
-                        message: "A rendered project preview will appear here."
+                        title: editorService.previewLoading
+                               ? "Rendering preview..."
+                               : (editorService.selectedPath.length > 0
+                                  ? "Preview unavailable"
+                                  : "Nothing selected")
+                        message: editorService.previewLoading
+                                 ? "The project stays selectable while its thumbnail is prepared."
+                                 : (editorService.selectedPath.length > 0
+                                    ? "The project can still be opened and edited normally."
+                                    : "Choose a saved project on the left, or begin a new canvas.")
                     }
                 }
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 84 : 96)
+                    Layout.preferredHeight: detailsRow.implicitHeight + Theme.px(22)
                     soft: true
 
                     RowLayout {
+                        id: detailsRow
                         anchors.fill: parent
                         anchors.margins: Theme.px(11)
-                        spacing: Theme.px(10)
+                        spacing: Theme.px(12)
 
-                        Text {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: "Shapes: " + editorService.selectedShapes
-                            color: Theme.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(10.8)
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
+                            spacing: Theme.px(2)
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: editorService.selectedPath.length > 0
+                                      ? editorService.selectedShapes + " editable shapes"
+                                      : "Projects keep groups, guides, and reference images."
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(11)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: editorService.selectedPath.length > 0
+                                      ? "Modified " + editorService.selectedModified
+                                      : "Export JSON separately when the vinyl is ready for Outputs."
+                                color: Theme.subtle
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(9.4)
+                                elide: Text.ElideRight
+                            }
                         }
 
                         PrimaryButton {
                             minimumWidth: Theme.px(170)
-                            text: "Open Project"
-                            toolTipText: "Open the selected project in the manual editor."
-                            enabled: editorService.selectedPath.length > 0
+                            text: editorService.launching ? "Opening..." : "Open Project"
+                            iconName: "editor"
+                            toolTipText: "Open the selected editable project in the local browser editor."
+                            enabled: editorService.selectedPath.length > 0 && !editorService.launching
                             onClicked: editorService.launchSelected()
                         }
                     }

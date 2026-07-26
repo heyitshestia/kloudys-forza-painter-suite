@@ -25,7 +25,7 @@ Use this with:
 12. [2x Sample Goblin](#2x-sample-goblin-slower)
 13. [Outputs Browser](#outputs-browser)
 14. [Import JSON](#import-json)
-15. [Editor Tab](#editor-tab)
+15. [Editor And Project Manager](#editor-and-project-manager)
 16. [Tools Tab](#tools-tab)
 17. [Source Check](#source-check)
 18. [Settings And Themes](#settings-and-themes)
@@ -717,7 +717,7 @@ During import:
 
 When it finishes, check FH6 visually before saving/applying.
 
-## Editor Tab
+## Editor And Project Manager
 
 Open:
 
@@ -725,25 +725,103 @@ Open:
 Editor
 ```
 
-Use it to launch the bundled Forza Vinyl Studio editor.
+The native page is a project manager for the bundled KFPS Vinyl Editor.
 
-Current control:
+Start with one of these:
 
-- `Open Forza Vinyl Studio`
+- `New Canvas`: open a blank design.
+- `Import JSON`: browse generated finals, editor exports, and game exports.
+- `Open Project`: continue the saved project selected in the project list.
+- `Tutorial`: reset and reopen the guided first-run tour.
+- `Folder`: open the internal editor project folder.
 
-What it does:
+The project list can be searched by name or shape count. Selecting a project
+shows its preview, number of shapes, last modified time, and full local path.
+Double-clicking a project opens it. The page reports editor startup failures and
+links to the local server log through Settings.
 
-- Opens a separate Windows editor window.
-- Lets you place, select, move, stretch, rotate, and recolor shapes.
-- Lets you use an image overlay while building a vinyl.
-- Saves editor projects as `.fvsp`.
-- Exports FH6-compatible JSON.
+### First Manual Vinyl
 
-What it does not do:
+1. Choose `New Canvas`.
+2. Take the short guided tour.
+3. Open Shapes and click a native shape tile to place it.
+4. Use the canvas handles or Properties fields to move, resize, skew, or rotate it.
+5. Change its color and opacity in Properties.
+6. Add more shapes, or use Text to build words from native letter shapes.
+7. Choose `Save` and give the editable project a name.
+8. Open Export Check and resolve any blocking errors.
+9. Choose `Export JSON`.
+10. Return to KFPS Outputs, choose Editor exports, and import the result.
+
+### Tracing Existing Art
+
+1. Open or save an editable project.
+2. Choose Reference and load the source image.
+3. Reduce its opacity so placed vinyl shapes remain visible.
+4. Use Move Ref to position the image without touching vinyl layers.
+5. Add shapes and use Dropper to sample colors from the reference.
+6. Use Guides, exact Properties, alignment, and layer ordering for cleanup.
+
+The reference image is saved with the editable project and temporary recovery
+copy. It never becomes a vinyl layer and never exports.
+
+### Workspace
+
+The upper-right Layers panel remains visible while the lower inspector changes
+between Properties, Shapes, Text, Pixel, Guides, Reference, History, and Export.
+Drag the divider to resize the two areas. Use `View > Panels` when you need the
+maximum canvas area.
+
+Useful features include:
+
+- canvas, box, same-shape, same-color, visible-only, and inverted selection
+- exact transforms, flips, quarter turns, alignment, and distribution
+- copy/paste, duplicate, rename, internal groups, hide/lock, and full layer ordering
+- native-letter text and merged-rectangle pixel-art builders
+- guide drawing, grid display, active-edge snapping, and configurable nudge size
+- visible history with a protected loaded-source boundary
+- continuous checks for the 3,000-layer limit and unsafe export data
+
+### Save, Recovery, And Export
+
+These are intentionally separate:
+
+- `Save` updates the current editable project.
+- `Save As` creates another editable project.
+- Recovery keeps a temporary copy after edits or reference changes.
+- `Export JSON` creates a validated flat file in `imgs/editor`.
+
+Projects use `.fabric-project.json` and live under
+`runtime/fabric-editor/projects`. Recovery is only an interruption safeguard;
+save the project when you intend to keep working on it.
+
+The title displays Saved or Unsaved. Closing the browser with unsaved changes
+causes a leave-page warning. Reopening after an interruption offers the newest
+recovery copy.
+
+Choosing New, another JSON, or another project inside the editor asks before
+replacing unsaved work. Reference images and guides belong to one project and
+are cleared when a different document is opened.
+
+### Export Check
+
+Export is blocked when the design has no layers, exceeds 3,000 layers, contains
+invalid transform values, or has zero-sized shapes. It also warns about hidden
+layers, completely off-canvas geometry, unresolved shape resources, ineffective
+masks, and exact duplicates.
+
+Warnings do not silently modify the design. Review them, select the named layer
+when needed, and decide what should remain.
+
+### What It Does Not Do
 
 - It does not write to FH6 memory.
-- It exports JSON for the app's `Import JSON` workflow.
-- It is not required for normal image-to-vinyl generation.
+- It does not convert arbitrary freehand SVG paths into game shapes.
+- It is not required for normal source-image generation.
+- Editor-only guides, groups, reference images, and selection helpers never export.
+
+Use [FABRIC_EDITOR_MANUAL.md](FABRIC_EDITOR_MANUAL.md) for every tool,
+shortcut, snapping rule, and troubleshooting step.
 
 ## Tools Tab
 

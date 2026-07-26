@@ -310,24 +310,26 @@
       "category": "editor",
       "title": "Open and save editor projects",
       "summary": "Use the manual editor for changes that need human judgment, then keep the project and export JSON as separate files.",
-      "keywords": ["editor", "project", "new", "open", "save", "browser"],
+      "keywords": ["editor", "project", "new", "open", "save", "save as", "recovery", "browser"],
       "steps": [
         "Open Editor in KFPS.",
-        "Choose New Project for a blank canvas, or select a saved project and choose Open Project.",
-        "Import a JSON or build with shapes inside the editor.",
-        "Save a project when you want to keep editable state, guides, overlays, and groups.",
-        "Export a JSON when the design is ready to import into a game."
+        "Choose New Canvas for a blank design, Import JSON to begin from an existing vinyl, or select a saved project and choose Open Project.",
+        "Choose Save early. After the first save, Save updates that project and Save As creates another copy.",
+        "Build by hand with native shapes, text, and pixel-art tools, or clean up an imported design.",
+        "Review Export Check, then export a JSON when the design is ready for KFPS Outputs."
       ],
       "sections": [
-        {"heading": "Project versus JSON", "body": "A project is the editor's working document. A JSON is the portable shape list used by Outputs and the game transfer tools. Keep the project if you may edit the design again."},
-        {"heading": "Why use the editor", "body": "The generator is good at broad visual matching. The editor is better for exact text, logos, eyes, outlines, alignment, deliberate grouping, and small corrections."}
+        {"heading": "Project versus JSON", "body": "A project is the editable working document and keeps groups, guides, names, locks, collapsed folders, and the reference image. An exported JSON is the flat portable shape list used by Outputs and game transfer tools."},
+        {"heading": "Recovery versus Save", "body": "The editor updates a temporary recovery copy after changes and warns before closing unsaved work. Recovery helps after a crash, but only Save creates the project you should rely on."},
+        {"heading": "Why use the editor", "body": "Use it to create vinyls completely by hand or to refine generated work. Exact text, logos, eyes, outlines, alignment, masks, deliberate grouping, and small corrections all benefit from human judgment."}
       ],
       "pitfalls": [
-        "Closing a browser editor window before saving can lose unsaved changes.",
+        "Do not treat the recovery copy as a normal saved project.",
         "Exporting a JSON does not automatically replace the saved editor project.",
-        "Very large projects may take a moment to load even with cached shape rendering."
+        "Opening another JSON, project, or blank canvas asks before replacing unsaved work.",
+        "The project title says Unsaved changes whenever layers, guides, groups, or the reference differ from the last successful save."
       ],
-      "related": ["editor-layers", "editor-snapping", "editor-export"]
+      "related": ["editor-layers", "editor-history", "editor-snapping", "editor-export"]
     },
     {
       "key": "editor-layers",
@@ -337,46 +339,73 @@
       "keywords": ["layers", "groups", "selection", "order", "move", "duplicate", "shape"],
       "steps": [
         "Select a shape on the canvas or in the layer list.",
-        "Use multi-selection when several shapes must move, scale, or rotate together.",
+        "Use multi-selection when several shapes must move, scale, rotate, align, distribute, copy, or recolor together.",
         "Group shapes that form one logical feature, such as a letter, eye, or badge.",
         "Use layer order to place foreground shapes above background shapes.",
         "Save the project before a large regrouping or reordering change."
       ],
       "sections": [
-        {"heading": "Layer order", "body": "Shapes are drawn in order. Moving a layer forward can reveal it; moving it backward can hide it behind another shape."},
-        {"heading": "Groups", "body": "A group lets related shapes transform together without permanently flattening their individual editor data. Game exports may represent grouping differently, so inspect the exported preview."},
+        {"heading": "Layer order", "body": "Shapes are drawn in order. Forward and Back move one step; To Front and To Back move selected layers to an edge. The upper Layers panel remains visible while another inspector is open."},
+        {"heading": "Groups", "body": "A group organizes related layers without changing the flat game export. Rename layers and groups, hide or lock whole groups, and drag the dock divider when a long layer list needs more room."},
+        {"heading": "Selection helpers", "body": "All, Invert, Same Shape, and Same Color handle large selections quickly. Properties also provides exact transforms, flips, quarter turns, and canvas- or selection-based alignment."},
         {"heading": "Selection outline", "body": "The highlight stays thin on screen as you zoom. It shows the editor selection and is not part of the exported vinyl."}
       ],
       "pitfalls": [
         "Moving a parent group and one of its selected children together can apply a transform twice in poorly formed imports.",
         "A shape hidden behind another layer is not necessarily deleted.",
-        "Keep groups simple when the final target has limited grouping behavior."
+        "Hidden editor layers still export; Export Check warns so you can show or delete them intentionally."
       ],
-      "related": ["editor-overview", "editor-snapping", "editor-export"]
+      "related": ["editor-overview", "editor-history", "editor-snapping", "editor-export"]
     },
     {
       "key": "editor-snapping",
       "category": "editor",
-      "title": "Use snapping, guides, and overlays",
+      "title": "Use snapping, guides, and references",
       "summary": "Align shapes precisely without making reference images or guides part of the exported vinyl.",
-      "keywords": ["snap", "grid", "guide", "overlay", "source", "align", "zoom"],
+      "keywords": ["snap", "grid", "guide", "reference", "overlay", "source", "align", "zoom"],
       "steps": [
         "Zoom to the area you want to adjust.",
         "Enable the grid or guide type that matches the alignment you need.",
         "Turn snapping on when shapes should lock to those guides.",
-        "Use a source overlay as a visual reference and adjust its opacity when it hides the vinyl.",
+        "Add a reference image for tracing or color sampling and adjust its opacity when it hides the vinyl.",
         "Turn snapping off for small freehand corrections."
       ],
       "sections": [
-        {"heading": "Guides do not export", "body": "The grid, guides, selection outlines, and source overlay are editor aids. They are not Forza shapes and are not written into the exported JSON."},
-        {"heading": "Zoom and performance", "body": "The editor reuses cached shape geometry. Extremely dense art can still be slower when every tiny shape is visible, so hide unused panels or layers while making detailed changes."}
+        {"heading": "Project-only helpers", "body": "The grid, guides, selection outlines, and reference image are editor aids. Save keeps them with the project; they never consume layers or enter the exported JSON."},
+        {"heading": "Reference color", "body": "Dominant sampling usually suits flat artwork. Average sampling suits softer shading. Live reference color can update selected shapes while they move."},
+        {"heading": "Dock space", "body": "Drag the divider between Layers and the inspector, collapse Layers temporarily, or hide Panels when the canvas needs more room."}
       ],
       "pitfalls": [
         "Snapping that is useful for a logo may fight small organic adjustments.",
-        "An opaque source overlay can make correct shapes look missing.",
+        "An opaque reference image can make correct shapes look missing.",
         "Judge line thickness in the exported preview, not from the selection outline."
       ],
       "related": ["editor-layers", "editor-export", "pixel-art"]
+    },
+    {
+      "key": "editor-history",
+      "category": "editor",
+      "title": "Use history and recovery safely",
+      "summary": "Understand visible history, the loaded-source boundary, unsaved state, and the temporary recovery copy.",
+      "keywords": ["history", "undo", "redo", "recovery", "autosave", "dirty", "unsaved", "crash"],
+      "steps": [
+        "Save the project once so the editor has a reliable saved baseline.",
+        "Open History to see each meaningful edit and the current position.",
+        "Click an earlier entry or use Undo; the loaded source boundary cannot be crossed accidentally.",
+        "Use Redo or click a later entry to move forward again.",
+        "When the title says Unsaved changes, use Save before closing if the work should be kept."
+      ],
+      "sections": [
+        {"heading": "Visible history", "body": "The editor keeps up to 80 shape, guide, grouping, and layer-order states. Each entry has a reason, time, layer count, and current or saved marker."},
+        {"heading": "Recovery copy", "body": "A temporary recovery copy is updated after edits and includes the reference image. It may be offered after an interrupted session, but it can be replaced by later work and is not a normal project."},
+        {"heading": "Closing protection", "body": "The browser asks for confirmation when a project has unsaved layer or reference changes. Exporting JSON does not mark the editable project as saved."}
+      ],
+      "pitfalls": [
+        "Undo cannot move earlier than the loaded source; this prevents an imported design from disappearing in one click.",
+        "Saving an export and saving a project are separate actions.",
+        "Discard the recovery copy only after confirming that no unfinished work is needed."
+      ],
+      "related": ["editor-overview", "editor-layers", "editor-export"]
     },
     {
       "key": "editor-export",
@@ -386,37 +415,37 @@
       "keywords": ["editor", "export", "json", "project", "preview", "outputs"],
       "steps": [
         "Save the editor project so you can return to the exact working state.",
-        "Check the shape count against the game template you plan to use.",
+        "Open Export Check and review blocking errors plus hidden, off-canvas, duplicate, unresolved-resource, and mask warnings.",
         "Export the design as JSON from the editor.",
         "Return to KFPS Outputs and choose Editor exports.",
         "Select the exported JSON, inspect its thumbnail and shape count, then import it normally."
       ],
       "sections": [
         {"heading": "Two files, two jobs", "body": "The project keeps editor-only information. The exported JSON is the transfer file. Saving one does not replace the other."},
-        {"heading": "Before import", "body": "Check that the export contains only intended shapes, stays within the target layer budget, and has the expected canvas placement."}
+        {"heading": "Before import", "body": "Export is blocked for invalid or zero-scale transforms. Warnings cover hidden layers that still export, completely off-canvas geometry, exact duplicates, unresolved native resources, and masks with nothing below to cut."}
       ],
       "pitfalls": [
         "Do not delete the project just because the JSON exported successfully.",
         "A JSON over the template budget must be reduced before online import.",
         "Refresh Editor exports if a new file does not appear immediately."
       ],
-      "related": ["json-browser", "editor-overview", "import-fh6"]
+      "related": ["json-browser", "editor-overview", "editor-history", "import-fh6"]
     },
     {
       "key": "pixel-art",
       "category": "editor",
       "title": "Build pixel art",
-      "summary": "Use a fixed grid and repeated square shapes for deliberate pixel-style designs.",
+      "summary": "Use the Pixel tool to detect a deliberate source grid and merge same-color cells into efficient native rectangles.",
       "keywords": ["pixel", "grid", "square", "palette", "retro"],
       "steps": [
-        "Choose a grid size that fits the target shape budget.",
-        "Use a clear source with hard pixel edges and no smoothing.",
-        "Create or paint the grid cells with a small controlled palette.",
-        "Check the total shape count before exporting.",
+        "Open Pixel from the left tool rail and choose a clear source with hard pixel edges and no smoothing.",
+        "Check the detected width and height, then adjust alpha cutoff and color tolerance when needed.",
+        "Generate the pixel layers. Adjacent same-color cells are merged into stretched rectangles automatically.",
+        "Check the resulting layer count and use Undo if the detected grid or palette was wrong.",
         "Inspect the exported preview at normal size as well as zoomed in."
       ],
       "sections": [
-        {"heading": "Budget", "body": "One filled cell usually costs one shape. A 40 by 40 fully filled grid can already require 1600 shapes before extra outlines or corrections."},
+        {"heading": "Budget", "body": "The editor merges adjacent same-color cells, so one filled cell does not always cost one shape. Busy checker patterns still approach one shape per visible cell and must stay within 3000 layers."},
         {"heading": "Clean edges", "body": "Avoid source scaling that blurs pixels. Hard edges and a limited palette are easier to reproduce consistently."}
       ],
       "pitfalls": [

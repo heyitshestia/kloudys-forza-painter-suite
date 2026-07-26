@@ -31,7 +31,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 | `Community` | Browses shared vinyl artwork and creator profiles, inspects full previews, and provides authenticated uploads, verified downloads, favorites, follows, reports, and revision management. |
 | `Online Import / Export` | Imports compatible JSON into a prepared FH6 vinyl template and exports the currently loaded editable group through the live game locator. |
 | `Offline Save Library` | Supporter-unlocked WIP tools for scanning supported Forza save folders, building local JSON previews, and testing save-folder based workflows. |
-| `Editor` | Launches the bundled Fabric-based JSON editor for manual vinyl creation, cleanup, tracing, shape search, favorites, color picking, layer work, guide snapping, and JSON export. |
+| `Editor` | Manages editable projects and launches the bundled local vinyl workspace for manual creation, tracing, native-shape text and pixel art, precise layer layout, history, validation, and JSON export. |
 | `Tools` | Collects useful prep links for background removal, browser upscaling, and browser downscaling/compression. |
 | `Help / Reports / Update` | Built-in workflow guide, local bug/suggestion reports, GitHub version checks, and updater entrypoint. |
 
@@ -66,18 +66,22 @@ KFPS includes a native Editor tab plus a bundled local Fabric editor for people 
   <img src="docs/screenshots/06-editor.png" alt="KFPS native Editor tab" width="820">
 </p>
 
-The editor is designed around practical vinyl work:
+The editor is designed around complete manual vinyl work, not only cleanup:
 
 - Load generated, exported, or hand-edited JSON and inspect it visually.
 - Add FH6 shapes from a searchable in-game-style shape library.
+- Build editable text from native letter shapes and convert deliberate pixel art into merged rectangle layers.
 - Favorite common shapes so they stay easy to reach.
-- Add a source image overlay for tracing and adjust overlay opacity/size.
-- Sample colors from the overlay or existing shapes instead of guessing RGB values.
-- Select one layer, box-select many layers, group layers internally, hide/lock groups, duplicate, delete, and reorder.
+- Add a reference image for tracing, save it with the project, and sample colors from it or existing shapes.
+- Select by canvas, box, shape type, or color; then align, distribute, flip, duplicate, delete, group, and reorder layers.
 - Move, stretch, skew, rotate, and nudge shapes with editor controls built for vinyl cleanup.
 - Use guides and snapping for cleaner alignment work.
-- Save editor projects separately from FH6 export JSON.
-- Export JSON back into the KFPS import workflow.
+- Review a visible history timeline and recover temporary unsaved work after an interruption.
+- Save editable projects separately from validated, import-ready FH6 export JSON.
+
+The persistent layer stack stays visible beside the active tool inspector, and
+the editor is designed to remain usable through the 3,000-layer FH6 limit. See
+the [complete editor manual](docs/FABRIC_EDITOR_MANUAL.md) for the full workflow.
 
 ## Community Contributions
 
@@ -269,7 +273,10 @@ Important limitation: the live FH6 editor preview can display imported shape-cod
 
 ## Editor
 
-The native `Editor` tab manages editor projects and launches the local Fabric editor for FH6 JSON work. It is meant for manual creation, cleanup, tracing, final touch-ups, and converting compatible JSON into something easier to edit than raw text.
+The native `Editor` tab is a project manager for the local Fabric editor. Start
+a blank canvas, open the JSON browser, search saved projects, inspect their
+preview and shape count, or reopen a project directly. The page also reports
+local editor launch errors instead of failing silently.
 
 Open it from the native app's `Editor` tab:
 
@@ -277,7 +284,8 @@ Open it from the native app's `Editor` tab:
   <img src="docs/screenshots/06-editor.png" alt="Editor tab" width="820">
 </p>
 
-The full editor still opens as a local browser workspace for detailed canvas editing:
+The detailed workspace opens in the default browser and stays local to the KFPS
+folder:
 
 <p align="center">
   <img src="docs/screenshots/06-editor.png" alt="KFPS Editor tab and project workspace" width="820">
@@ -286,28 +294,34 @@ The full editor still opens as a local browser workspace for detailed canvas edi
 ### Editor Workflow
 
 1. Open `Editor` in KFPS.
-2. Click `Open Editor`.
-3. Import a generated, exported, or hand-edited JSON, or start placing shapes manually.
-4. Add a source overlay if you want to trace over art.
-5. Search or browse the shape library.
-6. Place shapes, sample colors, move/stretch/skew/rotate, and clean up layers.
-7. Save a project if you want to continue editing later.
-8. Export one FH6-compatible JSON for the KFPS `Outputs` tab.
+2. Choose `New Canvas`, `Import JSON`, or a saved project.
+3. Save an editable project early; the title clearly shows saved or unsaved state.
+4. Add a reference image when tracing, or build directly with Shapes, Text, and Pixel tools.
+5. Use the persistent layer stack plus Properties to select, order, align, transform, and organize layers.
+6. Use Guides for precise work and History to review or restore editing states.
+7. Open Export Check and resolve blocking errors or intentional warnings.
+8. Choose `Export JSON`; the result appears under Editor exports in `Outputs`.
 
 ### Editor Features
 
 - importing generated, exported, and hand-edited JSON
 - placing FH6 shapes from the shape library
 - shape search and favorites
-- source image overlay for tracing
-- color picking from shapes or overlay art
+- reference images saved with editable projects but excluded from exports
+- color picking from shapes or reference art
 - layer selection, box selection, internal grouping, hiding, and locking
+- select-by-shape/color, alignment, distribution, flips, ordering, copy/paste, and renaming
 - move, scale, stretch, skew, rotate, nudge, and guide/snap tooling
 - visible-only selection for removing top visible cleanup layers without grabbing hidden lower layers
-- project save/load for editor sessions
-- exporting JSON for generated-style or handmade-style import paths
+- native-shape text and pixel-art builders
+- visible undo/redo history, explicit saved state, and interruption recovery
+- continuous export validation for layer limits, bad transforms, hidden/off-canvas layers, resources, masks, and duplicates
+- project save/load for editor sessions and one unified FH-compatible export path
 
-The editor is offline/export-only. It does not write to FH6 memory.
+The editor is offline/export-only. It does not write to FH6 memory. Editable
+projects live in `runtime/fabric-editor/projects`; export JSON lives in
+`imgs/editor`. See [docs/FABRIC_EDITOR_MANUAL.md](docs/FABRIC_EDITOR_MANUAL.md)
+for every tool and shortcut.
 
 ## Offline Save Library
 

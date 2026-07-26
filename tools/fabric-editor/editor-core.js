@@ -109,7 +109,46 @@
     };
   }
 
+  function alignmentDelta(bounds, target, mode) {
+    const source = bounds || {};
+    const destination = target || {};
+    const sourceCenterX = Number.isFinite(source.centerX)
+      ? source.centerX
+      : (Number(source.left) + Number(source.right)) / 2;
+    const sourceCenterY = Number.isFinite(source.centerY)
+      ? source.centerY
+      : (Number(source.top) + Number(source.bottom)) / 2;
+    const targetCenterX = Number.isFinite(destination.centerX)
+      ? destination.centerX
+      : (Number(destination.left) + Number(destination.right)) / 2;
+    const targetCenterY = Number.isFinite(destination.centerY)
+      ? destination.centerY
+      : (Number(destination.top) + Number(destination.bottom)) / 2;
+    if (mode === "left") return { x: Number(destination.left) - Number(source.left), y: 0 };
+    if (mode === "centerX") return { x: targetCenterX - sourceCenterX, y: 0 };
+    if (mode === "right") return { x: Number(destination.right) - Number(source.right), y: 0 };
+    if (mode === "top") return { x: 0, y: Number(destination.top) - Number(source.top) };
+    if (mode === "centerY") return { x: 0, y: targetCenterY - sourceCenterY };
+    if (mode === "bottom") return { x: 0, y: Number(destination.bottom) - Number(source.bottom) };
+    return { x: 0, y: 0 };
+  }
+
+  function distributionDeltas(values) {
+    const centers = Array.from(values || [], Number);
+    if (centers.length < 3 || centers.some((value) => !Number.isFinite(value))) {
+      return centers.map(() => 0);
+    }
+    const step = (centers[centers.length - 1] - centers[0]) / (centers.length - 1);
+    return centers.map((value, index) => (
+      index === 0 || index === centers.length - 1
+        ? 0
+        : centers[0] + step * index - value
+    ));
+  }
+
   global.KfpsEditorCore = Object.freeze({
+    alignmentDelta,
+    distributionDeltas,
     OrderedObjectRegistry,
     buildVirtualLayout,
     mapWithConcurrency,

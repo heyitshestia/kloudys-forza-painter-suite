@@ -223,7 +223,7 @@ class QmlRefinementTests(unittest.TestCase):
         payload = json.loads((UI / "help" / "topics.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(payload["version"], 2)
         self.assertEqual(9, len(payload["categories"]))
-        self.assertEqual(24, len(payload["topics"]))
+        self.assertEqual(25, len(payload["topics"]))
 
         topics = {topic["key"]: topic for topic in payload["topics"]}
         self.assertEqual(len(topics), len(payload["topics"]))

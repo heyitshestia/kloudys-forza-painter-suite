@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 require("../editor-core.js");
 
 const {
+  alignmentDelta,
+  distributionDeltas,
   OrderedObjectRegistry,
   buildVirtualLayout,
   mapWithConcurrency,
@@ -55,6 +57,14 @@ async function run() {
     virtualRange(layout, 24, 20, 0),
     { start: 1, end: 2, padTop: 20, padBottom: 40, totalHeight: 90 },
   );
+
+  const bounds = { left: 20, top: 30, right: 60, bottom: 90, centerX: 40, centerY: 60 };
+  const canvas = { left: -1000, top: -1000, right: 1000, bottom: 1000, centerX: 0, centerY: 0 };
+  assert.deepEqual(alignmentDelta(bounds, canvas, "left"), { x: -1020, y: 0 });
+  assert.deepEqual(alignmentDelta(bounds, canvas, "centerX"), { x: -40, y: 0 });
+  assert.deepEqual(alignmentDelta(bounds, canvas, "bottom"), { x: 0, y: 910 });
+  assert.deepEqual(distributionDeltas([0, 15, 90, 100]), [0, 100 / 3 - 15, 200 / 3 - 90, 0]);
+  assert.deepEqual(distributionDeltas([10, 30]), [0, 0]);
 }
 
 run().catch((error) => {

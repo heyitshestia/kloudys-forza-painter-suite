@@ -21,11 +21,14 @@ const PROJECT_BROWSER_API = "/api/fabric-editor/project-browser";
 const PROJECT_FILE_API = "/api/fabric-editor/project-file";
 const PROJECT_SAVE_API = "/api/fabric-editor/save-project";
 const PROJECT_OPEN_FOLDER_API = "/api/fabric-editor/open-project-folder";
+const EDITOR_MUTATION_HEADERS = Object.freeze({ "X-KFPS-Editor": "1" });
 const SHORTCUTS_KEY = "kloudyFabricShortcuts";
 const OVERLAY_LAYER_MODE_KEY = "kloudyFabricOverlayLayerMode";
 const AUTOSAVE_KEY = "kloudyFabricAutosave";
 const TEXT_VINYL_FONT_KEY = "kloudyFabricTextVinylFont";
 const TEXT_VINYL_CUSTOM_FONT_KEY = "kloudyFabricTextVinylCustomFont";
+const EDITOR_CLIPBOARD_KEY = "kloudyFabricLayerClipboard";
+const EDITOR_DOCK_KEY = "kloudyFabricDockState";
 const VINYL_HIT_TOLERANCE = 0;
 const PIXEL_ART_SQUARE_SIZE = 128.498032;
 
@@ -48,15 +51,28 @@ function startupProjectId() {
   }
 }
 
+function startupBrowseMode() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    return (params.get("browse") || "").trim().toLowerCase();
+  } catch (_err) {
+    return "";
+  }
+}
+
 const DEFAULT_SHORTCUTS = {
   selectTool: "V",
   shapeLibrary: "S",
+  textTool: "T",
+  pixelArt: "P",
   dropper: "I",
   guides: "G",
   overlay: "O",
   sourceTool: "R",
   delete: "Delete",
   duplicate: "Ctrl+D",
+  copy: "Ctrl+C",
+  paste: "Ctrl+V",
   undo: "Ctrl+Z",
   redo: "Ctrl+Y",
   layerForward: "]",
@@ -113,12 +129,16 @@ const THEME_FIELDS = [
 const SHORTCUT_LABELS = {
   selectTool: "Select / Move",
   shapeLibrary: "Shape Library",
+  textTool: "Text Builder",
+  pixelArt: "Pixel Art",
   dropper: "Eyedropper",
   guides: "Guides / Snap",
-  overlay: "Overlay / Reference",
-  sourceTool: "Source Move",
+  overlay: "Reference Image",
+  sourceTool: "Move Reference",
   delete: "Delete selected",
   duplicate: "Duplicate selected",
+  copy: "Copy selected",
+  paste: "Paste copied layers",
   undo: "Undo",
   redo: "Redo",
   layerForward: "Layer forward",
@@ -223,6 +243,10 @@ let isPanning = false;
 let lastPan = null;
 let loadedName = "untitled";
 let currentProjectName = null;
+let savedHistoryState = null;
+let documentDirty = false;
+let overlayRevision = 0;
+let savedOverlayRevision = 0;
 let overlayImage = null;
 let history = [];
 let historyIndex = -1;
@@ -319,6 +343,10 @@ let projectBrowserState = {
 let pendingGlobalShapeReplacement = null;
 let exportSaveInProgress = false;
 let projectSaveInProgress = false;
+let editorClipboard = null;
+let textPromptResolver = null;
+let confirmationResolver = null;
+let dockResizeState = null;
 let toastTimer = null;
 let pixelArtSourceFile = null;
 let editorTourState = null;
@@ -611,7 +639,7 @@ function populateEditorThemeSelect(selectedTheme = null) {
 function saveEditorThemePreference(theme) {
   fetch(EDITOR_PREFS_API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ theme: normalizeTheme(theme) }),
   }).catch(() => {
     // Direct-file launches or blocked local server writes still keep localStorage.
@@ -759,7 +787,7 @@ async function saveAdjustedTheme() {
   try {
     const response = await fetch(EDITOR_THEMES_API, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({ name, values }),
     });
     const data = await response.json().catch(() => ({}));
@@ -1560,9 +1588,11 @@ function updateHud(pointer = null, options = {}) {
 function currentHudMode(selectedCount = 0) {
   if (shapeEyedropperActive || activeToolMode === "dropper") return "Eyedropper";
   if (activeToolMode === "guides") return selectedGuideId ? "Guide selected" : "Draw guides";
-  if (activeToolMode === "source") return overlayImage ? "Move source overlay" : "Source tool - no overlay";
+  if (activeToolMode === "source") return overlayImage ? "Move reference image" : "Move Reference - no image";
   if (activeToolMode === "shapeLibrary") return "Place from library";
-  if (activeToolMode === "overlay") return "Overlay controls";
+  if (activeToolMode === "text") return "Build native text";
+  if (activeToolMode === "pixelArt") return "Build pixel art";
+  if (activeToolMode === "overlay") return "Reference controls";
   return selectedCount ? "Edit selected" : "Select / box-select";
 }
 
@@ -1606,7 +1636,115 @@ function showError(prefix, err) {
   const message = err && err.stack ? err.stack : (err && err.message ? err.message : String(err));
   console.error(prefix, err);
   clearBusy(`${prefix}: ${message.split("\n")[0]}`);
-  alert(`${prefix}\n\n${message}`);
+  showEditorMessage(prefix, message);
+}
+
+function scheduleCanvasResize() {
+  requestAnimationFrame(() => {
+    if (canvas) resizeCanvas();
+  });
+}
+
+function showEditorMessage(title, message) {
+  const dialog = $("messageDialog");
+  setText("messageDialogTitle", title || "Editor message");
+  setText("messageDialogBody", String(message || ""));
+  if (!dialog) return;
+  try {
+    if (dialog.open) dialog.close();
+    dialog.showModal();
+  } catch (_err) {
+    dialog.setAttribute("open", "");
+  }
+}
+
+function requestTextInput(title, label, value = "", description = "") {
+  const dialog = $("textPromptDialog");
+  const input = $("textPromptInput");
+  if (!dialog || !input) return Promise.resolve(null);
+  if (textPromptResolver) {
+    textPromptResolver(null);
+    textPromptResolver = null;
+  }
+  setText("textPromptTitle", title || "Enter a name");
+  setText("textPromptLabel", label || "Name");
+  setText("textPromptDescription", description || "");
+  input.value = String(value || "");
+  return new Promise((resolve) => {
+    textPromptResolver = resolve;
+    try {
+      if (dialog.open) dialog.close();
+      dialog.showModal();
+    } catch (_err) {
+      dialog.setAttribute("open", "");
+    }
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  });
+}
+
+function finishTextPrompt(value) {
+  const resolver = textPromptResolver;
+  textPromptResolver = null;
+  if (resolver) resolver(value);
+}
+
+function finishConfirmation(value) {
+  const resolver = confirmationResolver;
+  confirmationResolver = null;
+  if (resolver) resolver(Boolean(value));
+}
+
+function requestConfirmation(title, body, confirmLabel = "Continue") {
+  const dialog = $("confirmationDialog");
+  if (!dialog) return Promise.resolve(false);
+  if (confirmationResolver) finishConfirmation(false);
+  if (dialog.open) dialog.close();
+  setText("confirmationDialogTitle", String(title || "Continue?"));
+  setText("confirmationDialogBody", String(body || ""));
+  setText("confirmationDialogConfirm", String(confirmLabel || "Continue"));
+  return new Promise((resolve) => {
+    confirmationResolver = resolve;
+    try {
+      dialog.showModal();
+    } catch (_err) {
+      dialog.setAttribute("open", "");
+    }
+  });
+}
+
+async function confirmWorkspaceReplacement(nextDocument) {
+  if (!documentDirty) return true;
+  return requestConfirmation(
+    "Unsaved editor changes",
+    `Opening ${nextDocument || "another document"} replaces the current workspace. Save the project first if these changes should be kept.`,
+    "Open Anyway",
+  );
+}
+
+async function startBlankCanvas() {
+  if (!await confirmWorkspaceReplacement("a new blank canvas")) {
+    setStatus("Current unsaved work was kept.");
+    return;
+  }
+  clearVinylObjects();
+  clearSourceOverlayState();
+  applySavedGuideState(null);
+  overlayRevision = 0;
+  savedOverlayRevision = 0;
+  loadedName = "untitled";
+  currentProjectName = null;
+  resetHistory();
+  ensureHistoryBaseline();
+  clearAutosave();
+  canvas.discardActiveObject();
+  resetView();
+  refreshLayers();
+  updateSelectionPanel();
+  refreshExportValidation();
+  setStatus("Blank canvas ready. Open Shapes, Text, or Pixel to begin.");
 }
 
 function nextFrame() {
@@ -1689,11 +1827,22 @@ function saveFavoriteColors() {
 }
 
 function activateDockPanel(panelId) {
+  if (panelId === "layersPane") {
+    setDockVisible(true);
+    setLayersCollapsed(false);
+    requestAnimationFrame(() => renderVirtualLayerWindow(true));
+    return;
+  }
   const button = document.querySelector(`.dockTab[data-panel="${panelId}"]`);
   if (!button) return;
+  setDockVisible(true);
   const group = button.closest(".dockGroup");
   if (!group) return;
-  group.querySelectorAll(".dockTab").forEach((tab) => tab.classList.toggle("active", tab === button));
+  group.querySelectorAll(".dockTab").forEach((tab) => {
+    const active = tab === button;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  });
   group.querySelectorAll(".dockPane").forEach((pane) => {
     const active = pane.id === panelId;
     pane.classList.toggle("active", active);
@@ -1702,9 +1851,92 @@ function activateDockPanel(panelId) {
   if (panelId === "layersPane") requestAnimationFrame(() => renderVirtualLayerWindow(true));
 }
 
+function readDockState() {
+  try {
+    const value = JSON.parse(localStorage.getItem(EDITOR_DOCK_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function writeDockState(patch = {}) {
+  const current = readDockState();
+  localStorage.setItem(EDITOR_DOCK_KEY, JSON.stringify({ ...current, ...patch }));
+}
+
+function setDockVisible(visible, options = {}) {
+  const workspace = document.querySelector(".workspace");
+  if (!workspace) return;
+  workspace.classList.toggle("dockCollapsed", !visible);
+  const button = $("toggleRightDock");
+  if (button) {
+    button.classList.toggle("active", visible);
+    button.setAttribute("aria-pressed", String(Boolean(visible)));
+  }
+  if (options.persist !== false) writeDockState({ hidden: !visible });
+  scheduleCanvasResize();
+  if (visible) requestAnimationFrame(() => renderVirtualLayerWindow(true));
+}
+
+function setLayersCollapsed(collapsed, options = {}) {
+  const dock = document.querySelector(".rightDock");
+  if (!dock) return;
+  dock.classList.toggle("layersCollapsed", Boolean(collapsed));
+  const button = $("collapseLayersDock");
+  if (button) button.textContent = collapsed ? "Restore" : "Collapse";
+  if (options.persist !== false) writeDockState({ layersCollapsed: Boolean(collapsed) });
+  scheduleCanvasResize();
+}
+
+function restoreDockState() {
+  const state = readDockState();
+  const layerPercent = Math.max(25, Math.min(68, Number(state.layerPercent) || 44));
+  document.querySelector(".editorShell")?.style.setProperty("--editor-layer-height", `${layerPercent}%`);
+  setLayersCollapsed(Boolean(state.layersCollapsed), { persist: false });
+  setDockVisible(!state.hidden, { persist: false });
+}
+
+function bindDockSplitter() {
+  const splitter = $("dockSplitter");
+  const dock = document.querySelector(".rightDock");
+  const shell = document.querySelector(".editorShell");
+  if (!splitter || !dock || !shell) return;
+  splitter.addEventListener("pointerdown", (event) => {
+    if (dock.classList.contains("layersCollapsed")) return;
+    event.preventDefault();
+    dockResizeState = { pointerId: event.pointerId };
+    splitter.setPointerCapture(event.pointerId);
+    splitter.classList.add("dragging");
+  });
+  splitter.addEventListener("pointermove", (event) => {
+    if (!dockResizeState || dockResizeState.pointerId !== event.pointerId) return;
+    const bounds = dock.getBoundingClientRect();
+    if (bounds.height <= 0) return;
+    const percent = Math.max(25, Math.min(68, ((event.clientY - bounds.top) / bounds.height) * 100));
+    shell.style.setProperty("--editor-layer-height", `${percent}%`);
+    dockResizeState.layerPercent = percent;
+    scheduleCanvasResize();
+  });
+  const finish = (event) => {
+    if (!dockResizeState || dockResizeState.pointerId !== event.pointerId) return;
+    const percent = dockResizeState.layerPercent;
+    dockResizeState = null;
+    splitter.classList.remove("dragging");
+    if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
+    if (Number.isFinite(percent)) writeDockState({ layerPercent: Math.round(percent * 10) / 10 });
+  };
+  splitter.addEventListener("pointerup", finish);
+  splitter.addEventListener("pointercancel", finish);
+}
+
 function setToolRailMode(mode, label = null) {
   activeToolMode = mode || "select";
-  document.querySelectorAll(".toolButton").forEach((tool) => tool.classList.toggle("active", tool.dataset.toolMode === activeToolMode));
+  document.querySelectorAll(".toolButton").forEach((tool) => {
+    const active = tool.dataset.toolMode === activeToolMode;
+    tool.classList.toggle("active", active);
+    if (!tool.classList.contains("toolActionButton")) tool.setAttribute("aria-pressed", String(active));
+  });
   const activeButton = document.querySelector(`.toolButton[data-tool-mode="${activeToolMode}"]`);
   label = label || activeButton?.dataset.tool || "Select / Move";
   setText("activeToolLabel", label);
@@ -1736,9 +1968,11 @@ function setActiveTool(button) {
   if (button.dataset.focusPanel) activateDockPanel(button.dataset.focusPanel);
   if (mode === "select") setStatus("Select mode. Drag empty canvas to box-select; mouse wheel zooms; middle/right drag pans.");
   if (mode === "shapeLibrary") setStatus("Shape Library open. Click a shape tile to place it in the current viewport.");
+  if (mode === "text") setStatus("Text builder open. Text is built from editable native Forza letter shapes.");
+  if (mode === "pixelArt") setStatus("Pixel Art builder open. Adjacent same-color pixels are merged to save layers.");
   if (mode === "guides") setStatus("Guides mode. Drag on the canvas to create editor-only guide lines. Hold Control while moving vinyl layers to snap.");
-  if (mode === "overlay") setStatus("Overlay controls open. Overlay images are reference-only and never exported.");
-  if (mode === "source") setStatus(overlayImage ? "Source Move mode. Drag the source overlay only; vinyl layers and guides are ignored. Hold Control to snap it to grid/guides." : "Source Move mode needs an overlay first. Add a source image in Overlay controls.");
+  if (mode === "overlay") setStatus("Reference controls open. Reference images are editor-only and never exported.");
+  if (mode === "source") setStatus(overlayImage ? "Move Reference mode. Drag only the reference image; vinyl layers and guides are ignored. Hold Control to snap it to the grid or guides." : "Move Reference needs an image first. Add one in Reference controls.");
 }
 
 function activateToolShortcut(key) {
@@ -3379,7 +3613,7 @@ function setShapeEyedropper(active, options = {}) {
   }
   if (!options.silent) {
     setStatus(active
-      ? "Eyedropper active. Click a vinyl layer to copy its color, or click empty/source overlay space to sample the overlay."
+      ? "Eyedropper active. Click a vinyl layer to copy its color, or click the reference image to sample it."
       : "Eyedropper off.");
   }
   updateHud();
@@ -3417,7 +3651,7 @@ function pickShapeColorFromEvent(opt) {
       restoreDropperSelection();
       applyEditorColor(overlayColor, "source eyedropper");
       restoreDropperSelection();
-      setStatus(`Picked source overlay color ${colorToHex(overlayColor).toUpperCase()}.`);
+      setStatus(`Picked reference color ${colorToHex(overlayColor).toUpperCase()}.`);
       return;
     }
   }
@@ -3432,12 +3666,12 @@ function pickShapeColorFromEvent(opt) {
   }
   const color = overlayColorAtCanvasPoint(pointer.x, pointer.y);
   if (!color) {
-    setStatus("No vinyl layer or source overlay pixel under the eyedropper.");
+    setStatus("No vinyl layer or reference-image pixel under the eyedropper.");
     return;
   }
   applyEditorColor(color, "source eyedropper");
   restoreDropperSelection();
-  setStatus(`Picked source overlay color ${colorToHex(color).toUpperCase()}.`);
+  setStatus(`Picked reference color ${colorToHex(color).toUpperCase()}.`);
 }
 
 function signedScaleX(object) {
@@ -3635,14 +3869,23 @@ function persistCollapsedLayerState() {
   if (historyIndex >= 0 && history[historyIndex]) {
     const state = history[historyIndex];
     if (state && typeof state === "object") {
-      history[historyIndex] = { ...state, editor_collapsed_groups: collapsed };
+      const nextState = { ...state, editor_collapsed_groups: collapsed };
+      history[historyIndex] = (
+        savedHistoryState && historyStatesEqual(savedHistoryState, nextState)
+          ? savedHistoryState
+          : nextState
+      );
     }
   }
   try {
-    writeAutosavePayload(autosavePayloadFromState(snapshotEditorState()));
+    writeAutosavePayload(
+      autosavePayloadFromState(currentHistoryState() || snapshotEditorState()),
+    );
   } catch (err) {
     console.warn("Collapsed layer autosave skipped.", err);
   }
+  updateDocumentState();
+  renderHistoryList();
 }
 
 function snapshotEditorState() {
@@ -3864,10 +4107,13 @@ function resetHistory() {
   protectedHistoryIndex = -1;
   lastHistoryReason = "";
   lastHistoryAt = 0;
+  savedHistoryState = null;
+  updateDocumentState();
+  renderHistoryList();
 }
 
 function autosavePayloadFromState(state) {
-  return {
+  const payload = {
     format: "kloudy_fabric_editor_autosave_v1",
     name: cleanProjectBaseName(loadedName, "autosave"),
     saved_at: new Date().toISOString(),
@@ -3875,33 +4121,35 @@ function autosavePayloadFromState(state) {
     editor_guides: state?.editor_guides || savedGuideState(),
     editor_collapsed_groups: Array.isArray(state?.editor_collapsed_groups) ? state.editor_collapsed_groups : collapsedLayerGroupIds(),
   };
+  const sourceOverlay = sourceOverlayProjectState();
+  if (sourceOverlay) payload.editor_source_overlay = sourceOverlay;
+  return payload;
 }
 
 function writeAutosavePayload(payload) {
   if (!payload || !Array.isArray(payload.shapes)) return false;
   pendingAutosavePayload = payload;
-  if (!autosaveWriteTimer) {
-    autosaveWriteTimer = setTimeout(() => {
-      const nextPayload = pendingAutosavePayload;
-      pendingAutosavePayload = null;
-      autosaveWriteTimer = null;
-      if (!nextPayload) return;
-      let serialized;
-      try {
-        serialized = JSON.stringify(nextPayload);
-        localStorage.setItem(AUTOSAVE_KEY, serialized);
-      } catch (err) {
-        console.warn("Browser autosave skipped.", err);
-      }
-      fetch(EDITOR_AUTOSAVE_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: serialized || JSON.stringify(nextPayload),
-      }).catch((err) => {
-        console.warn("App-folder autosave skipped.", err);
-      });
-    }, 350);
-  }
+  if (autosaveWriteTimer) clearTimeout(autosaveWriteTimer);
+  autosaveWriteTimer = setTimeout(() => {
+    const nextPayload = pendingAutosavePayload;
+    pendingAutosavePayload = null;
+    autosaveWriteTimer = null;
+    if (!nextPayload) return;
+    let serialized;
+    try {
+      serialized = JSON.stringify(nextPayload);
+      localStorage.setItem(AUTOSAVE_KEY, serialized);
+    } catch (err) {
+      console.warn("Browser autosave skipped.", err);
+    }
+    fetch(EDITOR_AUTOSAVE_API, {
+      method: "POST",
+      headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
+      body: serialized || JSON.stringify(nextPayload),
+    }).catch((err) => {
+      console.warn("App-folder autosave skipped.", err);
+    });
+  }, 900);
   return true;
 }
 
@@ -3927,7 +4175,7 @@ function clearAutosave() {
   }
   fetch(EDITOR_AUTOSAVE_API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ action: "clear", shapes: [] }),
   }).catch(() => {
     // Direct-file/browser fallback.
@@ -3939,6 +4187,8 @@ function pushHistory(reason = "change") {
   const previous = historyIndex >= 0 && typeof history[historyIndex] === "object" ? history[historyIndex] : null;
   const snapshot = captureSharedHistoryState(previous);
   if (historyStatesEqual(previous, snapshot)) return;
+  snapshot.history_reason = String(reason || "change");
+  snapshot.history_at = new Date().toISOString();
   const now = performance.now();
   const coalesce = reason === "nudge"
     && lastHistoryReason === reason
@@ -3959,7 +4209,10 @@ function pushHistory(reason = "change") {
   lastHistoryReason = reason;
   lastHistoryAt = now;
   const autosaveOk = writeAutosavePayload(autosavePayloadFromState(snapshot));
-  setStatus(`Saved ${reason}.${autosaveOk ? " Autosave updated." : " Autosave skipped because browser storage is full."}`);
+  updateDocumentState();
+  renderHistoryList();
+  refreshExportValidation();
+  setStatus(`Changed: ${humanizeHistoryReason(reason)}.${autosaveOk ? " Recovery copy updated." : " Recovery copy could not be stored."}`);
 }
 
 function flushPendingNudgeHistory() {
@@ -3979,9 +4232,147 @@ function scheduleNudgeHistory() {
 
 function ensureHistoryBaseline() {
   if (historyLocked || historyIndex >= 0) return;
-  history = [captureSharedHistoryState()];
+  const snapshot = captureSharedHistoryState();
+  snapshot.history_reason = "blank canvas";
+  snapshot.history_at = new Date().toISOString();
+  history = [snapshot];
   historyIndex = 0;
   protectedHistoryIndex = -1;
+  updateDocumentState();
+  renderHistoryList();
+}
+
+function establishLoadedHistoryBoundary(reason = "loaded source", options = {}) {
+  if (nudgeHistoryTimer) clearTimeout(nudgeHistoryTimer);
+  nudgeHistoryTimer = null;
+  nudgeHistoryPending = false;
+  const snapshot = captureSharedHistoryState();
+  snapshot.history_reason = String(reason || "loaded source");
+  snapshot.history_at = new Date().toISOString();
+  history = [snapshot];
+  historyIndex = 0;
+  protectedHistoryIndex = 0;
+  lastHistoryReason = "";
+  lastHistoryAt = 0;
+  savedHistoryState = null;
+  if (options.writeRecovery !== false) {
+    writeAutosavePayload(autosavePayloadFromState(snapshot));
+  }
+  updateDocumentState();
+  renderHistoryList();
+  refreshExportValidation();
+  return snapshot;
+}
+
+function humanizeHistoryReason(reason) {
+  const text = String(reason || "change").replace(/[-_]+/g, " ").trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : "Change";
+}
+
+function currentHistoryState() {
+  return historyIndex >= 0 ? history[historyIndex] : null;
+}
+
+function updateDocumentState() {
+  const hasLayers = Boolean(canvas && vinylObjects().length);
+  const current = currentHistoryState();
+  documentDirty = hasLayers && (
+    !currentProjectName
+    || !savedHistoryState
+    || current !== savedHistoryState
+    || overlayRevision !== savedOverlayRevision
+  );
+  const title = cleanProjectBaseName(currentProjectName || loadedName || "untitled", "untitled");
+  setText("projectNameLabel", currentProjectName ? `${title}.fabric-project.json` : `${title} - not saved as a project`);
+  const chip = $("projectDirtyChip");
+  if (chip) {
+    chip.classList.toggle("dirty", documentDirty);
+    chip.classList.toggle("saved", hasLayers && !documentDirty);
+    chip.textContent = !hasLayers ? "Blank canvas" : (documentDirty ? "Unsaved changes" : "Project saved");
+  }
+  document.title = `${documentDirty ? "* " : ""}${title} - KFPS Vinyl Editor`;
+}
+
+function markCurrentHistorySaved(projectName) {
+  currentProjectName = cleanProjectBaseName(projectName || currentProjectName || loadedName, "project");
+  loadedName = currentProjectName;
+  savedHistoryState = currentHistoryState();
+  savedOverlayRevision = overlayRevision;
+  updateDocumentState();
+  renderHistoryList();
+}
+
+function markOverlayChanged(reason = "reference image changed") {
+  overlayRevision += 1;
+  const state = currentHistoryState() || snapshotEditorState();
+  writeAutosavePayload(autosavePayloadFromState(state));
+  updateDocumentState();
+  setStatus(`${humanizeHistoryReason(reason)}. Recovery copy updated; reference images never export.`);
+}
+
+function historyTimeLabel(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function renderHistoryList() {
+  const list = $("historyList");
+  if (!list) return;
+  list.replaceChildren();
+  setText("historyPositionBadge", history.length ? `${historyIndex + 1} / ${history.length}` : "0 / 0");
+  const floor = Math.max(0, protectedHistoryIndex);
+  const canUndo = historyIndex > floor;
+  const canRedo = historyIndex >= 0 && historyIndex < history.length - 1;
+  ["undoBtn", "historyUndo"].forEach((id) => {
+    const button = $(id);
+    if (button) button.disabled = !canUndo;
+  });
+  ["redoBtn", "historyRedo"].forEach((id) => {
+    const button = $(id);
+    if (button) button.disabled = !canRedo;
+  });
+  if (!history.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "Changes will appear here after you import or add a shape.";
+    list.appendChild(empty);
+    return;
+  }
+  history.forEach((state, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "historyEntry";
+    button.classList.toggle("current", index === historyIndex);
+    button.classList.toggle("protected", index === protectedHistoryIndex);
+    button.disabled = index < floor;
+    const reason = humanizeHistoryReason(
+      state?.history_reason || (index === protectedHistoryIndex ? "loaded source" : "change"),
+    );
+    button.innerHTML = `
+      <span class="historyEntryIndex">${index + 1}</span>
+      <span class="historyEntryText">
+        <b>${escapeHtml(reason)}</b>
+        <small>${state?.shapes?.length || 0} layers${state?.history_at ? ` / ${escapeHtml(historyTimeLabel(state.history_at))}` : ""}</small>
+      </span>
+      <span class="historyEntryState">${index === historyIndex ? "Current" : (state === savedHistoryState ? "Saved" : "")}</span>
+    `;
+    button.addEventListener("click", () => jumpToHistory(index));
+    list.appendChild(button);
+  });
+}
+
+function jumpToHistory(index) {
+  return queueEditorMutation(async () => {
+    flushPendingNudgeHistory();
+    const target = Math.max(Math.max(0, protectedHistoryIndex), Math.min(history.length - 1, Number(index)));
+    if (!Number.isInteger(target) || target === historyIndex) return;
+    historyIndex = target;
+    lastHistoryReason = "";
+    await restoreEditorState(history[historyIndex]);
+    updateDocumentState();
+    renderHistoryList();
+    setStatus(`Returned to ${humanizeHistoryReason(history[historyIndex]?.history_reason || "change")}.`);
+  });
 }
 
 function queueEditorMutation(operation) {
@@ -4019,6 +4410,8 @@ async function undoNow() {
   lastHistoryReason = "";
   historyIndex--;
   await restoreEditorState(history[historyIndex]);
+  updateDocumentState();
+  renderHistoryList();
   setStatus("Undo.");
 }
 
@@ -4032,6 +4425,8 @@ async function redoNow() {
   lastHistoryReason = "";
   historyIndex++;
   await restoreEditorState(history[historyIndex]);
+  updateDocumentState();
+  renderHistoryList();
   setStatus("Redo.");
 }
 
@@ -4160,7 +4555,7 @@ function initCanvas() {
       clearSnapOverlay();
       updateHud();
       if (hybridRenderActive) requestHybridRender();
-      setStatus("Source overlay moved. It remains reference-only and will not export.");
+      markOverlayChanged("reference image moved");
       return;
     }
     mirrorActiveMaskProxyToOwner();
@@ -4290,19 +4685,19 @@ function initCanvas() {
         canvas.selection = false;
         canvas.skipTargetFind = true;
         transformAnchorSnapshot = null;
-        setStatus("Source Move mode: panning canvas. Left-drag the source overlay to move it.");
+        setStatus("Move Reference mode: panning canvas. Left-drag the reference image to move it.");
         return;
       }
       if (!overlayImage) {
         canvas.discardActiveObject();
-        setStatus("Source Move mode needs an overlay first. Add one in Overlay controls.");
+        setStatus("Move Reference needs an image first. Add one in Reference controls.");
         return;
       }
       canvas.selection = false;
       transformAnchorSnapshot = null;
       if (opt.target !== overlayImage) {
         canvas.setActiveObject(overlayImage);
-        setStatus("Source Move mode only edits the source overlay. Drag the overlay itself to move it.");
+        setStatus("Move Reference only edits the reference image. Drag the image itself to move it.");
       }
       return;
     }
@@ -4665,7 +5060,7 @@ function setOverlayLayerMode(mode) {
   if ($("overlayLayerMode")) $("overlayLayerMode").value = overlayLayerMode;
   layerEditorHelpers();
   canvas?.requestRenderAll();
-  setStatus(`Overlay draws ${overlayLayerMode === "above" ? "above" : "below"} vinyl layers.`);
+  setStatus(`Reference image draws ${overlayLayerMode === "above" ? "above" : "below"} vinyl layers.`);
 }
 
 function cancelFabricGroupSelection() {
@@ -6308,6 +6703,10 @@ async function importSelectedBrowserJson() {
     setJsonBrowserStatus("Select a JSON first.");
     return;
   }
+  if (!await confirmWorkspaceReplacement(entry.name || "the selected JSON")) {
+    setJsonBrowserStatus("Current unsaved work was kept.");
+    return;
+  }
   setJsonBrowserStatus(`Loading ${entry.name}...`);
   setBusy(`Loading JSON: ${entry.name}`);
   await nextFrame();
@@ -6347,7 +6746,7 @@ function renderProjectBrowser() {
   if (!projectBrowserState.entries.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = "No saved projects found yet. Use Save Project to create an internal project file.";
+    empty.textContent = "No saved projects found yet. Use Save to create an editable project.";
     container.appendChild(empty);
     setProjectBrowserStatus("No internal project saves found.");
     return;
@@ -6405,7 +6804,10 @@ async function openProjectFolder() {
   if (button) button.disabled = true;
   setProjectBrowserStatus("Opening internal project folder...");
   try {
-    const response = await fetch(PROJECT_OPEN_FOLDER_API, { method: "POST" });
+    const response = await fetch(PROJECT_OPEN_FOLDER_API, {
+      method: "POST",
+      headers: EDITOR_MUTATION_HEADERS,
+    });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setProjectBrowserStatus("Project folder opened. Drop .fabric-project.json files there, then click Refresh.");
@@ -6432,6 +6834,10 @@ async function loadSelectedProject() {
   const entry = selectedProjectEntry();
   if (!entry) {
     setProjectBrowserStatus("Select a project first.");
+    return;
+  }
+  if (!await confirmWorkspaceReplacement(entry.title || entry.name || "the selected project")) {
+    setProjectBrowserStatus("Current unsaved work was kept.");
     return;
   }
   setProjectBrowserStatus(`Loading ${entry.title || entry.name}...`);
@@ -6507,6 +6913,10 @@ async function loadPayload(payload) {
     throw new Error(`JSON did not contain any loadable FH6 vinyl layers. Failed to build ${failed}/${normalized.length}. Current canvas was left unchanged.`);
   }
   clearVinylObjects();
+  clearSourceOverlayState();
+  overlayRevision = 0;
+  savedOverlayRevision = 0;
+  applySavedGuideState(null);
   resetHistory();
   builtObjects.forEach((object) => canvas.add(object));
   if (Array.isArray(payload.editor_collapsed_groups)) applyCollapsedLayerGroups(payload.editor_collapsed_groups);
@@ -6519,8 +6929,7 @@ async function loadPayload(payload) {
     setBusy(`Preparing GPU preview: ${builtObjects.length} layer(s)...`);
     await prewarmHybridMeshesForObjects(builtObjects);
   }
-  pushHistory("import");
-  protectedHistoryIndex = historyIndex;
+  establishLoadedHistoryBoundary("loaded source");
   clearBusy(`Loaded ${builtObjects.length}/${normalized.length} editable FH6 layer(s).${failed ? ` Failed: ${failed}.` : ""}`);
 }
 
@@ -7336,6 +7745,137 @@ function updateLayerSelectionStyles() {
   updateHud();
 }
 
+function exportValidation(objects = vinylObjects()) {
+  const issues = [];
+  const masks = objects.filter((object) => Boolean(object.kloudy?.mask));
+  const hidden = objects.filter((object) => !objectEditorVisible(object));
+  if (!objects.length) {
+    issues.push({ severity: "error", message: "Add or import at least one vinyl layer before exporting." });
+  }
+  if (objects.length > MAX_VINYL_LAYERS) {
+    issues.push({
+      severity: "error",
+      message: `${objects.length - MAX_VINYL_LAYERS} layer(s) must be removed to meet the ${MAX_VINYL_LAYERS}-layer limit.`,
+    });
+  }
+
+  let invalidTransforms = 0;
+  let zeroScale = 0;
+  let outside = 0;
+  let unresolved = 0;
+  let ineffectiveMasks = 0;
+  const signatures = new Map();
+  objects.forEach((object, index) => {
+    let shape;
+    try {
+      shape = objectToShape(object, { includeEditorMeta: false });
+    } catch (_err) {
+      invalidTransforms += 1;
+      return;
+    }
+    const values = Array.isArray(shape.data) ? shape.data.slice(0, 6).map(Number) : [];
+    if (values.length < 6 || values.some((value) => !Number.isFinite(value))) {
+      invalidTransforms += 1;
+    } else if (Math.abs(values[2]) < 0.000001 || Math.abs(values[3]) < 0.000001) {
+      zeroScale += 1;
+    }
+    if (Number(shape.type) > 1000000 && !resolvedResourceForObject(object)) unresolved += 1;
+    if (shape.mask && !objects.slice(0, index).some((candidate) => !candidate.kloudy?.mask)) {
+      ineffectiveMasks += 1;
+    }
+    try {
+      const rect = object.getBoundingRect(true, true);
+      const right = rect.left + rect.width;
+      const bottom = rect.top + rect.height;
+      if (
+        right < FH6_BOUNDS.left
+        || rect.left > FH6_BOUNDS.left + FH6_BOUNDS.width
+        || bottom < FH6_BOUNDS.top
+        || rect.top > FH6_BOUNDS.top + FH6_BOUNDS.height
+      ) outside += 1;
+    } catch (_err) {
+      invalidTransforms += 1;
+    }
+    const signature = JSON.stringify({
+      type: shape.type,
+      data: shape.data,
+      color: shape.color,
+      mask: shape.mask,
+    });
+    signatures.set(signature, (signatures.get(signature) || 0) + 1);
+  });
+
+  const duplicateLayers = [...signatures.values()].reduce(
+    (total, count) => total + Math.max(0, count - 1),
+    0,
+  );
+  if (invalidTransforms) {
+    issues.push({ severity: "error", message: `${invalidTransforms} layer(s) have invalid transform data and cannot be exported safely.` });
+  }
+  if (zeroScale) {
+    issues.push({ severity: "error", message: `${zeroScale} layer(s) have a zero-width or zero-height scale.` });
+  }
+  if (hidden.length) {
+    issues.push({ severity: "warning", message: `${hidden.length} hidden editor layer(s) will still be included in the exported JSON.` });
+  }
+  if (outside) {
+    issues.push({ severity: "warning", message: `${outside} layer(s) are completely outside the FH canvas and may be invisible in game.` });
+  }
+  if (unresolved) {
+    issues.push({ severity: "warning", message: `${unresolved} layer(s) use shape resources the editor could not verify.` });
+  }
+  if (ineffectiveMasks) {
+    issues.push({ severity: "warning", message: `${ineffectiveMasks} mask layer(s) have no normal layer below them to cut.` });
+  }
+  if (duplicateLayers) {
+    issues.push({ severity: "warning", message: `${duplicateLayers} exact duplicate layer(s) were found. Keep them only if they are intentional.` });
+  }
+  if (objects.length && !issues.length) {
+    issues.push({ severity: "info", message: "No blocking export problems were found." });
+  }
+  return {
+    issues,
+    errors: issues.filter((issue) => issue.severity === "error"),
+    warnings: issues.filter((issue) => issue.severity === "warning"),
+    masks: masks.length,
+    hidden: hidden.length,
+    count: objects.length,
+  };
+}
+
+function refreshExportValidation(objects = vinylObjects()) {
+  const result = exportValidation(objects);
+  const issueCount = result.errors.length + result.warnings.length;
+  setText("exportMaskCount", String(result.masks));
+  setText("exportHiddenCount", String(result.hidden));
+  setText("exportWarningCount", String(issueCount));
+  const readyLabel = !result.count
+    ? "No design"
+    : (result.errors.length ? "Blocked" : (result.warnings.length ? "Review" : "Ready"));
+  setText("normalExportStatus", readyLabel);
+  setText("exportReadyChip", readyLabel);
+  setText("exportCheckBadge", readyLabel);
+  const severityClass = result.errors.length ? "error" : (result.warnings.length ? "warning" : "ready");
+  [document.querySelector(".statusChip"), $("exportCheckBadge")].forEach((element) => {
+    if (!element) return;
+    element.classList.remove("ready", "warning", "error");
+    element.classList.add(severityClass);
+  });
+  const list = $("exportIssueList");
+  if (list) {
+    list.replaceChildren();
+    result.issues.forEach((issue) => {
+      const row = document.createElement("div");
+      row.className = `exportIssue ${issue.severity}`;
+      row.textContent = issue.message;
+      list.appendChild(row);
+    });
+  }
+  const exportButton = $("exportJson");
+  if (exportButton) exportButton.disabled = exportSaveInProgress || Boolean(result.errors.length);
+  return result;
+}
+
 function refreshLayers() {
   if (layerRefreshFrame) {
     cancelAnimationFrame(layerRefreshFrame);
@@ -7433,9 +7973,7 @@ function refreshLayers() {
     viewport.addEventListener("scroll", scheduleVirtualLayerRender, { passive: true });
   }
   renderVirtualLayerWindow(true);
-  setText("exportWarningCount", "0");
-  setText("normalExportStatus", "Compatible");
-  setText("exportReadyChip", objects.length ? "Ready" : "No JSON");
+  refreshExportValidation(objects);
   updateHud();
 }
 
@@ -7455,6 +7993,21 @@ function updateSelectionPanel() {
     const el = $(id);
     if (el) el.disabled = selected.length < 1;
   });
+  ["copyLayer", "duplicateLayer", "deleteLayer", "bringFront", "bringForward", "sendBackward", "sendBack", "flipHorizontal", "flipVertical", "rotateLeft", "rotateRight"].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = selected.length < 1;
+  });
+  document.querySelectorAll("[data-align]").forEach((button) => {
+    button.disabled = selected.length < 1;
+  });
+  if ($("distributeHorizontal")) $("distributeHorizontal").disabled = selected.length < 3;
+  if ($("distributeVertical")) $("distributeVertical").disabled = selected.length < 3;
+  if ($("renameSelectedLayer")) $("renameSelectedLayer").disabled = selected.length !== 1;
+  ["selectInverseLayers", "selectSameShape", "selectSameColor", "clearLayerSelection"].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = id === "clearLayerSelection" ? selected.length < 1 : vinylObjects().length < 1;
+  });
+  if ($("selectAllLayers")) $("selectAllLayers").disabled = vinylObjects().length < 1;
   const quickGroup = $("quickGroupSelected");
   if (quickGroup) quickGroup.disabled = selected.length < 2;
   const sharedAlpha = sharedSelectedAlpha(selected);
@@ -7811,7 +8364,7 @@ function filenameWithSuffix(baseName, suffix) {
 async function saveEditorJsonToAppFolder(name, payload) {
   const response = await fetch(EDITOR_EXPORT_API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ name, payload }),
   });
   const data = await response.json().catch(() => ({}));
@@ -7819,14 +8372,18 @@ async function saveEditorJsonToAppFolder(name, payload) {
   return data;
 }
 
-async function saveProjectToAppFolder(name, payload) {
+async function saveProjectToAppFolder(name, payload, overwrite = false) {
   const response = await fetch(PROJECT_SAVE_API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, payload }),
+    headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ name, payload, overwrite: Boolean(overwrite) }),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.code = data.code || "";
+    throw error;
+  }
   return data;
 }
 
@@ -7840,10 +8397,21 @@ async function exportJson() {
     setStatus("Nothing to export. Import a JSON or add at least one shape first.");
     return;
   }
+  const validation = refreshExportValidation();
+  if (validation.errors.length) {
+    activateDockPanel("exportCheckPane");
+    setStatus(`Export blocked by ${validation.errors.length} problem${validation.errors.length === 1 ? "" : "s"}. Open Export Check for details.`);
+    return;
+  }
   const defaultName = cleanProjectBaseName(currentProjectName || loadedName, "vinyl");
   let exportName = currentProjectName;
   if (!exportName) {
-    const requestedName = window.prompt("Export JSON name", defaultName);
+    const requestedName = await requestTextInput(
+      "Export Vinyl JSON",
+      "JSON name",
+      defaultName,
+      "This creates a game-ready JSON in KFPS imgs/editor. It does not replace the editable project.",
+    );
     if (requestedName === null) {
       setStatus("JSON export cancelled.");
       return;
@@ -7867,11 +8435,25 @@ async function exportJson() {
     setStatus(`Saved-to-folder failed (${err.message || err}). Downloaded ${shapes.length} layer(s) instead.`);
   } finally {
     exportSaveInProgress = false;
-    if (exportButton) exportButton.disabled = false;
+    refreshExportValidation();
   }
 }
 
-async function saveProject() {
+function editableProjectPayload(projectName) {
+  const payload = {
+    format: "kloudy_fabric_editor_project_v1",
+    name: projectName,
+    layer_count: vinylObjects().length,
+    shapes: vinylObjects().map((object) => objectToShape(object, { includeEditorMeta: true })),
+    editor_guides: savedGuideState(),
+    editor_collapsed_groups: collapsedLayerGroupIds(),
+  };
+  const sourceOverlay = sourceOverlayProjectState();
+  if (sourceOverlay) payload.editor_source_overlay = sourceOverlay;
+  return payload;
+}
+
+async function saveProject(options = {}) {
   if (projectSaveInProgress) {
     setStatus("Project save is already running. Wait for it to finish.");
     return;
@@ -7881,38 +8463,52 @@ async function saveProject() {
     return;
   }
   const defaultName = cleanProjectBaseName(loadedName, "vinyl");
-  const requestedName = window.prompt("Project name", defaultName);
-  if (requestedName === null) {
-    setStatus("Project save cancelled.");
-    return;
+  let projectName = currentProjectName;
+  if (!projectName || options.saveAs) {
+    const requestedName = await requestTextInput(
+      options.saveAs ? "Save Project As" : "Save Editable Project",
+      "Project name",
+      options.saveAs ? cleanProjectBaseName(currentProjectName || defaultName, defaultName) : defaultName,
+      "Projects preserve editable layers, groups, guides, and the reference image. Export JSON separately when the vinyl is ready.",
+    );
+    if (requestedName === null) {
+      setStatus("Project save cancelled.");
+      return;
+    }
+    projectName = cleanProjectBaseName(requestedName, defaultName);
   }
-  const projectName = cleanProjectBaseName(requestedName, defaultName);
-  loadedName = projectName;
-  currentProjectName = projectName;
-  const payload = {
-    format: "kloudy_fabric_editor_project_v1",
-    name: projectName,
-    shapes: vinylObjects().map((object) => objectToShape(object, { includeEditorMeta: true })),
-    editor_guides: savedGuideState(),
-    editor_collapsed_groups: collapsedLayerGroupIds(),
-  };
-  const sourceOverlay = sourceOverlayProjectState();
-  if (sourceOverlay) payload.editor_source_overlay = sourceOverlay;
+  const payload = editableProjectPayload(projectName);
   projectSaveInProgress = true;
   const saveButton = $("saveProject");
+  const saveAsButton = $("saveProjectAs");
   if (saveButton) saveButton.disabled = true;
+  if (saveAsButton) saveAsButton.disabled = true;
   try {
-    const result = await saveProjectToAppFolder(projectName, payload);
+    const overwrite = Boolean(
+      currentProjectName
+      && !options.saveAs
+      && cleanProjectBaseName(currentProjectName) === cleanProjectBaseName(projectName),
+    );
+    const result = await saveProjectToAppFolder(projectName, payload, overwrite);
+    markCurrentHistorySaved(result.title || projectName);
     clearAutosave();
     setStatus(`Saved project internally: ${result.title || projectName}`);
     showCornerNotice("Project saved inside KFPS", "Use Load Project to reopen it from the internal project browser.");
   } catch (err) {
-    setStatus(`Project save failed: ${err.message || err}`);
-    showError("Project save failed", err);
+    const title = err?.code === "project_exists"
+      ? "That project name is already used"
+      : "Project save failed";
+    setStatus(`${title}: ${err.message || err}`);
+    showError(title, err);
   } finally {
     projectSaveInProgress = false;
     if (saveButton) saveButton.disabled = false;
+    if (saveAsButton) saveAsButton.disabled = false;
   }
+}
+
+function saveProjectAs() {
+  return saveProject({ saveAs: true });
 }
 
 async function loadProjectPayload(payload, displayName = "project") {
@@ -7920,6 +8516,7 @@ async function loadProjectPayload(payload, displayName = "project") {
   await nextFrame();
   if (!Array.isArray(payload.shapes)) throw new Error("Project JSON must contain a shapes list.");
   const previousName = loadedName;
+  const previousProjectName = currentProjectName;
   const projectName = cleanProjectBaseName(payload.name || displayName, "project");
   loadedName = projectName;
   currentProjectName = projectName;
@@ -7929,10 +8526,32 @@ async function loadProjectPayload(payload, displayName = "project") {
       editor_collapsed_groups: payload.editor_collapsed_groups || [],
     });
     applySavedGuideState(payload.editor_guides || null);
-    await restoreSourceOverlayFromProject(payload.editor_source_overlay || null);
+    let referenceError = null;
+    try {
+      await restoreSourceOverlayFromProject(payload.editor_source_overlay || null);
+    } catch (err) {
+      referenceError = err;
+      clearSourceOverlayState();
+    }
+    establishLoadedHistoryBoundary("open project", { writeRecovery: false });
+    markCurrentHistorySaved(projectName);
+    clearAutosave();
+    if (referenceError) {
+      savedOverlayRevision = overlayRevision - 1;
+      updateDocumentState();
+      setStatus(
+        `Loaded ${projectName}, but its saved reference image could not be restored. `
+        + "The project remains unsaved so the missing reference is not overwritten accidentally.",
+      );
+      showCornerNotice(
+        "Reference image unavailable",
+        referenceError.message || String(referenceError),
+      );
+    }
   } catch (err) {
     loadedName = previousName;
-    currentProjectName = null;
+    currentProjectName = previousProjectName;
+    updateDocumentState();
     throw err;
   }
 }
@@ -8282,7 +8901,13 @@ async function addShape(family, index) {
   }
   const mode = shapePlacementMode();
   if (mode === "replace") {
+    const hadSelection = selectedVinylObjects().length > 0;
     await replaceSelectedShapes(family, index);
+    if (hadSelection && $("shapePlacementMode")) {
+      $("shapePlacementMode").value = "top";
+      updateShapePlacementLabel();
+      setStatus("Shape replaced. Placement returned to At top.");
+    }
     return;
   }
   if (!requireLayerCapacity(1, "add this shape")) return;
@@ -10391,6 +11016,24 @@ function moveSelected(direction) {
   setStatus(`Moved ${objects.length} unlocked layer(s) ${direction > 0 ? "forward" : "backward"}.${objects.length !== selected.length ? ` Skipped ${selected.length - objects.length} locked layer(s).` : ""}`);
 }
 
+function moveSelectedToEdge(front) {
+  const selected = selectedVinylObjects();
+  const objects = unlockedObjects(selected);
+  if (!selected.length) return;
+  if (!objects.length) {
+    setStatus("Selected layers are locked. Unlock them before changing layer order.");
+    return;
+  }
+  const selectedSet = new Set(objects);
+  const order = vinylObjects();
+  const moving = order.filter((object) => selectedSet.has(object));
+  const remaining = order.filter((object) => !selectedSet.has(object));
+  setVinylStackOrder(front ? remaining.concat(moving) : moving.concat(remaining));
+  refreshLayers();
+  pushHistory(front ? "move to front" : "move to back");
+  setStatus(`Moved ${objects.length} layer(s) all the way to the ${front ? "front" : "back"}.`);
+}
+
 function setVinylStackOrder(order) {
   if (!canvas) return;
   const currentObjects = canvas.getObjects();
@@ -10483,6 +11126,7 @@ function selectObjects(objects, reason) {
     setStatus(`No layers found for ${reason}.`);
     return;
   }
+  releaseSelectionLock("");
   const active = canvas.getActiveObject();
   if (isActiveSelectionObject(active)) canvas.discardActiveObject();
   if (normalized.length === 1) canvas.setActiveObject(normalized[0]);
@@ -10491,6 +11135,257 @@ function selectObjects(objects, reason) {
   updateSelectionPanel();
   updateLayerSelectionStyles();
   setStatus(`Selected ${normalized.length} layer(s) by ${reason}.`);
+}
+
+function selectAllLayers() {
+  selectObjects(vinylObjects().filter((object) => object.visible !== false), "Select All");
+}
+
+function selectInverseLayers() {
+  const selected = new Set(selectedVinylObjects());
+  selectObjects(
+    vinylObjects().filter((object) => object.visible !== false && !selected.has(object)),
+    "inverse selection",
+  );
+}
+
+function selectSameShapeLayers() {
+  const source = selectedVinylObjects()[0];
+  if (!source) {
+    setStatus("Select a source layer before choosing Same Shape.");
+    return;
+  }
+  const word = shapeWordForObject(source);
+  selectObjects(
+    vinylObjects().filter((object) => shapeWordForObject(object) === word),
+    "shape type",
+  );
+}
+
+function objectColorSignature(object) {
+  try {
+    return JSON.stringify(normalizeColor(objectToShape(object, { includeEditorMeta: false }).color));
+  } catch (_err) {
+    return "";
+  }
+}
+
+function selectSameColorLayers() {
+  const source = selectedVinylObjects()[0];
+  if (!source) {
+    setStatus("Select a source layer before choosing Same Color.");
+    return;
+  }
+  const color = objectColorSignature(source);
+  selectObjects(vinylObjects().filter((object) => objectColorSignature(object) === color), "color");
+}
+
+function clearLayerSelection() {
+  releaseSelectionLock("");
+  canvas.discardActiveObject();
+  canvas.requestRenderAll();
+  updateSelectionPanel();
+  setStatus("Selection cleared.");
+}
+
+function selectedEditableForLayout(action, minimum = 1) {
+  const selected = selectedVinylObjects();
+  if (selected.length < minimum) {
+    setStatus(`Select ${minimum === 1 ? "one or more" : `${minimum} or more`} layers before ${action}.`);
+    return [];
+  }
+  const editable = unlockedObjects(selected);
+  if (editable.length < minimum) {
+    setStatus(`Not enough selected layers are unlocked for ${action}.`);
+    return [];
+  }
+  if (isActiveSelectionObject(canvas.getActiveObject())) canvas.discardActiveObject();
+  editable.forEach((object) => object.setCoords());
+  return editable;
+}
+
+function objectAbsoluteBounds(object) {
+  const rect = object.getBoundingRect(true, true);
+  return {
+    left: rect.left,
+    top: rect.top,
+    right: rect.left + rect.width,
+    bottom: rect.top + rect.height,
+    centerX: rect.left + rect.width / 2,
+    centerY: rect.top + rect.height / 2,
+  };
+}
+
+function layoutTargetBounds(objects) {
+  const mode = $("alignTarget")?.value || "auto";
+  if (mode === "canvas" || (mode === "auto" && objects.length === 1)) {
+    return {
+      left: FH6_BOUNDS.left,
+      top: FH6_BOUNDS.top,
+      right: FH6_BOUNDS.left + FH6_BOUNDS.width,
+      bottom: FH6_BOUNDS.top + FH6_BOUNDS.height,
+      centerX: FH6_BOUNDS.left + FH6_BOUNDS.width / 2,
+      centerY: FH6_BOUNDS.top + FH6_BOUNDS.height / 2,
+    };
+  }
+  const bounds = objects.map(objectAbsoluteBounds);
+  const left = Math.min(...bounds.map((rect) => rect.left));
+  const top = Math.min(...bounds.map((rect) => rect.top));
+  const right = Math.max(...bounds.map((rect) => rect.right));
+  const bottom = Math.max(...bounds.map((rect) => rect.bottom));
+  return { left, top, right, bottom, centerX: (left + right) / 2, centerY: (top + bottom) / 2 };
+}
+
+function restoreLayoutSelection(objects) {
+  objects.forEach((object) => object.setCoords());
+  if (objects.length === 1) canvas.setActiveObject(objects[0]);
+  else canvas.setActiveObject(styledActiveSelection(objects));
+  syncCanvasObjectCoords(objects);
+  requestCanvasRender();
+  updateSelectionPanel();
+  scheduleRefreshLayers();
+}
+
+function alignSelected(mode) {
+  const objects = selectedEditableForLayout("aligning", 1);
+  if (!objects.length) return;
+  const target = layoutTargetBounds(objects);
+  objects.forEach((object) => {
+    const rect = objectAbsoluteBounds(object);
+    const delta = KfpsEditorCore.alignmentDelta(rect, target, mode);
+    object.set({ left: (object.left || 0) + delta.x, top: (object.top || 0) + delta.y });
+  });
+  restoreLayoutSelection(objects);
+  pushHistory(`align ${mode}`);
+  setStatus(`Aligned ${objects.length} layer(s): ${humanizeHistoryReason(mode)}.`);
+}
+
+function distributeSelected(axis) {
+  const objects = selectedEditableForLayout("distributing", 3);
+  if (objects.length < 3) return;
+  const items = objects
+    .map((object) => ({ object, bounds: objectAbsoluteBounds(object) }))
+    .sort((left, right) => (
+      axis === "x"
+        ? left.bounds.centerX - right.bounds.centerX
+        : left.bounds.centerY - right.bounds.centerY
+    ));
+  const deltas = KfpsEditorCore.distributionDeltas(
+    items.map((item) => axis === "x" ? item.bounds.centerX : item.bounds.centerY),
+  );
+  items.slice(1, -1).forEach((item, index) => {
+    const delta = deltas[index + 1];
+    item.object.set(axis === "x"
+      ? { left: (item.object.left || 0) + delta }
+      : { top: (item.object.top || 0) + delta });
+  });
+  restoreLayoutSelection(objects);
+  pushHistory(axis === "x" ? "distribute horizontal" : "distribute vertical");
+  setStatus(`Distributed ${objects.length} layers evenly ${axis === "x" ? "horizontally" : "vertically"}.`);
+}
+
+function rotateSelectedQuarter(turns) {
+  const objects = selectedEditableForLayout("rotating", 1);
+  if (!objects.length) return;
+  const bounds = layoutTargetBounds(objects);
+  const radians = (Number(turns) || 0) * Math.PI / 2;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  objects.forEach((object) => {
+    const center = object.getCenterPoint();
+    const dx = center.x - bounds.centerX;
+    const dy = center.y - bounds.centerY;
+    const next = new fabric.Point(
+      bounds.centerX + dx * cosine - dy * sine,
+      bounds.centerY + dx * sine + dy * cosine,
+    );
+    object.rotate((Number(object.angle) || 0) + (Number(turns) || 0) * 90);
+    object.setPositionByOrigin(next, "center", "center");
+  });
+  restoreLayoutSelection(objects);
+  pushHistory(turns < 0 ? "rotate left" : "rotate right");
+  setStatus(`Rotated ${objects.length} layer(s) ${turns < 0 ? "left" : "right"} by 90 degrees.`);
+}
+
+function loadEditorClipboard() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(EDITOR_CLIPBOARD_KEY) || "null");
+    if (payload && Array.isArray(payload.shapes)) editorClipboard = payload;
+  } catch (_err) {
+    editorClipboard = null;
+  }
+  if ($("pasteLayer")) $("pasteLayer").disabled = !editorClipboard?.shapes?.length;
+}
+
+function copySelectedLayers() {
+  const objects = orderedSelectedVinylObjects();
+  if (!objects.length) {
+    setStatus("Select one or more layers before copying.");
+    return;
+  }
+  editorClipboard = {
+    format: "kfps_editor_clipboard_v1",
+    copied_at: new Date().toISOString(),
+    shapes: objects.map((object) => objectToShape(object, { includeEditorMeta: true })),
+  };
+  try {
+    const serialized = JSON.stringify(editorClipboard);
+    if (serialized.length <= 4_000_000) localStorage.setItem(EDITOR_CLIPBOARD_KEY, serialized);
+  } catch (_err) {
+    // The in-memory clipboard still works when browser storage is full.
+  }
+  if ($("pasteLayer")) $("pasteLayer").disabled = false;
+  setStatus(`Copied ${objects.length} layer(s).`);
+}
+
+async function pasteCopiedLayersNow() {
+  const shapes = Array.isArray(editorClipboard?.shapes) ? editorClipboard.shapes : [];
+  if (!shapes.length) {
+    loadEditorClipboard();
+    if (!editorClipboard?.shapes?.length) {
+      setStatus("The editor layer clipboard is empty.");
+      return;
+    }
+  }
+  const sourceShapes = editorClipboard.shapes;
+  if (!requireLayerCapacity(sourceShapes.length, "paste these layers")) return;
+  const groupMap = new Map();
+  const normalized = sourceShapes.map((source) => {
+    const shape = JSON.parse(JSON.stringify(source));
+    delete shape.editor_id;
+    if (shape.editor_group_id) {
+      if (!groupMap.has(shape.editor_group_id)) {
+        groupMap.set(shape.editor_group_id, `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+      }
+      shape.editor_group_id = groupMap.get(shape.editor_group_id);
+    }
+    shape.editor_locked = false;
+    shape.data = Array.isArray(shape.data) ? shape.data.slice() : [0, 0, 1, 1, 0, 0, 0];
+    shape.data[0] = round((Number(shape.data[0]) || 0) + 30);
+    shape.data[1] = round((Number(shape.data[1]) || 0) - 30);
+    return shape;
+  });
+  setBusy(`Pasting ${normalized.length} layer(s)...`);
+  try {
+    const objects = await KfpsEditorCore.mapWithConcurrency(
+      normalized,
+      OBJECT_BUILD_CONCURRENCY,
+      (shape) => makeFabricObject(shape),
+    );
+    const mode = ["above", "below"].includes(shapePlacementMode()) ? shapePlacementMode() : "top";
+    insertDuplicateVinylObjects(objects, orderedSelectedVinylObjects(), mode);
+    bringGuidesToBack();
+    restoreLayoutSelection(objects);
+    refreshLayers();
+    pushHistory("paste");
+    clearBusy(`Pasted ${objects.length} layer(s).`);
+  } catch (err) {
+    showError("Paste failed", err);
+  }
+}
+
+function pasteCopiedLayers() {
+  return queueEditorMutation(pasteCopiedLayersNow);
 }
 
 function nextLayerGroupName() {
@@ -10521,7 +11416,30 @@ function groupSelectedLayers() {
   setStatus(`${groupName}: grouped ${selected.length} layer(s). Export remains flat.`);
 }
 
-function renameSelectedGroup() {
+async function renameSelectedLayer() {
+  const selected = selectedVinylObjects();
+  if (selected.length !== 1) {
+    setStatus("Select exactly one layer before renaming it.");
+    return;
+  }
+  const object = selected[0];
+  const currentName = object.kloudy?.name || typeLabel(object.kloudy?.type || 0);
+  const nextName = await requestTextInput(
+    "Rename Layer",
+    "Layer name",
+    currentName,
+    "This name is for project organization and does not change the native shape used in game.",
+  );
+  if (nextName === null) return;
+  const cleaned = String(nextName).trim().slice(0, 64) || currentName;
+  object.kloudy.name = cleaned;
+  refreshLayers();
+  updateSelectionPanel();
+  pushHistory("rename layer");
+  setStatus(`Renamed layer to ${cleaned}.`);
+}
+
+async function renameSelectedGroup() {
   const groupIds = selectedGroupIds();
   if (!groupIds.length) {
     setStatus("Select a grouped layer before renaming a group.");
@@ -10537,7 +11455,12 @@ function renameSelectedGroup() {
     return;
   }
   const currentName = groupNameForObject(members[0]);
-  const nextName = window.prompt("Rename editor group", currentName);
+  const nextName = await requestTextInput(
+    "Rename Editor Group",
+    "Group name",
+    currentName,
+    "Groups organize the project only. The exported game JSON remains a flat layer list.",
+  );
   if (nextName === null) return;
   const cleaned = nextName.trim().slice(0, 64) || currentName;
   members.forEach((obj) => {
@@ -10724,7 +11647,7 @@ async function restoreSourceOverlayFromProject(state) {
     ));
     layeredOverlayState.viewMode = String(layered.view_mode || "original");
     const url = layeredSvgDataUrl();
-    if (!url) throw new Error("Saved layered SVG overlay could not be rendered.");
+    if (!url) throw new Error("The saved layered SVG reference could not be rendered.");
     await loadOverlayImageFromUrl(url, fileName, { mimeType: state.mime_type || "image/svg+xml", projectState: state });
     return;
   }
@@ -10906,7 +11829,7 @@ function refreshLayeredOverlayImage() {
   if (!layeredOverlayState || !overlayImage) return;
   const url = layeredSvgDataUrl();
   if (!url) {
-    setStatus("Layered SVG overlay refresh failed.");
+    setStatus("Layered SVG reference refresh failed.");
     return;
   }
   const img = new Image();
@@ -10921,7 +11844,7 @@ function refreshLayeredOverlayImage() {
     updateLayeredOverlayInfo();
     canvas.requestRenderAll();
   };
-  img.onerror = () => setStatus("Layered SVG overlay refresh failed.");
+  img.onerror = () => setStatus("Layered SVG reference refresh failed.");
   img.src = url;
 }
 
@@ -11007,12 +11930,12 @@ function dominantOverlayColorForObject(obj) {
 
 function applyOverlayColorToObject(obj, options = {}) {
   if (obj?.kloudy?.locked) {
-    if (!options.silent) setStatus("Selected layer is locked. Unlock it before sampling overlay color.");
+    if (!options.silent) setStatus("Selected layer is locked. Unlock it before sampling the reference color.");
     return false;
   }
   const color = dominantOverlayColorForObject(obj);
   if (!color) {
-    if (!options.silent) setStatus("No overlay color found under the selected layer.");
+    if (!options.silent) setStatus("No reference color was found under the selected layer.");
     return false;
   }
   const alpha = Math.round((obj.opacity ?? 1) * 255);
@@ -11024,7 +11947,7 @@ function applyOverlayColorToObject(obj, options = {}) {
     $("opacitySlider").value = alpha;
   }
   obj.setCoords();
-  if (!options.silent) setStatus(`Sampled ${$("overlaySampleMode")?.value || "dominant"} overlay color ${colorToHex(applied)}.`);
+  if (!options.silent) setStatus(`Sampled ${$("overlaySampleMode")?.value || "dominant"} reference color ${colorToHex(applied)}.`);
   return true;
 }
 
@@ -11055,12 +11978,12 @@ function scheduleLiveOverlayColor(target) {
 function sampleOverlayColorForSelected() {
   const objects = selectedVinylObjects();
   if (!objects.length) {
-    setStatus("Select one or more layers before sampling overlay color.");
+    setStatus("Select one or more layers before sampling a reference color.");
     return;
   }
   const editable = unlockedObjects(objects);
   if (!editable.length) {
-    setStatus("Selected layers are locked. Unlock them before sampling overlay color.");
+    setStatus("Selected layers are locked. Unlock them before sampling a reference color.");
     return;
   }
   let changed = 0;
@@ -11070,10 +11993,10 @@ function sampleOverlayColorForSelected() {
   canvas.requestRenderAll();
   updateSelectionPanel();
   if (changed) {
-    pushHistory("overlay color sample");
-    setStatus(`Sampled overlay color for ${changed} selected layer(s).${editable.length !== objects.length ? ` Skipped ${objects.length - editable.length} locked layer(s).` : ""}`);
+    pushHistory("reference color sample");
+    setStatus(`Sampled reference color for ${changed} selected layer(s).${editable.length !== objects.length ? ` Skipped ${objects.length - editable.length} locked layer(s).` : ""}`);
   } else {
-    setStatus("No overlay pixels found under the selected layer(s).");
+    setStatus("No reference-image pixels were found under the selected layer(s).");
   }
 }
 
@@ -11117,13 +12040,14 @@ function loadOverlayImageFromUrl(url, fileName, options = {}) {
       if (activeToolMode === "source") updateSourceInteractivity();
       else layerEditorHelpers();
       canvas.requestRenderAll();
-      setStatus(layeredOverlayState ? `Layered SVG overlay loaded: ${fileName}` : `Overlay loaded: ${fileName}`);
+      setStatus(layeredOverlayState ? `Layered SVG reference loaded: ${fileName}` : `Reference image loaded: ${fileName}`);
       updateHud();
+      markOverlayChanged("reference image loaded");
       resolve(overlayImage);
     };
     img.onerror = () => {
       const error = new Error(`${fileName} is not a usable image.`);
-      setStatus(`Overlay load failed: ${error.message}`);
+      setStatus(`Reference load failed: ${error.message}`);
       reject(error);
     };
     img.src = url;
@@ -11133,20 +12057,20 @@ function loadOverlayImageFromUrl(url, fileName, options = {}) {
 function addOverlayFile(file) {
   const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name || "");
   const reader = new FileReader();
-  reader.onerror = () => setStatus(`Overlay load failed: could not read ${file.name}.`);
+  reader.onerror = () => setStatus(`Reference load failed: could not read ${file.name}.`);
   if (isSvg) {
     reader.onload = () => {
       try {
         layeredOverlayState = parseLayeredSvg(String(reader.result || ""), file.name);
       } catch (err) {
         clearLayeredOverlayState();
-        setStatus(`Overlay load failed: ${err.message || "SVG could not be parsed."}`);
+        setStatus(`Reference load failed: ${err.message || "SVG could not be parsed."}`);
         return;
       }
       const url = layeredSvgDataUrl();
       if (!url) {
         clearLayeredOverlayState();
-        setStatus(`Overlay load failed: ${file.name} could not be rendered.`);
+        setStatus(`Reference load failed: ${file.name} could not be rendered.`);
         return;
       }
       loadOverlayImageFromUrl(url, file.name, { mimeType: file.type || "image/svg+xml" });
@@ -11171,21 +12095,22 @@ function updateOverlay() {
   });
   layerEditorHelpers();
   canvas.requestRenderAll();
+  markOverlayChanged("reference image adjusted");
 }
 
 function toggleOverlay() {
   if (!overlayImage) {
-    setStatus("No overlay loaded. Add a source overlay first.");
+    setStatus("No reference image is loaded. Add one first.");
     return;
   }
   overlayImage.visible = !overlayImage.visible;
   canvas.requestRenderAll();
-  setStatus(overlayImage.visible ? "Overlay shown." : "Overlay hidden.");
+  markOverlayChanged(overlayImage.visible ? "reference image shown" : "reference image hidden");
 }
 
 function removeOverlay() {
   if (!overlayImage) {
-    setStatus("No overlay loaded to remove.");
+    setStatus("No reference image is loaded to remove.");
     return;
   }
   canvas.remove(overlayImage);
@@ -11196,7 +12121,7 @@ function removeOverlay() {
   updateSourceInteractivity();
   canvas.requestRenderAll();
   updateHud();
-  setStatus("Overlay removed.");
+  markOverlayChanged("reference image removed");
 }
 
 function bindEnterToApply(ids) {
@@ -11226,7 +12151,10 @@ async function readStartupHelpConfirmed() {
 
 async function writeStartupHelpConfirmed() {
   try {
-    const response = await fetch(STARTUP_HELP_CONFIRMED_API, { method: "POST" });
+    const response = await fetch(STARTUP_HELP_CONFIRMED_API, {
+      method: "POST",
+      headers: EDITOR_MUTATION_HEADERS,
+    });
     if (response.ok) {
       const data = await response.json();
       return data.marker || true;
@@ -11298,7 +12226,26 @@ async function recoverAutosavePayload(payload) {
       editor_collapsed_groups: payload.editor_collapsed_groups || [],
     });
     applySavedGuideState(payload.editor_guides || null);
-    setStatus(`Recovered temp save: ${autosaveSummary(payload)}. Use Save Project if you want to keep it.`);
+    let referenceError = null;
+    try {
+      await restoreSourceOverlayFromProject(payload.editor_source_overlay || null);
+    } catch (err) {
+      referenceError = err;
+      clearSourceOverlayState();
+    }
+    establishLoadedHistoryBoundary("recovered work");
+    if (referenceError) {
+      setStatus(
+        `Recovered ${autosaveSummary(payload)}, but its reference image could not be restored. `
+        + "Use Save if you want to keep the recovered layers and guides.",
+      );
+      showCornerNotice(
+        "Recovered without reference image",
+        referenceError.message || String(referenceError),
+      );
+    } else {
+      setStatus(`Recovered temp save: ${autosaveSummary(payload)}. Use Save if you want to keep it.`);
+    }
   } catch (err) {
     setStatus(`Autosave recovery failed: ${err.message}`);
   }
@@ -11330,72 +12277,86 @@ async function maybeShowAutosaveRecovery() {
 
 const EDITOR_TOUR_STEPS = [
   {
-    title: "Start With File Actions",
-    body: "Import JSON opens generated finals, editor exports, and exported JSONs. Save Project stores editable work for later; Export FH6 JSON creates the file you send back to the main KFPS importer.",
+    title: "Open, Save, And Export",
+    body: "New starts a blank workspace. Open JSON starts from a portable vinyl, while Open Project restores editable work. Save keeps layers, groups, guides, and your reference image; Export JSON creates the game-ready file used in KFPS Outputs.",
     target: ".menuGroup:first-child",
-    panel: "layersPane",
+    panel: "propertiesPane",
     tool: "select",
   },
   {
-    title: "Use The Left Tool Rail",
-    body: "The left rail is your tool belt: Select, Shapes, Dropper, Guides, Overlay, Source Move, and Mask. Keyboard shortcuts match the letters shown on each button.",
+    title: "Choose A Tool",
+    body: "The left rail exposes every creation mode: selection, native shapes, text, pixel art, color picking, guides, reference controls, reference movement, and masks. Picking a tool opens its matching inspector.",
     target: ".toolRail",
     tool: "select",
   },
   {
-    title: "Canvas Is The Main Workspace",
-    body: "The canvas is where you move, scale, rotate, skew, snap, and clean up vinyl layers. Mouse wheel zooms, middle or right drag pans, and the HUD shows position, zoom, layer count, and hover info.",
+    title: "Work On The Canvas",
+    body: "Click or box-select layers, then move, scale, rotate, or skew them. Mouse wheel zooms; middle or right drag pans. The HUD reports the current tool, pointer position, layer count, and hovered shape.",
     target: ".canvasStage",
-    panel: "layersPane",
+    panel: "propertiesPane",
     tool: "select",
     canvasPulse: true,
   },
   {
-    title: "Layers Control Draw Order",
-    body: "Top rows draw over lower rows, like Krita or Photoshop layers. You can select rows, range-select with Shift, multi-select with Control, group internally, hide, lock, rename groups, and reorder depth.",
+    title: "Layers Stay In Reach",
+    body: "The upper-right panel always shows draw order. Top rows draw over lower rows. Select, search, group, rename, hide, lock, and move layers one step or all the way forward or backward. Drag the divider to resize this list.",
     target: "#layersPane",
     panel: "layersPane",
     tool: "select",
   },
   {
-    title: "Properties Are For Exact Edits",
-    body: "Use Properties for exact position, scale, rotation, skew, alpha, nudge size, and selection behavior. This is where visible-only select and invert box-select live now.",
+    title: "Edit Precisely",
+    body: "Properties combines color, alpha, exact transforms, flips, quarter turns, align and distribute commands, selection helpers, and picking behavior. Locked layers are skipped instead of changed accidentally.",
     target: "#propertiesPane",
     panel: "propertiesPane",
     tool: "select",
   },
   {
-    title: "Shape Library Places And Replaces",
-    body: "Library shows the FH shape set. Shape click mode decides if a tile adds a new shape, inserts above or below the current layer, or replaces selected shapes while preserving color and transform.",
+    title: "Add Native Shapes",
+    body: "Search the native shape library or browse by family. The Place control in the toolbar adds at the top, inserts around your selection, or replaces once while preserving the selected layer's transform and appearance.",
     target: "#shapeLibraryPane",
     panel: "shapeLibraryPane",
     tool: "shapeLibrary",
   },
   {
-    title: "Color And Dropper",
-    body: "Color holds saved swatches, alpha tools, and overlay sampling. Dropper can pick from existing vinyl layers, or from the source overlay if no shape is under the click.",
-    target: "#colorPane",
-    panel: "colorPane",
-    tool: "dropper",
+    title: "Build Editable Text",
+    body: "Text converts typed characters into real native Forza letter shapes. The result remains a normal editable layer group, so you can adjust spacing, color, transforms, and layer order afterward.",
+    target: "#textPane",
+    panel: "textPane",
+    tool: "text",
   },
   {
-    title: "Overlay Is Reference Only",
-    body: "Overlay loads source images or layered SVGs for tracing, color sampling, and alignment. It can draw above or below the vinyl, but it never exports as a layer.",
-    target: "#overlayPane",
-    panel: "overlayPane",
-    tool: "overlay",
+    title: "Build Pixel Art",
+    body: "Pixel Art detects a deliberate source grid and merges neighboring same-color pixels into stretched native rectangles. Check the predicted grid and layer budget before generating.",
+    target: "#pixelArtPane",
+    panel: "pixelArtPane",
+    tool: "pixelArt",
   },
   {
-    title: "Guides, Grid, And Pixel Art",
-    body: "Guides and grid help with clean alignment and snapping. Pixel Art Auto Fill converts a source pixel grid into exact-color stretched square layers for shape-efficient pixel work.",
+    title: "Align With Guides",
+    body: "Draw free, horizontal, or vertical guides and enable a grid for repeated spacing. Hold Control during transforms to snap. Guides and grid lines are project helpers and never consume game layers.",
     target: "#guidesPane",
     panel: "guidesPane",
     tool: "guides",
     canvasPulse: true,
   },
   {
-    title: "Export Check Before Import",
-    body: "Export Check gives the final sanity pass. When the layer count and warnings look right, use Export FH6 JSON, then import that JSON through KFPS Outputs.",
+    title: "Trace With A Reference",
+    body: "Reference accepts images and layered SVGs for tracing and color sampling. Save keeps it for your next session. Export JSON never includes it or turns it into a game layer.",
+    target: "#overlayPane",
+    panel: "overlayPane",
+    tool: "overlay",
+  },
+  {
+    title: "History Is Visible",
+    body: "Every meaningful edit appears here. Click an entry to return to it, use Undo or Redo, and watch for the protected loaded-source marker. The title bar separately tells you whether the project is saved.",
+    target: "#historyPane",
+    panel: "historyPane",
+    tool: "select",
+  },
+  {
+    title: "Check Before Export",
+    body: "Export Check reports blocking transform problems plus hidden, outside-canvas, duplicate, unresolved-resource, and ineffective-mask warnings. Review the list, export, then select the file from Editor exports in KFPS Outputs.",
     target: "#exportCheckPane",
     panel: "exportCheckPane",
     tool: "select",
@@ -11557,6 +12518,9 @@ function repositionEditorTour() {
 }
 
 function bindUi() {
+  restoreDockState();
+  bindDockSplitter();
+  loadEditorClipboard();
   const initialTheme = localStorage.getItem("kloudyFabricTheme") || document.documentElement.dataset.editorTheme;
   loadEditorThemes().then(() => loadEditorThemePreference()).then((serverTheme) => {
     if (!serverTheme) applyEditorTheme(initialTheme, { persist: false });
@@ -11576,6 +12540,7 @@ function bindUi() {
     closeThemeAdjustDialog();
   });
   $("saveThemeAdjust")?.addEventListener("click", saveAdjustedTheme);
+  $("newCanvas")?.addEventListener("click", startBlankCanvas);
   $("openJsonBrowser")?.addEventListener("click", openJsonBrowser);
   $("closeJsonBrowser")?.addEventListener("click", () => $("jsonBrowserDialog")?.close());
   $("refreshJsonBrowser")?.addEventListener("click", refreshJsonBrowser);
@@ -11587,9 +12552,14 @@ function bindUi() {
   $("openProjectFolder")?.addEventListener("click", openProjectFolder);
   $("selectProjectEntry")?.addEventListener("click", loadSelectedProject);
   $("importJsonFromDisk")?.addEventListener("click", () => $("jsonInput")?.click());
-  $("jsonInput").addEventListener("change", (event) => {
+  $("jsonInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!await confirmWorkspaceReplacement(file.name || "the selected JSON")) {
+      setStatus("Current unsaved work was kept.");
+      event.target.value = "";
+      return;
+    }
     setBusy(`Selected JSON: ${file.name}`);
     loadJsonFile(file)
       .then(() => $("jsonBrowserDialog")?.close())
@@ -11597,14 +12567,59 @@ function bindUi() {
       .finally(() => { event.target.value = ""; });
   });
   $("exportJson").addEventListener("click", exportJson);
-  $("saveProject").addEventListener("click", saveProject);
+  $("saveProject").addEventListener("click", () => saveProject());
+  $("saveProjectAs")?.addEventListener("click", saveProjectAs);
+  $("copyLayer")?.addEventListener("click", copySelectedLayers);
+  $("pasteLayer")?.addEventListener("click", pasteCopiedLayers);
   $("fitView").addEventListener("click", fitDesignView);
   $("resetView").addEventListener("click", resetView);
   $("undoBtn").addEventListener("click", undo);
   $("redoBtn").addEventListener("click", redo);
+  $("historyUndo")?.addEventListener("click", undo);
+  $("historyRedo")?.addEventListener("click", redo);
+  $("toggleRightDock")?.addEventListener("click", () => {
+    const hidden = document.querySelector(".workspace")?.classList.contains("dockCollapsed");
+    setDockVisible(Boolean(hidden));
+  });
+  $("collapseLayersDock")?.addEventListener("click", () => {
+    const collapsed = document.querySelector(".rightDock")?.classList.contains("layersCollapsed");
+    setLayersCollapsed(!collapsed);
+  });
   $("selectionLockToggle")?.addEventListener("click", toggleSelectionLock);
   $("helpBtn").addEventListener("click", () => $("helpDialog").showModal());
   $("closeHelp").addEventListener("click", () => $("helpDialog").close());
+  $("messageDialogClose")?.addEventListener("click", () => $("messageDialog")?.close());
+  $("confirmationDialogCancel")?.addEventListener("click", () => {
+    finishConfirmation(false);
+    $("confirmationDialog")?.close();
+  });
+  $("confirmationDialogConfirm")?.addEventListener("click", () => {
+    finishConfirmation(true);
+    $("confirmationDialog")?.close();
+  });
+  $("confirmationDialog")?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    finishConfirmation(false);
+    $("confirmationDialog")?.close();
+  });
+  $("confirmationDialog")?.addEventListener("close", () => {
+    if (confirmationResolver) finishConfirmation(false);
+  });
+  $("textPromptDialog")?.querySelector("form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const confirmed = event.submitter?.value === "confirm";
+    const value = confirmed ? $("textPromptInput")?.value ?? "" : null;
+    $("textPromptDialog")?.close();
+    finishTextPrompt(value);
+  });
+  $("textPromptDialog")?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    $("textPromptDialog")?.close();
+    finishTextPrompt(null);
+  });
+  $("textPromptDialog")?.addEventListener("close", () => {
+    if (textPromptResolver) finishTextPrompt(null);
+  });
   $("shortcutsBtn")?.addEventListener("click", () => $("shortcutsDialog")?.showModal());
   $("openShortcutsFromHelp")?.addEventListener("click", () => {
     $("helpDialog")?.close();
@@ -11619,6 +12634,7 @@ function bindUi() {
         ? "Startup help confirmed for this app folder. The full Help menu is available from the Help button in the top toolbar."
         : "Startup help confirmed for this browser. The full Help menu is available from the Help button in the top toolbar.");
       maybeShowAutosaveRecovery();
+      if (startupBrowseMode() === "json") openJsonBrowser();
       return;
     }
     setStatus("Tick \"I have read and understood this\" before opening the editor.");
@@ -11671,10 +12687,13 @@ function bindUi() {
   $("quickDuplicateLayer")?.addEventListener("click", duplicateSelected);
   $("bringForward").addEventListener("click", () => moveSelected(1));
   $("sendBackward").addEventListener("click", () => moveSelected(-1));
+  $("bringFront")?.addEventListener("click", () => moveSelectedToEdge(true));
+  $("sendBack")?.addEventListener("click", () => moveSelectedToEdge(false));
   $("fitSelected").addEventListener("click", fitSelectedView);
   $("quickFitSelected")?.addEventListener("click", fitSelectedView);
   $("groupSelected").addEventListener("click", groupSelectedLayers);
   $("quickGroupSelected")?.addEventListener("click", groupSelectedLayers);
+  $("renameSelectedLayer")?.addEventListener("click", renameSelectedLayer);
   $("renameSelectedGroup")?.addEventListener("click", renameSelectedGroup);
   $("hideSelectedGroup").addEventListener("click", toggleSelectedGroupVisibility);
   $("lockSelectedGroup").addEventListener("click", toggleSelectedGroupLock);
@@ -11693,9 +12712,23 @@ function bindUi() {
   $("colorPicker").addEventListener("input", applySelectionFields);
   $("opacitySlider").addEventListener("input", applySelectionFields);
   $("equalizeAlpha").addEventListener("click", equalizeSelectedAlpha);
+  $("flipHorizontal")?.addEventListener("click", () => flipSelected("x"));
+  $("flipVertical")?.addEventListener("click", () => flipSelected("y"));
+  $("rotateLeft")?.addEventListener("click", () => rotateSelectedQuarter(-1));
+  $("rotateRight")?.addEventListener("click", () => rotateSelectedQuarter(1));
+  document.querySelectorAll("[data-align]").forEach((button) => {
+    button.addEventListener("click", () => alignSelected(button.dataset.align));
+  });
+  $("distributeHorizontal")?.addEventListener("click", () => distributeSelected("x"));
+  $("distributeVertical")?.addEventListener("click", () => distributeSelected("y"));
+  $("selectAllLayers")?.addEventListener("click", selectAllLayers);
+  $("selectInverseLayers")?.addEventListener("click", selectInverseLayers);
+  $("selectSameShape")?.addEventListener("click", selectSameShapeLayers);
+  $("selectSameColor")?.addEventListener("click", selectSameColorLayers);
+  $("clearLayerSelection")?.addEventListener("click", clearLayerSelection);
   bindEnterToApply(["xInput", "yInput", "sxInput", "syInput", "rotInput", "skewInput", "opacitySlider"]);
   $("layerSearch").addEventListener("input", refreshLayers);
-  $("pixelSelect").addEventListener("change", () => setPixelSelection($("pixelSelect").checked));
+  $("pixelSelect")?.addEventListener("change", () => setPixelSelection($("pixelSelect").checked));
   $("boxVisibleOnly").addEventListener("change", () => setPixelSelection($("boxVisibleOnly").checked));
   $("overlayInput").addEventListener("change", (event) => {
     const file = event.target.files?.[0];
@@ -11810,13 +12843,15 @@ function bindUi() {
     }
     if (event.target && event.target.classList?.contains("shortcutCapture")) return;
     if (event.target && ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
-    const toolAction = ["selectTool", "shapeLibrary", "dropper", "guides", "overlay", "sourceTool"].find((action) => shortcutMatches(event, action));
+    const toolAction = ["selectTool", "shapeLibrary", "textTool", "pixelArt", "dropper", "guides", "overlay", "sourceTool"].find((action) => shortcutMatches(event, action));
     if (toolAction) {
       event.preventDefault();
       if (!event.repeat) {
         const toolKey = {
           selectTool: "v",
           shapeLibrary: "s",
+          textTool: "t",
+          pixelArt: "p",
           dropper: "i",
           guides: "g",
           overlay: "o",
@@ -11857,6 +12892,16 @@ function bindUi() {
     if (shortcutMatches(event, "duplicate")) {
       event.preventDefault();
       duplicateSelected();
+      return;
+    }
+    if (shortcutMatches(event, "copy")) {
+      event.preventDefault();
+      copySelectedLayers();
+      return;
+    }
+    if (shortcutMatches(event, "paste")) {
+      event.preventDefault();
+      pasteCopiedLayers();
       return;
     }
     if (shortcutMatches(event, "flipHorizontal")) {
@@ -11939,9 +12984,13 @@ function bindUi() {
   });
 }
 
-window.addEventListener("beforeunload", () => {
+window.addEventListener("beforeunload", (event) => {
   flushPendingNudgeHistory();
   flushPendingAutosaveToBrowser();
+  if (documentDirty) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -11953,7 +13002,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderGuideObjects();
   updateSelectionPanel();
   updateShapePlacementLabel();
+  updateDocumentState();
+  renderHistoryList();
   const loadedStartupProject = await loadStartupProjectFromQuery();
   const startupHelpShown = await maybeShowStartupHelp();
   if (!loadedStartupProject && !startupHelpShown) maybeShowAutosaveRecovery();
+  if (!startupHelpShown && startupBrowseMode() === "json") openJsonBrowser();
 });

@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.3
+- Rebuilt the Editor page as a searchable project manager with asynchronous previews, clear service status, direct blank-canvas and JSON workflows, and first-run tutorial controls.
+- Reorganized the manual editor around a complete tool rail, persistent Layers and Inspector workspace, precise selection and arrangement commands, visible history, recovery, reference images, guides, masks, text, pixel art, and export checks.
+- Separated editable projects, temporary recovery, and portable JSON exports with atomic writes, duplicate-name protection, unsaved-work confirmation, serialized preview rendering, and safer local editor endpoints.
+- Expanded the in-editor tutorial, Help topics, user manual, editor manual, and automated coverage for project handling, local service security, responsive layout, and editor interaction contracts.
+
 ## 3.1.2
 - Added a dedicated eight-slot Featured gallery before Browse in the Community Hub, with curated artwork removed from ordinary discovery views while remaining available in personal views.
 - Made featured supporter thumbnails visible to everyone with a clear supporter badge and a friendly Ko-fi prompt for locked downloads, while retaining verified access for full previews and JSON files.

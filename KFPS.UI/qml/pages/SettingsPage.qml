@@ -431,6 +431,14 @@ Item {
 
                 GhostButton {
                     Layout.fillWidth: true
+                    text: "Reset Editor Tutorial"
+                    iconName: "help"
+                    toolTipText: "Show the manual editor's first-run tutorial again the next time the editor opens."
+                    onClicked: editorService.resetTutorial()
+                }
+
+                GhostButton {
+                    Layout.fillWidth: true
                     text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"
                     iconName: "refresh"
                     enabled: !jsonService.thumbnailRegenerating
@@ -443,6 +451,16 @@ Item {
                     visible: jsonService.thumbnailStatus.length > 0
                     text: jsonService.thumbnailStatus
                     color: Theme.subtle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(9.4)
+                    wrapMode: Text.Wrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: editorService.status.length > 0
+                    text: "Editor: " + editorService.status
+                    color: editorService.lastError.length > 0 ? Theme.danger : Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(9.4)
                     wrapMode: Text.Wrap

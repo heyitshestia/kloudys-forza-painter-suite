@@ -4,19 +4,62 @@ This document covers the Fabric-based editor used by KFPS. It explains what the 
 
 ## Purpose
 
-The editor is a browser-based vinyl editor for FH6-compatible JSON files. It is built around Fabric.js because SVG/canvas editing gives better manual control than editing raw JSON directly.
+The editor is a local browser-based vinyl workspace for FH-compatible JSON
+files. It is built around Fabric.js because a canvas editor gives better manual
+control than editing raw JSON directly. It supports complete manual creation as
+well as generated-art cleanup.
 
 The editor is not the memory importer. It creates, loads, edits, and exports JSON files. The exported JSON still needs to be imported into FH6 by the app's import tools.
 
 ## Core Workflow
 
-1. Open the editor from the app.
-2. Import a JSON file or place shapes manually from the shape library.
-3. Optionally add a source overlay image for tracing.
-4. Move, scale, skew, rotate, recolor, group, hide, or lock editor layers.
-5. Use guides and snapping for precise alignment.
-6. Export one FH6-compatible JSON.
-7. Import the exported JSON with the app's `Import JSON` tab.
+1. Open the native Editor page in KFPS.
+2. Choose New Canvas, Import JSON, or a saved project.
+3. Save an editable project early.
+4. Optionally add a reference image for tracing.
+5. Place native shapes or use the Text and Pixel builders.
+6. Move, scale, skew, rotate, recolor, align, group, hide, or lock layers.
+7. Use guides, snapping, and the visible History timeline for precise work.
+8. Review Export Check and export one FH-compatible JSON.
+9. Import the exported JSON from Editor exports in KFPS Outputs.
+
+## Native Project Manager
+
+The KFPS Editor page is the entry point:
+
+- New Canvas opens a blank workspace.
+- Import JSON opens the editor's local JSON browser.
+- Saved projects can be searched, previewed, and opened directly.
+- Project rows show shape count and modified time.
+- Tutorial resets the guided first-run tour.
+- Folder opens `runtime/fabric-editor/projects`.
+
+The local editor service is reused across launches. Startup status and errors
+remain visible on the native page, with the detailed server log under
+`runtime/fabric-editor/server.log`.
+
+## Workspace Map
+
+The header is split into File, Edit, View, and Finish commands. The options bar
+below it keeps placement mode, active color, selection status, common actions,
+and export readiness visible.
+
+File includes New, Open JSON, Open Project, Save, and Save As. New and either
+Open action ask before replacing unsaved work.
+
+The left rail contains Select, Shapes, Text, Pixel, Dropper, Guides, Reference,
+Move Reference, and Mask.
+
+The right side is deliberately split:
+
+- Layers remains visible in the upper section.
+- The lower inspector switches among Properties, Shapes, Text, Pixel, Guides,
+  Reference, History, and Export.
+- Drag the divider to resize both sections.
+- Collapse Layers or hide the complete dock when more canvas room is needed.
+
+Dock size, collapsed state, favorites, shortcuts, and editor color preferences
+are remembered locally.
 
 ## Supported Inputs
 
@@ -25,7 +68,8 @@ The editor accepts these practical input types:
 - FH6 type-code JSON: full shape-library JSON with FH6 shape codes.
 - FH6 generated JSON: rectangle/ellipse generator output.
 - FH5 legacy generated JSON: older rectangle/ellipse JSON is converted into FH6 editor coordinates.
-- Fabric editor project JSON: editor project saves with editor metadata such as groups, locks, hidden layers, and guides.
+- KFPS Fabric project JSON: editor project saves with groups, locks, hidden
+  layers, guides, and the optional reference image.
 
 The editor rejects files that do not contain usable vinyl layer data. Failed imports leave the current canvas unchanged.
 
@@ -54,11 +98,12 @@ Features:
 - Favorite shapes persist in browser local storage.
 - Shape search matches family, name, index, and type code.
 - Gradient Shapes render with their bundled fade masks in the editor preview while still exporting as normal FH6 gradient resources.
-- Placement modes control what a clicked tile does:
-  - Add at top: creates a new top layer.
-  - Insert above selected: creates a new layer directly above the selected layer.
-  - Insert below selected: creates a new layer directly below the selected layer.
-  - Replace selected shape: keeps position, color, alpha, group, lock, and layer order, but swaps the selected layer's FH6 shape type.
+- Placement modes control what a clicked tile or duplicate action does:
+  - At top creates a new top layer.
+  - Above selection inserts directly above the selected range.
+  - Below selection inserts directly below the selected range.
+  - Replace once keeps position, color, alpha, group, lock, and layer order,
+    swaps the selected shape type, then returns to At top.
 - Reuse last font size can keep newly placed font shapes consistent after one font character has been resized.
 
 Important: shape display thumbnails are editor UI only. Export uses the actual FH6 type code and geometry data.
@@ -73,9 +118,7 @@ It shows:
 
 - Current tool.
 - Selection count.
-- Visible-only selection toggle.
-- Invert box-select toggle.
-- Shape click placement mode.
+- Shape placement mode.
 - Active color swatch.
 - Quick duplicate, delete, group, and fit actions.
 - Export readiness.
@@ -96,6 +139,9 @@ Controls:
 - Hold Shift for multi-select behavior where Fabric supports it.
 - Mouse wheel zooms.
 - Middle/right mouse drag pans.
+- Use Properties to select all, invert the selection, or select matching shape
+  types or colors.
+- Use Properties to align or distribute a multi-selection.
 
 Duplicate follows the current placement mode. In `Add at top` mode, duplicated layers go to the top as usual. In `Insert above selected` or `Insert below selected`, duplicated layers keep their internal layer order and are inserted directly above or below the selected layer or selected range.
 
@@ -141,6 +187,20 @@ Skew/disform changes the shape slant. This is useful for matching perspective or
 Skew is more sensitive than move/scale. The guide snapping code is intentionally conservative during skew so it does not fight Fabric's active transform math.
 
 Corner handles skew by default. Hold Shift while dragging a corner to use uniform/global scale instead of skew. Ctrl remains reserved for snapping, so Shift avoids conflicting with guide/grid behavior.
+
+### Exact Layout
+
+Properties exposes exact X, Y, width, height, angle, and skew input. It also
+provides:
+
+- horizontal and vertical flip
+- 90-degree rotation in either direction
+- align left, center, right, top, middle, or bottom
+- alignment against the canvas, the complete selection, or an automatic target
+- horizontal and vertical distribution
+
+These commands use the same layer-limit, lock, history, recovery, and render
+refresh paths as direct canvas transforms.
 
 ## Guides And Snapping
 
@@ -264,20 +324,20 @@ While moving/scaling/skewing, the editor draws a temporary overlay:
 
 This overlay is editor-only. It is not saved into normal exports and does not count as a vinyl layer.
 
-## Source Overlay
+## Reference Image
 
-The overlay image is a tracing/reference image.
+The reference image is a tracing helper.
 
 Features:
 
-- Add an image as a source overlay.
-- Adjust overlay opacity.
-- Adjust overlay scale.
-- Toggle overlay visibility.
-- Remove overlay.
-- Overlay moves with the canvas view.
+- Add a raster image or inspect a layered SVG reference.
+- Adjust opacity and scale.
+- Toggle visibility or remove it.
+- Use Move Reference to reposition it without selecting vinyl layers.
+- Sample reference colors with Dropper or live reference color.
+- Save it with the editable project and recovery copy.
 
-The source overlay is never exported and never becomes a vinyl layer.
+The reference image is never exported and never becomes a vinyl layer.
 
 ## Color Tools
 
@@ -303,13 +363,14 @@ Saved color slots:
 The eyedropper can pick from:
 
 - Existing vinyl shapes.
-- The source overlay image when no shape is clicked.
+- The reference image when no shape is clicked.
 
 The eyedropper does not change selection while picking. This makes it safe to sample a color and apply it to the already selected layer.
 
-### Live Overlay Color
+### Live Reference Color
 
-When enabled, the selected shape can sample the dominant/representative color under its current footprint from the source overlay.
+When enabled, the selected shape can sample the representative color under its
+current footprint from the reference image.
 
 This is useful for tracing over an image:
 
@@ -317,7 +378,7 @@ This is useful for tracing over an image:
 - Resize it over the desired area.
 - Let the editor sample the source image color.
 
-If there is no overlay pixel under the shape, the color stays unchanged.
+If there is no reference pixel under the shape, the color stays unchanged.
 
 ## Layer Panel
 
@@ -330,10 +391,17 @@ Features:
 - Hide/show layers.
 - Lock/unlock layers.
 - Move layers forward/backward.
+- Move layers directly to the front or back.
 - Duplicate layers.
 - Delete layers.
+- Rename individual layers and editor groups.
+- Search and virtualized browsing for dense projects.
+- Keep the current selection locked through accidental canvas clicks.
 
 Layer order matters because FH6 draws higher layers over lower layers.
+
+The layer panel remains visible while another inspector is open. It can be
+collapsed independently when more room is needed.
 
 ## Editor Groups
 
@@ -361,32 +429,65 @@ Hidden layers are not visible in the editor.
 
 Project saves preserve locks and hidden state. Normal exported vinyl JSON can include hidden/locked editor metadata only when saving as a Fabric project; game/import exports stay focused on vinyl layer data.
 
-## Undo And Redo
+## History, Undo, And Redo
 
-Undo/redo tracks editor layer changes.
+History tracks meaningful editor states and names each action. The History
+inspector shows the current position, the last explicit save, and the protected
+loaded source. Click an entry to jump to it.
 
 The editor protects the loaded source point so Ctrl+Z cannot go back far enough to remove the loaded source and leave a blank canvas unintentionally.
 
-Autosave updates after successful history changes when browser storage allows it.
+Undo/redo buttons and shortcuts follow the visible timeline. Branching from an
+older state discards only the redo branch, as expected.
 
-## Autosave
+## Saving And Recovery
 
-Autosave stores:
+An editable project stores:
 
 - Loaded project name.
 - Current shapes.
 - Editor guides.
-- Editor metadata where applicable.
+- Groups, names, locks, hidden state, and collapsed groups.
+- The optional reference image and its transform.
 
-Autosave is kept in browser local storage. If storage is full or unavailable, the editor continues working and reports that autosave was skipped.
+`Save` updates the current project. `Save As` creates another project. Projects
+live under `runtime/fabric-editor/projects` and use
+`.fabric-project.json`.
 
-## Export Buttons
+The title and document chip show whether the project is Saved or Unsaved. The
+browser warns before closing a tab with unsaved changes.
 
-The editor has one game/import export path.
+Opening another JSON, project, or blank canvas from inside the editor also asks
+for confirmation first. A successful document switch clears the previous
+project's guides and reference image before loading the next document.
 
-### Export FH6 JSON
+Recovery is separate from explicit saving. It is kept in browser storage and
+`runtime/fabric-editor/autosave.json`, updates after editing bursts, and includes
+reference-image changes. If storage is full or unavailable, the editor continues
+working and reports that recovery was skipped. Saving the project clears the
+temporary recovery copy.
 
-Use this for all editor exports.
+## Export Check And Export JSON
+
+The Export inspector validates continuously and again before saving.
+
+Export is blocked by:
+
+- no vinyl layers
+- more than 3,000 vinyl layers
+- invalid transform numbers
+- zero scale
+
+Warnings identify:
+
+- hidden layers that still export
+- layers completely outside the FH canvas
+- unresolved native resources
+- ineffective masks
+- exact duplicate geometry
+
+Warnings never silently rewrite the artwork. Select or repair the named layers
+when needed, then use Export JSON for all editor exports.
 
 This export keeps FH6 type-code shape information and should be used for:
 
@@ -395,7 +496,7 @@ This export keeps FH6 type-code shape information and should be used for:
 - Full community shape/font shape designs.
 - Generated designs after manual cleanup.
 
-Import this with the app's `Import JSON` tab.
+Import this from Editor exports in the app's Outputs tab.
 
 ## Why There Is One Importer
 
@@ -440,7 +541,7 @@ FH6 handmade data keeps:
 
 These do not export as vinyl layers:
 
-- Source overlay image.
+- Reference image.
 - Guide lines.
 - Grid lines.
 - Snap overlay.
@@ -450,17 +551,17 @@ These do not export as vinyl layers:
 
 ## Known Practical Rules
 
-- Use Export FH6 JSON for generated, handmade, or editor-created layers.
+- Use Export JSON for generated, handmade, or editor-created layers.
 - If a shape behaves strangely during skew, release the handle and try a smaller adjustment.
 - Use Ctrl snapping for precise placement, not for every drag.
-- Keep source overlay opacity low enough to see white shapes.
+- Keep reference opacity low enough to see white shapes.
 - Save Fabric project files if you want to preserve editor-only guides/groups/locks.
 - Press Enter inside transform fields to apply typed values without clicking the apply button.
 - If two same-color shapes are hard to tell apart, select one layer from the canvas or layer list. The editor-only halo marks the selected layer without changing export data.
 
 ## Current Stability Tests
 
-The editor was tested with local Playwright coverage for:
+The editor test coverage includes:
 
 - Page load and non-blank UI.
 - Shape library availability.
@@ -485,6 +586,10 @@ The editor was tested with local Playwright coverage for:
 - Corrupt local storage startup.
 - Multiselect nudge behavior.
 - Hidden/locked/editor group project round-trip.
+- Deterministic alignment and distribution geometry.
+- Native project discovery, shape counts, filtering, and tutorial reset.
+- Local editor health checks and same-instance server reuse.
+- Static editor contracts for unique controls and current workspace sections.
 
 ## Relevant Files
 

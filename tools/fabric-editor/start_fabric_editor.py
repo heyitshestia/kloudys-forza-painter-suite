@@ -18,7 +18,7 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +32,9 @@ EDITOR = ROOT / "tools" / "fabric-editor" / "index.html"
 STARTUP_HELP_MARKER = ROOT / "runtime" / "fabric-editor" / "startup-help-confirmed.json"
 EDITOR_PREFS_MARKER = ROOT / "runtime" / "fabric-editor" / "preferences.json"
 EDITOR_AUTOSAVE_MARKER = ROOT / "runtime" / "fabric-editor" / "autosave.json"
+EDITOR_SERVER_MARKER = ROOT / "runtime" / "fabric-editor" / "server.json"
 EDITOR_THEME_ROOT = ROOT / "runtime" / "fabric-editor" / "themes"
+EDITOR_HEALTH_API = "/api/fabric-editor/health"
 STARTUP_HELP_API = "/api/fabric-editor/startup-help-confirmed"
 EDITOR_PREFS_API = "/api/fabric-editor/preferences"
 EDITOR_THEMES_API = "/api/fabric-editor/themes"
@@ -45,6 +47,16 @@ PROJECT_BROWSER_API = "/api/fabric-editor/project-browser"
 PROJECT_FILE_API = "/api/fabric-editor/project-file"
 PROJECT_SAVE_API = "/api/fabric-editor/save-project"
 PROJECT_OPEN_FOLDER_API = "/api/fabric-editor/open-project-folder"
+EDITOR_MUTATION_HEADER = "X-KFPS-Editor"
+EDITOR_MUTATION_APIS = {
+    STARTUP_HELP_API,
+    EDITOR_PREFS_API,
+    EDITOR_THEMES_API,
+    EDITOR_AUTOSAVE_API,
+    EDITOR_EXPORT_API,
+    PROJECT_SAVE_API,
+    PROJECT_OPEN_FOLDER_API,
+}
 GENERATED_ROOT = ROOT / "imgs" / "generated"
 EDITOR_JSON_ROOT = ROOT / "imgs" / "editor"
 EXPORTED_JSON_ROOT = ROOT / "imgs" / "exported"
@@ -91,6 +103,31 @@ VINYL_TYPE_BASES = {
 }
 VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {}
 SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
+
+
+def _write_json_atomic(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _is_allowed_static_path(raw_path: str) -> bool:
+    decoded = unquote(str(raw_path or "")).replace("\\", "/")
+    candidate = (ROOT / decoded.lstrip("/")).resolve()
+    editor_root = (ROOT / "tools" / "fabric-editor").resolve()
+    if candidate.is_relative_to(editor_root):
+        return True
+    return candidate == (ROOT / "assets" / "kfps-logo.ico").resolve()
 
 
 def _resource_count_for_family(family: str) -> int:
@@ -359,20 +396,28 @@ def _project_entry(path: Path) -> dict:
     stat = path.stat()
     name = path.name
     title = re.sub(r"\.fabric-project\.json$", "", name, flags=re.IGNORECASE)
-    layers = 0
+    layers = None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        shapes = payload.get("shapes") if isinstance(payload, dict) else None
-        if isinstance(shapes, list):
-            layers = len(shapes)
-        title = str(payload.get("name") or title) if isinstance(payload, dict) else title
+        with path.open("r", encoding="utf-8") as stream:
+            prefix = stream.read(64 * 1024)
+            count_match = re.search(r'"layer_count"\s*:\s*(\d+)', prefix)
+            if count_match:
+                layers = int(count_match.group(1))
+            name_match = re.search(r'"name"\s*:\s*"([^"]+)"', prefix)
+            if name_match:
+                title = name_match.group(1)
+            if layers is None:
+                payload = json.loads(prefix + stream.read())
+                shapes = payload.get("shapes") if isinstance(payload, dict) else None
+                layers = len(shapes) if isinstance(shapes, list) else 0
+                title = str(payload.get("name") or title) if isinstance(payload, dict) else title
     except Exception:
-        pass
+        layers = 0
     return {
         "id": path.relative_to(EDITOR_PROJECT_ROOT).as_posix(),
         "name": name,
         "title": title,
-        "layers": layers,
+        "layers": int(layers or 0),
         "mtime": stat.st_mtime,
     }
 
@@ -774,6 +819,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == EDITOR_HEALTH_API:
+            self._send_json({
+                "ok": True,
+                "service": "kfps-fabric-editor",
+                "pid": os.getpid(),
+                "root": str(ROOT.resolve()),
+            })
+            return
         if parsed.path == STARTUP_HELP_API:
             self._send_json({
                 "confirmed": STARTUP_HELP_MARKER.exists(),
@@ -883,16 +936,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             self._send_png(body)
             return
+        if not _is_allowed_static_path(parsed.path):
+            self._send_json({"error": "not found"}, status=404)
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path == STARTUP_HELP_API:
-            STARTUP_HELP_MARKER.parent.mkdir(parents=True, exist_ok=True)
-            STARTUP_HELP_MARKER.write_text(
-                json.dumps({"confirmed": True}, indent=2),
-                encoding="utf-8",
+        if (
+            parsed.path in EDITOR_MUTATION_APIS
+            and self.headers.get(EDITOR_MUTATION_HEADER) != "1"
+        ):
+            self._send_json(
+                {"error": "editor request token missing"},
+                status=403,
             )
+            return
+        if parsed.path == STARTUP_HELP_API:
+            _write_json_atomic(STARTUP_HELP_MARKER, {"confirmed": True})
             self._send_json({
                 "confirmed": True,
                 "marker": str(STARTUP_HELP_MARKER),
@@ -905,8 +966,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 theme = str(data.get("theme") or "")
                 if not _theme_exists(theme):
                     raise ValueError("invalid editor theme")
-                EDITOR_PREFS_MARKER.parent.mkdir(parents=True, exist_ok=True)
-                EDITOR_PREFS_MARKER.write_text(json.dumps({"theme": theme}, indent=2), encoding="utf-8")
+                _write_json_atomic(EDITOR_PREFS_MARKER, {"theme": theme})
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -932,9 +992,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "values": {str(key): str(value) for key, value in values.items()},
                 }
-                target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-                EDITOR_PREFS_MARKER.parent.mkdir(parents=True, exist_ok=True)
-                EDITOR_PREFS_MARKER.write_text(json.dumps({"theme": theme_id}, indent=2), encoding="utf-8")
+                _write_json_atomic(target, payload)
+                _write_json_atomic(EDITOR_PREFS_MARKER, {"theme": theme_id})
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -958,8 +1017,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 shapes = data.get("shapes")
                 if not isinstance(shapes, list):
                     raise ValueError("autosave payload must contain a shapes list")
-                EDITOR_AUTOSAVE_MARKER.parent.mkdir(parents=True, exist_ok=True)
-                EDITOR_AUTOSAVE_MARKER.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                _write_json_atomic(EDITOR_AUTOSAVE_MARKER, data)
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -975,7 +1033,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if not isinstance(payload, dict) or not isinstance(payload.get("shapes"), list):
                     raise ValueError("editor export payload must contain a shapes list")
                 target = _unique_editor_export_path(str(data.get("name") or "vinyl"))
-                target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                _write_json_atomic(target, payload)
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -997,8 +1055,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     raise ValueError("project payload must contain a shapes list")
                 project_name = _clean_filename_base(str(data.get("name") or payload.get("name") or "project"), "project")
                 payload["name"] = project_name
+                payload["layer_count"] = len(payload["shapes"])
                 target = _project_path(project_name)
-                target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                if target.exists() and not bool(data.get("overwrite")):
+                    self._send_json(
+                        {
+                            "error": (
+                                f'A project named "{project_name}" already exists. '
+                                "Choose a different name or open it before using Save."
+                            ),
+                            "code": "project_exists",
+                        },
+                        status=409,
+                    )
+                    return
+                _write_json_atomic(target, payload)
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -1031,6 +1102,32 @@ def find_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+class EditorServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def _write_server_marker(port: int) -> None:
+    payload = {
+        "service": "kfps-fabric-editor",
+        "pid": os.getpid(),
+        "port": int(port),
+        "root": str(ROOT.resolve()),
+        "url": f"http://127.0.0.1:{port}/tools/fabric-editor/index.html",
+        "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    _write_json_atomic(EDITOR_SERVER_MARKER, payload)
+
+
+def _remove_owned_server_marker() -> None:
+    try:
+        payload = json.loads(EDITOR_SERVER_MARKER.read_text(encoding="utf-8"))
+        if int(payload.get("pid") or -1) == os.getpid():
+            EDITOR_SERVER_MARKER.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _browser_app_candidates() -> list[Path]:
@@ -1088,24 +1185,30 @@ def open_editor_window(url: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Start the KFPS Fabric editor.")
     parser.add_argument("--project-id", default="", help="Relative project id under runtime/fabric-editor/projects to load on startup.")
+    parser.add_argument("--port", type=int, default=0, help="Local port to use. Zero chooses an available port.")
+    parser.add_argument("--no-browser", action="store_true", help="Start the service without opening a browser window.")
     args = parser.parse_args()
 
     if not EDITOR.exists():
         print(f"Missing editor: {EDITOR}")
         return 1
-    port = find_port()
-    with socketserver.TCPServer(("127.0.0.1", port), Handler) as httpd:
+    port = args.port if 0 < args.port < 65536 else find_port()
+    with EditorServer(("127.0.0.1", port), Handler) as httpd:
         url = f"http://127.0.0.1:{port}/tools/fabric-editor/index.html"
         if args.project_id:
             url += f"?project={quote(args.project_id, safe='')}"
+        _write_server_marker(port)
         print("KFPS Fabric editor")
         print(f"Serving: {ROOT}")
         print(f"Open:    {url}")
-        threading.Timer(0.35, lambda: open_editor_window(url)).start()
+        if not args.no_browser:
+            threading.Timer(0.35, lambda: open_editor_window(url)).start()
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\nStopped.")
+        finally:
+            _remove_owned_server_marker()
     return 0
 
 
