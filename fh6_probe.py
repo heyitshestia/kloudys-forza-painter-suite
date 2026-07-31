@@ -972,7 +972,7 @@ def build_clivery_group_candidate(pid, profile, layer_count, rtti, group_address
     ok, checked, valid_entries = validate_table_layer_coverage(pid, profile, table_address, layer_count)
     if not ok:
         print(
-            f"Rejected calibrated group candidate: strict layer validation {valid_entries}/{layer_count}, scanned={checked}",
+            f"Rejected calibrated group candidate: exact layer validation {valid_entries}/{layer_count}, checked={checked}",
             flush=True,
         )
         return None
@@ -1673,7 +1673,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             rejected += 1
             best_rejected_strict = max(best_rejected_strict, valid_entries)
             print(
-                f"Rejected fallback candidate score={table['score']}: strict layer validation {valid_entries}/{layer_count}, scanned={checked}",
+                f"Rejected fallback candidate score={table['score']}: exact layer validation {valid_entries}/{layer_count}, checked={checked}",
                 flush=True,
             )
             continue
@@ -1780,29 +1780,6 @@ def score_table(pid, profile, table_address, sample_count):
     return total + layer_like, scores
 
 
-def strict_layer_pointer(pid, pointer, profile):
-    if not is_private_writable_address(pid, pointer):
-        return False
-    pos = read_float_pair(pid, pointer + profile.layer_position_offset)
-    scale = read_float_pair(pid, pointer + profile.layer_scale_offset)
-    color = read_process_memory(pid, pointer + profile.layer_color_offset, 4)
-    shape = read_process_memory(pid, pointer + profile.layer_shape_id_offset, 1)
-    mask = read_process_memory(pid, pointer + profile.layer_mask_offset, 1)
-    if not pos or not all(-10000.0 < value < 10000.0 for value in pos):
-        return False
-    if not scale or not all(0.0 <= abs(value) < 10000.0 for value in scale):
-        return False
-    if abs(scale[0]) < 0.0001 and abs(scale[1]) < 0.0001:
-        return False
-    if len(color) != 4 or color[3] not in (0, 255):
-        return False
-    if not shape or shape[0] not in (0, 1, 2, 100, 101, 102):
-        return False
-    if not mask or mask[0] not in (0, 1):
-        return False
-    return True
-
-
 def export_layer_pointer_ok(pid, pointer, profile):
     if not is_private_writable_address(pid, pointer):
         return False
@@ -1836,25 +1813,19 @@ def validate_table_layer_coverage(pid, profile, table_address, layer_count):
     if not is_private_writable_address(pid, table_address):
         return False, 0, 0
     required = min(int(layer_count), 3000)
-    scan_limit = min(3000, max(required + 512, required * 2))
+    if required <= 0:
+        return False, 0, 0
     valid = 0
-    strict_valid = 0
     seen = set()
-    for index in range(scan_limit):
+    for index in range(required):
         ptr = read_pointer(pid, table_address + index * 8)
         if ptr in seen:
-            continue
-        if is_private_writable_address(pid, ptr):
-            score, _checks = score_layer_pointer(pid, ptr, profile)
-            if score >= 3:
-                seen.add(ptr)
-                valid += 1
-                if strict_layer_pointer(pid, ptr, profile):
-                    strict_valid += 1
-                if valid >= required:
-                    strict_required = min(required, max(32, required // 4))
-                    return strict_valid >= strict_required, index + 1, strict_valid
-    return False, scan_limit, strict_valid
+            return False, index + 1, valid
+        seen.add(ptr)
+        if not export_layer_pointer_ok(pid, ptr, profile):
+            return False, index + 1, valid
+        valid += 1
+    return True, required, valid
 
 
 def find_count_candidates(pid, count, limit_mb, max_matches, progress_every):

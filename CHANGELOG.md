@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.4
+- Fixed the calibrated FH6 live group locator rejecting valid modern shape IDs and translucent layers after it had already found the correct RTTI group.
+- Replaced oversized fallback memory scans with exact active-vector validation while retaining count, table, pointer, transform, and mask safety checks.
+
 ## 3.1.3
 - Rebuilt the Editor page as a searchable project manager with asynchronous previews, clear service status, direct blank-canvas and JSON workflows, and first-run tutorial controls.
 - Reorganized the manual editor around a complete tool rail, persistent Layers and Inspector workspace, precise selection and arrangement commands, visible history, recovery, reference images, guides, masks, text, pixel art, and export checks.
