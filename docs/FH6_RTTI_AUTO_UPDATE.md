@@ -21,7 +21,8 @@ The shared profile workflow separates that volatile data from the application re
 3. It converts full local evidence into a minimal, module-relative profile.
 4. The helper's enrolled calibrator submits that profile to the isolated Cloudflare relay.
 5. KFPS refreshes and caches `RTTI.dat` before a live FH6 locator run.
-6. KFPS verifies the profile against the running game before using it.
+6. A guarded GitHub Action mirrors the relay into the checked-in fallback within five minutes.
+7. KFPS verifies the profile against the running game before using it.
 
 No KFPS version bump or release bundle is required for a data-only profile update.
 
@@ -73,6 +74,19 @@ The publisher extracts only:
 - calibrator version and aggregate scan evidence.
 
 The output profile contains no username, machine identifier, file path, PID, absolute memory address, artwork, or layer contents.
+
+## GitHub Fallback Synchronization
+
+The calibrator intentionally has no GitHub credential and does not write to the
+repository directly. `.github/workflows/sync-fh6-rtti.yml` polls the public relay
+every five minutes, validates it with the same parser used by KFPS, preserves
+older checked-in fallback profiles, and commits `RTTI.dat` only when normalized
+profile content changed. The workflow can also be started manually.
+
+This separation lets selected helpers publish without GitHub access while
+keeping raw GitHub and future bundles current. Cloudflare remains the immediate
+runtime source, so users do not wait for the GitHub mirror before the new locator
+can work.
 
 ## Registry Format
 
@@ -178,5 +192,6 @@ npm run typecheck
 Coverage includes format bounds, profile sanitization, six-scan enforcement,
 DPAPI-backed automatic and one-time enrollment, campaign capacity/race handling,
 code rotation, helper revocation/reset behavior, cache preservation,
-Cloudflare-to-GitHub fallback, refresh throttling, D1 merge behavior, and live
-type-code verification with mocked process memory.
+Cloudflare-to-GitHub fallback, guarded relay-to-GitHub mirroring, refresh
+throttling, D1 merge behavior, and live type-code verification with mocked
+process memory.
