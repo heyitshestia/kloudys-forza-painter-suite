@@ -206,7 +206,7 @@ class QmlRefinementTests(unittest.TestCase):
         required = {
             "pages/HelpPage.qml": ("text: categoryButton.summary", "text: topicButton.summary"),
             "pages/JsonPage.qml": (
-                "Click to select this vinyl. Double-click to open its preview and file details.",
+                "Click to select. Double-click for details. Use Shift or Ctrl for multiple items; right-click for actions.",
                 "Select this FM8 creator profile for private offline-library filtering.",
             ),
             "shell/AnnouncementTicker.qml": ("Click to resume", "Click to pause"),
@@ -284,6 +284,60 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("onClicked: desktop.openJsonFolders()", outputs[scroll_end:])
         self.assertIn('text: "Online Export from Game"', outputs[scroll_end:])
         self.assertIn("onClicked: transferService.exportJson", outputs[scroll_end:])
+
+    def test_outputs_use_explorer_style_selection_and_confirmed_mixed_deletion(self):
+        outputs = self.read("pages/JsonPage.qml")
+        service = (UI / "src" / "kfps_ui" / "json_service.py").read_text(encoding="utf-8")
+        self.assertNotIn("jsonService.selectionMode", outputs)
+        self.assertNotIn("jsonService.setSelectionMode", outputs)
+        self.assertIn("jsonService.selectExplorerEntry(", outputs)
+        self.assertIn("jsonService.isExplorerEntrySelected(fileCard.path)", outputs)
+        self.assertIn("Qt.ControlModifier", outputs)
+        self.assertIn("Qt.ShiftModifier", outputs)
+        self.assertIn("jsonService.selectAllExplorerEntries()", outputs)
+        self.assertIn("id: deleteSelectedEntriesDialog", outputs)
+        self.assertIn("onAccepted: jsonService.deleteSelectedEntries()", outputs)
+        self.assertIn("jsonService.copySelection()", outputs)
+        self.assertIn("jsonService.cutSelection()", outputs)
+        self.assertNotIn("deleteOutputsResultDialog", outputs)
+        self.assertNotIn("onDeletionFinished", outputs)
+        self.assertIn("def deleteSelectedEntries(self):", service)
+        self.assertIn("def _delete_output_entries(self, values):", service)
+        self.assertIn("def _operation_selection(self):", service)
+
+    def test_outputs_use_a_source_scoped_file_explorer_without_changing_community_browsing(self):
+        outputs = self.read("pages/JsonPage.qml")
+        community = self.read("pages/CommunityPage.qml")
+        combo = self.read("components/KfpsComboBox.qml")
+        service = (UI / "src" / "kfps_ui" / "json_service.py").read_text(encoding="utf-8")
+        self.assertIn("model: jsonService.explorerModel", outputs)
+        self.assertIn("model: jsonService.folderModel", outputs)
+        self.assertIn('objectName: "OutputFolderJump"', outputs)
+        self.assertIn("jsonService.goBack()", outputs)
+        self.assertIn("jsonService.goForward()", outputs)
+        self.assertIn("jsonService.goUp()", outputs)
+        self.assertIn("id: outputContextMenu", outputs)
+        self.assertIn("id: deleteSelectedEntriesDialog", outputs)
+        self.assertIn("onAccepted: jsonService.deleteSelectedEntries()", outputs)
+        self.assertIn('property bool outputContextIsSource: false', outputs)
+        self.assertIn('root.outputContextIsSource = String(entryKind || "") === "source"', outputs)
+        for action in ('? "Cut "', '? "Copy "', 'text: "Rename folder"', 'text: "Rename JSON"', '? "Delete "'):
+            self.assertIn(action, outputs)
+        self.assertIn('text: root.outputContextIsFolder ? "New folder inside" : "New folder"', outputs)
+        self.assertIn('visible: root.outputContextIsFolder && !root.outputContextIsSource', outputs)
+        self.assertIn('enabled: jsonService.currentFolder.length > 0', outputs)
+        self.assertIn('jsonService.setLibraryFolderVisible(supporterService.unlocked)', outputs)
+        self.assertIn("jsonService.pasteIntoFolder(destination)", outputs)
+        self.assertIn("model: jsonService.fileModel", community)
+        self.assertIn("def pasteIntoFolder(self, value):", service)
+        self.assertIn("def renameEntry(self, value, requested_name):", service)
+        self.assertIn("def deleteEntry(self, value):", service)
+        self.assertIn('OUTPUT_FOLDER_MARKER = ".kfps-output-folder"', service)
+        self.assertIn("self._is_accessible_managed_folder(path, source)", service)
+        self.assertIn("required property int index", combo)
+        self.assertIn("required property var model", combo)
+        self.assertIn("delegateRoot.model[role]", combo)
+        self.assertIn("return root.textAt(delegateRoot.index)", combo)
 
     def test_create_manual_overrides_are_prefilled_from_the_selected_preset(self):
         create = self.read("pages/CreatePage.qml")

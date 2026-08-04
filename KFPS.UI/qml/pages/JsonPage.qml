@@ -1,5 +1,6 @@
 import QtQuick 6.7
 import QtQuick.Controls 6.7
+import QtQuick.Dialogs 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 import "../components"
@@ -20,6 +21,13 @@ Item {
     property string infoCardFolder: ""
     property string infoCardPath: ""
     property string infoCardPreview: ""
+    property string outputContextPath: ""
+    property string outputContextName: ""
+    property bool outputContextIsFolder: false
+    property bool outputContextIsSource: false
+    property string outputNameDialogMode: ""
+    property string outputNameDialogTarget: ""
+    property string outputNameDialogParent: ""
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && importSetupCard.width > 0
                                                      && browseOutputsCard.width > 0
@@ -28,13 +36,49 @@ Item {
     readonly property real headerBannerLeftX: importSetupCard.x
     readonly property real headerBannerRightX: browseOutputsCard.x + browseOutputsCard.width
 
+    function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY) {
+        root.outputContextPath = String(path || "")
+        root.outputContextName = String(name || "")
+        root.outputContextIsFolder = Boolean(isFolder)
+        root.outputContextIsSource = String(entryKind || "") === "source"
+        outputContextMenu.x = Math.max(Theme.px(8), Math.min(sceneX, root.width - outputContextMenu.width - Theme.px(8)))
+        outputContextMenu.y = Math.max(Theme.px(8), Math.min(sceneY, root.height - outputContextMenu.height - Theme.px(8)))
+        outputContextMenu.open()
+    }
+
+    function openOutputNameDialog(mode, target, parentPath, currentName) {
+        root.outputNameDialogMode = mode
+        root.outputNameDialogTarget = String(target || "")
+        root.outputNameDialogParent = String(parentPath || jsonService.currentFolder)
+        jsonService.clearManagementStatus()
+        outputNameInput.text = mode === "new-folder" ? "" : String(currentName || "")
+        outputNameDialog.open()
+        Qt.callLater(function() {
+            outputNameInput.forceActiveFocus()
+            outputNameInput.selectAll()
+        })
+    }
+
+    function submitOutputName() {
+        var succeeded = false
+        if (root.outputNameDialogMode === "new-folder")
+            succeeded = jsonService.createFolderIn(root.outputNameDialogParent, outputNameInput.text)
+        else
+            succeeded = jsonService.renameEntry(root.outputNameDialogTarget, outputNameInput.text)
+        if (succeeded)
+            outputNameDialog.close()
+    }
+
     Connections {
         target: supporterService
         function onChanged() {
+            jsonService.setLibraryFolderVisible(supporterService.unlocked)
             if (!supporterService.unlocked && jsonService.sourceIndex === 3)
                 jsonService.setSource(0)
         }
     }
+
+    Component.onCompleted: jsonService.setLibraryFolderVisible(supporterService.unlocked)
 
     Connections {
         target: cgroupLibraryService
@@ -51,7 +95,10 @@ Item {
         acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
         grabPermissions: PointerHandler.ApprovesTakeOverByAnything
-        onTapped: jsonService.clearSelection()
+        onTapped: {
+            jsonService.clearExplorerSelection()
+            jsonService.clearSelection()
+        }
     }
 
     GridLayout {
@@ -468,7 +515,7 @@ Item {
                     SectionHeading {
                         Layout.fillWidth: true
                         title: "2. Browse outputs"
-                        subtitle: "All JSONs in the selected source are shown here as thumbnails."
+                        subtitle: "Browse folders, manage JSONs, and open vinyl previews without leaving KFPS."
                     }
 
                     Text {
@@ -498,7 +545,7 @@ Item {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "JSON thumbnails"
+                                    text: "Files and folders"
                                     color: Theme.primaryBright
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(12.2)
@@ -507,13 +554,134 @@ Item {
                                 }
 
                                 Text {
-                                    Layout.maximumWidth: Theme.px(300)
-                                    text: jsonService.thumbnailStatus.length > 0 ? jsonService.thumbnailStatus : (jsonService.indexing ? jsonService.indexStatus : (jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName))
+                                    Layout.maximumWidth: Theme.px(420)
+                                    text: jsonService.managementStatus.length > 0
+                                          ? jsonService.managementStatus
+                                          : (jsonService.thumbnailStatus.length > 0 ? jsonService.thumbnailStatus : (jsonService.indexing ? jsonService.indexStatus : (jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName)))
                                     color: Theme.muted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(9.6)
                                     elide: Text.ElideMiddle
                                 }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(6)
+
+                                GhostButton {
+                                    id: explorerBackButton
+                                    minimumWidth: Theme.px(40)
+                                    Layout.preferredWidth: Theme.px(40)
+                                    dense: true
+                                    text: ""
+                                    enabled: jsonService.canGoBack
+                                    toolTipText: "Return to the previous output folder."
+                                    onClicked: jsonService.goBack()
+                                    contentItem: Item {
+                                        implicitWidth: Theme.px(14)
+                                        implicitHeight: Theme.px(14)
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "chevron-left"
+                                            iconSize: Theme.px(14)
+                                            colorize: false
+                                            iconOpacity: explorerBackButton.enabled ? 0.96 : 0.34
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: !Theme.iconGlyphsVisible
+                                            text: "<"
+                                            color: explorerBackButton.enabled ? Theme.text : Theme.muted
+                                            opacity: explorerBackButton.enabled ? 1.0 : 0.48
+                                            font.family: Theme.monoFamily
+                                            font.pixelSize: Theme.px(12)
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                }
+
+                                GhostButton {
+                                    id: explorerForwardButton
+                                    minimumWidth: Theme.px(40)
+                                    Layout.preferredWidth: Theme.px(40)
+                                    dense: true
+                                    text: ""
+                                    enabled: jsonService.canGoForward
+                                    toolTipText: "Go forward to the folder you left."
+                                    onClicked: jsonService.goForward()
+                                    contentItem: Item {
+                                        implicitWidth: Theme.px(14)
+                                        implicitHeight: Theme.px(14)
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "chevron-right"
+                                            iconSize: Theme.px(14)
+                                            colorize: false
+                                            iconOpacity: explorerForwardButton.enabled ? 0.96 : 0.34
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: !Theme.iconGlyphsVisible
+                                            text: ">"
+                                            color: explorerForwardButton.enabled ? Theme.text : Theme.muted
+                                            opacity: explorerForwardButton.enabled ? 1.0 : 0.48
+                                            font.family: Theme.monoFamily
+                                            font.pixelSize: Theme.px(12)
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                }
+
+                                GhostButton {
+                                    id: explorerUpButton
+                                    minimumWidth: Theme.px(40)
+                                    Layout.preferredWidth: Theme.px(40)
+                                    dense: true
+                                    text: ""
+                                    enabled: jsonService.canGoUp
+                                    toolTipText: "Open the parent folder without leaving the selected output source."
+                                    onClicked: jsonService.goUp()
+                                    contentItem: Item {
+                                        implicitWidth: Theme.px(14)
+                                        implicitHeight: Theme.px(14)
+                                        Icon {
+                                            anchors.centerIn: parent
+                                            name: "arrow-up"
+                                            iconSize: Theme.px(14)
+                                            colorize: false
+                                            iconOpacity: explorerUpButton.enabled ? 0.96 : 0.34
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: !Theme.iconGlyphsVisible
+                                            text: "^"
+                                            color: explorerUpButton.enabled ? Theme.text : Theme.muted
+                                            opacity: explorerUpButton.enabled ? 1.0 : 0.48
+                                            font.family: Theme.monoFamily
+                                            font.pixelSize: Theme.px(12)
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                }
+
+                                KfpsComboBox {
+                                    id: explorerFolderPicker
+                                    objectName: "OutputFolderJump"
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: Theme.px(130)
+                                    dense: true
+                                    model: jsonService.folderModel
+                                    textRole: "displayName"
+                                    currentIndex: jsonService.currentFolderIndex
+                                    toolTipText: "Jump to Outputs, an output category, or any folder created inside KFPS."
+                                    onActivated: {
+                                        var folder = jsonService.folderModel.get(currentIndex)
+                                        jsonService.jumpToFolder(String(folder.path || ""))
+                                        files.positionViewAtBeginning()
+                                    }
+                                }
+
                             }
 
                             RowLayout {
@@ -524,7 +692,8 @@ Item {
                                     id: outputSearch
                                     Layout.fillWidth: true
                                     dense: true
-                                    placeholderText: "Search current source by vinyl name"
+                                    enabled: jsonService.currentFolder.length > 0
+                                    placeholderText: enabled ? "Search current source by vinyl name" : "Open an output category to search"
                                     toolTipText: "Filter the current output source by vinyl name. Empty the box to show everything again."
                                     Component.onCompleted: text = jsonService.searchQuery
                                     onTextEdited: {
@@ -541,8 +710,8 @@ Item {
                                 }
 
                                 Text {
-                                    Layout.maximumWidth: Theme.px(140)
-                                    text: jsonService.searchSummary
+                                    Layout.maximumWidth: Theme.px(180)
+                                    text: jsonService.explorerSummary
                                     color: Theme.subtle
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(9.4)
@@ -560,13 +729,43 @@ Item {
                                     id: files
                                     anchors.fill: parent
                                     clip: true
-                                    model: jsonService.fileModel
+                                    model: jsonService.explorerModel
                                     boundsBehavior: Flickable.StopAtBounds
                                     maximumFlickVelocity: 100000
                                     flickDeceleration: 12000
+                                    focus: true
                                     property int columns: Math.max(1, Math.floor(width / Theme.px(root.compactHeight ? 148 : 180)))
                                     cellWidth: Math.max(Theme.px(138), width / columns)
                                     cellHeight: Theme.px(root.compactHeight ? 158 : 186)
+
+                                    Keys.onPressed: event => {
+                                        if (event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
+                                            jsonService.copySelection()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_X && (event.modifiers & Qt.ControlModifier)) {
+                                            jsonService.cutSelection()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier)) {
+                                            jsonService.pasteIntoCurrentFolder()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Left && (event.modifiers & Qt.AltModifier)) {
+                                            jsonService.goBack()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Right && (event.modifiers & Qt.AltModifier)) {
+                                            jsonService.goForward()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
+                                            jsonService.selectAllExplorerEntries()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Delete && jsonService.fileOperationSelectionCount > 0) {
+                                            deleteSelectedEntriesDialog.open()
+                                            event.accepted = true
+                                        } else if (event.key === Qt.Key_Escape) {
+                                            jsonService.clearExplorerSelection()
+                                            jsonService.clearSelection()
+                                            event.accepted = true
+                                        }
+                                    }
 
                                     delegate: Rectangle {
                                         id: fileCard
@@ -577,26 +776,34 @@ Item {
                                         required property string previewUrl
                                         required property string detailText
                                         required property string folder
+                                        required property string entryKind
+                                        required property bool isFolder
                                         required property int index
                                         readonly property bool hovered: cardHover.hovered
                                         readonly property bool pressed: cardMouse.pressed
+                                        readonly property bool selectedInExplorer: jsonService.explorerSelectionRevision >= 0
+                                                                                   && jsonService.isExplorerEntrySelected(path)
+                                        readonly property bool activeTile: fileCard.selectedInExplorer
+                                                                           || (jsonService.explorerSelectionCount === 0
+                                                                               && !fileCard.isFolder
+                                                                               && jsonService.selectedPath === fileCard.path)
 
-                                        objectName: "JsonTile:" + fileCard.displayName
+                                        objectName: (fileCard.isFolder ? "OutputFolderTile:" : "JsonTile:") + fileCard.displayName
 
                                         width: files.cellWidth - Theme.px(8)
                                         height: files.cellHeight - Theme.px(8)
                                         radius: Theme.framedRadius(Theme.px(16))
-                                        color: Theme.classicMode && jsonService.selectedPath === path
+                                        color: Theme.classicMode && fileCard.activeTile
                                                ? Theme.primary
-                                               : (jsonService.selectedPath === path
+                                               : (fileCard.activeTile
                                                ? (cardHover.hovered ? Theme.primaryDeep : Theme.primarySoft)
                                                : (cardHover.hovered ? Theme.helpTopicHover : Theme.panelGradientTop(false, false)))
                                         border.width: Theme.classicMode
                                                       ? 0
                                                       : (Theme.customFrameExclusive
                                                       ? 0
-                                                      : Math.max(1, Theme.px(jsonService.selectedPath === path ? 2 : 1)))
-                                        border.color: jsonService.selectedPath === path ? Theme.primaryBright : Theme.borderSoft
+                                                      : Math.max(1, Theme.px(fileCard.activeTile ? 2 : 1)))
+                                        border.color: fileCard.activeTile ? Theme.primaryBright : Theme.borderSoft
                                         antialiasing: true
                                         scale: Theme.classicMode ? 1.0 : (cardMouse.pressed ? 0.985 : 1.0)
                                         Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
@@ -625,12 +832,13 @@ Item {
                                                 ArtworkPreviewBackdrop {
                                                     anchors.fill: parent
                                                     anchors.margins: Theme.px(5)
-                                                    visible: String(fileCard.previewUrl || "").length > 0
+                                                    visible: !fileCard.isFolder && String(fileCard.previewUrl || "").length > 0
                                                 }
 
                                                 Image {
                                                     anchors.fill: parent
                                                     anchors.margins: Theme.px(5)
+                                                    visible: !fileCard.isFolder
                                                     source: fileCard.previewUrl
                                                     fillMode: Image.PreserveAspectFit
                                                     asynchronous: true
@@ -639,18 +847,58 @@ Item {
                                                 }
 
                                                 EmptyState {
-                                                    visible: !fileCard.previewUrl
+                                                    visible: !fileCard.isFolder && !fileCard.previewUrl
                                                     anchors.centerIn: parent
                                                     iconName: "json"
                                                     title: ""
                                                     message: "No preview"
+                                                }
+
+                                                Item {
+                                                    visible: fileCard.isFolder
+                                                    anchors.fill: parent
+                                                    anchors.margins: Theme.px(8)
+
+                                                    Icon {
+                                                        anchors.centerIn: parent
+                                                        anchors.verticalCenterOffset: -Theme.px(7)
+                                                        visible: Theme.iconGlyphsVisible && !Theme.angularControlsEnabled
+                                                        name: "folder"
+                                                        iconSize: Theme.px(root.compactHeight ? 48 : 58)
+                                                        colorize: false
+                                                        glow: fileCard.hovered
+                                                        glowColor: Theme.primary
+                                                    }
+
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        anchors.verticalCenterOffset: -Theme.px(7)
+                                                        visible: !Theme.iconGlyphsVisible || Theme.angularControlsEnabled
+                                                        text: "[DIR]"
+                                                        color: fileCard.hovered ? Theme.primaryBright : Theme.text
+                                                        font.family: Theme.monoFamily
+                                                        font.pixelSize: Theme.px(15)
+                                                        font.weight: Font.Bold
+                                                    }
+
+                                                    Text {
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.bottom: parent.bottom
+                                                        text: "Open folder"
+                                                        color: Theme.muted
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: Theme.px(8.8)
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        elide: Text.ElideRight
+                                                    }
                                                 }
                                             }
 
                                             Text {
                                                 width: parent.width
                                                 text: fileCard.displayName
-                                                color: Theme.classicMode && jsonService.selectedPath === path ? Theme.primaryText : Theme.text
+                                                color: Theme.classicMode && fileCard.activeTile ? Theme.primaryText : Theme.text
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.px(10.4)
                                                 font.weight: Font.DemiBold
@@ -661,7 +909,7 @@ Item {
                                             Text {
                                                 width: parent.width
                                                 text: fileCard.detailText
-                                                color: Theme.classicMode && jsonService.selectedPath === path ? Theme.primaryText : Theme.subtle
+                                                color: Theme.classicMode && fileCard.activeTile ? Theme.primaryText : Theme.subtle
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.px(9.2)
                                                 elide: Text.ElideRight
@@ -670,7 +918,7 @@ Item {
 
                                         ClassicBevel {
                                             anchors.fill: parent
-                                            pressed: cardMouse.pressed || jsonService.selectedPath === path
+                                            pressed: cardMouse.pressed || fileCard.activeTile
                                             z: 30
                                         }
 
@@ -681,20 +929,40 @@ Item {
 
                                         KfpsToolTip {
                                             visible: cardHover.hovered
-                                            text: "Click to select this vinyl. Double-click to open its preview and file details."
+                                            text: fileCard.isFolder
+                                                  ? "Click to select. Double-click to open. Use Shift or Ctrl for multiple items; right-click for actions."
+                                                  : "Click to select. Double-click for details. Use Shift or Ctrl for multiple items; right-click for actions."
                                         }
 
                                         MouseArea {
                                             id: cardMouse
                                             anchors.fill: parent
-                                            acceptedButtons: Qt.LeftButton
+                                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                                             onClicked: mouse => {
                                                 mouse.accepted = true
-                                                jsonService.selectFile(fileCard.index)
+                                                files.forceActiveFocus()
+                                                if (mouse.button === Qt.RightButton) {
+                                                    if (!jsonService.isExplorerEntrySelected(fileCard.path))
+                                                        jsonService.selectExplorerEntry(fileCard.index, false, false)
+                                                    var contextPoint = fileCard.mapToItem(root, mouse.x, mouse.y)
+                                                    root.openOutputContextMenu(fileCard.path, fileCard.displayName, fileCard.isFolder, fileCard.entryKind, contextPoint.x, contextPoint.y)
+                                                } else {
+                                                    jsonService.selectExplorerEntry(
+                                                        fileCard.index,
+                                                        (mouse.modifiers & Qt.ControlModifier) !== 0,
+                                                        (mouse.modifiers & Qt.ShiftModifier) !== 0)
+                                                }
                                             }
                                             onDoubleClicked: mouse => {
                                                 mouse.accepted = true
-                                                jsonService.selectFile(fileCard.index)
+                                                if (mouse.button !== Qt.LeftButton)
+                                                    return
+                                                if (fileCard.isFolder) {
+                                                    jsonService.openExplorerFolder(fileCard.path)
+                                                    files.positionViewAtBeginning()
+                                                    return
+                                                }
+                                                jsonService.selectExplorerEntry(fileCard.index, false, false)
                                                 root.infoCardName = fileCard.displayName
                                                 root.infoCardDetail = fileCard.detailText
                                                 root.infoCardFolder = fileCard.folder
@@ -702,6 +970,21 @@ Item {
                                                 root.infoCardPreview = fileCard.previewUrl
                                                 jsonInfoPopup.open()
                                             }
+                                        }
+                                    }
+
+                                    TapHandler {
+                                        acceptedButtons: Qt.RightButton
+                                        gesturePolicy: TapHandler.ReleaseWithinBounds
+                                        onTapped: eventPoint => {
+                                            if (outputContextMenu.opened)
+                                                return
+                                            if (jsonService.currentFolder.length === 0)
+                                                return
+                                            jsonService.clearExplorerSelection()
+                                            jsonService.clearSelection()
+                                            var contextPoint = files.mapToItem(root, eventPoint.position.x, eventPoint.position.y)
+                                            root.openOutputContextMenu("", "", false, "", contextPoint.x, contextPoint.y)
                                         }
                                     }
 
@@ -725,19 +1008,20 @@ Item {
                                 EmptyState {
                                     visible: files.count === 0
                                     anchors.centerIn: parent
-                                    iconName: "json"
-                                    title: jsonService.currentSourceIndexing ? "Indexing outputs" : (jsonService.searchQuery.length > 0 ? "No matching vinyls" : "No outputs")
+                                    iconName: jsonService.searchQuery.length > 0 ? "json" : "folder"
+                                    title: jsonService.currentSourceIndexing ? "Indexing outputs" : (jsonService.searchQuery.length > 0 ? "No matching vinyls" : "Empty folder")
                                     message: jsonService.currentSourceIndexing
                                              ? "Scanning this source in the background. Cached results will appear automatically."
                                              : (jsonService.searchQuery.length > 0
                                              ? "No vinyl name in this source matches the search."
-                                             : "This output source has no JSON files yet.")
+                                             : "Right-click here to create a folder or paste copied items.")
                                 }
                             }
 
                             GlassPanel {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.px(root.compactHeight ? 68 : 80)
+                                visible: root.wide || !root.compactHeight
                                 soft: true
 
                                 ColumnLayout {
@@ -747,7 +1031,13 @@ Item {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: "Selected: " + jsonService.selectedName
+                                        text: jsonService.explorerSelectionCount > 1
+                                              ? jsonService.explorerSelectionCount + " items selected"
+                                              : (jsonService.explorerSelectionCount === 1
+                                                 ? "Selected: " + jsonService.explorerSelectionName
+                                                 : (jsonService.selectedName === "—"
+                                                 ? "Folder: " + jsonService.currentFolderDisplay
+                                                 : "Selected: " + jsonService.selectedName))
                                         color: Theme.text
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.px(10.6)
@@ -757,7 +1047,13 @@ Item {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: "Layers: " + jsonService.selectedLayers + "  •  Folder: " + jsonService.selectedFolder
+                                        text: jsonService.explorerSelectionCount > 1
+                                              ? "Right-click any selected item to copy, cut, or delete the complete selection."
+                                              : (jsonService.explorerSelectionCount === 1 && jsonService.selectedName === "—"
+                                                 ? "Double-click the selected folder to open it. Right-click for folder actions."
+                                                 : (jsonService.selectedName === "—"
+                                                 ? jsonService.currentFolder
+                                                 : "Layers: " + jsonService.selectedLayers + "  •  Folder: " + jsonService.selectedFolder))
                                         color: Theme.subtle
                                         font.family: Theme.monoFamily
                                         font.pixelSize: Theme.px(9.0)
@@ -769,6 +1065,237 @@ Item {
                     }
                 }
         }
+    }
+
+    Popup {
+        id: outputContextMenu
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Theme.px(220)
+        height: outputContextColumn.implicitHeight + topPadding + bottomPadding
+        padding: Theme.px(8)
+        z: 80
+
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(6)
+        }
+
+        contentItem: ColumnLayout {
+            id: outputContextColumn
+            spacing: Theme.px(4)
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextIsFolder
+                text: "Open folder"
+                iconName: "folder"
+                dense: true
+                toolTipText: "Open this folder in the Outputs browser."
+                onClicked: {
+                    outputContextMenu.close()
+                    jsonService.openExplorerFolder(root.outputContextPath)
+                    files.positionViewAtBeginning()
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
+                         && jsonService.fileOperationSelectionCount > 0
+                text: jsonService.fileOperationSelectionCount > 1
+                      ? "Cut " + jsonService.fileOperationSelectionCount + " items"
+                      : "Cut"
+                dense: true
+                toolTipText: "Prepare the selected item or items to be moved when you paste them."
+                onClicked: {
+                    outputContextMenu.close()
+                    jsonService.cutSelection()
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
+                         && jsonService.fileOperationSelectionCount > 0
+                text: jsonService.fileOperationSelectionCount > 1
+                      ? "Copy " + jsonService.fileOperationSelectionCount + " items"
+                      : "Copy"
+                dense: true
+                toolTipText: "Copy the selected item or items so they can be pasted elsewhere."
+                onClicked: {
+                    outputContextMenu.close()
+                    jsonService.copySelection()
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextIsFolder || jsonService.currentFolder.length > 0
+                text: jsonService.clipboardCount > 0 ? "Paste " + jsonService.clipboardCount + " item(s)" : "Paste"
+                dense: true
+                enabled: jsonService.canPaste
+                toolTipText: root.outputContextIsFolder
+                             ? "Paste into the folder you right-clicked."
+                             : "Paste into the folder currently shown."
+                onClicked: {
+                    var destination = root.outputContextIsFolder ? root.outputContextPath : jsonService.currentFolder
+                    outputContextMenu.close()
+                    jsonService.pasteIntoFolder(destination)
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextIsFolder || jsonService.currentFolder.length > 0
+                text: root.outputContextIsFolder ? "New folder inside" : "New folder"
+                iconName: "folder"
+                dense: true
+                toolTipText: root.outputContextIsFolder
+                             ? "Create a new folder inside the folder you right-clicked."
+                             : "Create a new folder in the location currently shown."
+                onClicked: {
+                    var destination = root.outputContextIsFolder ? root.outputContextPath : jsonService.currentFolder
+                    outputContextMenu.close()
+                    root.openOutputNameDialog("new-folder", "", destination, "")
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextIsFolder && !root.outputContextIsSource
+                         && jsonService.fileOperationSelectionCount === 1
+                text: "Rename folder"
+                dense: true
+                toolTipText: "Rename this folder without changing its contents."
+                onClicked: {
+                    outputContextMenu.close()
+                    root.openOutputNameDialog("rename-folder", root.outputContextPath, "", root.outputContextName)
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextPath.length > 0 && !root.outputContextIsFolder
+                         && jsonService.fileOperationSelectionCount === 1
+                text: "Rename JSON"
+                dense: true
+                toolTipText: "Rename this JSON file without changing its contents."
+                onClicked: {
+                    outputContextMenu.close()
+                    root.openOutputNameDialog("rename-json", root.outputContextPath, "", root.outputContextName)
+                }
+            }
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
+                         && jsonService.fileOperationSelectionCount > 0
+                text: jsonService.fileOperationSelectionCount > 1
+                      ? "Delete " + jsonService.fileOperationSelectionCount + " items"
+                      : "Delete"
+                labelColor: Theme.danger
+                dense: true
+                toolTipText: "Permanently delete the selected item or items from their output folders."
+                onClicked: {
+                    outputContextMenu.close()
+                    deleteSelectedEntriesDialog.open()
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: outputNameDialog
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape
+        width: Math.min(root.width - Theme.px(40), Theme.px(460))
+        height: Theme.px(250)
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(16)
+        z: 90
+
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(10)
+
+            SectionHeading {
+                Layout.fillWidth: true
+                title: root.outputNameDialogMode === "new-folder"
+                       ? "Create folder"
+                       : (root.outputNameDialogMode === "rename-folder" ? "Rename folder" : "Rename JSON")
+                subtitle: root.outputNameDialogMode === "new-folder"
+                          ? "The folder will be created inside the chosen Outputs location."
+                          : "Only the item name changes; its contents stay intact."
+            }
+
+            Label {
+                text: root.outputNameDialogMode === "new-folder" ? "Folder name" : "New name"
+            }
+
+            KfpsTextField {
+                id: outputNameInput
+                Layout.fillWidth: true
+                maximumLength: 180
+                placeholderText: root.outputNameDialogMode === "rename-json" ? "Vinyl name.json" : "Folder name"
+                toolTipText: "Use a Windows-compatible name without slashes, colons, a trailing period, or reserved device names."
+                onAccepted: root.submitOutputName()
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: jsonService.managementStatus
+                color: Theme.warning
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.px(9.4)
+                wrapMode: Text.Wrap
+                visible: outputNameDialog.opened && jsonService.managementStatus.length > 0
+            }
+
+            Item { Layout.fillHeight: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                GhostButton {
+                    text: "Cancel"
+                    toolTipText: "Close this window without creating or renaming anything."
+                    onClicked: outputNameDialog.close()
+                }
+
+                Item { Layout.fillWidth: true }
+
+                PrimaryButton {
+                    text: root.outputNameDialogMode === "new-folder" ? "Create" : "Rename"
+                    iconName: root.outputNameDialogMode === "new-folder" ? "folder" : "editor"
+                    enabled: outputNameInput.text.trim().length > 0
+                    toolTipText: root.outputNameDialogMode === "new-folder"
+                                 ? "Create the folder with the entered name."
+                                 : "Apply the entered name to this item."
+                    onClicked: root.submitOutputName()
+                }
+            }
+        }
+    }
+
+    MessageDialog {
+        id: deleteSelectedEntriesDialog
+        title: jsonService.fileOperationSelectionCount === 1 ? "Delete selected item?" : "Delete selected items?"
+        text: "Permanently delete " + jsonService.fileOperationSelectionCount
+              + (jsonService.fileOperationSelectionCount === 1 ? " selected item" : " selected items")
+              + "? Folders and everything inside them will be removed. This cannot be undone."
+        buttons: MessageDialog.Ok | MessageDialog.Cancel
+        onAccepted: jsonService.deleteSelectedEntries()
     }
 
     Popup {

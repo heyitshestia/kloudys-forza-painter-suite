@@ -29,6 +29,13 @@ KFPS_ELLIPSE_WORD = 0x0066
 FD6_RECTANGLE_DIVISOR = 127.0
 FD6_ELLIPSE_DIVISOR = 63.0
 JSON_INDEX_CACHE_VERSION = 1
+OUTPUT_FOLDER_MARKER = ".kfps-output-folder"
+OUTPUT_FOLDER_MARKER_FORMAT = "kfps-output-folder-v1"
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 
 
 class _StartupJsonIndexBuilder:
@@ -83,6 +90,12 @@ class _StartupJsonIndexBuilder:
         root.mkdir(parents=True, exist_ok=True)
         groups = []
         if source == 0:
+            root_files = [
+                path for path in root.glob("*.json")
+                if not any(token in path.name.casefold() for token in (".report.", "settings", "metadata", "backup", "session", "probe", "manifest"))
+            ]
+            if root_files:
+                groups.append(self.group(root.name, root, root_files))
             for folder in root.iterdir():
                 if folder.is_dir():
                     files = self.files(folder, generated=True)
@@ -116,7 +129,8 @@ class _StartupJsonIndexBuilder:
             low = path.name.lower()
             if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")):
                 continue
-            if generated and not (path.parent.name.lower() == "finals" and low.endswith("v2.json")):
+            managed = any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
+            if generated and not (path.parent.name.lower() == "finals" or managed):
                 continue
             out.append(path)
         return out
@@ -146,8 +160,15 @@ class _StartupJsonIndexBuilder:
     def sorted_visible_files(self, source, groups):
         if source == 0:
             files = []
+            root = self.source_roots()[source]
             for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
-                files.extend(sorted(self.dedupe_generated_files(group["files"]), key=lambda path: (JsonService._count(path), path.name.casefold())))
+                managed = [
+                    path for path in group["files"]
+                    if path.parent == root or any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
+                ]
+                generated = [path for path in group["files"] if path not in managed]
+                files.extend(sorted(self.dedupe_generated_files(generated), key=lambda path: (JsonService._count(path), path.name.casefold())))
+                files.extend(sorted(managed, key=lambda path: (JsonService._count(path), path.name.casefold())))
             return files
         files = [path for group in groups for path in group["files"]]
         return sorted(files, key=lambda path: (path.stat().st_mtime * -1, path.name.casefold()))
@@ -251,9 +272,23 @@ class JsonService(QObject):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
         self._group_model = DictListModel(["name","displayName","detailText","path","count","modifiedLabel"])
         self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
+        self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","modifiedLabel","previewUrl","detailText","folder"])
+        self._folder_model = DictListModel(["displayName","path","depth","sourceIndex"])
         self._recent_model = DictListModel(["name","path","folder","age","source"])
         self._source = 0; self._selected_group = -1; self._selected_path = ""; self._selected_display_name = ""; self._preview_url = ""; self._layers = "—"; self._folder = "—"
         self._search_query = ""
+        self._explorer_selection: list[str] = []
+        self._explorer_selection_keys: set[str] = set()
+        self._selection_anchor_path = ""
+        self._selection_revision = 0
+        self._management_status = ""
+        self._current_folder = ""
+        self._library_folder_visible = True
+        self._explorer_rows: list[dict] = []
+        self._back_history: list[str] = []
+        self._forward_history: list[str] = []
+        self._clipboard_paths: list[str] = []
+        self._clipboard_cut = False
         self._all_file_rows: list[dict] = []
         self._visible_file_rows: list[dict] = []
         self._groups: list[dict] = []
@@ -287,6 +322,10 @@ class JsonService(QObject):
     @Property(QObject, constant=True)
     def fileModel(self): return self._file_model
     @Property(QObject, constant=True)
+    def explorerModel(self): return self._explorer_model
+    @Property(QObject, constant=True)
+    def folderModel(self): return self._folder_model
+    @Property(QObject, constant=True)
     def recentModel(self): return self._recent_model
 
     @Property(int, notify=changed)
@@ -311,6 +350,78 @@ class JsonService(QObject):
     def selectedFolder(self): return self._folder
     @Property(str, notify=changed)
     def searchQuery(self): return self._search_query
+    @Property(int, notify=changed)
+    def explorerSelectionCount(self): return len(self._explorer_selection)
+    @Property(str, notify=changed)
+    def explorerSelectionName(self):
+        if len(self._explorer_selection) != 1:
+            return ""
+        selected_key = self._preview_key(self._explorer_selection[0])
+        row = next(
+            (candidate for candidate in self._explorer_rows
+             if self._preview_key(candidate.get("path")) == selected_key),
+            None,
+        )
+        return str(row.get("displayName") or row.get("name") or "") if row else Path(self._explorer_selection[0]).name
+    @Property(int, notify=changed)
+    def explorerSelectionRevision(self): return self._selection_revision
+    @Property(str, notify=changed)
+    def managementStatus(self): return self._management_status
+
+    @Slot()
+    def clearManagementStatus(self):
+        if not self._management_status:
+            return
+        self._management_status = ""
+        self.changed.emit()
+
+    @Property(str, notify=changed)
+    def currentFolder(self): return self._current_folder
+    @Property(str, notify=changed)
+    def currentFolderDisplay(self):
+        if not self._current_folder:
+            return "Outputs"
+        root = self._root()
+        current = Path(self._current_folder)
+        try:
+            current.resolve().relative_to(root.resolve())
+            suffix = "" if self._same_path(current, root) else f" / {self._folder_display_path(current, root)}"
+        except (OSError, ValueError):
+            suffix = ""
+        return f"{self._explorer_source_label(self._source)}{suffix}"
+    @Property(int, notify=changed)
+    def currentFolderIndex(self):
+        for index, row in enumerate(self._folder_model.rows):
+            if str(row.get("path") or "") == self._current_folder or self._same_path(row.get("path"), self._current_folder):
+                return index
+        return 0
+    @Property(bool, notify=changed)
+    def canGoBack(self): return bool(self._back_history)
+    @Property(bool, notify=changed)
+    def canGoForward(self): return bool(self._forward_history)
+    @Property(bool, notify=changed)
+    def canGoUp(self): return bool(self._current_folder)
+    @Property(int, notify=changed)
+    def clipboardCount(self): return len(self._clipboard_paths)
+    @Property(bool, notify=changed)
+    def clipboardCut(self): return self._clipboard_cut and bool(self._clipboard_paths)
+    @Property(bool, notify=changed)
+    def canPaste(self): return bool(self._clipboard_paths)
+    @Property(int, notify=changed)
+    def fileOperationSelectionCount(self):
+        return len(self._operation_selection())
+    @Property(str, notify=changed)
+    def explorerSummary(self):
+        folders = sum(1 for row in self._explorer_rows if row.get("isFolder"))
+        jsons = len(self._explorer_rows) - folders
+        if not self._current_folder:
+            noun = "folder" if folders == 1 else "folders"
+            return f"{folders} output {noun}"
+        if self._search_query:
+            return self.searchSummary
+        folder_label = "folder" if folders == 1 else "folders"
+        json_label = "JSON" if jsons == 1 else "JSONs"
+        return f"{folders} {folder_label} • {jsons} {json_label}"
     @Property(bool, notify=changed)
     def indexing(self): return bool(self._indexing_sources)
     @Property(bool, notify=changed)
@@ -351,6 +462,11 @@ class JsonService(QObject):
         labels = ["Generated finals", "Editor exports", "Game exports", "Library"]
         return labels[source] if 0 <= source < len(labels) else "Outputs"
 
+    @staticmethod
+    def _explorer_source_label(source):
+        labels = ["Generated JSONs", "Editor JSONs", "Game Exports", "Library"]
+        return labels[source] if 0 <= source < len(labels) else "Outputs"
+
     def _source_cache_key(self, source):
         root = self._source_roots()[source]
         try:
@@ -369,6 +485,9 @@ class JsonService(QObject):
         retained_previews = self._retained_preview_urls(source)
         groups = []
         if source == 0:
+            root_files = [path for path in root.glob("*.json") if self._explorer_json_visible(path)]
+            if root_files:
+                groups.append(self._group(root.name, root, root_files))
             for folder in root.iterdir():
                 if folder.is_dir():
                     files = self._files(folder, generated=True)
@@ -416,6 +535,296 @@ class JsonService(QObject):
         self._all_file_rows = list(cached.get("rows", []))
         self._apply_search_filter()
 
+    def _explorer_json_visible(self, path):
+        path = Path(path)
+        if path.suffix.casefold() != ".json":
+            return False
+        low = path.name.casefold()
+        return not any(token in low for token in (".report.", "settings", "metadata", "backup", "session", "probe", "manifest"))
+
+    @staticmethod
+    def _folder_marker(path):
+        return Path(path) / OUTPUT_FOLDER_MARKER
+
+    def _folder_display_name(self, path):
+        path = Path(path)
+        try:
+            payload = json.loads(self._folder_marker(path).read_text(encoding="utf-8"))
+            name = str(payload.get("displayName") or "").strip() if isinstance(payload, dict) else ""
+            if name and not self._name_error(name):
+                return name
+        except (OSError, ValueError, TypeError):
+            pass
+        return path.name
+
+    def _write_folder_marker(self, path, display_name):
+        payload = {"format": OUTPUT_FOLDER_MARKER_FORMAT, "displayName": str(display_name).strip()}
+        self._folder_marker(path).write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    def _is_managed_folder(self, path):
+        path = Path(path)
+        return path.is_dir() and not path.is_symlink() and self._folder_marker(path).is_file()
+
+    def _is_accessible_managed_folder(self, path, source=None):
+        path = Path(path)
+        source = self._managed_source_for_path(path) if source is None else int(source)
+        if source < 0:
+            return False
+        root = self._source_roots()[source]
+        current = path
+        if self._same_path(current, root):
+            return False
+        while self._path_is_within(current, root) and not self._same_path(current, root):
+            if not self._is_managed_folder(current):
+                return False
+            current = current.parent
+        return self._same_path(current, root)
+
+    def _path_in_managed_folder(self, path, source=None):
+        source = self._source if source is None else int(source)
+        root = self._source_roots()[source]
+        managed = {
+            self._preview_key(row.get("path"))
+            for row in self._folder_model.rows
+            if int(row.get("sourceIndex", -1)) == source
+            and row.get("path")
+            and not self._same_path(row.get("path"), root)
+        }
+        current = Path(path).parent
+        while self._path_is_within(current, root) and not self._same_path(current, root):
+            if self._preview_key(current) in managed:
+                return True
+            current = current.parent
+        return False
+
+    def _managed_child_folders(self, parent):
+        try:
+            return sorted(
+                (child for child in Path(parent).iterdir() if self._is_managed_folder(child)),
+                key=lambda item: self._folder_display_name(item).casefold(),
+            )
+        except OSError:
+            return []
+
+    def _managed_descendant_folders(self, root):
+        folders = []
+
+        def visit(parent):
+            for child in self._managed_child_folders(parent):
+                folders.append(child)
+                visit(child)
+
+        visit(Path(root))
+        return folders
+
+    def _folder_display_name_exists(self, parent, display_name, exclude=None):
+        requested = str(display_name).strip().casefold()
+        return any(
+            (exclude is None or not self._same_path(child, exclude))
+            and self._folder_display_name(child).casefold() == requested
+            for child in self._managed_child_folders(parent)
+        )
+
+    def _unique_folder_display_name(self, parent, display_name, exclude=None):
+        display_name = str(display_name).strip()
+        if not self._folder_display_name_exists(parent, display_name, exclude=exclude):
+            return display_name
+        candidate = f"{display_name} - Copy"
+        index = 2
+        while self._folder_display_name_exists(parent, candidate, exclude=exclude):
+            candidate = f"{display_name} - Copy ({index})"
+            index += 1
+        return candidate
+
+    def _folder_storage_target(self, parent, display_name, exclude=None):
+        parent = Path(parent)
+        candidate = parent / str(display_name).strip()
+        if (exclude is not None and self._same_path(candidate, exclude)) or not candidate.exists():
+            return candidate
+        candidate = parent / f"{str(display_name).strip()}.kfps-folder"
+        index = 2
+        while candidate.exists() and (exclude is None or not self._same_path(candidate, exclude)):
+            candidate = parent / f"{str(display_name).strip()}.kfps-folder-{index}"
+            index += 1
+        return candidate
+
+    def _folder_display_path(self, path, root):
+        current = Path(root)
+        parts = []
+        for part in Path(path).relative_to(root).parts:
+            current /= part
+            parts.append(self._folder_display_name(current))
+        return " / ".join(parts)
+
+    def _source_entry_row(self, source):
+        cached = self._source_index_cache.get(source, {})
+        json_count = sum(1 for row in cached.get("rows", []) if Path(str(row.get("path") or "")).is_file())
+        folder_count = sum(
+            1 for row in self._folder_model.rows
+            if int(row.get("sourceIndex", -1)) == source and int(row.get("depth", 0)) > 1
+        )
+        parts = [f"{json_count} JSON" if json_count == 1 else f"{json_count} JSONs"]
+        if folder_count:
+            parts.append(f"{folder_count} folder" if folder_count == 1 else f"{folder_count} folders")
+        root = self._source_roots()[source]
+        return {
+            "name": self._explorer_source_label(source),
+            "displayName": self._explorer_source_label(source),
+            "path": str(root),
+            "entryKind": "source",
+            "isFolder": True,
+            "sourceIndex": source,
+            "layers": -1,
+            "modifiedLabel": "",
+            "previewUrl": "",
+            "detailText": " • ".join(parts),
+            "folder": "",
+        }
+
+    def _folder_entry_row(self, path):
+        path = Path(path)
+        source = self._managed_source_for_path(path)
+        display_name = self._folder_display_name(path)
+        try:
+            modified = path.stat().st_mtime
+        except OSError:
+            modified = 0.0
+        folders = 0
+        jsons = 0
+        try:
+            for child in path.iterdir():
+                if self._is_managed_folder(child):
+                    folders += 1
+                elif child.is_file() and self._explorer_json_visible(child):
+                    jsons += 1
+        except OSError:
+            pass
+        parts = []
+        if folders:
+            parts.append(f"{folders} folder" if folders == 1 else f"{folders} folders")
+        if jsons:
+            parts.append(f"{jsons} JSON" if jsons == 1 else f"{jsons} JSONs")
+        return {
+            "name": display_name,
+            "displayName": display_name,
+            "path": str(path),
+            "entryKind": "folder",
+            "isFolder": True,
+            "sourceIndex": source,
+            "layers": -1,
+            "modifiedLabel": self._age(modified) if modified else "",
+            "previewUrl": "",
+            "detailText": " • ".join(parts) if parts else "Empty folder",
+            "folder": str(path.parent),
+        }
+
+    def _explorer_json_row(self, path, cached_rows=None):
+        path = Path(path)
+        key = self._preview_key(path)
+        row = dict((cached_rows or {}).get(key) or self._row_for_json(self._source, path))
+        row["entryKind"] = "json"
+        row["isFolder"] = False
+        row["sourceIndex"] = self._source
+        return row
+
+    def _refresh_explorer(self):
+        self._refresh_folder_model()
+        rows = []
+        if not self._current_folder:
+            source_count = 4 if self._library_folder_visible else 3
+            rows = [self._source_entry_row(source) for source in range(source_count)]
+        else:
+            root = self._root()
+            root.mkdir(parents=True, exist_ok=True)
+            current = Path(self._current_folder)
+            valid_folder = self._same_path(current, root) or self._is_accessible_managed_folder(current, self._source)
+            if not current.is_dir() or not self._path_is_within(current, root) or not valid_folder:
+                self._current_folder = ""
+                self._back_history.clear()
+                self._forward_history.clear()
+                self._search_query = ""
+                self._refresh_folder_model(force=True)
+                self._refresh_explorer()
+                return
+            cached_rows = self._current_source_index().get("rowsByKey", {})
+            if self._search_query:
+                rows = [
+                    self._explorer_json_row(row["path"], cached_rows)
+                    for row in self._visible_file_rows
+                    if Path(row["path"]).is_file()
+                ]
+            elif self._same_path(current, root):
+                rows.extend(self._folder_entry_row(path) for path in self._managed_child_folders(root))
+                rows.extend(
+                    self._explorer_json_row(row["path"], cached_rows)
+                    for row in self._visible_file_rows
+                    if Path(row["path"]).is_file() and not self._path_in_managed_folder(row["path"])
+                )
+            else:
+                rows.extend(self._folder_entry_row(path) for path in self._managed_child_folders(current))
+                try:
+                    jsons = sorted(
+                        (child for child in current.iterdir() if child.is_file() and self._explorer_json_visible(child)),
+                        key=lambda item: (-item.stat().st_mtime, item.name.casefold()),
+                    )
+                except OSError:
+                    jsons = []
+                rows.extend(self._explorer_json_row(path, cached_rows) for path in jsons)
+        self._explorer_rows = rows
+        self._explorer_model.replace(rows)
+
+    def _refresh_folder_model(self, force=False):
+        if self._folder_model.rows and not force:
+            return
+        rows = []
+        if not self._current_folder:
+            rows.append({"displayName": "Outputs", "path": "", "depth": 0, "sourceIndex": -1})
+            source_count = 4 if self._library_folder_visible else 3
+            scopes = [(source, self._source_roots()[source], 1) for source in range(source_count)]
+        else:
+            current = Path(self._current_folder)
+            source = self._managed_source_for_path(current)
+            if source < 0 or (source == 3 and not self._library_folder_visible):
+                rows.append({"displayName": "Outputs", "path": "", "depth": 0, "sourceIndex": -1})
+                scopes = []
+            else:
+                scopes = [(source, current, 0)]
+
+        for source, scope_root, base_depth in scopes:
+            source_root = self._source_roots()[source]
+            source_root.mkdir(parents=True, exist_ok=True)
+            label = self._explorer_source_label(source)
+            if self._same_path(scope_root, source_root):
+                scope_label = label
+            else:
+                scope_label = f"{label} / {self._folder_display_path(scope_root, source_root)}"
+            rows.append({"displayName": scope_label, "path": str(scope_root), "depth": base_depth, "sourceIndex": source})
+            for path in self._managed_descendant_folders(scope_root):
+                relative_depth = len(path.relative_to(scope_root).parts)
+                rows.append({
+                    "displayName": f"{label} / {self._folder_display_path(path, source_root)}",
+                    "path": str(path),
+                    "depth": base_depth + relative_depth,
+                    "sourceIndex": source,
+                })
+        self._folder_model.replace(rows)
+
+    @Slot(bool)
+    def setLibraryFolderVisible(self, visible):
+        visible = bool(visible)
+        if visible == self._library_folder_visible:
+            return
+        self._library_folder_visible = visible
+        if not visible and self._source == 3 and self._current_folder:
+            self._source = 0
+            self._current_folder = ""
+            self._refresh_folder_model(force=True)
+            self._load_source(force=False)
+        else:
+            self._refresh_folder_model(force=True)
+            self._refresh_explorer()
+            self.changed.emit()
+
     @Slot()
     def warmIndex(self):
         for source in range(len(self._source_roots())):
@@ -461,6 +870,8 @@ class JsonService(QObject):
                 new_rows = index.get("rows", [])
                 if not old_rows or self._row_path_signature(old_rows) != self._row_path_signature(new_rows):
                     self._load_source(force=False)
+                else:
+                    self._refresh_explorer()
             self._refresh_recent_from_cache()
             self._schedule_index_cache_save()
         else:
@@ -964,7 +1375,12 @@ class JsonService(QObject):
     def setSource(self, index):
         self._source = max(0,min(len(self._source_roots()) - 1,index))
         self._selected_group=-1
+        self._current_folder = str(self._root())
+        self._back_history.clear()
+        self._forward_history.clear()
+        self._clear_explorer_selection(emit=False)
         self.clearSelection()
+        self._refresh_folder_model(force=True)
         self._load_source(force=False)
         self._restart_thumbnail_warm_for_current_source()
         self.changed.emit()
@@ -975,6 +1391,7 @@ class JsonService(QObject):
         if query == self._search_query:
             return
         self._search_query = query
+        self._clear_explorer_selection(emit=False)
         self._apply_search_filter()
 
     @Slot()
@@ -982,7 +1399,644 @@ class JsonService(QObject):
 
     @Slot()
     def refresh(self):
+        self._refresh_folder_model(force=True)
         self._load_source(force=True)
+
+    def _navigate_to_folder(self, value, record_history=True):
+        requested = str(value or "")
+        source = self._source
+        target = ""
+        if requested:
+            candidate = Path(requested)
+            source = self._managed_source_for_path(candidate)
+            if source < 0 or (source == 3 and not self._library_folder_visible):
+                self._management_status = "That folder is outside the available KFPS output categories."
+                self.changed.emit()
+                return False
+            root = self._source_roots()[source]
+            valid_folder = self._same_path(candidate, root) or self._is_accessible_managed_folder(candidate, source)
+            if not candidate.is_dir() or not self._path_is_within(candidate, root) or not valid_folder:
+                self._management_status = "Only an output category or a folder created in KFPS can be opened here."
+                self.changed.emit()
+                return False
+            target = str(candidate.resolve())
+        if target == self._current_folder or (target and self._same_path(target, self._current_folder)):
+            return True
+        if record_history:
+            self._back_history.append(self._current_folder)
+            self._forward_history.clear()
+        source_changed = bool(target) and source != self._source
+        self._source = source
+        self._current_folder = target
+        self._refresh_folder_model(force=True)
+        self._selected_group = -1
+        self._management_status = ""
+        self._clear_explorer_selection(emit=False)
+        self.clearSelection()
+        had_search = bool(self._search_query)
+        if had_search:
+            self._search_query = ""
+        if source_changed:
+            self._load_source(force=False)
+            self._restart_thumbnail_warm_for_current_source()
+        else:
+            if had_search:
+                self._apply_search_filter()
+            else:
+                self._refresh_explorer()
+        self.changed.emit()
+        return True
+
+    @Slot(str)
+    def openExplorerFolder(self, value):
+        self._navigate_to_folder(value, record_history=True)
+
+    @Slot(str)
+    def jumpToFolder(self, value):
+        self._navigate_to_folder(value, record_history=True)
+
+    @Slot()
+    def goBack(self):
+        if not self._back_history:
+            return
+        target = self._back_history.pop()
+        self._forward_history.append(self._current_folder)
+        if not self._navigate_to_folder(target, record_history=False):
+            self._forward_history.pop()
+
+    @Slot()
+    def goForward(self):
+        if not self._forward_history:
+            return
+        target = self._forward_history.pop()
+        self._back_history.append(self._current_folder)
+        if not self._navigate_to_folder(target, record_history=False):
+            self._back_history.pop()
+
+    @Slot()
+    def goUp(self):
+        if not self._current_folder:
+            return
+        if self._same_path(self._current_folder, self._root()):
+            self._navigate_to_folder("", record_history=True)
+        else:
+            self._navigate_to_folder(str(Path(self._current_folder).parent), record_history=True)
+
+    @Slot(int, bool, bool)
+    def selectExplorerEntry(self, index, control, shift):
+        if not 0 <= index < len(self._explorer_rows):
+            return
+        row = self._explorer_rows[index]
+        path = str(row.get("path") or "")
+        if not path:
+            return
+        key = self._preview_key(path)
+
+        if shift and self._selection_anchor_path:
+            anchor_key = self._preview_key(self._selection_anchor_path)
+            anchor_index = next(
+                (position for position, candidate in enumerate(self._explorer_rows)
+                 if self._preview_key(candidate.get("path")) == anchor_key),
+                index,
+            )
+            start, end = sorted((anchor_index, index))
+            range_paths = [
+                str(candidate.get("path") or "")
+                for candidate in self._explorer_rows[start:end + 1]
+                if candidate.get("path")
+            ]
+            if not control:
+                self._explorer_selection = []
+                self._explorer_selection_keys.clear()
+            for candidate in range_paths:
+                candidate_key = self._preview_key(candidate)
+                if candidate_key not in self._explorer_selection_keys:
+                    self._explorer_selection.append(candidate)
+                    self._explorer_selection_keys.add(candidate_key)
+        elif control:
+            if key in self._explorer_selection_keys:
+                self._explorer_selection_keys.remove(key)
+                self._explorer_selection = [
+                    candidate for candidate in self._explorer_selection
+                    if self._preview_key(candidate) != key
+                ]
+            else:
+                self._explorer_selection.append(path)
+                self._explorer_selection_keys.add(key)
+            self._selection_anchor_path = path
+        else:
+            self._explorer_selection = [path]
+            self._explorer_selection_keys = {key}
+            self._selection_anchor_path = path
+
+        selected = key in self._explorer_selection_keys
+        if selected and not row.get("isFolder"):
+            self._select_path(path)
+        elif self._selected_path and self._preview_key(self._selected_path) not in self._explorer_selection_keys:
+            self.clearSelection()
+        self._selection_revision += 1
+        self.changed.emit()
+
+    @Slot(str, result=bool)
+    def isExplorerEntrySelected(self, value):
+        return self._preview_key(value) in self._explorer_selection_keys
+
+    def _managed_source_for_path(self, value):
+        path = Path(str(value or ""))
+        for source, root in enumerate(self._source_roots()):
+            if self._path_is_within(path, root):
+                return source
+        return -1
+
+    def _entry_allowed_for_operation(self, value):
+        path = Path(str(value or ""))
+        source = self._managed_source_for_path(path)
+        if source < 0 or not path.exists() or path.is_symlink() or self._same_path(path, self._source_roots()[source]):
+            return False
+        return self._is_accessible_managed_folder(path, source) or (path.is_file() and self._explorer_json_visible(path))
+
+    @staticmethod
+    def _name_error(value):
+        name = str(value or "").strip()
+        if not name:
+            return "Enter a name first."
+        if name in {".", ".."} or any(character in name for character in '<>:"/\\|?*'):
+            return "That name contains characters Windows does not allow."
+        if name.endswith((" ", ".")):
+            return "Windows folder and file names cannot end with a space or period."
+        if name.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
+            return "That name is reserved by Windows."
+        return ""
+
+    def _operation_selection(self):
+        values = []
+        seen = set()
+        selected_values = list(self._explorer_selection)
+        if not selected_values and self._selected_path:
+            selected_values = [self._selected_path]
+        for value in selected_values:
+            if not self._entry_allowed_for_operation(value):
+                continue
+            path = Path(value)
+            key = self._preview_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(path)
+
+        values.sort(key=lambda path: len(path.parts))
+        collapsed = []
+        for path in values:
+            if any(parent.is_dir() and self._path_is_within(path, parent) for parent in collapsed):
+                continue
+            collapsed.append(path)
+        return [str(path) for path in collapsed]
+
+    def _stage_clipboard(self, values, cut):
+        paths = []
+        seen = set()
+        for value in values:
+            if not self._entry_allowed_for_operation(value):
+                continue
+            path = str(Path(value))
+            key = self._preview_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append(path)
+        if not paths:
+            self._management_status = "Select a JSON or use a folder's right-click menu first."
+            self.changed.emit()
+            return
+        self._clipboard_paths = paths
+        self._clipboard_cut = bool(cut)
+        action = "Cut" if cut else "Copied"
+        noun = "item" if len(paths) == 1 else "items"
+        self._management_status = f"{action} {len(paths)} {noun}. Choose a folder and paste when ready."
+        self.changed.emit()
+
+    @Slot()
+    def copySelection(self):
+        self._stage_clipboard(self._operation_selection(), cut=False)
+
+    @Slot()
+    def cutSelection(self):
+        self._stage_clipboard(self._operation_selection(), cut=True)
+
+    @Slot(str)
+    def copyEntry(self, value):
+        self._stage_clipboard([value], cut=False)
+
+    @Slot(str)
+    def cutEntry(self, value):
+        self._stage_clipboard([value], cut=True)
+
+    @Slot(str, result=bool)
+    def createFolder(self, value):
+        return self._create_folder_in(self._current_folder, value)
+
+    @Slot(str, str, result=bool)
+    def createFolderIn(self, parent_value, value):
+        return self._create_folder_in(parent_value, value)
+
+    def _create_folder_in(self, parent_value, value):
+        display_name = str(value or "").strip()
+        error = self._name_error(display_name)
+        current = Path(str(parent_value or self._current_folder))
+        if error:
+            self._management_status = error
+            self.changed.emit()
+            return False
+        source = self._managed_source_for_path(current)
+        root = self._source_roots()[source] if source >= 0 else None
+        valid_parent = source >= 0 and (self._same_path(current, root) or self._is_accessible_managed_folder(current, source))
+        if not current.is_dir() or not valid_parent:
+            self._management_status = "Open an output category or a folder created in KFPS first."
+            self.changed.emit()
+            return False
+        if self._folder_display_name_exists(current, display_name):
+            self._management_status = f"A folder named {display_name} already exists here."
+            self.changed.emit()
+            return False
+        target = self._folder_storage_target(current, display_name)
+        try:
+            target.mkdir()
+            self._write_folder_marker(target, display_name)
+        except OSError as exc:
+            try:
+                target.rmdir()
+            except OSError:
+                pass
+            self._management_status = f"Could not create {target.name}: {exc}"
+            self.log.append(self._management_status, "error")
+            self.changed.emit()
+            return False
+        self._management_status = f"Created folder {display_name}."
+        self._refresh_folder_model(force=True)
+        self._refresh_explorer()
+        self.changed.emit()
+        return True
+
+    @staticmethod
+    def _remap_path_reference(value, source, target):
+        if not value:
+            return value
+        try:
+            path = Path(value).resolve()
+            source = Path(source).resolve()
+            target = Path(target).resolve()
+            if path == source:
+                return str(target)
+            return str(target / path.relative_to(source))
+        except (OSError, ValueError):
+            return value
+
+    def _remap_entry_references(self, source, target):
+        remap = lambda value: self._remap_path_reference(value, source, target)
+        self._current_folder = remap(self._current_folder)
+        self._back_history = [remap(value) for value in self._back_history]
+        self._forward_history = [remap(value) for value in self._forward_history]
+        self._clipboard_paths = [remap(value) for value in self._clipboard_paths]
+        self._explorer_selection = [remap(value) for value in self._explorer_selection]
+        self._explorer_selection_keys = {self._preview_key(value) for value in self._explorer_selection}
+        self._selection_anchor_path = remap(self._selection_anchor_path)
+        selected = remap(self._selected_path)
+        if selected != self._selected_path:
+            self._selected_path = selected
+            if Path(selected).is_file():
+                self._select_path(selected, log=False, queue_preview=False)
+            else:
+                self.clearSelection()
+        self._selection_revision += 1
+
+    @Slot(str, str, result=bool)
+    def renameEntry(self, value, requested_name):
+        source = Path(str(value or ""))
+        if not self._entry_allowed_for_operation(source):
+            self._management_status = "That item cannot be renamed from Outputs."
+            self.changed.emit()
+            return False
+        is_folder = source.is_dir()
+        old_display_name = self._folder_display_name(source) if is_folder else source.name
+        name = str(requested_name or "").strip()
+        if not is_folder and not name.casefold().endswith(".json"):
+            name += ".json"
+        error = self._name_error(name)
+        if error:
+            self._management_status = error
+            self.changed.emit()
+            return False
+        if is_folder:
+            if old_display_name == name:
+                self._management_status = "The name is unchanged."
+                self.changed.emit()
+                return False
+            if self._folder_display_name_exists(source.parent, name, exclude=source):
+                self._management_status = f"A folder named {name} already exists here."
+                self.changed.emit()
+                return False
+            target = self._folder_storage_target(source.parent, name, exclude=source)
+        else:
+            target = source.with_name(name)
+        same_location = os.path.normcase(str(source.absolute())) == os.path.normcase(str(target.absolute()))
+        if not is_folder and same_location and source.name == target.name:
+            self._management_status = "The name is unchanged."
+            self.changed.emit()
+            return False
+        if target.exists() and not same_location:
+            self._management_status = f"{target.name} already exists in this folder."
+            self.changed.emit()
+            return False
+        moved = False
+        try:
+            if same_location:
+                if source.name != target.name:
+                    temporary = source.with_name(f".kfps-rename-{time.time_ns()}")
+                    source.rename(temporary)
+                    temporary.rename(target)
+                    moved = True
+            else:
+                source.rename(target)
+                moved = True
+            if is_folder:
+                self._write_folder_marker(target, name)
+        except OSError as exc:
+            if moved and target.exists() and not source.exists():
+                try:
+                    target.rename(source)
+                except OSError:
+                    pass
+            self._management_status = f"Could not rename {old_display_name}: {exc}"
+            self.log.append(self._management_status, "error")
+            self.changed.emit()
+            return False
+        if moved:
+            self._remap_entry_references(source, target)
+        self._management_status = f"Renamed {old_display_name} to {name}."
+        self._refresh_after_file_operations([source, target])
+        return True
+
+    @Slot(str, result=bool)
+    def deleteEntry(self, value):
+        return self._delete_output_entries([value]) > 0
+
+    def _delete_output_entries(self, values):
+        requested = []
+        seen = set()
+        for value in values:
+            if not self._entry_allowed_for_operation(value):
+                continue
+            path = Path(value)
+            key = self._preview_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            requested.append(path)
+        requested.sort(key=lambda path: len(path.parts))
+        targets = []
+        for path in requested:
+            if any(parent.is_dir() and self._path_is_within(path, parent) for parent in targets):
+                continue
+            targets.append(path)
+
+        if not targets:
+            self._management_status = "That item cannot be deleted from Outputs."
+            self.changed.emit()
+            return 0
+
+        deleted = []
+        failures = []
+        deleted_jsons = []
+        affected = []
+        remove_preview = getattr(self.preview, "remove_managed_preview_for_json", None)
+
+        for source in targets:
+            source_index = self._managed_source_for_path(source)
+            source_name = self._source_names()[source_index]
+            is_folder = source.is_dir()
+            display_name = self._folder_display_name(source) if is_folder else source.name
+            if is_folder:
+                try:
+                    json_paths = [path for path in source.rglob("*.json") if path.is_file()]
+                except OSError:
+                    json_paths = []
+            else:
+                json_paths = [source]
+            try:
+                if is_folder:
+                    shutil.rmtree(source)
+                else:
+                    source.unlink()
+            except OSError as exc:
+                failures.append(display_name)
+                self.log.append(f"Could not delete {display_name}: {exc}", "error")
+                continue
+
+            deleted.append((source, is_folder, display_name, source_index))
+            deleted_jsons.extend((json_path, source_name) for json_path in json_paths)
+            affected.extend((source, source.parent))
+
+        for json_path, source_name in deleted_jsons:
+            if not callable(remove_preview):
+                break
+            try:
+                remove_preview(json_path, source_name)
+            except Exception as exc:
+                self.log.append(f"Could not remove the managed thumbnail for {json_path}: {exc}", "warning")
+
+        def was_deleted(path_value):
+            if not path_value:
+                return False
+            return any(
+                self._same_path(path_value, source)
+                or (is_folder and self._path_is_within(path_value, source))
+                for source, is_folder, display_name, source_index in deleted
+            )
+
+        if was_deleted(self._current_folder):
+            deleted_parent = next(
+                source.parent for source, is_folder, display_name, source_index in deleted
+                if self._same_path(self._current_folder, source)
+                or (is_folder and self._path_is_within(self._current_folder, source))
+            )
+            self._current_folder = str(deleted_parent.resolve())
+        self._back_history = [path for path in self._back_history if not was_deleted(path)]
+        self._forward_history = [path for path in self._forward_history if not was_deleted(path)]
+        self._clipboard_paths = [path for path in self._clipboard_paths if not was_deleted(path)]
+        if not self._clipboard_paths:
+            self._clipboard_cut = False
+        self._explorer_selection = [path for path in self._explorer_selection if not was_deleted(path)]
+        self._explorer_selection_keys = {self._preview_key(path) for path in self._explorer_selection}
+        if was_deleted(self._selection_anchor_path):
+            self._selection_anchor_path = ""
+        if was_deleted(self._selected_path):
+            self.clearSelection()
+
+        deleted_keys = {self._preview_key(path) for path, source_name in deleted_jsons}
+        self._preview_queue = [item for item in self._preview_queue if not was_deleted(item[0])]
+        self._preview_queued.difference_update(deleted_keys)
+        self._preview_empty.difference_update(deleted_keys)
+        for source_index in {item[3] for item in deleted}:
+            cached = self._source_index_cache.get(source_index, {})
+            cached_rows = [row for row in cached.get("rows", []) if not was_deleted(row.get("path"))]
+            cached["rows"] = cached_rows
+            cached["rowsByKey"] = {self._preview_key(row.get("path")): row for row in cached_rows}
+        if any(source_index == self._source for source, is_folder, display_name, source_index in deleted):
+            self._all_file_rows = [row for row in self._all_file_rows if not was_deleted(row.get("path"))]
+            self._apply_search_filter()
+
+        deleted_count = len(deleted)
+        if deleted_count and not failures:
+            if deleted_count == 1:
+                source, is_folder, display_name, source_index = deleted[0]
+                self._management_status = f"Deleted {'folder' if is_folder else 'JSON'} {display_name}."
+            else:
+                self._management_status = f"Deleted {deleted_count} items."
+        elif deleted_count:
+            self._management_status = f"Deleted {deleted_count}; {len(failures)} could not be deleted."
+        else:
+            self._management_status = f"No items were deleted. {len(failures)} could not be deleted."
+        self._selection_revision += 1
+        self._refresh_after_file_operations(affected or targets)
+        return deleted_count
+
+    @staticmethod
+    def _unique_copy_target(folder, name):
+        folder = Path(folder)
+        candidate = folder / name
+        if not candidate.exists():
+            return candidate
+        original = Path(name)
+        stem = original.stem if original.suffix else original.name
+        suffix = original.suffix
+        candidate = folder / f"{stem} - Copy{suffix}"
+        index = 2
+        while candidate.exists():
+            candidate = folder / f"{stem} - Copy ({index}){suffix}"
+            index += 1
+        return candidate
+
+    @Slot()
+    def pasteIntoCurrentFolder(self):
+        self.pasteIntoFolder(self._current_folder)
+
+    @Slot(str)
+    def pasteIntoFolder(self, value):
+        destination = Path(str(value or self._current_folder))
+        destination_source = self._managed_source_for_path(destination)
+        if not self._clipboard_paths:
+            self._management_status = "Nothing has been copied or cut yet."
+            self.changed.emit()
+            return
+        destination_root = self._source_roots()[destination_source] if destination_source >= 0 else None
+        valid_destination = destination_source >= 0 and (
+            self._same_path(destination, destination_root) or self._is_accessible_managed_folder(destination, destination_source)
+        )
+        if not destination.is_dir() or not valid_destination:
+            self._management_status = "Choose an output category or a folder created in KFPS before pasting."
+            self.changed.emit()
+            return
+
+        was_cut = self._clipboard_cut
+        succeeded = []
+        failed = []
+        affected = [destination]
+        for raw_source in list(self._clipboard_paths):
+            source = Path(raw_source)
+            if not self._entry_allowed_for_operation(source):
+                failed.append(source.name or raw_source)
+                continue
+            if source.is_dir() and (self._same_path(source, destination) or self._path_is_within(destination, source)):
+                failed.append(source.name)
+                continue
+            if was_cut and self._same_path(source.parent, destination):
+                failed.append(source.name)
+                continue
+            is_folder = source.is_dir()
+            if is_folder:
+                display_name = self._unique_folder_display_name(destination, self._folder_display_name(source))
+                target = self._folder_storage_target(destination, display_name)
+            else:
+                display_name = source.name
+                target = self._unique_copy_target(destination, source.name)
+            try:
+                if was_cut:
+                    shutil.move(str(source), str(target))
+                elif is_folder:
+                    shutil.copytree(source, target, symlinks=True)
+                else:
+                    shutil.copy2(source, target)
+                if is_folder:
+                    self._write_folder_marker(target, display_name)
+                succeeded.append((str(source), str(target)))
+                affected.extend((source, target))
+            except OSError as exc:
+                failed.append(display_name)
+                if is_folder and target.exists():
+                    try:
+                        if was_cut and not source.exists():
+                            shutil.move(str(target), str(source))
+                        elif not was_cut:
+                            shutil.rmtree(target)
+                    except OSError:
+                        pass
+                self.log.append(f"Could not paste {source} into {destination}: {exc}", "error")
+
+        if was_cut:
+            moved_keys = {self._preview_key(source) for source, target in succeeded}
+            self._clipboard_paths = [path for path in self._clipboard_paths if self._preview_key(path) not in moved_keys]
+            if not self._clipboard_paths:
+                self._clipboard_cut = False
+            self._clear_explorer_selection(emit=False)
+            if self._selected_path and self._preview_key(self._selected_path) in moved_keys:
+                self.clearSelection()
+            for source, target in succeeded:
+                self._remap_entry_references(source, target)
+        action = "Moved" if was_cut else "Copied"
+        if succeeded and not failed:
+            noun = "item" if len(succeeded) == 1 else "items"
+            self._management_status = f"{action} {len(succeeded)} {noun} into {destination.name}."
+        elif succeeded:
+            self._management_status = f"{action} {len(succeeded)}; {len(failed)} could not be pasted."
+        else:
+            self._management_status = f"Nothing was pasted. {len(failed)} item(s) could not be moved or copied."
+        self._refresh_after_file_operations(affected)
+
+    def _refresh_after_file_operations(self, paths):
+        affected_sources = {self._managed_source_for_path(path) for path in paths}
+        affected_sources.discard(-1)
+        self._refresh_folder_model(force=True)
+        self._refresh_explorer()
+        for source in affected_sources:
+            self._request_source_scan(source, force=True)
+        self.log.append(self._management_status, "warning" if "could not" in self._management_status.casefold() else "info")
+        self.changed.emit()
+
+    def _clear_explorer_selection(self, emit=True):
+        had_selection = bool(self._explorer_selection or self._selection_anchor_path)
+        self._explorer_selection = []
+        self._explorer_selection_keys.clear()
+        self._selection_anchor_path = ""
+        if had_selection:
+            self._selection_revision += 1
+            if emit:
+                self.changed.emit()
+
+    @Slot()
+    def clearExplorerSelection(self):
+        self._clear_explorer_selection()
+
+    @Slot()
+    def selectAllExplorerEntries(self):
+        self._explorer_selection = [str(row.get("path") or "") for row in self._explorer_rows if row.get("path")]
+        self._explorer_selection_keys = {self._preview_key(path) for path in self._explorer_selection}
+        self._selection_anchor_path = self._explorer_selection[-1] if self._explorer_selection else ""
+        self._selection_revision += 1
+        self.changed.emit()
+
+    @Slot()
+    def deleteSelectedEntries(self):
+        self._delete_output_entries(self._operation_selection())
 
     def _apply_search_filter(self):
         query = self._search_query.casefold()
@@ -992,6 +2046,13 @@ class JsonService(QObject):
             rows = list(self._all_file_rows)
         self._visible_file_rows = rows
         self._file_model.replace(rows)
+        self._refresh_explorer()
+        if not self._current_folder:
+            if self._selected_path:
+                self.clearSelection()
+            else:
+                self.changed.emit()
+            return
         selected = self._selected_path
         if selected and any(self._same_path(row.get("path"), selected) for row in rows):
             self.changed.emit()
@@ -1030,7 +2091,8 @@ class JsonService(QObject):
         for path in root.rglob("*.json"):
             low=path.name.lower()
             if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")): continue
-            if generated and not (path.parent.name.lower()=="finals" and low.endswith("v2.json")): continue
+            managed = any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
+            if generated and not (path.parent.name.lower()=="finals" or managed): continue
             out.append(path)
         return out
 
@@ -1050,8 +2112,15 @@ class JsonService(QObject):
     def _sorted_visible_files(self, source, groups):
         if source == 0:
             files = []
+            root = self._source_roots()[source]
             for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
-                files.extend(sorted(self._dedupe_generated_files(group["files"]), key=lambda path: (self._count(path), path.name.casefold())))
+                managed = [
+                    path for path in group["files"]
+                    if path.parent == root or any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
+                ]
+                generated = [path for path in group["files"] if path not in managed]
+                files.extend(sorted(self._dedupe_generated_files(generated), key=lambda path: (self._count(path), path.name.casefold())))
+                files.extend(sorted(managed, key=lambda path: (self._count(path), path.name.casefold())))
             return files
         files = [path for group in groups for path in group["files"]]
         return sorted(files, key=lambda path: (path.stat().st_mtime * -1, path.name.casefold()))

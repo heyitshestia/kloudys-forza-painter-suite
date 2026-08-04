@@ -38,6 +38,41 @@ class PreviewService:
         shutil.rmtree(cache_root)
         return removed
 
+    def remove_managed_preview_for_json(self, json_path: str | Path, source: str = "") -> int:
+        """Remove only preview files whose names and locations KFPS owns."""
+        path = Path(json_path)
+        if not path.is_file():
+            return 0
+        source = (source or self._source_for_path(path)).lower()
+        namespace = "generated" if source == "generated" else ("editor" if source == "editor" else "general")
+        targets = []
+        if namespace == "generated":
+            targets.append(self._generated_preview_target(path))
+            targets.append(self._cache_target(path, namespace))
+        else:
+            targets.append(self._cache_target(path, namespace))
+
+        removed = 0
+        cache_root = self.cache.resolve()
+        generated_root = self.paths.generated_root.resolve()
+        for target in targets:
+            candidates = [target]
+            if cache_root in target.resolve().parents:
+                candidates.append(self._forced_marker(target))
+            for candidate in candidates:
+                try:
+                    resolved = candidate.resolve()
+                    managed_cache = cache_root in resolved.parents
+                    managed_generated = source == "generated" and generated_root in resolved.parents and resolved.parent.name.lower() == "previews"
+                    if not (managed_cache or managed_generated):
+                        continue
+                    if candidate.is_file() or candidate.is_symlink():
+                        candidate.unlink()
+                        removed += 1
+                except OSError:
+                    continue
+        return removed
+
     def preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)
         if not path.is_file(): return ""

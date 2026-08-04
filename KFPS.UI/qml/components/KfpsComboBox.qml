@@ -189,15 +189,27 @@ ComboBox {
 
     delegate: ItemDelegate {
         id: delegateRoot
+        required property int index
+        required property var model
         required property var modelData
         width: ListView.view ? ListView.view.width : root.width
         implicitHeight: Math.max(Theme.px(Theme.classicMode ? 24 : 36), delegateLabel.implicitHeight + Theme.px(Theme.classicMode ? 6 : 12))
         leftPadding: Theme.px(10)
         rightPadding: Theme.px(10)
+        highlighted: root.highlightedIndex === delegateRoot.index
 
         contentItem: Text {
             id: delegateLabel
-            text: delegateRoot.modelData
+            text: {
+                var role = String(root.textRole || "")
+                if (role.length > 0) {
+                    if (delegateRoot.model && delegateRoot.model[role] !== undefined)
+                        return String(delegateRoot.model[role])
+                    if (delegateRoot.modelData && delegateRoot.modelData[role] !== undefined)
+                        return String(delegateRoot.modelData[role])
+                }
+                return root.textAt(delegateRoot.index)
+            }
             color: delegateRoot.highlighted ? Theme.primaryText : Theme.text
             font: root.font
             verticalAlignment: Text.AlignVCenter

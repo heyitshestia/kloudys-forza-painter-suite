@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.5
+- Rebuilt Outputs as a source-scoped file browser with back, forward, parent-folder, nested-folder jump, search, folder creation, renaming, copying, moving, pasting, and permanent deletion.
+- Added File Explorer-style selection for JSONs and folders: single-click selection, Ctrl toggles, Shift ranges, Ctrl+A, keyboard file operations, and selection-aware right-click actions.
+- Kept generated, editor, game-export, and Library storage boundaries protected while allowing folders and JSONs to share the same visible name safely.
+
 ## 3.1.4
 - Fixed the calibrated FH6 live group locator rejecting valid modern shape IDs and translucent layers after it had already found the correct RTTI group.
 - Replaced oversized fallback memory scans with exact active-vector validation while retaining count, table, pointer, transform, and mask safety checks.

@@ -36,6 +36,18 @@ class PreviewCacheIdentityTests(unittest.TestCase):
    target.write_text("value = 2\n",encoding="utf-8")
    self.assertNotEqual(first,_stable_renderer_stamp(target))
 
+ def test_removing_managed_preview_preserves_adjacent_user_image(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Keep Artwork.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   adjacent=target.with_suffix(".png");adjacent.write_bytes(b"user-owned-image")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=PreviewService(paths);managed=preview._cache_target(target,"general");managed.parent.mkdir(parents=True);managed.write_bytes(b"managed")
+   marker=preview._forced_marker(managed);marker.write_text("forced-local-thumbnail-v1",encoding="ascii")
+   self.assertEqual(2,preview.remove_managed_preview_for_json(target,"exported"))
+   self.assertFalse(managed.exists());self.assertFalse(marker.exists())
+   self.assertTrue(adjacent.exists());self.assertTrue(target.exists())
+
 def wait_for(predicate,timeout=3.0):
  deadline=time.monotonic()+timeout
  while time.monotonic()<deadline:
@@ -52,6 +64,8 @@ def shutdown_json_service(svc):
  proc=getattr(svc,"_thumbnail_process",None)
  if proc and proc.poll() is None:
   proc.kill();proc.communicate(timeout=2)
+ wait_for(lambda:not svc.indexing,timeout=5.0)
+ APP.processEvents()
  svc._preview_executor.shutdown(wait=True, cancel_futures=True)
  svc._index_executor.shutdown(wait=True, cancel_futures=True)
 
@@ -255,13 +269,247 @@ class ServiceTests(unittest.TestCase):
    paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
    svc=CountingJsonService(paths,DummyPreview(),DummyDesktop(exported),DummyLog())
    try:
-    self.assertTrue(wait_for(lambda: 0 in [source for source,root in svc.builds] and 2 in [source for source,root in svc.builds]))
+    self.assertTrue(wait_for(lambda: {source for source,root in svc.builds} >= {0,1,2,3}))
     before=list(svc.builds)
     svc.setSource(2)
     svc.setSource(0)
     self.assertEqual(before,svc.builds)
     svc.refresh()
     self.assertTrue(wait_for(lambda: len(svc.builds)>len(before) and svc.builds[-1][0]==0))
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_explorer_selection_supports_single_control_shift_and_mixed_deletion(self):
+  class TrackingPreview(DummyPreview):
+   def __init__(self):self.removed=[]
+   def remove_managed_preview_for_json(self,path,source=""):
+    self.removed.append((str(path),source));return 0
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   payload=json.dumps({"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   paths_by_name={}
+   for offset,name in enumerate(("Alpha.json","Bravo.json","Charlie.json","Delta.json")):
+    path=exported/name;path.write_text(payload,encoding="utf-8");os.utime(path,(1000+offset,1000+offset));paths_by_name[name]=path
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=TrackingPreview();svc=JsonService(paths,preview,DummyDesktop(exported/"Alpha.json"),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 2 in svc._source_index_cache))
+    svc.setSource(2);self.assertEqual(4,svc.outputCount)
+    self.assertTrue(svc.createFolderIn(str(exported),"Selected Folder"));folder=exported/"Selected Folder"
+    inside=folder/"Inside.json";inside.write_text(payload,encoding="utf-8")
+    svc.refresh();self.assertTrue(wait_for(lambda:any(row["name"]=="Selected Folder" for row in svc.explorerModel.rows)))
+    indices={row["name"]:index for index,row in enumerate(svc.explorerModel.rows)}
+
+    svc.selectExplorerEntry(indices["Alpha.json"],False,False)
+    self.assertEqual(1,svc.explorerSelectionCount)
+    svc.selectExplorerEntry(indices["Charlie.json"],True,False)
+    self.assertEqual(2,svc.explorerSelectionCount)
+    self.assertTrue(svc.isExplorerEntrySelected(str(paths_by_name["Alpha.json"])))
+    self.assertTrue(svc.isExplorerEntrySelected(str(paths_by_name["Charlie.json"])))
+
+    anchor_index=indices["Charlie.json"];range_end=indices["Delta.json"]
+    svc.selectExplorerEntry(range_end,False,True)
+    expected={row["path"] for row in svc.explorerModel.rows[min(anchor_index,range_end):max(anchor_index,range_end)+1]}
+    self.assertEqual(expected,set(svc._explorer_selection))
+
+    indices={row["name"]:index for index,row in enumerate(svc.explorerModel.rows)}
+    svc.selectExplorerEntry(indices["Selected Folder"],False,False)
+    self.assertEqual("Selected Folder",svc.explorerSelectionName)
+    svc.selectExplorerEntry(indices["Charlie.json"],True,False)
+    self.assertEqual(2,svc.explorerSelectionCount);self.assertEqual(2,svc.fileOperationSelectionCount)
+    svc.copySelection()
+    self.assertEqual({str(folder),str(paths_by_name["Charlie.json"])},set(svc._clipboard_paths))
+    svc.deleteSelectedEntries()
+    self.assertFalse(folder.exists());self.assertFalse(paths_by_name["Charlie.json"].exists())
+    self.assertTrue(paths_by_name["Alpha.json"].exists());self.assertTrue(paths_by_name["Bravo.json"].exists());self.assertTrue(paths_by_name["Delta.json"].exists())
+    self.assertEqual({"Charlie.json","Inside.json"},{Path(path).name for path,source in preview.removed})
+    self.assertTrue(all(source=="exported" for path,source in preview.removed))
+    self.assertEqual(0,svc.explorerSelectionCount)
+    self.assertIn("Deleted 2 items",svc.managementStatus)
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_selection_protects_source_roots_and_rejects_outside_paths(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   indexed=exported/"Indexed.json";indexed.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   outside=app_root.parent/"outside-output-delete-test.json";outside.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(indexed),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 2 in svc._source_index_cache));svc.setSource(2)
+    self.assertFalse(svc.deleteEntry(str(exported)));self.assertTrue(exported.exists())
+    svc._explorer_selection=[str(outside)];svc._explorer_selection_keys={svc._preview_key(outside)}
+    svc.deleteSelectedEntries()
+    self.assertTrue(outside.exists());self.assertTrue(indexed.exists())
+    self.assertIn("cannot be deleted",svc.managementStatus)
+   finally:
+    outside.unlink(missing_ok=True);shutdown_json_service(svc)
+
+ def test_output_explorer_keeps_navigation_separate_from_the_flat_community_model(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";nested=exported/"Nested Folder";nested.mkdir(parents=True)
+   raw_child=nested/"Raw Child";raw_child.mkdir();(raw_child/".kfps-output-folder").write_text("not reachable through KFPS\n",encoding="ascii")
+   payload=json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   root_json=exported/"Root.json";nested_json=nested/"Nested.json"
+   root_json.write_text(payload,encoding="utf-8");nested_json.write_text(payload,encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(root_json),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 2 in svc._source_index_cache))
+    self.assertEqual(["Generated JSONs","Editor JSONs","Game Exports","Library"],[row["name"] for row in svc.explorerModel.rows])
+    self.assertEqual("",svc.currentFolder);self.assertEqual("Outputs",svc.currentFolderDisplay)
+    svc.setSource(2)
+    self.assertEqual(["Game Exports"],[row["displayName"] for row in svc.folderModel.rows])
+    self.assertEqual({"Root.json","Nested.json"},{row["name"] for row in svc.fileModel.rows})
+    self.assertEqual({"Root.json","Nested.json"},{row["name"] for row in svc.explorerModel.rows})
+    self.assertTrue(all(not row["isFolder"] for row in svc.explorerModel.rows))
+    svc.openExplorerFolder(str(nested));self.assertEqual(str(exported.resolve()),svc.currentFolder)
+    self.assertIn("folder created in KFPS",svc.managementStatus)
+    self.assertTrue(svc.createFolderIn(str(exported),"Managed"));managed=exported/"Managed"
+    self.assertTrue((managed/".kfps-output-folder").is_file())
+    self.assertIn("Managed",[row["name"] for row in svc.explorerModel.rows])
+    self.assertIn("Game Exports / Managed",[row["displayName"] for row in svc.folderModel.rows])
+    self.assertNotIn("Editor JSONs",[row["displayName"] for row in svc.folderModel.rows])
+    self.assertNotIn("Game Exports / Nested Folder",[row["displayName"] for row in svc.folderModel.rows])
+    self.assertNotIn("Game Exports / Nested Folder/Raw Child",[row["displayName"] for row in svc.folderModel.rows])
+    svc.openExplorerFolder(str(raw_child));self.assertEqual(str(exported.resolve()),svc.currentFolder)
+    self.assertIn("folder created in KFPS",svc.managementStatus)
+    svc.openExplorerFolder(str(managed));self.assertEqual(str(managed.resolve()),svc.currentFolder)
+    self.assertEqual(["Game Exports / Managed"],[row["displayName"] for row in svc.folderModel.rows])
+    self.assertTrue(svc.canGoBack);self.assertTrue(svc.canGoUp);self.assertEqual([],svc.explorerModel.rows)
+    svc.goBack();self.assertEqual(str(exported.resolve()),svc.currentFolder);self.assertTrue(svc.canGoForward)
+    svc.goForward();self.assertEqual(str(managed.resolve()),svc.currentFolder)
+    svc.goUp();self.assertEqual(str(exported.resolve()),svc.currentFolder)
+    svc.goUp();self.assertEqual("",svc.currentFolder);self.assertEqual("Outputs",svc.currentFolderDisplay)
+    svc.goBack();self.assertEqual(str(exported.resolve()),svc.currentFolder)
+    outside=app_root/"outside";outside.mkdir();svc.openExplorerFolder(str(outside))
+    self.assertEqual(str(exported.resolve()),svc.currentFolder);self.assertIn("outside the available KFPS output categories",svc.managementStatus)
+    svc.setSearchQuery("Nested");self.assertEqual(["Nested.json"],[row["name"] for row in svc.explorerModel.rows])
+    svc.clearSearch();self.assertEqual({"Managed","Nested.json","Root.json"},{row["name"] for row in svc.explorerModel.rows})
+    svc.setLibraryFolderVisible(False)
+    svc.goUp();self.assertNotIn("Library",[row["name"] for row in svc.explorerModel.rows])
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_explorer_file_operations_are_confined_and_round_trip(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   payload=json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   original=exported/"Original.json";original.write_text(payload,encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(original),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 2 in svc._source_index_cache));svc.setSource(2)
+    self.assertFalse(svc.createFolderIn(str(exported),"CON"));self.assertIn("reserved",svc.managementStatus)
+    self.assertFalse(svc.createFolderIn(str(exported),"../escape"));self.assertFalse((app_root/"imgs"/"escape").exists())
+    self.assertTrue(svc.createFolderIn(str(exported),"Managed"));managed=exported/"Managed"
+    self.assertTrue((managed/".kfps-output-folder").is_file())
+    self.assertTrue(svc.createFolderIn(str(managed),"Child"));child=managed/"Child";(child/"Inside.json").write_text(payload,encoding="utf-8")
+    self.assertTrue(svc.renameEntry(str(managed),"Organized"));organized=exported/"Organized"
+    self.assertTrue(organized.is_dir());self.assertTrue((organized/"Child"/"Inside.json").is_file())
+    svc.copyEntry(str(original));self.assertTrue(svc.renameEntry(str(original),"Renamed"));renamed=exported/"Renamed.json";self.assertTrue(renamed.is_file())
+    self.assertEqual([str(renamed.resolve())],svc._clipboard_paths)
+    svc.pasteIntoFolder(str(exported));copy=exported/"Renamed - Copy.json"
+    self.assertTrue(copy.is_file());self.assertEqual(payload,copy.read_text(encoding="utf-8"))
+    svc.copyEntry(str(organized));svc.pasteIntoFolder(str(exported));folder_copy=exported/"Organized - Copy"
+    self.assertTrue((folder_copy/"Child"/"Inside.json").is_file())
+    svc.copyEntry(str(organized));svc.pasteIntoFolder(str(organized/"Child"))
+    self.assertFalse((organized/"Child"/"Organized").exists());self.assertIn("Nothing was pasted",svc.managementStatus)
+    svc.cutEntry(str(copy));svc.setSource(1);editor_root=paths.editor_json_root;svc.pasteIntoCurrentFolder()
+    self.assertFalse(copy.exists());self.assertTrue((editor_root/copy.name).is_file());self.assertFalse(svc.clipboardCut)
+    self.assertFalse(svc.renameEntry(str(editor_root),"Renamed Editor JSONs"));self.assertTrue(editor_root.is_dir())
+    svc.copyEntry(str(editor_root));self.assertEqual(0,svc.clipboardCount);self.assertIn("Select a JSON",svc.managementStatus)
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_explorer_supports_nested_jump_paths_and_folder_json_name_collisions(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   payload=json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   same_json=exported/"Same.json";rename_target_json=exported/"Rename Target.json"
+   same_json.write_text(payload,encoding="utf-8");rename_target_json.write_text(payload,encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(same_json),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda:2 in svc._source_index_cache));svc.setSource(2)
+    self.assertTrue(svc.createFolderIn(str(exported),"Same.json"))
+    same_folder=next(path for path in exported.iterdir() if path.is_dir() and svc._folder_display_name(path)=="Same.json")
+    self.assertNotEqual(same_json,same_folder)
+    self.assertEqual("Same.json",json.loads((same_folder/".kfps-output-folder").read_text(encoding="utf-8"))["displayName"])
+    self.assertEqual(2,[row["name"] for row in svc.explorerModel.rows].count("Same.json"))
+    svc.openExplorerFolder(str(same_folder));self.assertEqual("Game Exports / Same.json",svc.currentFolderDisplay)
+    nested_json=same_folder/"Nested.json";nested_json.write_text(payload,encoding="utf-8")
+    self.assertTrue(svc.createFolderIn(str(same_folder),"Nested.json"))
+    nested_folder=next(path for path in same_folder.iterdir() if path.is_dir() and svc._folder_display_name(path)=="Nested.json")
+    self.assertNotEqual(nested_json,nested_folder)
+    self.assertEqual(
+     ["Game Exports / Same.json","Game Exports / Same.json / Nested.json"],
+     [row["displayName"] for row in svc.folderModel.rows],
+    )
+    self.assertTrue(svc.renameEntry(str(same_folder),"Rename Target.json"))
+    renamed_folder=next(path for path in exported.iterdir() if path.is_dir() and svc._folder_display_name(path)=="Rename Target.json")
+    self.assertNotEqual(rename_target_json,renamed_folder)
+    self.assertTrue(any(path.is_dir() and svc._folder_display_name(path)=="Nested.json" for path in renamed_folder.iterdir()))
+    self.assertIn("Game Exports / Rename Target.json / Nested.json",[row["displayName"] for row in svc.folderModel.rows])
+    svc.copyEntry(str(renamed_folder));svc.pasteIntoFolder(str(exported))
+    copied_folder=next(path for path in exported.iterdir() if path.is_dir() and svc._folder_display_name(path)=="Rename Target.json - Copy")
+    self.assertTrue((copied_folder/".kfps-output-folder").is_file())
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_explorer_right_click_delete_removes_jsons_and_managed_folders_only(self):
+  class TrackingPreview(DummyPreview):
+   def __init__(self):self.removed=[]
+   def remove_managed_preview_for_json(self,path,source=""):
+    self.removed.append((Path(path).name,source));return 1
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   payload=json.dumps({"metadata":{"layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   direct=exported/"Delete Direct.json";direct.write_text(payload,encoding="utf-8")
+   keep=exported/"Keep.json";keep.write_text(payload,encoding="utf-8")
+   unmanaged=exported/"Unmanaged";unmanaged.mkdir();(unmanaged/"Outside.json").write_text(payload,encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=TrackingPreview();svc=JsonService(paths,preview,DummyDesktop(direct),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda:2 in svc._source_index_cache));svc.setSource(2)
+    self.assertFalse(svc.deleteEntry(str(exported)));self.assertTrue(exported.is_dir())
+    self.assertFalse(svc.deleteEntry(str(unmanaged)));self.assertTrue(unmanaged.is_dir())
+    svc.copyEntry(str(direct));self.assertTrue(svc.deleteEntry(str(direct)))
+    self.assertFalse(direct.exists());self.assertTrue(keep.exists());self.assertEqual(0,svc.clipboardCount)
+    self.assertTrue(svc.createFolderIn(str(exported),"Delete Folder"));folder=exported/"Delete Folder"
+    self.assertTrue(svc.createFolderIn(str(folder),"Nested"));nested=folder/"Nested"
+    (folder/"Inside.json").write_text(payload,encoding="utf-8");(nested/"Deeper.json").write_text(payload,encoding="utf-8")
+    svc.openExplorerFolder(str(folder));svc.copyEntry(str(folder))
+    self.assertTrue(svc.deleteEntry(str(folder)))
+    self.assertFalse(folder.exists());self.assertEqual(str(exported.resolve()),svc.currentFolder)
+    self.assertEqual(0,svc.clipboardCount)
+    self.assertNotIn("Game Exports / Delete Folder",[row["displayName"] for row in svc.folderModel.rows])
+    self.assertEqual({"Delete Direct.json","Inside.json","Deeper.json"},{name for name,source in preview.removed})
+    self.assertTrue(all(source=="exported" for name,source in preview.removed))
+   finally:
+    shutdown_json_service(svc)
+
+ def test_generated_explorer_preserves_all_user_managed_jsons_with_matching_layer_counts(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);generated=app_root/"imgs"/"generated"
+   legacy=generated/"Legacy"/"finals";legacy.mkdir(parents=True)
+   managed=generated/"Organized";managed.mkdir(parents=True);(managed/".kfps-output-folder").write_text("KFPS managed output folder\n",encoding="ascii")
+   payload=lambda title: json.dumps({"metadata":{"display_name":title,"layers":5},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]})
+   (legacy/"Legacy.5v2.json").write_text(payload("Legacy"),encoding="utf-8")
+   (managed/"First.json").write_text(payload("First"),encoding="utf-8")
+   (managed/"Second.json").write_text(payload("Second"),encoding="utf-8")
+   (generated/"Direct One.json").write_text(payload("Direct One"),encoding="utf-8")
+   (generated/"Direct Two.json").write_text(payload("Direct Two"),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(generated/"Direct One.json"),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 0 in svc._source_index_cache and len(svc._source_index_cache[0].get("rows",[]))==5))
+    svc.setSource(0)
+    self.assertEqual({"Legacy.5v2.json","First.json","Second.json","Direct One.json","Direct Two.json"},{row["name"] for row in svc.fileModel.rows})
+    self.assertEqual({"Legacy.5v2.json","Direct One.json","Direct Two.json","Organized"},{row["name"] for row in svc.explorerModel.rows})
+    svc.openExplorerFolder(str(managed))
+    self.assertEqual({"First.json","Second.json"},{row["name"] for row in svc.explorerModel.rows})
    finally:
     shutdown_json_service(svc)
  def test_json_index_cache_loads_rows_without_initial_scan(self):
