@@ -26,6 +26,7 @@ class SettingsService(QObject):
         "terminalGreenText": False,
         "consoleCollapsed": False,
         "windowGeometry": {},
+        "backupFolder": "",
     }
     KNOWN_THEMES = set(KNOWN_THEME_NAMES)
 
@@ -100,6 +101,10 @@ class SettingsService(QObject):
     def consoleCollapsed(self): return bool(self._get("consoleCollapsed"))
     @consoleCollapsed.setter
     def consoleCollapsed(self, value): self._set("consoleCollapsed", bool(value))
+    @Property(str, notify=changed)
+    def backupFolder(self): return str(self._get("backupFolder") or "")
+    @backupFolder.setter
+    def backupFolder(self, value): self._set("backupFolder", str(value or ""))
 
     def window_geometry(self) -> dict:
         payload = self._data.get("windowGeometry")

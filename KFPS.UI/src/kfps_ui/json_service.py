@@ -272,13 +272,16 @@ class JsonService(QObject):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
         self._group_model = DictListModel(["name","displayName","detailText","path","count","modifiedLabel"])
         self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
-        self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","modifiedLabel","previewUrl","detailText","folder"])
+        self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","modifiedLabel","previewUrl","detailText","folder","selected"])
         self._folder_model = DictListModel(["displayName","path","depth","sourceIndex"])
         self._recent_model = DictListModel(["name","path","folder","age","source"])
         self._source = 0; self._selected_group = -1; self._selected_path = ""; self._selected_display_name = ""; self._preview_url = ""; self._layers = "—"; self._folder = "—"
         self._search_query = ""
         self._explorer_selection: list[str] = []
         self._explorer_selection_keys: set[str] = set()
+        self._explorer_index_by_key: dict[str, int] = {}
+        self._explorer_operable_keys: set[str] = set()
+        self._operation_selection_count = 0
         self._selection_anchor_path = ""
         self._selection_revision = 0
         self._management_status = ""
@@ -357,11 +360,8 @@ class JsonService(QObject):
         if len(self._explorer_selection) != 1:
             return ""
         selected_key = self._preview_key(self._explorer_selection[0])
-        row = next(
-            (candidate for candidate in self._explorer_rows
-             if self._preview_key(candidate.get("path")) == selected_key),
-            None,
-        )
+        index = self._explorer_index_by_key.get(selected_key, -1)
+        row = self._explorer_rows[index] if 0 <= index < len(self._explorer_rows) else None
         return str(row.get("displayName") or row.get("name") or "") if row else Path(self._explorer_selection[0]).name
     @Property(int, notify=changed)
     def explorerSelectionRevision(self): return self._selection_revision
@@ -409,7 +409,7 @@ class JsonService(QObject):
     def canPaste(self): return bool(self._clipboard_paths)
     @Property(int, notify=changed)
     def fileOperationSelectionCount(self):
-        return len(self._operation_selection())
+        return self._operation_selection_count
     @Property(str, notify=changed)
     def explorerSummary(self):
         folders = sum(1 for row in self._explorer_rows if row.get("isFolder"))
@@ -581,28 +581,60 @@ class JsonService(QObject):
         return self._same_path(current, root)
 
     def _path_in_managed_folder(self, path, source=None):
+        return self._path_in_managed_folder_with_keys(path, source=source)
+
+    @staticmethod
+    def _fast_path_key(path):
+        try:
+            return os.path.normcase(os.path.abspath(os.fspath(path)))
+        except (OSError, TypeError, ValueError):
+            return os.path.normcase(str(path or ""))
+
+    def _managed_folder_keys(self, source=None):
         source = self._source if source is None else int(source)
         root = self._source_roots()[source]
-        managed = {
-            self._preview_key(row.get("path"))
+        root_key = self._fast_path_key(root)
+        return {
+            self._fast_path_key(row.get("path"))
             for row in self._folder_model.rows
             if int(row.get("sourceIndex", -1)) == source
             and row.get("path")
-            and not self._same_path(row.get("path"), root)
+            and self._fast_path_key(row.get("path")) != root_key
         }
+
+    def _path_in_managed_folder_with_keys(self, path, source=None, managed_keys=None):
+        source = self._source if source is None else int(source)
+        root = self._source_roots()[source]
+        root_key = self._fast_path_key(root)
+        path_key = self._fast_path_key(path)
+        try:
+            if os.path.commonpath((path_key, root_key)) != root_key:
+                return False
+        except ValueError:
+            return False
+        managed = self._managed_folder_keys(source) if managed_keys is None else managed_keys
         current = Path(path).parent
-        while self._path_is_within(current, root) and not self._same_path(current, root):
-            if self._preview_key(current) in managed:
+        while True:
+            current_key = self._fast_path_key(current)
+            if current_key == root_key:
+                return False
+            if current_key in managed:
                 return True
-            current = current.parent
-        return False
+            parent = current.parent
+            if parent == current:
+                return False
+            current = parent
 
     def _managed_child_folders(self, parent):
         try:
-            return sorted(
-                (child for child in Path(parent).iterdir() if self._is_managed_folder(child)),
-                key=lambda item: self._folder_display_name(item).casefold(),
-            )
+            with os.scandir(parent) as entries:
+                folders = [
+                    Path(entry.path)
+                    for entry in entries
+                    if entry.is_dir(follow_symlinks=False)
+                    and self._folder_marker(entry.path).is_file()
+                ]
+            return sorted(folders, key=lambda item: self._folder_display_name(item).casefold())
         except OSError:
             return []
 
@@ -658,7 +690,7 @@ class JsonService(QObject):
 
     def _source_entry_row(self, source):
         cached = self._source_index_cache.get(source, {})
-        json_count = sum(1 for row in cached.get("rows", []) if Path(str(row.get("path") or "")).is_file())
+        json_count = sum(1 for row in cached.get("rows", []) if row.get("path"))
         folder_count = sum(
             1 for row in self._folder_model.rows
             if int(row.get("sourceIndex", -1)) == source and int(row.get("depth", 0)) > 1
@@ -681,7 +713,7 @@ class JsonService(QObject):
             "folder": "",
         }
 
-    def _folder_entry_row(self, path):
+    def _folder_entry_row(self, path, json_counts=None, folder_counts=None):
         path = Path(path)
         source = self._managed_source_for_path(path)
         display_name = self._folder_display_name(path)
@@ -689,16 +721,9 @@ class JsonService(QObject):
             modified = path.stat().st_mtime
         except OSError:
             modified = 0.0
-        folders = 0
-        jsons = 0
-        try:
-            for child in path.iterdir():
-                if self._is_managed_folder(child):
-                    folders += 1
-                elif child.is_file() and self._explorer_json_visible(child):
-                    jsons += 1
-        except OSError:
-            pass
+        path_key = self._fast_path_key(path)
+        folders = int((folder_counts or {}).get(path_key, 0))
+        jsons = int((json_counts or {}).get(path_key, 0))
         parts = []
         if folders:
             parts.append(f"{folders} folder" if folders == 1 else f"{folders} folders")
@@ -746,32 +771,82 @@ class JsonService(QObject):
                 self._refresh_folder_model(force=True)
                 self._refresh_explorer()
                 return
-            cached_rows = self._current_source_index().get("rowsByKey", {})
+            current_index = self._current_source_index()
+            cached_rows = current_index.get("rowsByKey", {})
+            indexed_rows = current_index.get("rows", [])
+            json_counts = {}
+            for indexed_row in indexed_rows:
+                folder_key = self._fast_path_key(indexed_row.get("folder") or Path(indexed_row["path"]).parent)
+                json_counts[folder_key] = json_counts.get(folder_key, 0) + 1
+            folder_counts = {}
+            for folder_row in self._folder_model.rows:
+                folder_path = folder_row.get("path")
+                if not folder_path or int(folder_row.get("sourceIndex", -1)) != self._source:
+                    continue
+                parent_key = self._fast_path_key(Path(folder_path).parent)
+                folder_counts[parent_key] = folder_counts.get(parent_key, 0) + 1
             if self._search_query:
                 rows = [
                     self._explorer_json_row(row["path"], cached_rows)
                     for row in self._visible_file_rows
-                    if Path(row["path"]).is_file()
+                    if row.get("path")
                 ]
             elif self._same_path(current, root):
-                rows.extend(self._folder_entry_row(path) for path in self._managed_child_folders(root))
+                rows.extend(
+                    self._folder_entry_row(path, json_counts, folder_counts)
+                    for path in self._managed_child_folders(root)
+                )
+                managed_keys = self._managed_folder_keys(self._source)
                 rows.extend(
                     self._explorer_json_row(row["path"], cached_rows)
                     for row in self._visible_file_rows
-                    if Path(row["path"]).is_file() and not self._path_in_managed_folder(row["path"])
+                    if row.get("path")
+                    and not self._path_in_managed_folder_with_keys(
+                        row["path"],
+                        managed_keys=managed_keys,
+                    )
                 )
             else:
-                rows.extend(self._folder_entry_row(path) for path in self._managed_child_folders(current))
-                try:
-                    jsons = sorted(
-                        (child for child in current.iterdir() if child.is_file() and self._explorer_json_visible(child)),
-                        key=lambda item: (-item.stat().st_mtime, item.name.casefold()),
+                rows.extend(
+                    self._folder_entry_row(path, json_counts, folder_counts)
+                    for path in self._managed_child_folders(current)
+                )
+                current_key = self._fast_path_key(current)
+                direct_rows = [
+                    row for row in self._visible_file_rows
+                    if row.get("path")
+                    and self._fast_path_key(row.get("folder") or Path(row["path"]).parent) == current_key
+                ]
+                direct_rows.sort(
+                    key=lambda row: (
+                        -int(row.get("mtimeNs") or 0),
+                        str(row.get("name") or "").casefold(),
                     )
-                except OSError:
-                    jsons = []
-                rows.extend(self._explorer_json_row(path, cached_rows) for path in jsons)
+                )
+                rows.extend(self._explorer_json_row(row["path"], cached_rows) for row in direct_rows)
+        self._explorer_index_by_key = {}
+        self._explorer_operable_keys = set()
+        for index, row in enumerate(rows):
+            key = self._preview_key(row.get("path"))
+            selected = key in self._explorer_selection_keys
+            row["selected"] = selected
+            self._explorer_index_by_key[key] = index
+            if row.get("entryKind") != "source":
+                self._explorer_operable_keys.add(key)
+        self._operation_selection_count = len(self._explorer_selection_keys & self._explorer_operable_keys)
         self._explorer_rows = rows
         self._explorer_model.replace(rows)
+
+    def _sync_explorer_selection_model(self, previous_keys):
+        current_keys = self._explorer_selection_keys
+        for key in previous_keys.symmetric_difference(current_keys):
+            index = self._explorer_index_by_key.get(key, -1)
+            if not 0 <= index < len(self._explorer_rows):
+                continue
+            selected = key in current_keys
+            self._explorer_rows[index]["selected"] = selected
+            self._explorer_model.set_row_value(index, "selected", selected)
+        self._operation_selection_count = len(current_keys & self._explorer_operable_keys)
 
     def _refresh_folder_model(self, force=False):
         if self._folder_model.rows and not force:
@@ -1491,6 +1566,7 @@ class JsonService(QObject):
         if not path:
             return
         key = self._preview_key(path)
+        previous_keys = set(self._explorer_selection_keys)
 
         if shift and self._selection_anchor_path:
             anchor_key = self._preview_key(self._selection_anchor_path)
@@ -1531,9 +1607,10 @@ class JsonService(QObject):
 
         selected = key in self._explorer_selection_keys
         if selected and not row.get("isFolder"):
-            self._select_path(path)
+            self._select_path(path, queue_preview=not (control or shift), emit=False)
         elif self._selected_path and self._preview_key(self._selected_path) not in self._explorer_selection_keys:
-            self.clearSelection()
+            self._clear_selection(emit=False)
+        self._sync_explorer_selection_model(previous_keys)
         self._selection_revision += 1
         self.changed.emit()
 
@@ -1542,10 +1619,14 @@ class JsonService(QObject):
         return self._preview_key(value) in self._explorer_selection_keys
 
     def _managed_source_for_path(self, value):
-        path = Path(str(value or ""))
+        path_key = self._fast_path_key(value)
         for source, root in enumerate(self._source_roots()):
-            if self._path_is_within(path, root):
-                return source
+            root_key = self._fast_path_key(root)
+            try:
+                if os.path.commonpath((path_key, root_key)) == root_key:
+                    return source
+            except ValueError:
+                continue
         return -1
 
     def _entry_allowed_for_operation(self, value):
@@ -1586,17 +1667,20 @@ class JsonService(QObject):
 
         values.sort(key=lambda path: len(path.parts))
         collapsed = []
+        selected_folders = []
         for path in values:
-            if any(parent.is_dir() and self._path_is_within(path, parent) for parent in collapsed):
+            if any(self._path_is_within(path, parent) for parent in selected_folders):
                 continue
             collapsed.append(path)
+            if path.is_dir():
+                selected_folders.append(path)
         return [str(path) for path in collapsed]
 
-    def _stage_clipboard(self, values, cut):
+    def _stage_clipboard(self, values, cut, validated=False):
         paths = []
         seen = set()
         for value in values:
-            if not self._entry_allowed_for_operation(value):
+            if not validated and not self._entry_allowed_for_operation(value):
                 continue
             path = str(Path(value))
             key = self._preview_key(path)
@@ -1617,11 +1701,11 @@ class JsonService(QObject):
 
     @Slot()
     def copySelection(self):
-        self._stage_clipboard(self._operation_selection(), cut=False)
+        self._stage_clipboard(self._operation_selection(), cut=False, validated=True)
 
     @Slot()
     def cutSelection(self):
-        self._stage_clipboard(self._operation_selection(), cut=True)
+        self._stage_clipboard(self._operation_selection(), cut=True, validated=True)
 
     @Slot(str)
     def copyEntry(self, value):
@@ -1682,17 +1766,140 @@ class JsonService(QObject):
         if not value:
             return value
         try:
-            path = Path(value).resolve()
-            source = Path(source).resolve()
-            target = Path(target).resolve()
-            if path == source:
-                return str(target)
-            return str(target / path.relative_to(source))
-        except (OSError, ValueError):
+            path = os.path.abspath(os.fspath(value))
+            source_path = os.path.abspath(os.fspath(source))
+            target_path = os.path.abspath(os.fspath(target))
+            path_key = os.path.normcase(path)
+            source_key = os.path.normcase(source_path)
+            if path_key == source_key:
+                return target_path
+            if path_key.startswith(source_key.rstrip(os.sep) + os.sep):
+                return os.path.normpath(os.path.join(target_path, os.path.relpath(path, source_path)))
+            return value
+        except (OSError, TypeError, ValueError):
             return value
 
     def _remap_entry_references(self, source, target):
-        remap = lambda value: self._remap_path_reference(value, source, target)
+        self._remap_entry_references_batch([(source, target)])
+
+    def _prepare_preview_transfers(self, source, source_index):
+        prepare = getattr(self.preview, "prepare_managed_preview_transfer", None)
+        if not callable(prepare):
+            return []
+        source = Path(source)
+        source_name = self._source_names()[source_index]
+        if source.is_file():
+            candidates = [source]
+        else:
+            source_key = self._fast_path_key(source)
+            candidates = [
+                Path(str(row.get("path") or ""))
+                for cached in self._source_index_cache.values()
+                for row in cached.get("rows", [])
+                if row.get("path")
+                and (
+                    self._fast_path_key(row.get("path")) == source_key
+                    or self._fast_path_key(row.get("path")).startswith(source_key + os.sep)
+                )
+            ]
+        transfers = []
+        for json_path in candidates:
+            try:
+                state = prepare(json_path, source_name)
+            except Exception as exc:
+                self.log.append(f"Could not preserve the thumbnail cache for {json_path}: {exc}", "warning")
+                continue
+            if state:
+                transfers.append((str(json_path), state))
+        return transfers
+
+    def _complete_preview_transfers(self, transfers, source, target, target_source, move):
+        complete = getattr(self.preview, "complete_managed_preview_transfer", None)
+        if not callable(complete):
+            return {}
+        preview_urls = {}
+        for old_json, state in transfers:
+            new_json = self._remap_path_reference(old_json, source, target)
+            try:
+                preview_url = complete(state, new_json, target_source, move=move)
+            except Exception as exc:
+                self.log.append(f"Could not transfer the cached thumbnail for {new_json}: {exc}", "warning")
+                continue
+            if preview_url:
+                preview_urls[self._preview_key(new_json)] = str(preview_url)
+        return preview_urls
+
+    def _remap_cached_output_rows(self, mappings, preview_urls, copy):
+        additions = {}
+        for source_index, cached in self._source_index_cache.items():
+            retained = []
+            for row in cached.get("rows", []):
+                old_path = str(row.get("path") or "")
+                new_path = old_path
+                for source, target in mappings:
+                    candidate = self._remap_path_reference(old_path, source, target)
+                    if candidate != old_path:
+                        new_path = candidate
+                        break
+                if new_path == old_path:
+                    retained.append(row)
+                    continue
+                if copy:
+                    retained.append(row)
+                target_path = Path(new_path)
+                target_source = self._managed_source_for_path(target_path)
+                try:
+                    stat = target_path.stat()
+                except OSError:
+                    continue
+                new_row = dict(row)
+                new_row.update({
+                    "name": target_path.name,
+                    "path": str(target_path),
+                    "folder": str(target_path.parent),
+                    "mtime": stat.st_mtime,
+                    "mtimeNs": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "source": target_source,
+                    "previewUrl": str(preview_urls.get(self._preview_key(target_path)) or ""),
+                })
+                additions.setdefault(target_source, []).append(new_row)
+            cached["rows"] = retained
+
+        for source_index, rows in additions.items():
+            if source_index < 0:
+                continue
+            cached = self._source_index_cache.setdefault(source_index, self._empty_source_index(source_index))
+            by_key = {self._preview_key(row.get("path")): row for row in cached.get("rows", [])}
+            for row in rows:
+                by_key[self._preview_key(row.get("path"))] = row
+            cached["rows"] = list(by_key.values())
+
+        for cached in self._source_index_cache.values():
+            cached["rowsByKey"] = {
+                self._preview_key(row.get("path")): row
+                for row in cached.get("rows", [])
+            }
+        current_rows = list(self._current_source_index().get("rows", []))
+        self._all_file_rows = current_rows
+        query = self._search_query.casefold()
+        self._visible_file_rows = [
+            row for row in current_rows
+            if not query or self._row_matches_search(row, query)
+        ]
+        self._file_model.replace(self._visible_file_rows)
+
+    def _remap_entry_references_batch(self, mappings):
+        mappings = list(mappings)
+
+        def remap(value):
+            result = value
+            for source, target in mappings:
+                updated = self._remap_path_reference(result, source, target)
+                if updated != result:
+                    return updated
+            return result
+
         self._current_folder = remap(self._current_folder)
         self._back_history = [remap(value) for value in self._back_history]
         self._forward_history = [remap(value) for value in self._forward_history]
@@ -1717,6 +1924,8 @@ class JsonService(QObject):
             self.changed.emit()
             return False
         is_folder = source.is_dir()
+        source_index = self._managed_source_for_path(source)
+        preview_transfers = self._prepare_preview_transfers(source, source_index)
         old_display_name = self._folder_display_name(source) if is_folder else source.name
         name = str(requested_name or "").strip()
         if not is_folder and not name.casefold().endswith(".json"):
@@ -1771,6 +1980,15 @@ class JsonService(QObject):
             self.changed.emit()
             return False
         if moved:
+            target_source = self._managed_source_for_path(target)
+            preview_urls = self._complete_preview_transfers(
+                preview_transfers,
+                source,
+                target,
+                self._source_names()[target_source],
+                move=True,
+            )
+            self._remap_cached_output_rows([(str(source), str(target))], preview_urls, copy=False)
             self._remap_entry_references(source, target)
         self._management_status = f"Renamed {old_display_name} to {name}."
         self._refresh_after_file_operations([source, target])
@@ -1794,10 +2012,13 @@ class JsonService(QObject):
             requested.append(path)
         requested.sort(key=lambda path: len(path.parts))
         targets = []
+        target_folders = []
         for path in requested:
-            if any(parent.is_dir() and self._path_is_within(path, parent) for parent in targets):
+            if any(self._path_is_within(path, parent) for parent in target_folders):
                 continue
             targets.append(path)
+            if path.is_dir():
+                target_folders.append(path)
 
         if not targets:
             self._management_status = "That item cannot be deleted from Outputs."
@@ -1865,8 +2086,10 @@ class JsonService(QObject):
         self._clipboard_paths = [path for path in self._clipboard_paths if not was_deleted(path)]
         if not self._clipboard_paths:
             self._clipboard_cut = False
+        previous_selection_keys = set(self._explorer_selection_keys)
         self._explorer_selection = [path for path in self._explorer_selection if not was_deleted(path)]
         self._explorer_selection_keys = {self._preview_key(path) for path in self._explorer_selection}
+        self._sync_explorer_selection_model(previous_selection_keys)
         if was_deleted(self._selection_anchor_path):
             self._selection_anchor_path = ""
         if was_deleted(self._selected_path):
@@ -1939,6 +2162,7 @@ class JsonService(QObject):
 
         was_cut = self._clipboard_cut
         succeeded = []
+        preview_urls = {}
         failed = []
         affected = [destination]
         for raw_source in list(self._clipboard_paths):
@@ -1953,6 +2177,8 @@ class JsonService(QObject):
                 failed.append(source.name)
                 continue
             is_folder = source.is_dir()
+            source_index = self._managed_source_for_path(source)
+            preview_transfers = self._prepare_preview_transfers(source, source_index)
             if is_folder:
                 display_name = self._unique_folder_display_name(destination, self._folder_display_name(source))
                 target = self._folder_storage_target(destination, display_name)
@@ -1969,6 +2195,13 @@ class JsonService(QObject):
                 if is_folder:
                     self._write_folder_marker(target, display_name)
                 succeeded.append((str(source), str(target)))
+                preview_urls.update(self._complete_preview_transfers(
+                    preview_transfers,
+                    source,
+                    target,
+                    self._source_names()[destination_source],
+                    move=was_cut,
+                ))
                 affected.extend((source, target))
             except OSError as exc:
                 failed.append(display_name)
@@ -1990,8 +2223,9 @@ class JsonService(QObject):
             self._clear_explorer_selection(emit=False)
             if self._selected_path and self._preview_key(self._selected_path) in moved_keys:
                 self.clearSelection()
-            for source, target in succeeded:
-                self._remap_entry_references(source, target)
+            self._remap_entry_references_batch(succeeded)
+        if succeeded:
+            self._remap_cached_output_rows(succeeded, preview_urls, copy=not was_cut)
         action = "Moved" if was_cut else "Copied"
         if succeeded and not failed:
             noun = "item" if len(succeeded) == 1 else "items"
@@ -2003,6 +2237,31 @@ class JsonService(QObject):
         self._refresh_after_file_operations(affected)
 
     def _refresh_after_file_operations(self, paths):
+        missing_paths = [Path(path) for path in paths if path and not Path(path).exists()]
+        if missing_paths:
+            missing_keys = tuple(self._fast_path_key(path) for path in missing_paths)
+
+            def remains_available(row):
+                row_path = row.get("path")
+                if not row_path:
+                    return False
+                row_key = self._fast_path_key(row_path)
+                return not any(
+                    row_key == missing_key
+                    or row_key.startswith(missing_key + os.sep)
+                    for missing_key in missing_keys
+                )
+
+            for source, cached in self._source_index_cache.items():
+                cached_rows = [row for row in cached.get("rows", []) if remains_available(row)]
+                cached["rows"] = cached_rows
+                cached["rowsByKey"] = {
+                    self._preview_key(row.get("path")): row
+                    for row in cached_rows
+                }
+            self._all_file_rows = [row for row in self._all_file_rows if remains_available(row)]
+            self._visible_file_rows = [row for row in self._visible_file_rows if remains_available(row)]
+            self._file_model.replace(self._visible_file_rows)
         affected_sources = {self._managed_source_for_path(path) for path in paths}
         affected_sources.discard(-1)
         self._refresh_folder_model(force=True)
@@ -2014,9 +2273,11 @@ class JsonService(QObject):
 
     def _clear_explorer_selection(self, emit=True):
         had_selection = bool(self._explorer_selection or self._selection_anchor_path)
+        previous_keys = set(self._explorer_selection_keys)
         self._explorer_selection = []
         self._explorer_selection_keys.clear()
         self._selection_anchor_path = ""
+        self._sync_explorer_selection_model(previous_keys)
         if had_selection:
             self._selection_revision += 1
             if emit:
@@ -2028,9 +2289,11 @@ class JsonService(QObject):
 
     @Slot()
     def selectAllExplorerEntries(self):
+        previous_keys = set(self._explorer_selection_keys)
         self._explorer_selection = [str(row.get("path") or "") for row in self._explorer_rows if row.get("path")]
         self._explorer_selection_keys = {self._preview_key(path) for path in self._explorer_selection}
         self._selection_anchor_path = self._explorer_selection[-1] if self._explorer_selection else ""
+        self._sync_explorer_selection_model(previous_keys)
         self._selection_revision += 1
         self.changed.emit()
 
@@ -2278,7 +2541,7 @@ class JsonService(QObject):
     def selectPath(self,value):
         self._select_path(value, log=True)
 
-    def _select_path(self, value, log=True, queue_preview=True):
+    def _select_path(self, value, log=True, queue_preview=True, emit=True):
         path=Path(value)
         if not path.is_file():return
         source_name,row=self._source_name_for_preview_path(path)
@@ -2287,7 +2550,8 @@ class JsonService(QObject):
         self._layers=str(row.get("layers") if row else self._count(path))
         self._folder=str(row.get("folder") if row else path.parent)
         self._preview_url=str(row.get("previewUrl") if row and row.get("previewUrl") else self._existing_preview_for_json(path, source_name))
-        self.changed.emit()
+        if emit:
+            self.changed.emit()
         if queue_preview and not self._preview_url:
             self._enqueue_preview_path(path, source_name, priority=True)
         if log:
@@ -2301,10 +2565,7 @@ class JsonService(QObject):
 
     @staticmethod
     def _preview_key(path):
-        try:
-            return str(Path(path).resolve()).casefold()
-        except Exception:
-            return str(path).casefold()
+        return JsonService._fast_path_key(path)
 
     def _source_name_for_preview_path(self, path):
         key = self._preview_key(path)
@@ -2403,8 +2664,18 @@ class JsonService(QObject):
             self._preview_url = preview_url
             self.changed.emit()
 
+    def _clear_selection(self, emit=True):
+        self._selected_path = ""
+        self._selected_display_name = ""
+        self._preview_url = ""
+        self._layers = "—"
+        self._folder = "—"
+        if emit:
+            self.changed.emit()
+
     @Slot()
-    def clearSelection(self): self._selected_path=""; self._selected_display_name=""; self._preview_url=""; self._layers="—"; self._folder="—"; self.changed.emit()
+    def clearSelection(self):
+        self._clear_selection(emit=True)
 
     @staticmethod
     def _safe_float(value, default=0.0):

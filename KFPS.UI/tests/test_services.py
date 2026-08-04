@@ -48,6 +48,39 @@ class PreviewCacheIdentityTests(unittest.TestCase):
    self.assertFalse(managed.exists());self.assertFalse(marker.exists())
    self.assertTrue(adjacent.exists());self.assertTrue(target.exists())
 
+ def test_moving_json_rekeys_managed_thumbnail_without_rendering(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);source=app_root/"imgs"/"exported"/"Source.json";source.parent.mkdir(parents=True)
+   source.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   destination=source.parent/"Moved";destination.mkdir();target=destination/source.name
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=PreviewService(paths);old_cache=preview._cache_target(source,"general");old_cache.parent.mkdir(parents=True);old_cache.write_bytes(b"cached-preview")
+   preview._forced_marker(old_cache).write_text("forced-local-thumbnail-v1",encoding="ascii")
+   state=preview.prepare_managed_preview_transfer(source,"exported")
+   source.rename(target)
+   url=preview.complete_managed_preview_transfer(state,target,"exported",move=True)
+   new_cache=preview._cache_target(target,"general")
+   self.assertEqual(file_url(new_cache),url);self.assertEqual(b"cached-preview",new_cache.read_bytes())
+   self.assertFalse(old_cache.exists());self.assertTrue(preview._forced_marker(new_cache).is_file())
+   with patch("json_preview_renderer.render_json_preview",side_effect=AssertionError("thumbnail was rerendered")):
+    self.assertEqual(file_url(new_cache),preview.preview_for_json(target,"exported"))
+
+ def test_moving_json_borrows_adjacent_preview_without_modifying_user_image(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);source=app_root/"imgs"/"exported"/"Source.json";source.parent.mkdir(parents=True)
+   source.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   adjacent=source.with_suffix(".png");adjacent.write_bytes(b"user-owned-preview")
+   destination=source.parent/"Moved";destination.mkdir();target=destination/source.name
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview=PreviewService(paths);state=preview.prepare_managed_preview_transfer(source,"exported")
+   source.rename(target)
+   url=preview.complete_managed_preview_transfer(state,target,"exported",move=True)
+   new_cache=preview._cache_target(target,"general")
+   self.assertEqual(file_url(new_cache),url);self.assertEqual(b"user-owned-preview",new_cache.read_bytes())
+   self.assertEqual(b"user-owned-preview",adjacent.read_bytes())
+   with patch("json_preview_renderer.render_json_preview",side_effect=AssertionError("thumbnail was rerendered")):
+    self.assertEqual(file_url(new_cache),preview.preview_for_json(target,"exported"))
+
 def wait_for(predicate,timeout=3.0):
  deadline=time.monotonic()+timeout
  while time.monotonic()<deadline:

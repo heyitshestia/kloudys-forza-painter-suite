@@ -73,6 +73,93 @@ class PreviewService:
                     continue
         return removed
 
+    def prepare_managed_preview_transfer(self, json_path: str | Path, source: str = "") -> dict:
+        """Capture KFPS-owned preview paths before a JSON is moved or copied."""
+        path = Path(json_path)
+        if not path.is_file():
+            return {}
+        source = (source or self._source_for_path(path)).lower()
+        namespace = "generated" if source == "generated" else ("editor" if source == "editor" else "general")
+        candidates = []
+        if namespace == "generated":
+            candidates.extend((self._generated_preview_target(path), self._cache_target(path, namespace)))
+        else:
+            candidates.append(self._cache_target(path, namespace))
+        owned = []
+        for candidate in candidates:
+            try:
+                if candidate.is_file() and candidate not in owned:
+                    owned.append(candidate)
+            except OSError:
+                continue
+        borrowed = False
+        if owned:
+            primary = owned[0]
+        else:
+            nearby = [candidate for candidate in self._nearby(path) if candidate.is_file()]
+            if not nearby:
+                return {}
+            primary = nearby[0]
+            borrowed = True
+        return {
+            "preview": str(primary),
+            "cleanup": [str(candidate) for candidate in owned],
+            "forced": borrowed or self._forced_marker(primary).is_file(),
+            "owned": not borrowed,
+        }
+
+    def complete_managed_preview_transfer(
+        self,
+        state: dict,
+        json_path: str | Path,
+        source: str = "",
+        *,
+        move: bool,
+    ) -> str:
+        """Re-key a captured managed preview without rendering the JSON again."""
+        if not isinstance(state, dict) or not state.get("preview"):
+            return ""
+        path = Path(json_path)
+        if not path.is_file():
+            return ""
+        source = (source or self._source_for_path(path)).lower()
+        namespace = "generated" if source == "generated" else ("editor" if source == "editor" else "general")
+        target = self._generated_preview_target(path) if namespace == "generated" else self._cache_target(path, namespace)
+        source_preview = Path(str(state.get("preview") or ""))
+        forced = bool(state.get("forced"))
+        owned = bool(state.get("owned", True))
+        try:
+            if not target.is_file():
+                if not source_preview.is_file():
+                    return ""
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if move and owned:
+                    try:
+                        source_preview.replace(target)
+                    except OSError:
+                        shutil.copy2(source_preview, target)
+                        source_preview.unlink(missing_ok=True)
+                else:
+                    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+                    try:
+                        shutil.copy2(source_preview, temporary)
+                        temporary.replace(target)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+            if forced and namespace != "generated":
+                marker = self._forced_marker(target)
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("forced-local-thumbnail-v1", encoding="ascii")
+            if move and owned:
+                for raw_candidate in state.get("cleanup", []):
+                    candidate = Path(str(raw_candidate))
+                    if candidate != target:
+                        candidate.unlink(missing_ok=True)
+                    self._forced_marker(candidate).unlink(missing_ok=True)
+            return file_url(target) if target.is_file() else ""
+        except OSError:
+            return ""
+
     def preview_for_json(self, json_path: str | Path, source: str = "") -> str:
         path = Path(json_path)
         if not path.is_file(): return ""

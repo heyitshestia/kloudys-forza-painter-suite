@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, Q
 from fh6_rtti_registry import refresh_runtime_registry
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
+from kfps_ui.backup_service import BackupService
 from kfps_ui.announcement_service import AnnouncementService
 from kfps_ui.changelog_service import ChangelogService
 from kfps_ui.cgroup_library_service import CGroupLibraryService
@@ -385,6 +386,7 @@ def main():
 
     logs = LogService()
     desktop = DesktopService(paths, logs)
+    backup = BackupService(paths, settings, logs)
     version = VersionService(paths.app_root / "VERSION", demo=args.demo)
     announcements = AnnouncementService(demo=args.demo)
     runtime = RuntimeService(demo=args.demo)
@@ -427,6 +429,7 @@ def main():
         "announcementService": announcements,
         "runtimeService": runtime,
         "desktop": desktop,
+        "backupService": backup,
         "sourceService": source,
         "jsonService": jsons,
         "communityService": community,

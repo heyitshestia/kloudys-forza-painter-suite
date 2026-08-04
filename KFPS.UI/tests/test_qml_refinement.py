@@ -92,6 +92,12 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertNotIn("viewportFitScale", main)
         self.assertNotIn("UI scale", settings)
 
+    def test_outputs_header_exposes_append_only_imgs_backup(self):
+        outputs = self.read("pages/JsonPage.qml")
+        self.assertIn('text: backupService.running ? "Backing up..." : "Backup imgs"', outputs)
+        self.assertIn("onClicked: backupService.backupImgs()", outputs)
+        self.assertIn("Existing backups are never deleted.", outputs)
+
     def test_frameless_window_uses_native_resize_zones(self):
         main = self.read("Main.qml")
         frame = self.read("shell/WindowResizeFrame.qml")
@@ -291,7 +297,8 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertNotIn("jsonService.selectionMode", outputs)
         self.assertNotIn("jsonService.setSelectionMode", outputs)
         self.assertIn("jsonService.selectExplorerEntry(", outputs)
-        self.assertIn("jsonService.isExplorerEntrySelected(fileCard.path)", outputs)
+        self.assertIn("required property bool selected", outputs)
+        self.assertIn("readonly property bool selectedInExplorer: fileCard.selected", outputs)
         self.assertIn("Qt.ControlModifier", outputs)
         self.assertIn("Qt.ShiftModifier", outputs)
         self.assertIn("jsonService.selectAllExplorerEntries()", outputs)

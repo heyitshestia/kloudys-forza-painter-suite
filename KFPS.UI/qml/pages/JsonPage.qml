@@ -518,13 +518,19 @@ Item {
                         subtitle: "Browse folders, manage JSONs, and open vinyl previews without leaving KFPS."
                     }
 
-                    Text {
-                        Layout.maximumWidth: Theme.px(190)
-                        text: transferService.status
-                        color: transferService.running ? Theme.warning : Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(9.8)
-                        elide: Text.ElideRight
+                    GhostButton {
+                        Layout.preferredWidth: Theme.px(132)
+                        minimumWidth: Theme.px(118)
+                        dense: true
+                        iconName: "folder"
+                        text: backupService.running ? "Backing up..." : "Backup imgs"
+                        enabled: !backupService.running
+                        toolTipText: backupService.status
+                                     + (backupService.destination.length > 0
+                                        ? "\nDestination: " + backupService.destination
+                                        : "\nChoose a destination once; KFPS will remember it.")
+                                     + "\nEach run adds a complete snapshot. Existing backups are never deleted."
+                        onClicked: backupService.backupImgs()
                     }
                 }
 
@@ -778,11 +784,11 @@ Item {
                                         required property string folder
                                         required property string entryKind
                                         required property bool isFolder
+                                        required property bool selected
                                         required property int index
                                         readonly property bool hovered: cardHover.hovered
                                         readonly property bool pressed: cardMouse.pressed
-                                        readonly property bool selectedInExplorer: jsonService.explorerSelectionRevision >= 0
-                                                                                   && jsonService.isExplorerEntrySelected(path)
+                                        readonly property bool selectedInExplorer: fileCard.selected
                                         readonly property bool activeTile: fileCard.selectedInExplorer
                                                                            || (jsonService.explorerSelectionCount === 0
                                                                                && !fileCard.isFolder

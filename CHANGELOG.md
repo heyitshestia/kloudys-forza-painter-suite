@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.6
+- Added append-only, content-aware backups of the complete `imgs` folder with a remembered destination and background progress.
+- Made large Outputs libraries substantially more responsive when browsing folders and selecting, cutting, or moving hundreds of JSONs.
+- Preserved cached thumbnails when JSONs are moved or copied so file management no longer triggers unnecessary preview regeneration.
+
 ## 3.1.5
 - Rebuilt Outputs as a source-scoped file browser with back, forward, parent-folder, nested-folder jump, search, folder creation, renaming, copying, moving, pasting, and permanent deletion.
 - Added File Explorer-style selection for JSONs and folders: single-click selection, Ctrl toggles, Shift ranges, Ctrl+A, keyboard file operations, and selection-aware right-click actions.
