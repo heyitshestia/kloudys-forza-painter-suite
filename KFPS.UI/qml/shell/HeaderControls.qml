@@ -23,6 +23,7 @@ GlassPanel {
         if (page === "settings") return "settings"
         if (page === "help" || page === "learn") return "help"
         if (page === "tools") return "tools"
+        if (page === "support") return "heart"
         if (page === "images") return "source-check"
         if (page === "reports") return "reports"
         if (page === "update") return "update"

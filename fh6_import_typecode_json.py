@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import a type-code handmade JSON into FH6 using save-safe primitive-byte writes."""
+"""Import a KFPS type-code JSON into a supported live Forza layer table."""
 
 from __future__ import annotations
 
@@ -11,6 +11,9 @@ import struct
 import time
 from ctypes import wintypes
 from pathlib import Path
+
+from game_profiles import PROFILES
+from tools.cgroup.shape_identity import target_game_shape_word
 
 
 PROCESS_QUERY_INFORMATION = 0x0400
@@ -487,7 +490,7 @@ def legacy_geometry_shape(index, shape):
     }
 
 
-def load_shapes(path, allow_unknown_low_byte=False):
+def load_shapes(path, allow_unknown_low_byte=False, target_game="fh6"):
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     shapes = payload.get("shapes")
     if not isinstance(shapes, list) or not shapes:
@@ -515,7 +518,7 @@ def load_shapes(path, allow_unknown_low_byte=False):
         if legacy_shape:
             out.append(legacy_shape)
             continue
-        code, shape_word, font_item = shape_type_fields(shape, font_registry)
+        code, source_shape_word, font_item = shape_type_fields(shape, font_registry)
         if (
             code not in SUPPORTED_PAGE1_CODES
             and font_item is None
@@ -531,12 +534,15 @@ def load_shapes(path, allow_unknown_low_byte=False):
             skipped.append(skipped_item)
             print(f"[skip] unsupported type code {code} / 0x{code:x} at source layer {i + 1}", flush=True)
             continue
+        shape_word = target_game_shape_word(shape, source_shape_word, target_game)
         data = shape["data"]
         if len(data) < 5:
             raise ValueError(f"shape {i} data must have x,y,sx,sy,rotation")
         out.append({
             "index": i,
-            "type_code": code,
+            "type_code": 0x100000 + shape_word,
+            "source_type_code": code,
+            "source_shape_word": source_shape_word,
             "shape_byte": shape_word & 0xFF,
             "shape_word": shape_word & 0xFFFF,
             "page_byte": (shape_word >> 8) & 0xFF,
@@ -569,12 +575,17 @@ def main():
         help="Pack supported source shapes into consecutive target layers, removing holes from skipped unsupported shapes.",
     )
     parser.add_argument("--allow-unknown-low-byte", action="store_true")
+    parser.add_argument("--game", default="fh6", choices=tuple(PROFILES))
     parser.add_argument("--backup", required=True)
     parser.add_argument("--report", required=True)
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
 
-    shapes, skipped_shapes = load_shapes(args.json, allow_unknown_low_byte=args.allow_unknown_low_byte)
+    shapes, skipped_shapes = load_shapes(
+        args.json,
+        allow_unknown_low_byte=args.allow_unknown_low_byte,
+        target_game=args.game,
+    )
     if args.limit is not None:
         shapes = shapes[: args.limit]
     table = parse_int(args.table)
@@ -710,6 +721,7 @@ def main():
         "pid": args.pid,
         "table": args.table,
         "source_json": args.json,
+        "target_game": args.game,
         "write": args.write,
         "preferred_layer_read_size": hx(FULL_LAYER_SIZE),
         "fallback_layer_read_size": hx(GROUPED_SAFE_LAYER_SIZE),

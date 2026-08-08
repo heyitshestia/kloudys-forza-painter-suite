@@ -558,6 +558,21 @@ def read_u64(pid, address):
     return struct.unpack("<Q", raw)[0]
 
 
+def read_pe_image_size(pid, module_base):
+    """Read SizeOfImage from a live 64-bit PE header."""
+    try:
+        dos = read_process_memory(pid, module_base, 0x40)
+        if len(dos) != 0x40 or dos[:2] != b"MZ":
+            return None
+        pe_offset = struct.unpack_from("<I", dos, 0x3C)[0]
+        header = read_process_memory(pid, module_base + pe_offset, 0x58)
+        if len(header) != 0x58 or header[:4] != b"PE\x00\x00":
+            return None
+        return struct.unpack_from("<I", header, 0x50)[0]
+    except Exception:
+        return None
+
+
 def validate_group_vector(pid, profile, group_address, table_address, layer_count):
     """Verify the CLiveryGroup vector begin/end/capacity matches the layer table."""
     if not group_address or not table_address:
@@ -887,12 +902,76 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
     return None
 
 
+def locate_static_clivery_group_rtti(pid, profile):
+    """Resolve a retired game's immutable RTTI profile with live validation."""
+    descriptor_offset = int(getattr(profile, "static_rtti_descriptor_offset", 0) or 0)
+    vtable_offsets = tuple(getattr(profile, "static_rtti_vtable_offsets", ()) or ())
+    if not descriptor_offset or not vtable_offsets:
+        return None
+
+    module_base = get_base_address(pid)
+    actual_module_size = read_pe_image_size(pid, module_base)
+    expected_module_size = int(getattr(profile, "static_module_size", 0) or 0)
+    game_name = str(getattr(profile, "key", "game")).upper()
+    if expected_module_size and actual_module_size != expected_module_size:
+        print(
+            f"The packaged {game_name} locator does not match this executable build; "
+            "trying the verified fallback locator.",
+            flush=True,
+        )
+        return None
+
+    descriptor_name = bytes(getattr(profile, "static_rtti_descriptor_name", b".?AVCLiveryGroup@@"))
+    descriptor_address = module_base + descriptor_offset
+    try:
+        found_name = read_process_memory(pid, descriptor_address + 0x10, len(descriptor_name))
+    except Exception:
+        found_name = b""
+    if found_name != descriptor_name:
+        print(f"The packaged {game_name} RTTI descriptor did not validate; trying fallback.", flush=True)
+        return None
+
+    vtables = []
+    module_end = module_base + int(actual_module_size or expected_module_size or 0)
+    for offset in vtable_offsets:
+        vtable = module_base + int(offset)
+        try:
+            locator = read_u64(pid, vtable - 8)
+            signature = read_u32(pid, locator)
+            type_descriptor_offset = read_u32(pid, locator + 0xC)
+        except Exception:
+            continue
+        if module_end and not module_base <= locator < module_end:
+            continue
+        if signature != 1 or type_descriptor_offset != descriptor_offset:
+            continue
+        vtables.append(vtable)
+    if not vtables:
+        print(f"The packaged {game_name} vtable did not validate; trying fallback.", flush=True)
+        return None
+
+    build = str(getattr(profile, "static_build", "") or "final build")
+    print(f"Using verified {game_name} static group locator ({build}).", flush=True)
+    return {
+        "descriptor_address": descriptor_address,
+        "descriptor_offset": descriptor_offset,
+        "info_addresses": [],
+        "vtables": vtables,
+        "source": "static_profile",
+        "game_build": build,
+        "module_size": actual_module_size,
+    }
+
+
 def locate_clivery_group_rtti(pid, profile=None):
     calibrated_profiles = (
         load_shared_rtti_profiles()
         if profile is not None and getattr(profile, "key", "") == "fh6"
         else []
     )
+    static_profile = locate_static_clivery_group_rtti(pid, profile) if profile is not None else None
+    if static_profile:
+        return static_profile
     calibrated = (
         locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles)
         if profile is not None
@@ -901,7 +980,8 @@ def locate_clivery_group_rtti(pid, profile=None):
     if calibrated:
         return calibrated
     patterns = load_update_code_patterns(calibrated_profiles)
-    print(f"Loaded {len(patterns)} FH6 group locator pattern(s).", flush=True)
+    game_name = str(getattr(profile, "key", "FH6")).upper()
+    print(f"Loaded {len(patterns)} {game_name} group locator pattern(s).", flush=True)
     descriptor_match, descriptor_pattern = find_first_pattern_in_typed_regions(pid, patterns, MEM_IMAGE)
     descriptor_address = descriptor_match - 0x10 if descriptor_match else None
     if not descriptor_address:
@@ -976,6 +1056,12 @@ def build_clivery_group_candidate(pid, profile, layer_count, rtti, group_address
             flush=True,
         )
         return None
+    shape_word_counts = {}
+    if (
+        int(getattr(profile, "import_template_shape_word", -1)) >= 0
+        and float(getattr(profile, "import_template_min_ratio", 0.0)) > 0
+    ):
+        shape_word_counts = table_shape_word_counts(pid, profile, table_address, layer_count)
     return {
         "score": score + 120,
         "group_address": group_address,
@@ -987,6 +1073,7 @@ def build_clivery_group_candidate(pid, profile, layer_count, rtti, group_address
         "current_u32": current_count,
         "samples": samples,
         "validated_entries": valid_entries,
+        "shape_word_counts": shape_word_counts,
         "vector_count": vector.get("vector_count"),
         "capacity_count": vector.get("capacity_count"),
         "vtable": vtable,
@@ -1384,6 +1471,15 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
     if not rtti:
         return []
 
+    if rtti.get("source") == "static_profile":
+        # A retired title's exact vtable makes the count scan both faster and
+        # stricter than rebuilding the complete process-wide group graph.
+        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+        groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
+        return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+
     if rtti.get("source") == "calibrated_profile":
         groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
         if groups:
@@ -1434,6 +1530,7 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
 
 
 def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=None, max_candidates=200000):
+    game_name = str(getattr(profile, "key", "FH6")).upper()
     started = time.monotonic()
     pattern = struct.pack("<H", layer_count)
     groups = []
@@ -1441,7 +1538,7 @@ def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds
     scanned = 0
     for base, size, _protect, _type in iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True):
         if max_seconds and time.monotonic() - started > max_seconds:
-            print(f"Stopped FH6 layout-count scan after {max_seconds} seconds.", flush=True)
+            print(f"Stopped {game_name} layout-count scan after {max_seconds} seconds.", flush=True)
             break
         memory = read_region(pid, base, size)
         if not memory:
@@ -1455,7 +1552,7 @@ def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds
             start = pos + 1
             candidates += 1
             if candidates > max_candidates:
-                print(f"Stopped FH6 layout-count scan after {max_candidates} count hits.", flush=True)
+                print(f"Stopped {game_name} layout-count scan after {max_candidates} count hits.", flush=True)
                 return groups
             count_address = base + pos
             group_address = count_address - profile.livery_count_offset
@@ -1499,7 +1596,7 @@ def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds
             )
         if groups:
             break
-    print(f"FH6 layout-count scan checked {scanned // (1024 * 1024)} MB, count hits={candidates}.", flush=True)
+    print(f"{game_name} layout-count scan checked {scanned // (1024 * 1024)} MB, count hits={candidates}.", flush=True)
     groups.sort(key=lambda item: item["score"], reverse=True)
     return groups
 
@@ -1517,8 +1614,9 @@ def serialize_samples(samples):
 
 
 def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, progress_every, radius, output_path=None, max_seconds=None):
+    game_name = str(getattr(profile, "key", "FH6")).upper()
     print(f"Process: {psutil.Process(pid).name()} detected.")
-    print(f"Auto-locating FH6 layer count/table for count {layer_count}...")
+    print(f"Auto-locating {game_name} layer count/table for count {layer_count}...")
     started = time.monotonic()
 
     try:
@@ -1535,6 +1633,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "type": "fh6_session_location_v1",
             "pid": pid,
             "process": psutil.Process(pid).name(),
+            "game": profile.key,
             "layer_count": layer_count,
             "created": time.time(),
             "refused": True,
@@ -1546,10 +1645,10 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             with open(output_path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2)
-            print(f"Wrote FH6 session location to {output_path}")
+            print(f"Wrote {game_name} session location to {output_path}")
         return payload
     if fast_groups:
-        print(f"Fast FH6 layer group candidates: {len(fast_groups)}", flush=True)
+        print(f"Fast {game_name} layer group candidates: {len(fast_groups)}", flush=True)
         winner = fast_groups[0]
         best = fast_groups[:FH6_LOCATOR_CANDIDATE_CAP]
         for item in best:
@@ -1563,6 +1662,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "type": "fh6_session_location_v1",
             "pid": pid,
             "process": psutil.Process(pid).name(),
+            "game": profile.key,
             "layer_count": layer_count,
             "created": time.time(),
             "group_address": winner["group_address"],
@@ -1572,6 +1672,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "score": winner["score"],
             "locator": winner["count_kind"],
             "validated_entries": winner.get("validated_entries"),
+            "shape_word_counts": winner.get("shape_word_counts") or {},
             "vector_count": winner.get("vector_count"),
             "capacity_count": winner.get("capacity_count"),
             "top_vector_count": winner.get("top_vector_count"),
@@ -1593,11 +1694,11 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             with open(output_path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2)
-            print(f"Wrote FH6 session location to {output_path}")
+            print(f"Wrote {game_name} session location to {output_path}")
         return payload
 
     if profile.key == "fh6":
-        print("No safe FH6 layer group found by the fast layout locator. Trying slower count/table fallback before giving up.")
+        print(f"No safe {game_name} layer group found by the fast layout locator. Trying slower count/table fallback before giving up.")
         started = time.monotonic()
 
     best = []
@@ -1705,6 +1806,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
         "type": "fh6_session_location_v1",
         "pid": pid,
         "process": psutil.Process(pid).name(),
+        "game": profile.key,
         "layer_count": layer_count,
         "created": time.time(),
         "group_address": winner.get("group_address"),
@@ -1826,6 +1928,21 @@ def validate_table_layer_coverage(pid, profile, table_address, layer_count):
             return False, index + 1, valid
         valid += 1
     return True, required, valid
+
+
+def table_shape_word_counts(pid, profile, table_address, layer_count):
+    counts = {}
+    for index in range(min(int(layer_count), 3000)):
+        ptr = read_pointer(pid, table_address + index * 8)
+        try:
+            raw = read_process_memory(pid, ptr + profile.layer_shape_id_offset, 2)
+        except Exception:
+            return {}
+        if len(raw) != 2:
+            return {}
+        word = struct.unpack("<H", raw)[0]
+        counts[str(word)] = counts.get(str(word), 0) + 1
+    return counts
 
 
 def find_count_candidates(pid, count, limit_mb, max_matches, progress_every):

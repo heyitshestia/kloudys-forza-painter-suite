@@ -163,7 +163,7 @@ Item {
                                     id: game
                                     Layout.fillWidth: true
                                     dense: root.compactHeight
-                                    model: ["FH6", "FH5", "FM8"]
+                                    model: ["FH6", "FH5", "FH4", "FM8"]
                                     toolTipText: "Choose the game whose live editor or local save files you want to use."
                                 }
                             }
@@ -251,11 +251,15 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves"
+                                text: game.currentText === "FH4"
+                                      ? "FH4 Save Scan Unavailable"
+                                      : (cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves")
                                 iconName: "folder"
                                 dense: root.compactHeight
-                                toolTipText: "Find vinyl groups in the selected game's local save files and add them to the Library view."
-                                enabled: !cgroupLibraryService.running
+                                toolTipText: game.currentText === "FH4"
+                                             ? "FH4 currently supports online live import and export only. Local save scanning is not enabled yet."
+                                             : "Find vinyl groups in the selected game's local save files and add them to the Library view."
+                                enabled: !cgroupLibraryService.running && game.currentText !== "FH4"
                                 onClicked: cgroupLibraryService.scanSaves(game.currentText)
                             }
 
@@ -279,11 +283,11 @@ Item {
                                      ? "Offline Import to FH6"
                                      : (game.currentText === "FM8"
                                         ? "Offline Import to FM8"
-                                        : "FH5 Offline Import Unavailable"))
+                                        : game.currentText + " Offline Import Unavailable"))
                             iconName: "transfer"
                             dense: root.compactHeight
-                            toolTipText: game.currentText === "FH5"
-                                         ? "FH5 local save-file importing is not available. Use online import with FH5 running."
+                            toolTipText: game.currentText === "FH5" || game.currentText === "FH4"
+                                         ? game.currentText + " local save-file importing is not available. Use online import with " + game.currentText + " running."
                                          : "Write the selected JSON into the selected game's local save library without opening the game."
                             enabled: !cgroupLibraryService.running
                                      && (game.currentText === "FH6" || game.currentText === "FM8")
@@ -366,7 +370,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Online import writes into the open in-game template. FH6 and FM8 offline import can also create new save-folder vinyls with transparent thumbnails. FH5 currently supports offline save-library scanning."
+                            text: "Online import/export works with FH4, FH5, FH6, and FM8 while the selected game is running. FH6 and FM8 also support offline import; FH5 supports offline save-library scanning."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(10.2)
@@ -457,7 +461,7 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Game")
+                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to " + game.currentText)
                     iconName: "transfer"
                     toolTipText: jsonService.selectedIsGameLibraryItem
                                  ? "Library items already came from game save files and cannot be imported through live memory from this view."

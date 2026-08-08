@@ -83,6 +83,8 @@ def _object_value(value):
 
 def _normalize_game(value):
     key = "".join(character for character in str(value or "").strip().lower() if character.isalnum())
+    if key in {"fh4", "forzahorizon4", "horizon4"}:
+        return "FH4"
     if key in {"fh5", "forzahorizon5", "horizon5"}:
         return "FH5"
     if key in {"fh6", "forzahorizon6", "horizon6"}:

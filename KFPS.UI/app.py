@@ -859,8 +859,8 @@ def main():
         if screenshot_dir:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         audit_pages = [
-            "create", "outputs", "community", "editor", "help", "settings",
-            "tools", "images", "reports", "update", "credits",
+            "create", "outputs", "community", "editor", "tools", "support", "help",
+            "update", "settings", "images", "reports", "credits",
         ]
         audit_index = 0
 

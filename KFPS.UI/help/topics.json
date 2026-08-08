@@ -5,7 +5,7 @@
     {"key": "generate", "title": "Create a Vinyl", "summary": "Source images, presets, shape limits, checkpoints, and generation progress."},
     {"key": "json", "title": "Outputs & Files", "summary": "Find, preview, search, select, and understand saved vinyl JSON files."},
     {"key": "editor", "title": "Manual Editor", "summary": "Open projects, arrange shapes, use guides, and export finished work."},
-    {"key": "transfer", "title": "Import & Export", "summary": "Move vinyls between KFPS and FH6, FH5, or FM8 safely."},
+    {"key": "transfer", "title": "Import & Export", "summary": "Move vinyls between KFPS and FH4, FH5, FH6, or FM8 safely."},
     {"key": "community", "title": "Community Library", "summary": "Browse, inspect, download, publish, and report community-made vinyls."},
     {"key": "tools", "title": "Tools & Settings", "summary": "Prepare images, make reports, update KFPS, and find local folders."},
     {"key": "troubleshooting", "title": "Fix a Problem", "summary": "Plain checks for common startup, generation, editor, and transfer problems."},
@@ -229,56 +229,56 @@
     {
       "key": "fh6-template",
       "category": "transfer",
-      "title": "Make the FH6 import template",
+      "title": "Make the FH4 or FH6 import template",
       "summary": "Create one flat group of 3000 white circles, save and reopen it once, then ungroup it before every online import.",
-      "keywords": ["fh6", "template", "3000", "circle", "ungroup", "vinyl group editor", "setup"],
+      "keywords": ["fh4", "fh6", "template", "3000", "circle", "ungroup", "vinyl group editor", "setup"],
       "steps": [
-        "Start FH6 and open Vinyl Group Editor. Do not use the car livery screen or the screen that only applies a saved vinyl.",
+        "Start FH4 or FH6 and open Vinyl Group Editor. Do not use the car livery screen or the screen that only applies a saved vinyl.",
         "Create or load a vinyl group made from 3000 simple plain white circle layers. The circles are placeholders; their size and position do not matter.",
         "Make sure all 3000 circles are individual layers. Do not leave smaller groups nested inside the template.",
-        "Save this circle group in FH6 once.",
+        "Save this circle group in the game once.",
         "Leave the group editor, reopen the saved circle group, and choose Ungroup so individual circle layers are visible and editable.",
-        "Stay on that editor screen. In KFPS Outputs, choose FH6 and enter 3000 for Template layers.",
+        "Stay on that editor screen. In KFPS Outputs, choose the running game and enter 3000 for Template layers.",
         "Reuse this same saved template for later imports: reopen it, ungroup it, and keep the exact count in KFPS."
       ],
       "sections": [
-        {"heading": "Why KFPS needs it", "body": "Online import replaces layer slots that already exist in the running game. It cannot create thousands of new live layers from an empty FH6 group, so the circles provide safe editable slots for the imported design."},
-        {"heading": "Why save and reopen once", "body": "FH6 does not always expose a newly created group in the same stable state as a saved group. Saving, leaving, and reopening gives the locator a predictable live layer table."},
-        {"heading": "How to know it is ready", "body": "You are inside Vinyl Group Editor, the template itself is open, individual circles can be selected, no nested group is selected as one object, and KFPS shows the same layer count as FH6."},
+        {"heading": "Why KFPS needs it", "body": "Online import replaces layer slots that already exist in the running game. It cannot create thousands of new live layers from an empty group, so the circles provide safe editable slots for the imported design."},
+        {"heading": "Why save and reopen once", "body": "The game does not always expose a newly created group in the same stable state as a saved group. Saving, leaving, and reopening gives the locator a predictable live layer table."},
+        {"heading": "How to know it is ready", "body": "You are inside Vinyl Group Editor, the template itself is open, individual circles can be selected, no nested group is selected as one object, and KFPS shows the same layer count as the game."},
         {"heading": "Smaller templates", "body": "A smaller flat template can work when its exact count is entered, but it can only accept a JSON with that many shapes or fewer. The 3000-circle template is recommended because it covers the full supported budget."}
       ],
       "pitfalls": [
         "A grouped template looks like one object and cannot be used as 3000 editable slots.",
         "Do not leave duplicate template groups stacked above the group you intend to edit.",
         "Do not enter the JSON shape count when KFPS asks for the template count unless those numbers are actually equal.",
-        "Do not switch FH6 menus after starting an online import."
+        "Do not switch game menus after starting an online import."
       ],
       "related": ["import-fh6", "troubleshooting-transfer", "wrong-shapes"]
     },
     {
       "key": "import-fh6",
       "category": "transfer",
-      "title": "Online import into FH6",
-      "summary": "Open the correct FH6 template, select a finished JSON, enter the exact count, and let KFPS locate and replace the live layers.",
-      "keywords": ["fh6", "online", "live", "memory", "import", "locate", "running game"],
+      "title": "Online import into FH4 or FH6",
+      "summary": "Open the correct circle template, select a finished JSON, enter the exact count, and let KFPS locate and replace the live layers.",
+      "keywords": ["fh4", "fh6", "online", "live", "memory", "import", "locate", "running game"],
       "steps": [
-        "Start FH6 and open your saved circle template in Vinyl Group Editor.",
+        "Start FH4 or FH6 and open your saved circle template in Vinyl Group Editor.",
         "Ungroup the template and confirm individual layers can be selected.",
-        "Open Outputs in KFPS, choose FH6, and enter the template's exact layer count, normally 3000.",
+        "Open Outputs in KFPS, choose the running game, and enter the template's exact layer count, normally 3000.",
         "Choose Generated finals, Editor exports, or Game exports, then select the JSON you want.",
         "Leave Clear Extra Template Layers on for normal use.",
-        "Select Online Import to Game and do not change screens in FH6 while KFPS locates and writes the layers.",
-        "When the transfer reports success, save the vinyl in FH6, leave the editor, and reopen it to check the final result."
+        "Select Online Import to Game and do not change screens in the game while KFPS locates and writes the layers.",
+        "When the transfer reports success, save the vinyl, leave the editor, and reopen it to check the final result."
       ],
       "sections": [
-        {"heading": "Location is automatic", "body": "KFPS searches the running FH6 process for the open template when you import. You do not need a separate locate button. Restart the import after reopening the template if FH6 was restarted or the editor screen changed."},
+        {"heading": "Location is automatic", "body": "KFPS searches the selected running game for the open template when you import. You do not need a separate locate button. Restart the import after reopening the template if the game was restarted or the editor screen changed."},
         {"heading": "Clear extra layers", "body": "If the JSON uses fewer shapes than the template, this option hides the unused placeholder circles. Leave it enabled unless you are doing a controlled transfer test."},
-        {"heading": "Permission", "body": "KFPS and FH6 must be running on the same Windows computer. If Windows blocks live memory access, run KFPS with the same or higher permission level as the game."}
+        {"heading": "Permission", "body": "KFPS and the game must be running on the same Windows computer. If Windows blocks live memory access, run KFPS with the same or higher permission level as the game."}
       ],
       "pitfalls": [
         "Applying a vinyl to a car is not the same as editing a vinyl group.",
         "A stale or wrong layer count can make location fail or find the wrong group.",
-        "Do not touch FH6 until KFPS says the transfer is complete.",
+        "Do not touch the game until KFPS says the transfer is complete.",
         "Save and reopen before deciding that a live thumbnail or shape resource is wrong."
       ],
       "related": ["fh6-template", "troubleshooting-transfer", "wrong-shapes"]
@@ -288,22 +288,24 @@
       "category": "transfer",
       "title": "Online and offline transfer",
       "summary": "Online works with a running game; offline works with supported local save files.",
-      "keywords": ["online", "offline", "export", "import", "fh5", "fh6", "fm8", "library", "save"],
+      "keywords": ["online", "offline", "export", "import", "fh4", "fh5", "fh6", "fm8", "library", "save"],
       "steps": [
-        "For online export, open the vinyl group in the running ga…1473 tokens truncated….",
-        "Use a source overlay as a visual reference and adjust its opacity when it hides the vinyl.",
-        "Turn snapping off for small freehand corrections."
+        "For online export, open the vinyl group in Vinyl Group Editor, choose the same game in Outputs, and enter the group's exact layer count.",
+        "Select Online Export from Game. KFPS reads the open group and adds the resulting JSON to Game Exports.",
+        "For online import, open a fresh saved and ungrouped circle template before selecting Online Import to Game.",
+        "Offline features read or write supported local save files and do not require the game to be open."
       ],
       "sections": [
-        {"heading": "Guides do not export", "body": "The grid, guides, selection outlines, and source overlay are editor aids. They are not Forza shapes and are not written into the exported JSON."},
-        {"heading": "Zoom and performance", "body": "The editor reuses cached shape geometry. Extremely dense art can still be slower when every tiny shape is visible, so hide unused panels or layers while making detailed changes."}
+        {"heading": "Online means live", "body": "Online import and export read or edit the selected game's live memory. FH4, FH5, FH6, and FM8 must be running on the same Windows computer as KFPS."},
+        {"heading": "FH4 support", "body": "FH4 currently supports online live import and export. Local save scanning and offline import are not enabled yet."},
+        {"heading": "Offline support", "body": "FH6 and FM8 support offline import. FH5 supports offline save-library scanning. The disabled buttons in Outputs show which local-save operations are not available."}
       ],
       "pitfalls": [
-        "Snapping that is useful for a logo may fight small organic adjustments.",
-        "An opaque source overlay can make correct shapes look missing.",
-        "Judge line thickness in the exported preview, not from the selection outline."
+        "The number in Template layers must match the group currently open in the game.",
+        "Do not change game screens while an online transfer is locating or reading layers.",
+        "Use a fresh circle template for each import; an exported group does not need the circle placeholders."
       ],
-      "related": ["editor-layers", "editor-export", "pixel-art"]
+      "related": ["fh6-template", "import-fh6", "json-browser", "troubleshooting-transfer"]
     },
     {
       "key": "editor-overview",

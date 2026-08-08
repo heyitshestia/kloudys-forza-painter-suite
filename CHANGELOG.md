@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.7
+- Added normalized FH4 online live import and export with the same cross-game JSON shape identities used by FH5, FH6, and FM8.
+- Added a dedicated non-supporter Support tab with clearer one-time-purchase benefits, complete offline library workflow details, and automatic hiding after a supporter key activates.
+- Removed the repeating top-right supporter advertisement so the Support tab is the single unobtrusive place for supporter information.
+
 ## 3.1.6
 - Added append-only, content-aware backups of the complete `imgs` folder with a remembered destination and background progress.
 - Made large Outputs libraries substantially more responsive when browsing folders and selecting, cutting, or moving hundreds of JSONs.

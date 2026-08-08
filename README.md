@@ -33,13 +33,14 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 | `Offline Save Library` | Supporter-unlocked WIP tools for scanning supported Forza save folders, building local JSON previews, and testing save-folder based workflows. |
 | `Editor` | Manages editable projects and launches the bundled local vinyl workspace for manual creation, tracing, native-shape text and pixel art, precise layer layout, history, validation, and JSON export. |
 | `Tools` | Collects useful prep links for background removal, browser upscaling, and browser downscaling/compression. |
+| `Support` | Explains the optional supporter extras, makes the one-time purchase terms explicit, and opens the official supporter-key page. This tab hides after supporter access is active. |
 | `Help / Reports / Update` | Built-in workflow guide, local bug/suggestion reports, GitHub version checks, and updater entrypoint. |
 
-## Optional Ko-fi
+## Optional Supporter Key
 
-KFPS is free, and support is completely optional. If the suite saved you time and you feel like leaving a tiny tip, it would make me very happy and helps with testing time, assets, and maybe someday a proper little logo or mascot.
+KFPS keeps its core creation, editing, Community, and online live-transfer workflows available without a key. A supporter key is a **one-time purchase, not a subscription**. It unlocks complete FH5/FH6/FM8 vinyl-library exports with the games closed, supported FH6/FM8 offline save imports, the supporter Community catalog and sharing audience, and four supporter-only themes while helping fund continued development.
 
-https://ko-fi.com/O7O020EQNQ
+https://ko-fi.com/s/2d1507698d
 
 ## Supporter Key Activation
 

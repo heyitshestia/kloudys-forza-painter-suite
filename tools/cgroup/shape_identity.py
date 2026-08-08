@@ -161,9 +161,43 @@ def normalize_game_key(game: str | None) -> str:
     text = str(game or "fh6").strip().lower()
     if text in {"fm", "fm8", "forza motorsport", "forza motorsport 8", "motorsport"}:
         return "fm8"
+    if text in {"fh4", "forza horizon 4"}:
+        return "fh4"
     if text in {"fh5", "forza horizon 5"}:
         return "fh5"
     return "fh6"
+
+
+def canonical_resource_for_word(word: int) -> tuple[str, int] | None:
+    """Resolve a canonical KFPS/FH type word to its visible resource slot."""
+    type_code = TYPE_CODE_BASE + (int(word) & 0xFFFF)
+    for family, base in VINYL_TYPE_BASES.items():
+        offset = type_code - int(base)
+        if 0 <= offset < 40:
+            return family, offset + 1
+    return None
+
+
+def target_game_shape_word(shape: dict[str, Any], identity_word: int, target_game: str | None = "fh6") -> int:
+    game_key = normalize_game_key(target_game)
+    if game_key != "fm8":
+        return int(identity_word) & 0xFFFF
+
+    raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
+    if raw_word is not None and normalize_game_key(shape.get("source_game") or shape.get("sourceGame")) == "fm8":
+        return raw_word & 0xFFFF
+
+    family = shape.get("resource_family") or shape.get("resourceFamily")
+    index = parse_int(shape.get("resource_index") or shape.get("resourceIndex"))
+    if family and index is not None:
+        family = str(family)
+        if family in FM8_COMMUNITY_SLOT_WORDS and 1 <= index <= len(FM8_COMMUNITY_SLOT_WORDS[family]):
+            return int(FM8_COMMUNITY_SLOT_WORDS[family][index - 1]) & 0xFFFF
+        for base_word, base_family in FM8_COMPACT_TAB_BASES.items():
+            if family == base_family and 1 <= index <= 40:
+                return (int(base_word) + index - 1) & 0xFFFF
+
+    return int(identity_word) & 0xFFFF
 
 
 def fm8_resource_for_word(raw_word: int) -> tuple[str, int] | None:

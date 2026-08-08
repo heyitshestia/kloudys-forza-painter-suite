@@ -18,19 +18,13 @@ from typing import Any, Iterable
 
 try:
     from .shape_identity import (
-        FM8_COMMUNITY_SLOT_WORDS,
-        FM8_COMPACT_TAB_BASES,
         canonical_shape_identity,
-        normalize_game_key,
-        parse_int,
+        target_game_shape_word,
     )
 except ImportError:  # pragma: no cover - direct script execution fallback
     from shape_identity import (
-        FM8_COMMUNITY_SLOT_WORDS,
-        FM8_COMPACT_TAB_BASES,
         canonical_shape_identity,
-        normalize_game_key,
-        parse_int,
+        target_game_shape_word,
     )
 
 
@@ -208,28 +202,6 @@ def read_cgroup_payload(path: Path | str) -> bytes:
     if path.is_dir():
         path = path / "C_group"
     return unwrap_payload(path.read_bytes())
-
-
-def target_game_shape_word(shape: dict[str, Any], identity_word: int, target_game: str | None = "fh6") -> int:
-    game_key = normalize_game_key(target_game)
-    if game_key != "fm8":
-        return int(identity_word) & 0xFFFF
-
-    raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
-    if raw_word is not None and normalize_game_key(shape.get("source_game") or shape.get("sourceGame")) == "fm8":
-        return raw_word & 0xFFFF
-
-    family = shape.get("resource_family") or shape.get("resourceFamily")
-    index = parse_int(shape.get("resource_index") or shape.get("resourceIndex"))
-    if family and index is not None:
-        family = str(family)
-        if family in FM8_COMMUNITY_SLOT_WORDS and 1 <= index <= len(FM8_COMMUNITY_SLOT_WORDS[family]):
-            return int(FM8_COMMUNITY_SLOT_WORDS[family][index - 1]) & 0xFFFF
-        for base_word, base_family in FM8_COMPACT_TAB_BASES.items():
-            if family == base_family and 1 <= index <= 40:
-                return (int(base_word) + index - 1) & 0xFFFF
-
-    return int(identity_word) & 0xFFFF
 
 
 def layer_from_shape(shape: dict[str, Any], index: int, target_game: str | None = "fh6") -> CGroupLayer | None:

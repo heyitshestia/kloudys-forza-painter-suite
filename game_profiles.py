@@ -22,6 +22,13 @@ class GameProfile:
     layer_color_offset: int = 0x74
     layer_mask_offset: int = 0x78
     layer_shape_id_offset: int = 0x7A
+    static_module_size: int = 0
+    static_rtti_descriptor_offset: int = 0
+    static_rtti_vtable_offsets: Tuple[int, ...] = ()
+    static_rtti_descriptor_name: bytes = b".?AVCLiveryGroup@@"
+    static_build: str = ""
+    import_template_shape_word: int = -1
+    import_template_min_ratio: float = 0.0
 
 
 KNOWN_LIVERY_SIGNATURE = b'\x12\x47\x9B\x13\x29\xD9\xA2\xB1'
@@ -49,6 +56,22 @@ PROFILES: Dict[str, GameProfile] = {
         process_names=("ForzaHorizon5.exe",),
         signature_patterns=(KNOWN_LIVERY_SIGNATURE,),
         scan_regions=COMMON_SCAN_REGIONS,
+    ),
+    "fh4": GameProfile(
+        key="fh4",
+        label="Forza Horizon 4",
+        process_names=("ForzaHorizon4.exe",),
+        signature_patterns=(KNOWN_LIVERY_SIGNATURE,),
+        scan_regions=COMMON_SCAN_REGIONS,
+        # Final Microsoft Store/Xbox build 1.478.564.2. FH4 is no longer
+        # updated, but every address is still verified against live RTTI and
+        # vector metadata before KFPS accepts a group.
+        static_module_size=0x098DEE00,
+        static_rtti_descriptor_offset=0x07C820C0,
+        static_rtti_vtable_offsets=(0x072A31D8,),
+        static_build="1.478.564.2 Microsoft Store/Xbox",
+        import_template_shape_word=0x0066,
+        import_template_min_ratio=0.90,
     ),
     "fm": GameProfile(
         key="fm",

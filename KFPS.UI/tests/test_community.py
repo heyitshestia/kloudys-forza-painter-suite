@@ -228,6 +228,7 @@ class CommunityBoundaryTests(unittest.TestCase):
         }
         cases = [
             ({"format": "kfps.community.v1", "metadata": {"detected_games": ["FH5"]}, "shapes": [primitive]}, "kfps-community", ("FH5",)),
+            ({"format": "fh6_typecode_json_export_v1", "source": {"game": "fh4"}, "shapes": [type_code]}, "forza-typecode-export", ("FH4",)),
             ({"format": "fh6_typecode_json_export_v1", "source": {"game": "fm8"}, "shapes": [type_code]}, "forza-typecode-export", ("FM8",)),
             ({"format": "kfps_forza_save_library_json_v1", "target_game": "fh5", "shapes": [type_code]}, "forza-save-library", ("FH5",)),
             ({"format": "kfps_forza_file_export_json_v1", "target_game": "fm8", "shapes": [type_code]}, "forza-file-export", ("FM8",)),

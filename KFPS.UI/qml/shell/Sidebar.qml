@@ -10,16 +10,21 @@ Item {
     property bool compact: false
     property real railWidth: Theme.px(compact ? Metrics.compactSidebar : Metrics.wideSidebar)
     property bool denseNavigation: Theme.logical(height) < 760
-    readonly property var navItems: [
-        { page: "create", label: "Create", icon: "generate" },
-        { page: "outputs", label: "Outputs", icon: "json" },
-        { page: "community", label: "Community", icon: "heart" },
-        { page: "editor", label: "Editor", icon: "editor" },
-        { page: "tools", label: "Tools", icon: "tools" },
-        { page: "help", label: "Help", icon: "help" },
-        { page: "update", label: "Update", icon: "update" },
-        { page: "settings", label: "Settings", icon: "settings" }
-    ]
+    readonly property var navItems: {
+        var items = [
+            { page: "create", label: "Create", icon: "generate" },
+            { page: "outputs", label: "Outputs", icon: "json" },
+            { page: "community", label: "Community", icon: "heart" },
+            { page: "editor", label: "Editor", icon: "editor" },
+            { page: "tools", label: "Tools", icon: "tools" },
+            { page: "help", label: "Help", icon: "help" },
+            { page: "update", label: "Update", icon: "update" },
+            { page: "settings", label: "Settings", icon: "settings" }
+        ]
+        if (!supporterService.unlocked)
+            items.splice(5, 0, { page: "support", label: "Support", icon: "heart" })
+        return items
+    }
     signal route(string page)
     signal creditsRequested()
     property int logoTapCount: 0
@@ -34,6 +39,8 @@ Item {
             return "editor"
         if (page === "tools" || page === "images")
             return "tools"
+        if (page === "support")
+            return "support"
         if (page === "help" || page === "learn")
             return "help"
         if (page === "update")

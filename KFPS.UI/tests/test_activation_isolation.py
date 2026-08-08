@@ -33,7 +33,6 @@ class ActivationIsolationTests(unittest.TestCase):
             Path("Main.qml"),
             Path("pages/SettingsPage.qml"),
             Path("shell/SupporterActivationNotice.qml"),
-            Path("shell/SupporterPromoToast.qml"),
         }
         markers = ("activationState", "startActivation", "repairActivation", "deactivateDevice", "SupporterActivationNotice")
         offenders = []

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the currently loaded FH6 layer table into importer-compatible JSON."""
+"""Export a supported live Forza layer table into importer-compatible JSON."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ from collections import Counter
 from ctypes import wintypes
 from pathlib import Path
 
+from game_profiles import PROFILES
+from tools.cgroup.shape_identity import canonical_resource_for_word
+
 
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
@@ -30,7 +33,7 @@ GROUP_TABLE_END_OFFSET = 0x80
 GROUP_TABLE_CAPACITY_OFFSET = 0x88
 MIN_NORMAL_GROUP_ADDRESS = 0x100000000
 EXPORT_REFUSAL_MESSAGE = (
-    "Export refused: this does not appear to be a fully ungrouped editable FH6 group. "
+    "Export refused: this does not appear to be a fully ungrouped editable Forza group. "
     "Fully ungroup the vinyl, save it, reopen it, and only export designs you own or have permission to export."
 )
 EXPORT_VALIDATION_WARNING = (
@@ -566,6 +569,20 @@ def annotate_fm_export_resource(shape, layer, game):
     return True
 
 
+def annotate_canonical_export_resource(shape, layer):
+    if shape.get("resource_family") and shape.get("resource_index"):
+        return False
+    resource = canonical_resource_for_word(int(shape.get("type_word") or 0))
+    if not resource:
+        return False
+    family, index = resource
+    shape["resource_family"] = family
+    shape["resource_index"] = int(index)
+    layer["resource_family"] = family
+    layer["resource_index"] = int(index)
+    return True
+
+
 def read_transform_fields(handle, address):
     raw = try_read_memory(handle, address, 0x74)
     if len(raw) < 0x74:
@@ -944,7 +961,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--report", default=None)
     parser.add_argument("--probe-report", default=None)
-    parser.add_argument("--game", default="fh6", choices=("fh6", "fh5", "fm"))
+    parser.add_argument("--game", default="fh6", choices=tuple(PROFILES))
     parser.add_argument("--include-raw", action="store_true")
     parser.add_argument("--skip-transparent", action="store_true")
     args = parser.parse_args()
@@ -969,7 +986,7 @@ def main():
             validation_warnings.extend(probe_reasons)
             log(EXPORT_VALIDATION_WARNING)
         if group is None:
-            write_refusal_report(args, table, group, report_path, reasons=["export requires a located FH6 group header"])
+            write_refusal_report(args, table, group, report_path, reasons=["export requires a located game group header"])
             sys.exit(2)
         try:
             group_metadata = read_group_metadata(handle, group)
@@ -1020,6 +1037,7 @@ def main():
             shape, layer = decode_layer(raw, index, ptr, include_raw=args.include_raw)
             if annotate_fm_export_resource(shape, layer, args.game):
                 fm_resource_normalizations += 1
+            annotate_canonical_export_resource(shape, layer)
             apply_parent_transform(shape, layer, parent_matrix, parent_sx_sign)
             layer["read_size"] = layer_size
             if len(raw) >= 0xB0:
@@ -1043,6 +1061,7 @@ def main():
             "layer_count": int(args.count),
             "coordinate_model": "fh6_live_layer_offsets",
             "type_model": "type = 0x100000 + uint16_at_layer_0x7A; importer writes low uint16 back to 0x7A",
+            "resource_identity_model": "canonical KFPS resource family/index with target-game word remapping when available",
             "editable_group_check": {
                 "passed": bool(probe_ok and editable_ok),
                 "metadata": group_metadata,

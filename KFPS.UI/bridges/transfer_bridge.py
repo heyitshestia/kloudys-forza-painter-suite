@@ -123,6 +123,20 @@ def import_json_shape_count(path):
     return sum(1 for shape in shapes if isinstance(shape, dict) and not shape.get("hidden"))
 
 
+def session_matches_import_template(session, game, template_count):
+    profile = PROFILES[game]
+    required_word = int(getattr(profile, "import_template_shape_word", -1))
+    minimum_ratio = float(getattr(profile, "import_template_min_ratio", 0.0))
+    if required_word < 0 or minimum_ratio <= 0:
+        return True, ""
+    counts = session.get("shape_word_counts") or {}
+    matching = int(counts.get(str(required_word)) or counts.get(required_word) or 0)
+    required = int(int(template_count) * minimum_ratio)
+    if matching < required:
+        return False, f"template shape check {matching}/{template_count} plain circles"
+    return True, f"template shape check {matching}/{template_count} plain circles"
+
+
 def locate_universal_template(game, pid, template_count, run_dir, purpose):
     session_report = run_dir / f"fast-{purpose}-session.json"
     probe_report = run_dir / f"fallback-{purpose}-probe.json"
@@ -161,14 +175,22 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                 table_value = session.get("table_address")
                 count_value = session.get("count_address")
                 group_value = session.get("group_address")
-                if table_value and (group_value or count_value):
+                template_ok, template_detail = session_matches_import_template(
+                    session,
+                    game,
+                    template_count,
+                ) if purpose.startswith("import") else (True, "")
+                if not template_ok:
+                    log(f"Rejected located {game.upper()} import group: {template_detail}.")
+                if template_ok and table_value and (group_value or count_value):
                     table = f"0x{int(table_value):x}" if isinstance(table_value, int) else str(table_value)
                     if group_value:
                         group = f"0x{int(group_value):x}" if isinstance(group_value, int) else str(group_value)
                     else:
                         raw_count = int(count_value) if isinstance(count_value, int) else int(str(count_value), 0)
                         group = f"0x{raw_count - 0x5A:x}"
-                    log(f"{game.upper()} group fast-located and validated for {template_count} layer(s).")
+                    detail = f", {template_detail}" if template_detail else ""
+                    log(f"{game.upper()} group fast-located and validated for {template_count} layer(s){detail}.")
         if group and table:
             return group, table
         log("Fast locate did not produce a usable group/table. Falling back to research scanner.")
@@ -353,6 +375,8 @@ def run_import(args):
         str(table),
         "--json",
         json_path,
+        "--game",
+        args.game,
         "--template-count",
         str(args.layer_count),
         "--compact-supported-layers",

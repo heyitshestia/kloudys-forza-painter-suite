@@ -66,14 +66,41 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("Theme.supporterSignatureText", sidebar)
         self.assertNotIn("Folders and maintenance are in Settings.", sidebar)
 
-    def test_supporter_promo_rim_blinks_without_rotating(self):
-        promo = self.read("shell/SupporterPromoToast.qml")
-        self.assertIn("readonly property bool eligible: !Theme.supporterTheme", promo)
-        self.assertNotIn("Theme.activeThemeName === Theme.defaultThemeName", promo)
-        self.assertIn("SequentialAnimation on blinkLevel", promo)
-        self.assertIn("PauseAnimation { duration: 1800 }", promo)
-        self.assertNotIn("property real spin", promo)
-        self.assertNotIn("carnivalRim.spin", promo)
+    def test_support_page_replaces_header_promo_and_hides_after_unlock(self):
+        main = self.read("Main.qml")
+        sidebar = self.read("shell/Sidebar.qml")
+        support = self.read("pages/SupportPage.qml")
+        controller = (UI / "src" / "kfps_ui" / "app_controller.py").read_text(encoding="utf-8")
+
+        self.assertFalse((QML / "shell" / "SupporterPromoToast.qml").exists())
+        self.assertNotIn("SupporterPromoToast", main)
+        self.assertNotIn("supporterPromo", main)
+        self.assertIn('support: "SupportPage"', main)
+        self.assertIn('"support": "Support KFPS"', controller)
+        self.assertIn('if (page === "support") return "heart"', self.read("shell/HeaderControls.qml"))
+        self.assertIn('if (!supporterService.unlocked)', sidebar)
+        self.assertIn('items.splice(5, 0, { page: "support", label: "Support", icon: "heart" })', sidebar)
+        self.assertIn('supporterService.unlocked && appController.currentPage === "support"', main)
+        self.assertIn('objectName: "SupportPage"', support)
+        self.assertIn('Component.onCompleted:', support)
+        self.assertIn('if (supporterService.unlocked)', support)
+        self.assertIn('appController.navigate("create")', support)
+
+    def test_support_page_uses_the_real_product_and_accurate_benefits(self):
+        support = self.read("pages/SupportPage.qml")
+        self.assertIn('"https://ko-fi.com/s/2d1507698d"', support)
+        self.assertIn("ONE-TIME PURCHASE - NOT A SUBSCRIPTION", support)
+        self.assertIn("There is no monthly fee and no recurring KFPS charge.", support)
+        for phrase in (
+            "Instant Offline Imports & Exports",
+            "Export complete FH5, FH6, and FM8 vinyl libraries into KFPS in one action",
+            "No game needs to be started.",
+            "Supporter Community",
+            "Four Extra Themes",
+            "Windows 94",
+            "FH4, FH5, FH6, and FM8 remain available without supporter access",
+        ):
+            self.assertIn(phrase, support)
 
     def test_legacy_dashboard_page_is_retired(self):
         self.assertFalse((QML / "pages" / "DashboardPage.qml").exists())
@@ -97,6 +124,14 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('text: backupService.running ? "Backing up..." : "Backup imgs"', outputs)
         self.assertIn("onClicked: backupService.backupImgs()", outputs)
         self.assertIn("Existing backups are never deleted.", outputs)
+
+    def test_outputs_exposes_fh4_live_transfer_without_offline_claims(self):
+        outputs = self.read("pages/JsonPage.qml")
+        self.assertIn('model: ["FH6", "FH5", "FH4", "FM8"]', outputs)
+        self.assertIn('"FH4 Save Scan Unavailable"', outputs)
+        self.assertIn('game.currentText !== "FH4"', outputs)
+        self.assertIn("FH4 currently supports online live import and export only.", outputs)
+        self.assertIn('"Online Import to " + game.currentText', outputs)
 
     def test_frameless_window_uses_native_resize_zones(self):
         main = self.read("Main.qml")
@@ -144,8 +179,8 @@ class QmlRefinementTests(unittest.TestCase):
             "components/RecentJsonRow.qml",
             "shell/AnnouncementTicker.qml",
             "shell/AppTitleBar.qml",
-            "shell/SupporterPromoToast.qml",
             "pages/HelpPage.qml",
+            "pages/SupportPage.qml",
             "pages/JsonPage.qml",
             "pages/CommunityPage.qml",
         ):
@@ -217,7 +252,10 @@ class QmlRefinementTests(unittest.TestCase):
             ),
             "shell/AnnouncementTicker.qml": ("Click to resume", "Click to pause"),
             "shell/AppTitleBar.qml": ("Minimize KFPS.", "Maximize the KFPS window.", "Close KFPS."),
-            "shell/SupporterPromoToast.qml": ("Open the KFPS supporter page",),
+            "pages/SupportPage.qml": (
+                "Open the official KFPS supporter-key product page on Ko-fi.",
+                "Open Settings to add, replace, repair, or release a supporter key.",
+            ),
             "SourceDownloadBlocker.qml": ("property string toolTipText", "Open the official KFPS latest-release page"),
         }
         for relative, phrases in required.items():
@@ -247,8 +285,12 @@ class QmlRefinementTests(unittest.TestCase):
             self.assertTrue(set(topic.get("related", [])) <= all_keys, topic["key"])
 
         template_help = json.dumps(topics["fh6-template"]).lower()
-        for phrase in ("vinyl group editor", "3000", "white circle", "save", "reopen", "ungroup", "exact count"):
+        for phrase in ("fh4", "vinyl group editor", "3000", "white circle", "save", "reopen", "ungroup", "exact count"):
             self.assertIn(phrase, template_help)
+
+        export_help = json.dumps(topics["export-games"]).lower()
+        self.assertNotIn("tokens truncated", export_help)
+        self.assertIn("fh4 currently supports online live import and export", export_help)
 
         first_run_help = json.dumps(topics["first-run"]).lower()
         self.assertIn("online means", first_run_help)
@@ -284,7 +326,7 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_output_folder_and_live_transfer_actions_stay_pinned(self):
         outputs = self.read("pages/JsonPage.qml")
-        scroll_end = outputs.index('"Online Import to Game"')
+        scroll_end = outputs.index('"Online Import to " + game.currentText')
         self.assertIn("id: importSetupScroll", outputs[:scroll_end])
         self.assertIn('text: "Open Output Folder"', outputs[scroll_end:])
         self.assertIn("onClicked: desktop.openJsonFolders()", outputs[scroll_end:])

@@ -37,7 +37,11 @@ ApplicationWindow {
         source: Theme.monoFontFile.length > 0 ? "../assets/" + Theme.monoFontFile : ""
     }
 
-    Component.onCompleted: supporterService.startActivation()
+    Component.onCompleted: {
+        supporterService.startActivation()
+        if (supporterService.unlocked && appController.currentPage === "support")
+            appController.navigate("create")
+    }
 
     onActiveChanged: {
         if (active) {
@@ -102,6 +106,15 @@ ApplicationWindow {
             } else if (!versionService.updateAvailable) {
                 window.updateAutoOpened = false
             }
+        }
+    }
+
+    Connections {
+        target: supporterService
+
+        function onChanged() {
+            if (supporterService.unlocked && appController.currentPage === "support")
+                appController.navigate("create")
         }
     }
 
@@ -172,10 +185,9 @@ ApplicationWindow {
                                                  : Theme.px(window.shortWindow ? 10 : 16)
                 readonly property bool pageHeaderAlignmentAvailable: Boolean(pageLoader.item && pageLoader.item.headerAlignmentAvailable)
                 readonly property real headerSafeMargin: Theme.px(14)
-                readonly property real headerRightReserve: Math.max(
-                    headerControls.visible ? headerControls.width + Theme.px(30) : 0,
-                    supporterPromo.visible ? supporterPromo.width + Theme.px(30) : 0
-                )
+                readonly property real headerRightReserve: headerControls.visible
+                                                           ? headerControls.width + Theme.px(30)
+                                                           : 0
                 readonly property real headerRightLimit: Math.max(
                     headerSafeMargin,
                     width - headerRightReserve - headerSafeMargin
@@ -285,7 +297,6 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.topMargin: Theme.px(window.shortWindow ? 10 : 16)
                     anchors.rightMargin: Theme.px(16)
-                    visible: !supporterPromo.visible
                     z: 20
                 }
 
@@ -314,16 +325,6 @@ ApplicationWindow {
                              )
                          )
                     z: 20
-                }
-
-                SupporterPromoToast {
-                    id: supporterPromo
-                    compact: window.compactHeader
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.topMargin: Theme.px(window.shortWindow ? -2 : 2)
-                    anchors.rightMargin: Theme.px(16)
-                    z: 80
                 }
 
                 SupporterActivationNotice {
@@ -366,6 +367,7 @@ ApplicationWindow {
                             editor: "EditorPage",
                             images: "ImagesPage",
                             tools: "ToolsPage",
+                            support: "SupportPage",
                             help: "HelpPage",
                             learn: "HelpPage",
                             reports: "ReportsPage",

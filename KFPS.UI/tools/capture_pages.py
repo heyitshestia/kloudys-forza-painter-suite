@@ -12,8 +12,8 @@ UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
 OUT = UI / "Previews"
 PAGES = [
-    "create", "outputs", "community", "editor", "help",
-    "settings", "tools", "images", "reports", "update", "credits",
+    "create", "outputs", "community", "editor", "tools", "support",
+    "help", "update", "settings", "images", "reports", "credits",
 ]
 SIZES = [(960, 600), (1280, 720), (1760, 1040), (2560, 1440)]
 
