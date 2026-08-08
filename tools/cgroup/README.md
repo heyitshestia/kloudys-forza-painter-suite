@@ -16,6 +16,41 @@ importer/exporter and should not be wired into the UI until validated in game.
   to KFPS JSON.
 - `find_forza_sources.py`: helper to locate `C_group`/`C_livery` files under
   common Windows save/download/desktop roots.
+- `xbox_wgs.py`: strict FH4 Microsoft Store/Xbox WGS metadata reader and
+  additive layer-group writer.
+
+## FH4 Xbox WGS Safety Contract
+
+FH4 Microsoft Store/Xbox vinyl groups are stored behind opaque filenames in an
+Xbox WGS account slot. `xbox_wgs.py` resolves the logical `C_group`, `header`,
+and `thumb.png` files through `containers.index` and each `container.N` file.
+It is isolated from the general C_group codec and does not alter live-memory
+transfer.
+
+Before an offline import commits anything, KFPS requires all of the following:
+
+- FH4 is fully closed.
+- The existing index and template file list parse and serialize byte-for-byte.
+- The generated FH4 `C_group` independently decodes to the expected layer count.
+- The complete WGS account slot is copied to
+  `runtime/fh4-offline-import-backups`.
+- A second full-slot fingerprint confirms the save did not change during backup.
+- A new container is staged and verified without overwriting an existing group.
+- The final index replacement is atomic and the committed logical files reopen
+  with their exact staged bytes.
+
+Any staging or verification failure removes the new container and restores the
+original index. FH4 WGS import is intentionally additive; KFPS does not replace
+or delete an existing FH4 vinyl group.
+
+The format implementation was independently verified against local FH4 files.
+The following projects were used only as format-behavior references; no source
+code was copied:
+
+- `tylercamp/palcalc` (MIT): Xbox WGS parsing reference.
+- `HarukaMa/palworld-xgp-import` (Unlicense): Xbox WGS write-behavior reference.
+- `Arstz/ForzaLiveryStudio` (AGPL-3.0): Forza file-tooling comparison; it does
+  not currently supply KFPS's WGS writer.
 
 ## Export From Real Forza Files
 

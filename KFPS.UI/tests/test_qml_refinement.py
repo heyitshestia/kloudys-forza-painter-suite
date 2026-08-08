@@ -93,7 +93,7 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("There is no monthly fee and no recurring KFPS charge.", support)
         for phrase in (
             "Instant Offline Imports & Exports",
-            "Export complete FH5, FH6, and FM8 vinyl libraries into KFPS in one action",
+            "Export complete FH4, FH5, FH6, and FM8 vinyl libraries into KFPS in one action",
             "No game needs to be started.",
             "Supporter Community",
             "Four Extra Themes",
@@ -125,12 +125,12 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("onClicked: backupService.backupImgs()", outputs)
         self.assertIn("Existing backups are never deleted.", outputs)
 
-    def test_outputs_exposes_fh4_live_transfer_without_offline_claims(self):
+    def test_outputs_exposes_fh4_live_and_offline_transfer(self):
         outputs = self.read("pages/JsonPage.qml")
         self.assertIn('model: ["FH6", "FH5", "FH4", "FM8"]', outputs)
-        self.assertIn('"FH4 Save Scan Unavailable"', outputs)
-        self.assertIn('game.currentText !== "FH4"', outputs)
-        self.assertIn("FH4 currently supports online live import and export only.", outputs)
+        self.assertIn('"Offline Import to FH4"', outputs)
+        self.assertIn('game.currentText === "FH4" || game.currentText === "FH6"', outputs)
+        self.assertIn("all four support offline save-library scanning", outputs)
         self.assertIn('"Online Import to " + game.currentText', outputs)
 
     def test_frameless_window_uses_native_resize_zones(self):
@@ -290,7 +290,7 @@ class QmlRefinementTests(unittest.TestCase):
 
         export_help = json.dumps(topics["export-games"]).lower()
         self.assertNotIn("tokens truncated", export_help)
-        self.assertIn("fh4 currently supports online live import and export", export_help)
+        self.assertIn("fh4 supports online live transfer, local save-library scanning, and offline import", export_help)
 
         first_run_help = json.dumps(topics["first-run"]).lower()
         self.assertIn("online means", first_run_help)

@@ -297,13 +297,14 @@
       ],
       "sections": [
         {"heading": "Online means live", "body": "Online import and export read or edit the selected game's live memory. FH4, FH5, FH6, and FM8 must be running on the same Windows computer as KFPS."},
-        {"heading": "FH4 support", "body": "FH4 currently supports online live import and export. Local save scanning and offline import are not enabled yet."},
-        {"heading": "Offline support", "body": "FH6 and FM8 support offline import. FH5 supports offline save-library scanning. The disabled buttons in Outputs show which local-save operations are not available."}
+        {"heading": "FH4 support", "body": "FH4 supports online live transfer, local save-library scanning, and offline import into the Microsoft Store/Xbox WGS save. Close FH4 before offline import. KFPS creates a separate vinyl group and backs up the complete account save slot before writing."},
+        {"heading": "Offline support", "body": "FH4, FH6, and FM8 support offline import. FH4, FH5, FH6, and FM8 support offline save-library scanning. The disabled button in Outputs shows when the selected game does not support local-save import."}
       ],
       "pitfalls": [
         "The number in Template layers must match the group currently open in the game.",
         "Do not change game screens while an online transfer is locating or reading layers.",
-        "Use a fresh circle template for each import; an exported group does not need the circle placeholders."
+        "Use a fresh circle template for each online import; an exported group does not need the circle placeholders.",
+        "Keep FH4 closed during offline import. If the save changes while KFPS is backing up or staging the new group, the import stops without committing it."
       ],
       "related": ["fh6-template", "import-fh6", "json-browser", "troubleshooting-transfer"]
     },

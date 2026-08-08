@@ -180,11 +180,18 @@ def canonical_resource_for_word(word: int) -> tuple[str, int] | None:
 
 def target_game_shape_word(shape: dict[str, Any], identity_word: int, target_game: str | None = "fh6") -> int:
     game_key = normalize_game_key(target_game)
+    source_game = shape.get("source_game") or shape.get("sourceGame")
+    if source_game and normalize_game_key(source_game) == game_key:
+        raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
+        if raw_word is None:
+            raw_word = explicit_shape_word(shape)
+        if raw_word is not None:
+            return raw_word & 0xFFFF
     if game_key != "fm8":
         return int(identity_word) & 0xFFFF
 
     raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
-    if raw_word is not None and normalize_game_key(shape.get("source_game") or shape.get("sourceGame")) == "fm8":
+    if raw_word is not None and normalize_game_key(source_game) == "fm8":
         return raw_word & 0xFFFF
 
     family = shape.get("resource_family") or shape.get("resourceFamily")

@@ -35,6 +35,18 @@ class ShapeIdentityTests(unittest.TestCase):
         }
         self.assertEqual(2103, target_game_shape_word(shape, 2101, "fm"))
 
+    def test_fh4_raw_word_is_preserved_only_when_targeting_fh4(self):
+        shape = {
+            "type": 0x100000 + 117,
+            "type_word": 117,
+            "resource_family": "Primitives",
+            "resource_index": 5,
+            "source_game": "fh4",
+        }
+        self.assertEqual(117, target_game_shape_word(shape, 105, "fh4"))
+        self.assertEqual(105, target_game_shape_word(shape, 105, "fh5"))
+        self.assertEqual(105, target_game_shape_word(shape, 105, "fh6"))
+
 
 if __name__ == "__main__":
     unittest.main()

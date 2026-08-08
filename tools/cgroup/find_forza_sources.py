@@ -52,7 +52,7 @@ def is_source_candidate(path: Path, game: str) -> bool:
     game_key = str(game or "fh6").lower()
     if name in SOURCE_NAMES:
         return True
-    if game_key == "fh5":
+    if game_key in {"fh4", "fh5"}:
         return is_fh5_layer_group_candidate(path)
     if game_key in {"fm", "fm8"}:
         return name == "data" and path.parent.parent.name.lower() in {"layergroups", "liveries"}
@@ -324,7 +324,7 @@ def main() -> int:
     parser.add_argument(
         "--game",
         default="fh6",
-        choices=("fh6", "fh5", "fm", "fm8"),
+        choices=("fh6", "fh5", "fh4", "fm", "fm8"),
         help="Source game shape-word mapping to use while inspecting candidates.",
     )
     parser.add_argument(

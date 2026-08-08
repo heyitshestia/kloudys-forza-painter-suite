@@ -215,7 +215,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "FH6/FH5/FM8 save library"
+                                text: "FH4/FH5/FH6/FM8 save library"
                                 color: Theme.primaryBright
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(12.4)
@@ -251,15 +251,11 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: game.currentText === "FH4"
-                                      ? "FH4 Save Scan Unavailable"
-                                      : (cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves")
+                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves"
                                 iconName: "folder"
                                 dense: root.compactHeight
-                                toolTipText: game.currentText === "FH4"
-                                             ? "FH4 currently supports online live import and export only. Local save scanning is not enabled yet."
-                                             : "Find vinyl groups in the selected game's local save files and add them to the Library view."
-                                enabled: !cgroupLibraryService.running && game.currentText !== "FH4"
+                                toolTipText: "Find vinyl groups in the selected game's local save files and add them to the Library view."
+                                enabled: !cgroupLibraryService.running
                                 onClicked: cgroupLibraryService.scanSaves(game.currentText)
                             }
 
@@ -281,16 +277,20 @@ Item {
                                   ? "Working..."
                                   : (game.currentText === "FH6"
                                      ? "Offline Import to FH6"
+                                     : (game.currentText === "FH4"
+                                        ? "Offline Import to FH4"
                                      : (game.currentText === "FM8"
                                         ? "Offline Import to FM8"
-                                        : game.currentText + " Offline Import Unavailable"))
+                                        : game.currentText + " Offline Import Unavailable")))
                             iconName: "transfer"
                             dense: root.compactHeight
-                            toolTipText: game.currentText === "FH5" || game.currentText === "FH4"
-                                         ? game.currentText + " local save-file importing is not available. Use online import with " + game.currentText + " running."
-                                         : "Write the selected JSON into the selected game's local save library without opening the game."
+                            toolTipText: game.currentText === "FH5"
+                                         ? "FH5 local save-file importing is not available. Use online import with FH5 running."
+                                         : (game.currentText === "FH4"
+                                            ? "With FH4 fully closed, create a new vinyl in the Microsoft Store/Xbox WGS save after backing up the complete local slot."
+                                            : "Write the selected JSON into the selected game's local save library without opening the game.")
                             enabled: !cgroupLibraryService.running
-                                     && (game.currentText === "FH6" || game.currentText === "FM8")
+                                     && (game.currentText === "FH4" || game.currentText === "FH6" || game.currentText === "FM8")
                                      && jsonService.selectedPath.length > 0
                             onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
                         }
@@ -370,7 +370,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Online import/export works with FH4, FH5, FH6, and FM8 while the selected game is running. FH6 and FM8 also support offline import; FH5 supports offline save-library scanning."
+                            text: "Online import/export works with FH4, FH5, FH6, and FM8 while the selected game is running. FH4, FH6, and FM8 also support offline import; all four support offline save-library scanning."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(10.2)

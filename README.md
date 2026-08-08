@@ -30,7 +30,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 | `Outputs` | Shows generated finals, editor exports, game exports, and save-library JSONs as thumbnails with previews, layer counts, import controls, and export controls. |
 | `Community` | Browses shared vinyl artwork and creator profiles, inspects full previews, and provides authenticated uploads, verified downloads, favorites, follows, reports, and revision management. |
 | `Online Import / Export` | Imports compatible JSON into a prepared FH6 vinyl template and exports the currently loaded editable group through the live game locator. |
-| `Offline Save Library` | Supporter-unlocked WIP tools for scanning supported Forza save folders, building local JSON previews, and testing save-folder based workflows. |
+| `Offline Save Library` | Supporter-unlocked tools for scanning supported Forza save folders into local JSON previews and importing compatible JSON into supported local save formats. |
 | `Editor` | Manages editable projects and launches the bundled local vinyl workspace for manual creation, tracing, native-shape text and pixel art, precise layer layout, history, validation, and JSON export. |
 | `Tools` | Collects useful prep links for background removal, browser upscaling, and browser downscaling/compression. |
 | `Support` | Explains the optional supporter extras, makes the one-time purchase terms explicit, and opens the official supporter-key page. This tab hides after supporter access is active. |
@@ -38,7 +38,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 
 ## Optional Supporter Key
 
-KFPS keeps its core creation, editing, Community, and online live-transfer workflows available without a key. A supporter key is a **one-time purchase, not a subscription**. It unlocks complete FH5/FH6/FM8 vinyl-library exports with the games closed, supported FH6/FM8 offline save imports, the supporter Community catalog and sharing audience, and four supporter-only themes while helping fund continued development.
+KFPS keeps its core creation, editing, Community, and online live-transfer workflows available without a key. A supporter key is a **one-time purchase, not a subscription**. It unlocks complete FH4/FH5/FH6/FM8 vinyl-library exports with the games closed, supported FH4/FH6/FM8 offline save imports, the supporter Community catalog and sharing audience, and four supporter-only themes while helping fund continued development.
 
 https://ko-fi.com/s/2d1507698d
 
@@ -326,7 +326,7 @@ for every tool and shortcut.
 
 ## Offline Save Library
 
-The save-library tools are a supporter-unlocked WIP area for people helping test folder-based import/export paths.
+The save-library tools are supporter-unlocked local save-file import/export workflows.
 
 Current intent:
 
@@ -334,9 +334,11 @@ Current intent:
 - Convert discovered layer groups into local KFPS JSON library entries.
 - Cache previews so large libraries do not rerender every time the app opens.
 - Keep library JSONs separate from generated, editor, and live game-export JSONs.
-- Use one-button offline FH6 import where the save-folder method is supported.
+- Import compatible JSON into supported FH4, FH6, and FM8 local save formats.
 
-The first scan can take a while when many vinyls are present because KFPS has to inspect, convert, and render preview thumbnails. FH6 is the main tested target. Other games may expose compatible layer groups, but game-specific support is kept conservative until tested.
+FH4, FH5, FH6, and FM8 scans export discovered vinyl groups into separate KFPS Library JSON entries. FH4 offline import currently targets the Microsoft Store/Xbox WGS save format. It requires FH4 to be fully closed, creates a new group instead of replacing an existing one, makes a complete account-slot backup under `runtime/fh4-offline-import-backups`, and aborts if the save changes before commit. FH6 and FM8 use their own separate local-save import paths. FH5 remains scan/export-only.
+
+The first scan can take a while when many vinyls are present because KFPS has to inspect, convert, and render preview thumbnails. Later scans reuse valid cached outputs.
 
 ## Tools
 

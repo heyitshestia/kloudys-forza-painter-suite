@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.8
+- Added FH4 Microsoft Store/Xbox offline vinyl-library scanning and additive JSON import with full account-slot backups, concurrent-save protection, atomic index updates, and rollback verification.
+- Preserved FH4-specific raw shape identities when returning exported vinyls to FH4 while retaining canonical cross-game normalization for FH5 and FH6.
+- Updated Outputs, logging, Help, and supporter information for the complete FH4 offline workflow and its game-closed safety requirements.
+
 ## 3.1.7
 - Added normalized FH4 online live import and export with the same cross-game JSON shape identities used by FH5, FH6, and FM8.
 - Added a dedicated non-supporter Support tab with clearer one-time-purchase benefits, complete offline library workflow details, and automatic hiding after a supporter key activates.

@@ -16,7 +16,7 @@ Item {
         {
             icon: "transfer",
             title: "Instant Offline Imports & Exports",
-            detail: "Export complete FH5, FH6, and FM8 vinyl libraries into KFPS in one action, then import compatible JSON directly into FH6 or FM8 save data. No game needs to be started."
+            detail: "Export complete FH4, FH5, FH6, and FM8 vinyl libraries into KFPS in one action, then import compatible JSON directly into supported FH4, FH6, or FM8 save data. No game needs to be started."
         },
         {
             icon: "monitor",

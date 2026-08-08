@@ -4,6 +4,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import psutil
 import secrets
 import shutil
 import struct
@@ -132,6 +133,11 @@ class CGroupLibraryService(QObject):
                 "FH5 save-library scan: the first scan can take quite some time when you have many vinyls, "
                 "because KFPS imports each group and renders thumbnails/previews. Later scans reuse cached previews."
             )
+        elif game_key == "fh4":
+            self.log.append(
+                "FH4 offline scan reads user-created vinyl groups from the Microsoft Store/Xbox WGS save container. "
+                "It does not edit the save or require FH4 to be running."
+            )
         elif game_key == "fm8":
             self.log.append(
                 "FM8 offline scan uses the separate local-save LayerGroups/data path. "
@@ -228,10 +234,16 @@ class CGroupLibraryService(QObject):
                 "FM8 offline import writes a new local-save LayerGroups/data folder. "
                 "Existing FM8 saves and the FH offline C_group writer are left untouched."
             )
+        elif game_key == "fh4":
+            self._summary = "Creating a new FH4 vinyl group in the local Xbox WGS save container."
+            self.log.append(
+                "FH4 offline import creates a separate WGS LayerGroup entry after backing up the complete local save slot. "
+                "FH4 must be fully closed before the save is changed."
+            )
         else:
             self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
         self.changed.emit()
-        self.log.append(f"Offline import: creating a new {game_label} vinyl group folder from selected JSON...")
+        self.log.append(f"Offline import: creating a new {game_label} vinyl group in supported local save data...")
         future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
         future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
 
@@ -294,13 +306,17 @@ class CGroupLibraryService(QObject):
         text = str(game or "fh6").strip().lower()
         if text in {"fm", "fm8", "forza motorsport", "forza motorsport 8", "motorsport"}:
             return "fm8"
+        if text in {"fh4", "forza horizon 4"}:
+            return "fh4"
         if text in {"fh5", "forza horizon 5"}:
             return "fh5"
         return "fh6"
 
     @staticmethod
     def _game_label(game_key: str) -> str:
-        return {"fm8": "FM8", "fh5": "FH5", "fh6": "FH6"}.get(game_key, str(game_key).upper())
+        return {"fm8": "FM8", "fh4": "FH4", "fh5": "FH5", "fh6": "FH6"}.get(
+            game_key, str(game_key).upper()
+        )
 
     def _library_root(self, game_key: str | None = None) -> Path:
         return self.paths.library_root
@@ -711,6 +727,8 @@ class CGroupLibraryService(QObject):
         game_key = self._game_key(game_key)
         if game_key == "fm8":
             return self._create_fm8_layer_group_install_work(json_path)
+        if game_key == "fh4":
+            return self._create_fh4_layer_group_install_work(json_path)
         if game_key != "fh6":
             raise ValueError(f"{self._game_label(game_key)} offline folder import is not wired yet.")
 
@@ -832,6 +850,129 @@ class CGroupLibraryService(QObject):
                 "Reload Forza Motorsport's vinyl group library/editor, or restart the game if it does not appear."
             ),
         }
+
+    def _create_fh4_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
+        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload, wrap_payload
+        from tools.cgroup.forza_source_decoder import DecodeError, cgroup_to_layers, decode_forza_source
+        from tools.cgroup.xbox_wgs import (
+            WgsFormatError,
+            create_wgs_layer_group,
+            find_wgs_slots,
+            read_wgs_layer_groups,
+        )
+
+        json_path = json_path.resolve()
+        if not json_path.is_file():
+            raise ValueError(f"JSON does not exist: {json_path}")
+        if self._game_process_running("ForzaHorizon4.exe"):
+            raise ValueError(
+                "Close FH4 completely before offline import. KFPS will not write Xbox WGS save files while the game is running."
+            )
+
+        roots = self._default_save_roots("fh4")
+        slots = find_wgs_slots(roots)
+        if not slots:
+            raise ValueError(
+                "No FH4 Microsoft Store/Xbox WGS save was found. Start FH4 once, save one user-created vinyl group, "
+                "close the game, and try again."
+            )
+
+        template = None
+        template_error = ""
+        for slot in slots:
+            try:
+                groups = read_wgs_layer_groups(slot)
+            except (OSError, WgsFormatError) as exc:
+                template_error = str(exc)
+                continue
+            for group in groups:
+                cgroup_path = group.cgroup_path
+                if not cgroup_path:
+                    continue
+                try:
+                    decode_forza_source(cgroup_path, allow_locked=False, game="fh4")
+                except DecodeError as exc:
+                    template_error = str(exc)
+                    continue
+                template = group
+                break
+            if template is not None:
+                break
+        if template is None:
+            detail = f" Last parser error: {template_error}" if template_error else ""
+            raise ValueError(
+                "No normal user-created FH4 vinyl group was found to provide the WGS container structure. "
+                "Save one simple vinyl group in FH4, close the game, and scan again." + detail
+            )
+
+        payload = build_flat_cgroup_from_json(json_path, target_game="fh4")
+        parsed = parse_flat_payload(payload)
+        decoded_layers, decoded_report = cgroup_to_layers(payload, game="fh4")
+        expected_layers = int(parsed.get("count") or 0)
+        if len(decoded_layers) != expected_layers:
+            raise ValueError(
+                f"FH4 offline import preflight decoded {len(decoded_layers)} layer(s), expected {expected_layers}. "
+                "No save files were changed."
+            )
+        if decoded_report.get("warnings"):
+            raise ValueError(
+                "FH4 offline import preflight reported an unsafe C_group warning. No save files were changed: "
+                + "; ".join(str(item) for item in decoded_report.get("warnings") or [])
+            )
+
+        title = self._title_for_install_json(json_path)
+        source_header = template.header_path
+        if source_header and source_header.is_file():
+            header_data = self._rename_header(source_header.read_bytes(), title)
+        else:
+            header_data = self._build_draft_header(title)
+        thumbnail_data = self._render_save_thumb_bytes(json_path, "PNG")
+        if not thumbnail_data:
+            source_thumbnail = template.thumbnail_path
+            if source_thumbnail and source_thumbnail.is_file():
+                thumbnail_data = source_thumbnail.read_bytes()
+        if not thumbnail_data or not thumbnail_data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("KFPS could not build a valid FH4 PNG thumbnail. No save files were changed.")
+
+        result = create_wgs_layer_group(
+            template.slot_path,
+            template,
+            cgroup_data=wrap_payload(payload),
+            header_data=header_data,
+            thumbnail_data=thumbnail_data,
+            backup_root=self.paths.runtime_root / "fh4-offline-import-backups",
+        )
+        verified = decode_forza_source(result.cgroup_path, allow_locked=False, game="fh4")
+        if len(verified.layers) != expected_layers:
+            raise ValueError(
+                f"FH4 WGS import reopened with {len(verified.layers)} layer(s), expected {expected_layers}. "
+                f"Restore the safety backup at {result.backup_path}."
+            )
+        self._save_cached_roots([template.slot_path.parent], "fh4")
+        return {
+            "ok": True,
+            "game": "fh4",
+            "candidates": 1,
+            "exported": 1,
+            "skipped": 0,
+            "outputs": [],
+            "message": (
+                f"FH4 offline import complete: created {result.container_name} with {expected_layers} layer(s). "
+                f"The complete pre-import WGS slot is backed up at {result.backup_path}. "
+                "Start FH4 and open My Vinyl Groups to verify it."
+            ),
+        }
+
+    @staticmethod
+    def _game_process_running(process_name: str) -> bool:
+        wanted = str(process_name).casefold()
+        for process in psutil.process_iter(["name"]):
+            try:
+                if str(process.info.get("name") or "").casefold() == wanted:
+                    return True
+            except (psutil.Error, OSError, KeyError, TypeError):
+                continue
+        return False
 
     @staticmethod
     def _validate_fh6_layer_group_target(target_folder: Path) -> None:
@@ -1004,13 +1145,12 @@ class CGroupLibraryService(QObject):
 
     def _write_save_thumb(self, json_path: Path, thumb_path: Path) -> bool:
         try:
-            image = self._save_thumb_source_image(json_path)
-            if image is None:
+            data = self._render_save_thumb_bytes(json_path, "WEBP")
+            if not data:
                 return False
-            image = self._fit_save_thumb(image)
             temp = thumb_path.with_name(f"{thumb_path.name}.kfps.tmp")
             thumb_path.parent.mkdir(parents=True, exist_ok=True)
-            image.save(temp, "WEBP", quality=92, method=6)
+            temp.write_bytes(data)
             os.replace(temp, thumb_path)
             return True
         except Exception:
@@ -1021,6 +1161,21 @@ class CGroupLibraryService(QObject):
             except OSError:
                 pass
             return False
+
+    def _render_save_thumb_bytes(self, json_path: Path, image_format: str) -> bytes | None:
+        from io import BytesIO
+
+        image = self._save_thumb_source_image(json_path)
+        if image is None:
+            return None
+        image = self._fit_save_thumb(image)
+        output = BytesIO()
+        format_key = str(image_format or "WEBP").strip().upper()
+        if format_key == "PNG":
+            image.save(output, "PNG", optimize=True)
+        else:
+            image.save(output, "WEBP", quality=92, method=6)
+        return output.getvalue()
 
     def _save_thumb_source_image(self, json_path: Path):
         from io import BytesIO
@@ -1108,7 +1263,12 @@ class CGroupLibraryService(QObject):
             found.append(path)
 
         for root in roots:
-            targeted = cls._targeted_fm8_layer_groups(root) if game_key == "fm8" else cls._targeted_xbox_layer_groups(root)
+            if game_key == "fm8":
+                targeted = cls._targeted_fm8_layer_groups(root)
+            elif game_key == "fh4":
+                targeted = cls._targeted_fh4_wgs_layer_groups(root)
+            else:
+                targeted = cls._targeted_xbox_layer_groups(root)
             for path in targeted:
                 add(path)
 
@@ -1165,6 +1325,21 @@ class CGroupLibraryService(QObject):
                         continue
                     for group in groups:
                         paths.append(group / "C_group")
+        return paths
+
+    @staticmethod
+    def _targeted_fh4_wgs_layer_groups(root: Path) -> list[Path]:
+        from tools.cgroup.xbox_wgs import find_wgs_slots, read_wgs_layer_groups
+
+        paths: list[Path] = []
+        for slot in find_wgs_slots([root]):
+            try:
+                groups = read_wgs_layer_groups(slot)
+            except (OSError, ValueError):
+                continue
+            for group in groups:
+                if group.cgroup_path and group.cgroup_path.is_file():
+                    paths.append(group.cgroup_path)
         return paths
 
     @staticmethod
@@ -1276,7 +1451,7 @@ class CGroupLibraryService(QObject):
                 filename_lower = filename.lower()
                 if game_key == "fm8":
                     is_candidate = filename_lower == "data" and current.parent.name.lower() == "layergroups"
-                elif game_key == "fh5":
+                elif game_key in {"fh4", "fh5"}:
                     is_candidate = CGroupLibraryService._is_fh5_layer_group_candidate(current / filename)
                 else:
                     is_candidate = filename_lower == "c_group" and current.name.startswith("LayerGroup_")
@@ -1294,12 +1469,16 @@ class CGroupLibraryService(QObject):
         cached_roots = self._load_cached_roots(game_key)
         if game_key == "fh5":
             roots.extend(root for root in cached_roots if self._is_fh5_save_root(root))
+        elif game_key == "fh4":
+            roots.extend(root for root in cached_roots if self._is_fh4_save_root(root))
         else:
             roots.extend(cached_roots)
 
         local_app_data = os.environ.get("LOCALAPPDATA")
         if game_key == "fh5":
             roots.extend(self._discover_fh5_save_roots())
+        elif game_key == "fh4":
+            roots.extend(self._discover_fh4_save_roots())
         elif game_key == "fm8" and local_app_data:
             fm8_ugc = Path(local_app_data) / "Microsoft.ForzaMotorsport" / "UGC"
             for candidate in (fm8_ugc / "LayerGroups", fm8_ugc):
@@ -1329,6 +1508,38 @@ class CGroupLibraryService(QObject):
             seen.add(key)
             unique.append(root)
         return unique
+
+    @classmethod
+    def _is_fh4_save_root(cls, root: Path) -> bool:
+        text = str(root).replace("\\", "/").lower()
+        return (
+            "sunrisebasegame" in text
+            or "forzahorizon4" in text
+            or "/1293830/" in text
+            or text.endswith("/1293830/remote")
+        )
+
+    @classmethod
+    def _discover_fh4_save_roots(cls) -> list[Path]:
+        roots: list[Path] = []
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            packages = Path(local_app_data) / "Packages"
+            if packages.exists():
+                try:
+                    package_folders = [item for item in packages.iterdir() if item.is_dir()]
+                except OSError:
+                    package_folders = []
+                for package in package_folders:
+                    name = package.name.lower()
+                    if "sunrisebasegame" not in name and "forzahorizon4" not in name:
+                        continue
+                    for marker in ("wgs", "Helium"):
+                        candidate = package / "SystemAppData" / marker
+                        if candidate.exists():
+                            roots.append(candidate)
+        roots.extend(cls._discover_steam_remote_roots("1293830"))
+        return cls._unique_existing_paths(roots)
 
     @classmethod
     def _is_fh5_save_root(cls, root: Path) -> bool:
@@ -1362,6 +1573,10 @@ class CGroupLibraryService(QObject):
 
     @classmethod
     def _discover_fh5_steam_roots(cls) -> list[Path]:
+        return cls._discover_steam_remote_roots("1551360")
+
+    @classmethod
+    def _discover_steam_remote_roots(cls, app_id: str) -> list[Path]:
         roots: list[Path] = []
         for steam_root in cls._steam_install_roots():
             userdata = steam_root / "userdata"
@@ -1372,7 +1587,7 @@ class CGroupLibraryService(QObject):
             except OSError:
                 continue
             for user in users:
-                remote = user / "1551360" / "remote"
+                remote = user / str(app_id) / "remote"
                 if remote.exists():
                     roots.append(remote)
         return cls._unique_existing_paths(roots)
@@ -1658,6 +1873,14 @@ class CGroupLibraryService(QObject):
         direct = source_path.parent / "header"
         if direct.is_file():
             return direct
+        try:
+            from tools.cgroup.xbox_wgs import logical_wgs_sibling
+
+            wgs_header = logical_wgs_sibling(source_path, "header")
+            if wgs_header and wgs_header.is_file():
+                return wgs_header
+        except (OSError, ValueError):
+            pass
         name = source_path.name
         lower = name.lower()
         for suffix in (".c_group", ".c_livery", ".data"):
@@ -1743,7 +1966,7 @@ class CGroupLibraryService(QObject):
     @staticmethod
     @staticmethod
     def _flatten_legacy_game_library_roots(library_root: Path) -> None:
-        for game_folder in ("fh6", "fh5", "fm8"):
+        for game_folder in ("fh6", "fh5", "fh4", "fm8"):
             legacy_root = library_root / game_folder
             if not legacy_root.is_dir():
                 continue
@@ -1802,12 +2025,13 @@ class CGroupLibraryService(QObject):
                 continue
             is_fh_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
             is_fh5_layer_group = target_game == "fh5" and source_kind == "cgroup"
+            is_fh4_layer_group = target_game == "fh4" and source_kind == "cgroup"
             is_fm8_layer_group = (
                 target_game == "fm8"
                 and source_path.name.lower() == "data"
                 and source_path.parent.parent.name.lower() == "layergroups"
             )
-            is_layer_group = is_fh_layer_group or is_fh5_layer_group or is_fm8_layer_group
+            is_layer_group = is_fh_layer_group or is_fh5_layer_group or is_fh4_layer_group or is_fm8_layer_group
             source_was_rescanned = CGroupLibraryService._source_path_key(source_path) in active_source_keys
             superseded = source_was_rescanned and entry.name not in active_entry_names
             if not is_layer_group or superseded:
