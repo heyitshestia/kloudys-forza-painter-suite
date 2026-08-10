@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.9
+- Added fail-closed FH6 live-export ownership verification across the complete loaded group hierarchy, preventing content not owned by the current profile from being exported.
+- Added authorized recursive flattening for owned grouped vinyls with parent-transform composition, exact layer-count validation, and no partial exports.
+- Rechecked ownership and hierarchy identity after every live read, and made ownership refusals terminal so fallback scanners cannot bypass the decision.
+
 ## 3.1.8
 - Added FH4 Microsoft Store/Xbox offline vinyl-library scanning and additive JSON import with full account-slot backups, concurrent-save protection, atomic index updates, and rollback verification.
 - Preserved FH4-specific raw shape identities when returning exported vinyls to FH4 while retaining canonical cross-game normalization for FH5 and FH6.

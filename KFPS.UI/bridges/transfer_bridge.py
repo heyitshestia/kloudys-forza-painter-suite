@@ -171,6 +171,10 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
         code = run_subprocess(fast_cmd, timeout=90)
         if code == 0 and session_report.exists():
             session = json.loads(session_report.read_text(encoding="utf-8"))
+            if session.get("refused"):
+                reason = str(session.get("refusal_reason") or "KFPS could not verify this live vinyl safely.")
+                log(reason)
+                raise RuntimeError(reason)
             if str(session.get("layer_count", "")) == str(template_count):
                 table_value = session.get("table_address")
                 count_value = session.get("count_address")
@@ -192,7 +196,7 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                     detail = f", {template_detail}" if template_detail else ""
                     log(f"{game.upper()} group fast-located and validated for {template_count} layer(s){detail}.")
         if group and table:
-            return group, table
+            return group, table, session_report
         log("Fast locate did not produce a usable group/table. Falling back to research scanner.")
     else:
         log("Universal import/export uses the research scanner so grouped vinyl child tables can be found safely.")
@@ -326,7 +330,7 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
         log(f"Skipped {index - 1} weaker fallback candidate(s).")
     circle_suffix = f", circle_template={circle_count}/{template_count}" if requires_fresh_circle_template else ""
     log(f"{game.upper()} group fallback-located and validated: layers={template_count}, validated={valid_ptrs}, sample_ok={sample_ok}{circle_suffix}")
-    return group, table
+    return group, table, probe_report
 
 
 def copy_export_to_exported_folder(export_json):
@@ -365,7 +369,7 @@ def run_import(args):
     log(f"Universal import run folder: {run_dir}")
     log(f"Target game: {args.game.upper()}")
     log(f"Import JSON visible shapes: {shape_count}")
-    group, table = locate_universal_template(args.game, pid, args.layer_count, run_dir, "import-template")
+    group, table, _locator_report = locate_universal_template(args.game, pid, args.layer_count, run_dir, "import-template")
     import_cmd = [
         sys.executable,
         ROOT / "fh6_import_typecode_json.py",
@@ -435,10 +439,7 @@ def run_export(args):
 
     log(f"Universal export run folder: {run_dir}")
     log(f"Target game: {args.game.upper()}")
-    group, table = locate_universal_template(args.game, pid, args.layer_count, run_dir, "export-template")
-    locator_report = run_dir / "fast-export-template-session.json"
-    if not locator_report.exists():
-        locator_report = run_dir / "fallback-export-template-probe.json"
+    group, table, locator_report = locate_universal_template(args.game, pid, args.layer_count, run_dir, "export-template")
 
     export_cmd = [
         sys.executable,

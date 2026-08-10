@@ -11,6 +11,7 @@ from pathlib import Path
 
 import psutil
 
+from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree
 from game_profiles import PROFILES, get_profile
 from fh6_rtti_registry import load_runtime_profiles
 from native import dereference_pointer, get_base_address, read_int, read_process_memory
@@ -36,6 +37,7 @@ FH6_CALIBRATED_RTTI_PROFILE = {
 }
 
 FH6_GROUP_GRAPH_ACCEPT_CAP = 5
+FH6_GROUP_GRAPH_SCAN_CAP = 4096
 FH6_LOCATOR_CANDIDATE_CAP = 5
 
 
@@ -1125,16 +1127,60 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
             vtable = read_u64(pid, group_address)
             if vtable not in vtables:
                 continue
-            candidate = build_clivery_group_candidate(
-                pid,
-                profile,
-                layer_count,
-                rtti,
-                group_address,
-                vtable,
-                "u16_rtti_calibrated_count",
-            )
+            group_info = read_calibrated_group_vector(pid, profile, group_address, vtables, max_vector_count=3000)
+            if not group_info or group_info.get("parent_group"):
+                continue
+            access = assess_calibrated_group_access(pid, profile, group_info, vtables)
+            if access is not None and not access.allowed:
+                raise LocatorRefused(
+                    access.reason,
+                    {"matched_group_count": 1, "access_status": access.status},
+                )
+            candidate = None
+            if int(group_info.get("vector_count") or -1) == int(layer_count):
+                candidate = build_clivery_group_candidate(
+                    pid,
+                    profile,
+                    layer_count,
+                    rtti,
+                    group_address,
+                    vtable,
+                    "u16_rtti_calibrated_count",
+                )
+            else:
+                flat = flatten_calibrated_group(pid, profile, group_info, vtables, layer_count)
+                if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
+                    candidate = {
+                        "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
+                        "group_address": group_info["group_address"],
+                        "count_address": group_info["count_address"],
+                        "table_pointer_field": group_info["table_pointer_field"],
+                        "table_address": group_info["table_address"],
+                        "count_kind": "u16_rtti_calibrated_recursive",
+                        "current_u16": group_info.get("current_u16"),
+                        "current_u32": group_info.get("current_u32"),
+                        "samples": flat["samples"],
+                        "validated_entries": flat["shape_count"],
+                        "vector_count": group_info["vector_count"],
+                        "capacity_count": group_info["capacity_count"],
+                        "top_vector_count": group_info["vector_count"],
+                        "flattened_from_groups": True,
+                        "flattened_group_count": flat["group_count"],
+                        "flattened_max_depth": flat["max_depth"],
+                        "group_graph": {
+                            "has_parent": False,
+                            "has_children": True,
+                            "is_flat_orphan": False,
+                            "parent_count": 0,
+                            "child_count": max(1, flat["group_count"] - 1),
+                        },
+                        "vtable": group_info["vtable"],
+                        "rtti_source": rtti.get("source") or "pattern_scan",
+                        "rtti_update_code": rtti.get("update_code"),
+                        "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                    }
             if candidate:
+                candidate["export_access_verified"] = access is None or access.allowed
                 print(
                     f"Calibrated group candidate validated {candidate['validated_entries']}/{layer_count} layer(s).",
                     flush=True,
@@ -1161,6 +1207,7 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
     table_end = read_u64(pid, group_address + profile.layer_table_offset + 8)
     table_capacity = read_u64(pid, group_address + profile.layer_table_offset + 16)
     count_u16 = read_u16(pid, group_address + profile.livery_count_offset)
+    parent_group = read_u64(pid, group_address + 0x60)
     if not table_address or table_end is None or table_capacity is None:
         return None
     if not is_user_pointer(table_address) or not is_private_writable_address(pid, table_address):
@@ -1189,7 +1236,34 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
         "current_u16": count_u16,
         "current_u32": count_u16,
         "vtable": vtable,
+        "parent_group": parent_group or 0,
     }
+
+
+def assess_calibrated_group_access(pid, profile, group_info, vtables):
+    if profile.key != "fh6":
+        return None
+
+    def read_header(address):
+        try:
+            return read_process_memory(pid, address, MIN_HEADER_SIZE)
+        except Exception:
+            return b""
+
+    def read_children(address):
+        info = read_calibrated_group_vector(pid, profile, address, vtables, max_vector_count=3000)
+        if not info:
+            raise RuntimeError("live group vector is unreadable")
+        children = []
+        for ptr in read_group_pointer_table(pid, info["table_address"], info["vector_count"]):
+            child = read_calibrated_group_vector(pid, profile, ptr, vtables, max_vector_count=3000)
+            if child:
+                if int(child.get("parent_group") or 0) != int(address):
+                    raise RuntimeError("live child group parent link is inconsistent")
+                children.append(ptr)
+        return children
+
+    return assess_group_tree(group_info["group_address"], read_header, read_children)
 
 
 def read_group_pointer_table(pid, table_address, count):
@@ -1244,7 +1318,7 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
                 vector_count = int(info.get("vector_count") or 0)
                 if not (1 <= count_u16 <= 3000) or not (1 <= vector_count <= 3000):
                     continue
-                pointer_count = min(max(count_u16, vector_count), 3000)
+                pointer_count = min(vector_count, 3000)
                 pointers = read_group_pointer_table(pid, info["table_address"], pointer_count)
                 valid_pointer_count = sum(1 for ptr in pointers if is_private_writable_address(pid, ptr))
                 if valid_pointer_count <= 0:
@@ -1252,15 +1326,15 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
                 info["table_pointers"] = pointers
                 info["valid_pointer_count"] = valid_pointer_count
                 instances[group_address] = info
-                if len(instances) > accept_cap:
+                if len(instances) > FH6_GROUP_GRAPH_SCAN_CAP:
                     details = {
                         "global_group_count": len(instances),
-                        "global_group_cap": accept_cap,
+                        "global_group_cap": FH6_GROUP_GRAPH_SCAN_CAP,
                         "scanned_mb": scanned // (1024 * 1024),
                         "vtable_hits": vtable_hits,
                     }
                     raise LocatorRefused(
-                        "This editor state contains multiple group structures. Fully ungroup, save, reopen, and try again.",
+                        "KFPS found too many live group structures to identify the open vinyl safely.",
                         details,
                     )
 
@@ -1268,6 +1342,9 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
     for group_address, info in instances.items():
         ptrs = set(info.get("table_pointers") or [])
         parents = [parent for parent, parent_info in instances.items() if parent != group_address and group_address in set(parent_info.get("table_pointers") or [])]
+        header_parent = int(info.get("parent_group") or 0)
+        if header_parent and header_parent not in parents:
+            parents.append(header_parent)
         children = [child for child in group_addresses if child != group_address and child in ptrs]
         info["group_graph"] = {
             "has_parent": bool(parents),
@@ -1278,25 +1355,17 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
         }
 
     exact_groups = [info for info in instances.values() if int(info.get("current_u16") or 0) == int(layer_count)]
-    blocked_exact = [info for info in exact_groups if not (info.get("group_graph") or {}).get("is_flat_orphan")]
-    if blocked_exact:
-        raise LocatorRefused(
-            "This editor state is grouped or nested. Fully ungroup, save, reopen, and try again.",
-            {
-                "global_group_count": len(instances),
-                "matched_group_count": len(exact_groups),
-                "blocked_group_count": len(blocked_exact),
-                "scanned_mb": scanned // (1024 * 1024),
-                "stopped_by_time": stopped_by_time,
-            },
-        )
-
     groups = []
+    access_refusals = []
     for info in exact_groups:
         if int(info.get("vector_count") or -1) != int(layer_count):
             continue
         graph = info.get("group_graph") or {}
         if not graph.get("is_flat_orphan"):
+            continue
+        access = assess_calibrated_group_access(pid, profile, info, vtables)
+        if access is not None and not access.allowed:
+            access_refusals.append(access)
             continue
         candidate = build_clivery_group_candidate(
             pid,
@@ -1314,19 +1383,69 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
         candidate["group_graph_partial"] = bool(stopped_by_time)
         candidate["global_group_count"] = len(instances)
         candidate["graph_scan_mb"] = scanned // (1024 * 1024)
+        candidate["export_access_verified"] = access is None or access.allowed
         groups.append(candidate)
+
+    for info in exact_groups:
+        graph = info.get("group_graph") or {}
+        if graph.get("has_parent") or not graph.get("has_children"):
+            continue
+        flat = flatten_calibrated_group(pid, profile, info, vtables, layer_count)
+        if flat["shape_count"] != layer_count or flat["invalid_count"]:
+            continue
+        access = assess_calibrated_group_access(pid, profile, info, vtables)
+        if access is not None and not access.allowed:
+            access_refusals.append(access)
+            continue
+        groups.append({
+            "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
+            "group_address": info["group_address"],
+            "count_address": info["count_address"],
+            "table_pointer_field": info["table_pointer_field"],
+            "table_address": info["table_address"],
+            "count_kind": "rtti_group_graph_recursive",
+            "current_u16": info.get("current_u16"),
+            "current_u32": info.get("current_u32"),
+            "samples": flat["samples"],
+            "validated_entries": flat["shape_count"],
+            "vector_count": info["vector_count"],
+            "capacity_count": info["capacity_count"],
+            "top_vector_count": info["vector_count"],
+            "flattened_from_groups": True,
+            "flattened_group_count": flat["group_count"],
+            "flattened_max_depth": flat["max_depth"],
+            "group_graph": graph,
+            "group_graph_complete": not stopped_by_time,
+            "group_graph_partial": bool(stopped_by_time),
+            "global_group_count": len(instances),
+            "graph_scan_mb": scanned // (1024 * 1024),
+            "vtable": info["vtable"],
+            "rtti_source": rtti.get("source") or "pattern_scan",
+            "rtti_update_code": rtti.get("update_code"),
+            "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+            "export_access_verified": access is None or access.allowed,
+        })
 
     groups.sort(key=lambda item: item["score"], reverse=True)
     if groups:
         suffix = " from partial graph" if stopped_by_time else ""
         print(
-            f"Calibrated group graph accepted {len(groups[:accept_cap])} flat editable candidate(s){suffix}.",
+            f"Calibrated group graph accepted {len(groups[:accept_cap])} verified candidate(s){suffix}.",
             flush=True,
         )
     elif instances:
         print(
-            f"Calibrated group graph found {len(instances)} group(s), no exact flat candidate.",
+            f"Calibrated group graph found {len(instances)} group(s), no exact verified candidate.",
             flush=True,
+        )
+    if not groups and access_refusals:
+        refusal = access_refusals[0]
+        raise LocatorRefused(
+            refusal.reason,
+            {
+                "matched_group_count": len(access_refusals),
+                "access_status": refusal.status,
+            },
         )
     return groups[:accept_cap]
 
@@ -1481,17 +1600,12 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
         return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     if rtti.get("source") == "calibrated_profile":
+        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
         if groups:
             return groups
-        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
-        if groups:
-            flat_groups = [
-                item for item in groups
-                if (item.get("group_graph") or {}).get("is_flat_orphan", True)
-                and not item.get("flattened_from_groups")
-            ]
-            return flat_groups[:FH6_LOCATOR_CANDIDATE_CAP]
         print(
             "Calibrated locator count scan did not find a validated group; "
             "skipping broad type scan to avoid long stale-memory searches.",
@@ -1679,6 +1793,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "flattened_from_groups": bool(winner.get("flattened_from_groups")),
             "flattened_group_count": winner.get("flattened_group_count"),
             "flattened_max_depth": winner.get("flattened_max_depth"),
+            "export_access_verified": winner.get("export_access_verified") is True,
             "group_graph": winner.get("group_graph"),
             "group_graph_complete": winner.get("group_graph_complete"),
             "group_graph_partial": winner.get("group_graph_partial"),

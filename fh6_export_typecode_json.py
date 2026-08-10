@@ -16,6 +16,7 @@ from collections import Counter
 from ctypes import wintypes
 from pathlib import Path
 
+from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree
 from game_profiles import PROFILES
 from tools.cgroup.shape_identity import canonical_resource_for_word
 
@@ -28,17 +29,17 @@ MIN_LAYER_DECODE_SIZE = 0x7C
 TYPE_CODE_BASE = 0x100000
 GROUP_HEADER_READ_SIZE = 0x300
 GROUP_COUNT_OFFSET = 0x5A
+GROUP_PARENT_OFFSET = 0x60
 GROUP_TABLE_BEGIN_OFFSET = 0x78
 GROUP_TABLE_END_OFFSET = 0x80
 GROUP_TABLE_CAPACITY_OFFSET = 0x88
 MIN_NORMAL_GROUP_ADDRESS = 0x100000000
 EXPORT_REFUSAL_MESSAGE = (
-    "Export refused: this does not appear to be a fully ungrouped editable Forza group. "
-    "Fully ungroup the vinyl, save it, reopen it, and only export designs you own or have permission to export."
+    "Export refused: KFPS could not verify this live vinyl as exportable. "
+    "Remove any content you do not own from the vinyl, save it, reopen it, and try again."
 )
 EXPORT_VALIDATION_WARNING = (
-    "Export validation warning: the located group did not match every old editable-table assumption. "
-    "Continuing because a live group/table was located; only export designs you own or have permission to export."
+    "Export validation failed: the located live vinyl did not pass every required safety check."
 )
 
 # Motorsport uses the same visible library order, but several raw layer words
@@ -303,6 +304,13 @@ def ptr_at(handle, table, index):
     return struct.unpack("<Q", read_memory(handle, table + index * 8, 8))[0]
 
 
+def read_group_parent(handle, group):
+    raw = try_read_memory(handle, group + GROUP_PARENT_OFFSET, 8)
+    if len(raw) != 8:
+        return None
+    return struct.unpack("<Q", raw)[0]
+
+
 def read_group_metadata(handle, group):
     raw = read_memory(handle, group, GROUP_HEADER_READ_SIZE)
     begin = struct.unpack_from("<Q", raw, GROUP_TABLE_BEGIN_OFFSET)[0]
@@ -423,13 +431,12 @@ def validate_fast_session_report(session, requested_count, selected_group, selec
     validated_entries = int(session.get("validated_entries") or 0)
     flattened = bool(session.get("flattened_from_groups"))
     graph = session.get("group_graph") or {}
-    if graph and not graph.get("is_flat_orphan"):
-        reasons.append("locator session is grouped or nested, not a flat editable group")
-    global_group_count = session.get("global_group_count")
-    if global_group_count is not None and int(global_group_count) > 5:
-        reasons.append("locator session contains too many group structures")
-    if flattened:
-        reasons.append("flattened grouped exports are disabled for safety")
+    if graph and not graph.get("is_flat_orphan") and not flattened:
+        reasons.append("locator session describes a grouped hierarchy without a verified flattened export")
+    if session.get("game") == "fh6" and session.get("export_access_verified") is not True:
+        reasons.append("locator session did not verify the complete live vinyl hierarchy")
+    if flattened and not locator_allows_flattened(session):
+        reasons.append("locator session did not authorize recursive grouped export")
     if not flattened and vector_count is not None and int(vector_count) != int(requested_count):
         reasons.append(f"locator session vector count does not match requested count ({vector_count} != {requested_count})")
     required_capacity = int(vector_count) if flattened and vector_count is not None else int(requested_count)
@@ -444,7 +451,7 @@ def validate_fast_session_report(session, requested_count, selected_group, selec
     return not reasons, reasons
 
 
-def write_refusal_report(args, table, group, report_path, metadata=None, reasons=None):
+def write_refusal_report(args, table, group, report_path, metadata=None, reasons=None, policy=None):
     created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = {
         "format": "fh6_typecode_json_export_report_v1",
@@ -461,6 +468,7 @@ def write_refusal_report(args, table, group, report_path, metadata=None, reasons
             "metadata": metadata,
             "reasons": list(reasons or []),
         },
+        "live_export_policy": policy.report() if policy is not None else None,
         "exported_shape_count": 0,
         "read_layer_count": 0,
         "failure_count": 0,
@@ -715,7 +723,10 @@ def load_locator_report(path):
 
 
 def locator_allows_flattened(locator):
-    return False
+    return bool(
+        locator.get("flattened_from_groups")
+        and locator.get("export_access_verified") is True
+    )
 
 
 def locator_group_vtable(locator):
@@ -774,6 +785,45 @@ def read_group_vector_info(handle, group, expected_vtable=None):
         "capacity_count": capacity_count,
         "metadata": metadata,
     }
+
+
+def read_object_vtable(handle, address):
+    raw = try_read_memory(handle, address, 8)
+    if len(raw) != 8:
+        return None
+    return struct.unpack("<Q", raw)[0]
+
+
+def assess_fh6_live_group(handle, group, locator):
+    expected_vtable = locator_group_vtable(locator) or read_object_vtable(handle, group)
+    if expected_vtable is None:
+        return assess_group_tree(
+            group,
+            lambda _address: b"",
+            lambda _address: (),
+        )
+
+    def read_header(address):
+        return try_read_memory(handle, address, MIN_HEADER_SIZE)
+
+    def read_children(address):
+        info = read_group_vector_info(handle, address, expected_vtable)
+        if not info:
+            raise RuntimeError("live group vector is unreadable")
+        children = []
+        for index in range(int(info["vector_count"])):
+            ptr = ptr_at(handle, int(info["table"]), index)
+            if read_object_vtable(handle, ptr) != expected_vtable:
+                continue
+            child = read_group_vector_info(handle, ptr, expected_vtable)
+            if not child:
+                raise RuntimeError("live child group vector is unreadable")
+            if read_group_parent(handle, ptr) != int(address):
+                raise RuntimeError("live child group parent link is inconsistent")
+            children.append(ptr)
+        return children
+
+    return assess_group_tree(group, read_header, read_children)
 
 
 def pointer_has_group_signature(handle, ptr, expected_vtable=None):
@@ -835,11 +885,10 @@ def collect_export_layer_pointers(handle, group, table, requested_count, locator
     seen_groups = set()
     max_depth = 0
     group_count = 0
-    relaxed_child_group_count = 0
     group_transforms = []
 
     def walk(group_info, parent_matrix=None, parent_sx_sign=1.0, depth=0):
-        nonlocal max_depth, group_count, relaxed_child_group_count
+        nonlocal max_depth, group_count
         parent_matrix = parent_matrix or IDENTITY_MATRIX
         group_address = int(group_info["group"])
         if group_address in seen_groups:
@@ -868,12 +917,10 @@ def collect_export_layer_pointers(handle, group, table, requested_count, locator
         for index in range(int(group_info["vector_count"])):
             ptr = ptr_at(handle, int(group_info["table"]), index)
             child = read_group_vector_info(handle, ptr, expected_vtable)
-            if not child and expected_vtable is not None:
-                relaxed_child = read_group_vector_info(handle, ptr, None)
-                if relaxed_child:
-                    relaxed_child_group_count += 1
-                    child = relaxed_child
             if child:
+                if read_group_parent(handle, ptr) != group_address:
+                    invalid.append({"ptr": hx(ptr), "index": index, "depth": depth, "reason": "inconsistent child parent link"})
+                    continue
                 walk(child, current_matrix, current_sx_sign, depth + 1)
             elif pointer_has_group_signature(handle, ptr, expected_vtable):
                 invalid.append({"ptr": hx(ptr), "index": index, "depth": depth, "reason": "unresolved child group"})
@@ -887,25 +934,27 @@ def collect_export_layer_pointers(handle, group, table, requested_count, locator
         "flattened": True,
         "top_level_count": int(root["vector_count"]),
         "group_count": group_count,
-        "relaxed_child_group_count": relaxed_child_group_count,
         "max_depth": max_depth,
         "invalid_entries": len(invalid),
         "invalid_samples": invalid[:24],
         "group_transforms": group_transforms,
     }
+    if invalid:
+        raise RuntimeError(
+            f"flattened export found {len(invalid)} unreadable hierarchy entr{'y' if len(invalid) == 1 else 'ies'}"
+        )
     if len(pointers) != int(requested_count):
         stats["count_mismatch"] = {
             "resolved_shape_layers": len(pointers),
             "requested_count": int(requested_count),
             "group_count": group_count,
             "invalid_entries": len(invalid),
-            "note": "Export continued with the resolved shape layers instead of aborting on visible-count mismatch.",
+            "note": "Export stopped because the resolved shape count changed.",
         }
-        if not pointers:
-            raise RuntimeError(
-                f"flattened export resolved 0 shape layers, expected {requested_count}; "
-                f"groups={group_count}, invalid={len(invalid)}"
-            )
+        raise RuntimeError(
+            f"flattened export resolved {len(pointers)} shape layers, expected {requested_count}; "
+            f"groups={group_count}, invalid={len(invalid)}"
+        )
     return pointers, stats
 
 
@@ -976,6 +1025,8 @@ def main():
     failures = []
     flatten_stats = {}
     validation_warnings = []
+    live_policy_before = None
+    live_policy_after = None
     fm_resource_normalizations = 0
     try:
         if not args.probe_report:
@@ -983,8 +1034,8 @@ def main():
             sys.exit(2)
         probe_ok, probe_reasons = validate_probe_report(args.probe_report, int(args.count), group or 0, table)
         if not probe_ok:
-            validation_warnings.extend(probe_reasons)
-            log(EXPORT_VALIDATION_WARNING)
+            write_refusal_report(args, table, group, report_path, reasons=probe_reasons)
+            sys.exit(2)
         if group is None:
             write_refusal_report(args, table, group, report_path, reasons=["export requires a located game group header"])
             sys.exit(2)
@@ -1000,8 +1051,32 @@ def main():
             allow_flattened=locator_allows_flattened(locator_report),
         )
         if not editable_ok:
-            validation_warnings.extend(editable_reasons)
-            log(EXPORT_VALIDATION_WARNING)
+            write_refusal_report(args, table, group, report_path, metadata=group_metadata, reasons=editable_reasons)
+            sys.exit(2)
+        if args.game == "fh6":
+            root_parent = read_group_parent(handle, group)
+            if root_parent is None or root_parent != 0:
+                write_refusal_report(
+                    args,
+                    table,
+                    group,
+                    report_path,
+                    metadata=group_metadata,
+                    reasons=["KFPS could not verify the selected live vinyl root."],
+                )
+                sys.exit(2)
+            live_policy_before = assess_fh6_live_group(handle, group, locator_report)
+            if not live_policy_before.allowed:
+                write_refusal_report(
+                    args,
+                    table,
+                    group,
+                    report_path,
+                    metadata=group_metadata,
+                    reasons=[live_policy_before.reason],
+                    policy=live_policy_before,
+                )
+                sys.exit(2)
         try:
             export_pointers, flatten_stats = collect_export_layer_pointers(
                 handle,
@@ -1046,6 +1121,52 @@ def main():
             if args.skip_transparent and int(shape["color"][3]) <= 0:
                 continue
             shapes.append(shape)
+        if failures:
+            write_refusal_report(
+                args,
+                table,
+                group,
+                report_path,
+                metadata=group_metadata,
+                reasons=[f"KFPS could not read {len(failures)} live vinyl layer(s) completely."],
+                policy=live_policy_before,
+            )
+            sys.exit(2)
+        if args.game == "fh6":
+            if read_group_parent(handle, group) != 0:
+                write_refusal_report(
+                    args,
+                    table,
+                    group,
+                    report_path,
+                    metadata=group_metadata,
+                    reasons=["The selected live vinyl root changed while KFPS was reading it."],
+                    policy=live_policy_before,
+                )
+                sys.exit(2)
+            live_policy_after = assess_fh6_live_group(handle, group, locator_report)
+            if not live_policy_after.allowed:
+                write_refusal_report(
+                    args,
+                    table,
+                    group,
+                    report_path,
+                    metadata=group_metadata,
+                    reasons=[live_policy_after.reason],
+                    policy=live_policy_after,
+                )
+                sys.exit(2)
+            if live_policy_before.fingerprint != live_policy_after.fingerprint:
+                write_refusal_report(
+                    args,
+                    table,
+                    group,
+                    report_path,
+                    metadata=group_metadata,
+                    reasons=["The live vinyl hierarchy changed while KFPS was reading it."],
+                    policy=live_policy_after,
+                )
+                sys.exit(2)
     finally:
         close_handle(handle)
 
@@ -1068,6 +1189,7 @@ def main():
                 "warnings": validation_warnings,
             },
             "flattened_export": flatten_stats,
+            "live_export_policy": live_policy_after.report() if live_policy_after is not None else None,
             "fm_resource_normalization": {
                 "game": str(args.game).lower(),
                 "normalized_shape_count": fm_resource_normalizations,
@@ -1094,6 +1216,7 @@ def main():
         },
         "validation_warnings": validation_warnings,
         "flattened_export": flatten_stats,
+        "live_export_policy": live_policy_after.report() if live_policy_after is not None else None,
         "fm_resource_normalization": {
             "game": str(args.game).lower(),
             "normalized_shape_count": fm_resource_normalizations,
