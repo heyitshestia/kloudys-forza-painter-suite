@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.10
+- Fixed newly rendered thumbnails appearing in the Outputs browser only after changing folders; Generated, Editor, Game Export, and Library tiles now update immediately without rebuilding the folder view.
+
 ## 3.1.9
 - Added fail-closed FH6 live-export ownership verification across the complete loaded group hierarchy, preventing content not owned by the current profile from being exported.
 - Added authorized recursive flattening for owned grouped vinyls with parent-transform composition, exact layer-count validation, and no partial exports.

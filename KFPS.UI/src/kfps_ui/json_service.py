@@ -1428,6 +1428,8 @@ class JsonService(QObject):
             if preview_url:
                 row["previewUrl"] = preview_url
                 self._file_model.set_row_value(index, "previewUrl", preview_url)
+        for key, preview_url in previews_by_key.items():
+            self._set_explorer_preview_url(key, preview_url)
         if self._selected_path:
             selected_key = self._preview_key(self._selected_path)
             if selected_key in previews_by_key:
@@ -2646,6 +2648,7 @@ class JsonService(QObject):
     def _update_preview_url(self, path, preview_url):
         if not preview_url:
             return
+        preview_key = self._preview_key(path)
         for cached in self._source_index_cache.values():
             for row in cached.get("rows", []):
                 if self._same_path(row.get("path"), path):
@@ -2660,9 +2663,20 @@ class JsonService(QObject):
                 visible_index = index
         if visible_index >= 0:
             self._file_model.set_row_value(visible_index, "previewUrl", preview_url)
+        self._set_explorer_preview_url(preview_key, preview_url)
         if self._selected_path and self._same_path(self._selected_path, path):
             self._preview_url = preview_url
             self.changed.emit()
+
+    def _set_explorer_preview_url(self, preview_key, preview_url):
+        index = self._explorer_index_by_key.get(preview_key, -1)
+        if not 0 <= index < len(self._explorer_rows):
+            return
+        row = self._explorer_rows[index]
+        if row.get("isFolder") or row.get("previewUrl") == preview_url:
+            return
+        row["previewUrl"] = preview_url
+        self._explorer_model.set_row_value(index, "previewUrl", preview_url)
 
     def _clear_selection(self, emit=True):
         self._selected_path = ""

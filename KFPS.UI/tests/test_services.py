@@ -617,9 +617,29 @@ class ServiceTests(unittest.TestCase):
     (paths.runtime_root/"json-browser-index.v1.json").write_text(json.dumps(payload),encoding="utf-8")
     self.assertEqual(1,svc._merge_preview_urls_from_cache(force=True))
     self.assertEqual("file:///late-preview.png",svc.fileModel.row(0)["previewUrl"])
+    explorer_row=next(row for row in svc.explorerModel.rows if row.get("path")==str(target))
+    self.assertEqual("file:///late-preview.png",explorer_row["previewUrl"])
     self.assertEqual("file:///late-preview.png",svc.previewUrl)
    finally:
     shutdown_json_service(svc)
+
+ def test_completed_preview_updates_output_explorer_without_folder_navigation(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Fresh Export.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"metadata":{"display_name":"Fresh Export","layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(target),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda:2 in svc._source_index_cache))
+    svc.setSource(2)
+    before=next(row for row in svc.explorerModel.rows if row.get("path")==str(target))
+    self.assertEqual("",before["previewUrl"])
+    svc._update_preview_url(str(target),"file:///fresh-export.png")
+    after=next(row for row in svc.explorerModel.rows if row.get("path")==str(target))
+    self.assertEqual("file:///fresh-export.png",after["previewUrl"])
+   finally:
+    shutdown_json_service(svc)
+
  def test_thumbnail_worker_prioritizes_preferred_source(self):
   class RenderingPreview:
    def __init__(self):
