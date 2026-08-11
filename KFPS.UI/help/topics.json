@@ -204,18 +204,21 @@
       "key": "json-browser",
       "category": "json",
       "title": "Use the Outputs browser",
-      "summary": "Choose a source, search by vinyl name, inspect thumbnails, and select the exact JSON you want.",
-      "keywords": ["outputs", "json", "thumbnail", "search", "generated", "editor", "library", "fd6"],
+      "summary": "Browse folders, sort and search vinyls, inspect thumbnails, and organize JSON files without leaving KFPS.",
+      "keywords": ["outputs", "json", "thumbnail", "search", "sort", "move", "folder", "generated", "editor", "library", "fd6"],
       "steps": [
         "Open Outputs and choose an Output source.",
         "Use Generated finals for generator results, Editor exports for manual-editor work, and Game exports for JSON read from a running game.",
         "Use Library for vinyls found by an offline save scan.",
         "Type part of a vinyl name in Search to filter only the current source. Empty the box to show everything again.",
+        "Use Sort to order JSONs by date made, name, fewest shapes, or most shapes. Folders stay ahead of JSON files.",
         "Click a thumbnail once to select it. Double-click it to open a larger preview and file details.",
+        "Right-click a JSON and choose Move to folder to place it in another Outputs folder. Ctrl and Shift let you move several selected JSONs together.",
         "Check the displayed shape count before importing."
       ],
       "sections": [
         {"heading": "Manual JSON files", "body": "Add JSON lets you choose a compatible file outside the normal folders. When a supported Forza Designer 6 shapes file is chosen, KFPS detects and converts it in the background without changing the original file."},
+        {"heading": "Organizing files", "body": "Right-click JSONs to move, copy, rename, or delete them. Move to folder lists every available KFPS output category and folder. Existing files with the same name are never replaced."},
         {"heading": "Thumbnails", "body": "KFPS caches previews so later starts are faster. A missing preview does not make a valid JSON unusable; select or refresh the source and allow the thumbnail index to finish."},
         {"heading": "Library items", "body": "Items scanned from local game save files are already in that game's saved library, so live online import stays unavailable for them. Artwork downloaded from the Community folder is not a save scan and can be imported normally."}
       ],

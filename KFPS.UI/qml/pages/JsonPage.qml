@@ -719,6 +719,25 @@ Item {
                                     }
                                 }
 
+                                KfpsComboBox {
+                                    id: outputSort
+                                    objectName: "OutputSort"
+                                    Layout.preferredWidth: Theme.px(178)
+                                    Layout.minimumWidth: Theme.px(150)
+                                    dense: true
+                                    enabled: jsonService.currentFolder.length > 0
+                                    model: ["Date made", "Alphabetical", "Least shapes", "Most shapes"]
+                                    currentIndex: jsonService.sortMode === "name-asc" ? 1
+                                                  : (jsonService.sortMode === "shapes-asc" ? 2
+                                                     : (jsonService.sortMode === "shapes-desc" ? 3 : 0))
+                                    toolTipText: "Choose how JSONs are ordered. Folders always stay together before JSON files."
+                                    onActivated: {
+                                        var modes = ["date-desc", "name-asc", "shapes-asc", "shapes-desc"]
+                                        jsonService.setSortMode(modes[currentIndex])
+                                        files.positionViewAtBeginning()
+                                    }
+                                }
+
                                 Text {
                                     Layout.maximumWidth: Theme.px(180)
                                     text: jsonService.explorerSummary
@@ -1142,6 +1161,31 @@ Item {
             }
 
             GhostButton {
+                id: moveToFolderButton
+                Layout.fillWidth: true
+                visible: root.outputContextPath.length > 0 && !root.outputContextIsFolder
+                         && jsonService.canMoveJsonSelection
+                text: jsonService.fileOperationSelectionCount > 1
+                      ? "Move " + jsonService.fileOperationSelectionCount + " JSONs to folder"
+                      : "Move to folder"
+                showArrow: true
+                dense: true
+                toolTipText: "Move the selected JSON or JSONs directly into another KFPS Outputs folder."
+                onClicked: {
+                    var preferredX = outputContextMenu.x + outputContextMenu.width - Theme.px(4)
+                    outputMoveFolderMenu.x = preferredX + outputMoveFolderMenu.width <= root.width - Theme.px(8)
+                                             ? preferredX
+                                             : Math.max(Theme.px(8), outputContextMenu.x - outputMoveFolderMenu.width + Theme.px(4))
+                    outputMoveFolderMenu.y = Math.max(
+                                Theme.px(8),
+                                Math.min(outputContextMenu.y + moveToFolderButton.y,
+                                         root.height - outputMoveFolderMenu.height - Theme.px(8)))
+                    outputContextMenu.close()
+                    outputMoveFolderMenu.open()
+                }
+            }
+
+            GhostButton {
                 Layout.fillWidth: true
                 visible: root.outputContextIsFolder || jsonService.currentFolder.length > 0
                 text: jsonService.clipboardCount > 0 ? "Paste " + jsonService.clipboardCount + " item(s)" : "Paste"
@@ -1213,6 +1257,73 @@ Item {
                     outputContextMenu.close()
                     deleteSelectedEntriesDialog.open()
                 }
+            }
+        }
+    }
+
+    Popup {
+        id: outputMoveFolderMenu
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Theme.px(330)
+        height: Math.min(
+                    root.height - Theme.px(16),
+                    Theme.px(58) + Math.max(1, moveFolderList.count) * Theme.px(36))
+        padding: Theme.px(8)
+        z: 82
+
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(6)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(5)
+
+            Text {
+                Layout.fillWidth: true
+                text: jsonService.fileOperationSelectionCount > 1
+                      ? "Move selected JSONs to"
+                      : "Move selected JSON to"
+                color: Theme.primaryBright
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.px(10.4)
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.max(1, Theme.px(1))
+                color: Theme.borderSoft
+            }
+
+            FastListView {
+                id: moveFolderList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: Theme.px(2)
+                model: jsonService.moveFolderModel
+
+                delegate: GhostButton {
+                    required property string displayName
+                    required property string path
+                    required property int depth
+                    width: moveFolderList.width
+                    height: Theme.px(34)
+                    dense: true
+                    text: displayName
+                    toolTipText: path
+                    onClicked: {
+                        outputMoveFolderMenu.close()
+                        jsonService.moveSelectedJsonsToFolder(path)
+                    }
+                }
+
+                ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
             }
         }
     }

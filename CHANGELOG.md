@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.11
+- Added Outputs sorting by newest date, natural alphabetical name, fewest shapes, and most shapes while keeping folders first and selections stable.
+- Added a right-click Move to folder submenu for one or many selected JSONs, covering every available output category and nested managed folder without overwriting filename collisions.
+- Kept cached thumbnails attached to moved JSONs and retained responsive bulk moves for large output libraries.
+
 ## 3.1.10
 - Fixed newly rendered thumbnails appearing in the Outputs browser only after changing folders; Generated, Editor, Game Export, and Library tiles now update immediately without rebuilding the folder view.
 

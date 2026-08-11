@@ -187,6 +187,39 @@ class OutputExplorerPerformanceTests(unittest.TestCase):
             finally:
                 shutdown(service)
 
+    def test_direct_move_of_one_hundred_jsons_stays_responsive(self):
+        with tempfile.TemporaryDirectory() as td:
+            app_root = Path(td)
+            exported = app_root / "imgs" / "exported"
+            exported.mkdir(parents=True)
+            payload = json.dumps({"metadata": {"layers": 1}, "shapes": [{"type": 1048677}]})
+            for index in range(100):
+                (exported / f"Move Artwork {index:04d}.json").write_text(payload, encoding="utf-8")
+            paths = AppPaths(app_root, UI, UI / "qml", UI / "assets", app_root / "runtime", app_root / "python" / "python.exe")
+            service = JsonService(paths, DummyPreview(), DummyDesktop(exported), DummyLog())
+            try:
+                self.assertTrue(wait_for(lambda: len(service._source_index_cache.get(2, {}).get("rows", [])) == 100))
+                service.setSource(2)
+                self.assertTrue(service.createFolderIn(str(exported), "Destination"))
+                destination = exported / "Destination"
+                json_indices = [
+                    index for index, row in enumerate(service.explorerModel.rows)
+                    if not row["isFolder"]
+                ]
+                service.selectExplorerEntry(json_indices[0], False, False)
+                for index in json_indices[1:]:
+                    service.selectExplorerEntry(index, True, False)
+
+                started = time.perf_counter()
+                self.assertEqual(100, service.moveSelectedJsonsToFolder(str(destination)))
+                move_seconds = time.perf_counter() - started
+
+                self.assertEqual(0, len(list(exported.glob("*.json"))))
+                self.assertEqual(100, len(list(destination.glob("*.json"))))
+                self.assertLess(move_seconds, 2.0, f"direct move took {move_seconds:.3f}s")
+            finally:
+                shutdown(service)
+
     def test_moved_json_keeps_cached_thumbnail_in_destination_row(self):
         with tempfile.TemporaryDirectory() as td:
             app_root = Path(td)
@@ -214,8 +247,7 @@ class OutputExplorerPerformanceTests(unittest.TestCase):
                     if row["path"] == str(source)
                 )
                 service.selectExplorerEntry(source_index, False, False)
-                service.cutSelection()
-                service.pasteIntoFolder(str(destination))
+                self.assertEqual(1, service.moveSelectedJsonsToFolder(str(destination)))
 
                 target = destination / source.name
                 target_key = service._preview_key(target)

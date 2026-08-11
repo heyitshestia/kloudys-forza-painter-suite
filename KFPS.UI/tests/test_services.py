@@ -362,6 +362,49 @@ class ServiceTests(unittest.TestCase):
    finally:
     shutdown_json_service(svc)
 
+ def test_output_explorer_sorts_jsons_and_moves_selection_to_managed_folder(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   files={}
+   for name,count,modified in (("Alpha 2.json",1,1000),("Alpha 10.json",3,3000),("Beta.json",2,2000),("Move Safe.json",4,2500)):
+    path=exported/name
+    path.write_text(json.dumps({"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]*count}),encoding="utf-8")
+    os.utime(path,(modified,modified));files[name]=path
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(files["Alpha 2.json"]),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda:len(svc._source_index_cache.get(2,{}).get("rows",[]))==4));svc.setSource(2)
+    json_names=lambda:[row["name"] for row in svc.explorerModel.rows if not row["isFolder"]]
+    self.assertEqual(["Alpha 10.json","Move Safe.json","Beta.json","Alpha 2.json"],json_names())
+    svc.setSortMode("name-asc");self.assertEqual(["Alpha 2.json","Alpha 10.json","Beta.json","Move Safe.json"],json_names())
+    svc.setSortMode("shapes-asc");self.assertEqual(["Alpha 2.json","Beta.json","Alpha 10.json","Move Safe.json"],json_names())
+    svc.setSortMode("shapes-desc");self.assertEqual(["Move Safe.json","Alpha 10.json","Beta.json","Alpha 2.json"],json_names())
+    self.assertTrue(svc.createFolderIn(str(exported),"Destination"));destination=exported/"Destination"
+    self.assertIn("Game Exports / Destination",[row["displayName"] for row in svc.moveFolderModel.rows])
+    indices={row["name"]:index for index,row in enumerate(svc.explorerModel.rows)}
+    folder_index=next(index for index,row in enumerate(svc.explorerModel.rows) if row["isFolder"])
+    svc.selectExplorerEntry(folder_index,False,False);svc.selectExplorerEntry(indices["Alpha 2.json"],True,False)
+    self.assertFalse(svc.canMoveJsonSelection)
+    svc.selectExplorerEntry(indices["Alpha 2.json"],False,False)
+    svc.selectExplorerEntry(indices["Beta.json"],True,False)
+    self.assertTrue(svc.canMoveJsonSelection)
+    svc.setSortMode("name-asc")
+    self.assertEqual({str(files["Alpha 2.json"]),str(files["Beta.json"])},set(svc._explorer_selection))
+    self.assertEqual(2,svc.moveSelectedJsonsToFolder(str(destination)))
+    self.assertFalse(files["Alpha 2.json"].exists());self.assertFalse(files["Beta.json"].exists())
+    self.assertTrue((destination/"Alpha 2.json").is_file());self.assertTrue((destination/"Beta.json").is_file())
+    self.assertEqual(0,svc.explorerSelectionCount);self.assertIn("Moved 2 JSONs",svc.managementStatus)
+    collision=destination/"Alpha 10.json";collision.write_text("do not replace",encoding="utf-8")
+    remaining_indices={row["name"]:index for index,row in enumerate(svc.explorerModel.rows) if not row["isFolder"]}
+    svc.selectExplorerEntry(remaining_indices["Alpha 10.json"],False,False)
+    svc.selectExplorerEntry(remaining_indices["Move Safe.json"],True,False)
+    self.assertEqual(1,svc.moveSelectedJsonsToFolder(str(destination)))
+    self.assertTrue(files["Alpha 10.json"].is_file());self.assertEqual("do not replace",collision.read_text(encoding="utf-8"))
+    self.assertFalse(files["Move Safe.json"].exists());self.assertTrue((destination/"Move Safe.json").is_file())
+    self.assertIn("1 could not be moved",svc.managementStatus)
+   finally:
+    shutdown_json_service(svc)
+
  def test_output_selection_protects_source_roots_and_rejects_outside_paths(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
