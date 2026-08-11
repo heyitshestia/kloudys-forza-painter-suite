@@ -26,6 +26,7 @@ from kfps_ui.community_client import CommunityApiClient, CommunityApiError
 from kfps_ui.community_credentials import CommunityCredentialStore
 from kfps_ui.community_service import CommunityService, _versioned_asset_url, configured_community_api_url
 from kfps_ui.community_validation import detect_payload_schema, inspect_upload, validate_download
+from kfps_ui.json_service import JsonService
 
 
 APP = QCoreApplication.instance() or QCoreApplication([])
@@ -93,6 +94,29 @@ class DummyLog:
 
     def append(self, message, level="info"):
         self.messages.append((str(message), str(level)))
+
+
+class DummyPreview:
+    def preview_for_json(self, _path, _source=""):
+        return ""
+
+    def existing_preview_for_json(self, _path, _source=""):
+        return ""
+
+
+def close_json_service(service):
+    APP.processEvents()
+    service._thumbnail_poll_timer.stop()
+    process = service._thumbnail_process
+    if process and process.poll() is None:
+        process.kill()
+        process.communicate(timeout=2)
+    wait_for(lambda: not service.indexing, timeout=5.0)
+    service._cache_save_pending = False
+    service._save_index_cache_async()
+    APP.processEvents()
+    service._preview_executor.shutdown(wait=True, cancel_futures=True)
+    service._index_executor.shutdown(wait=True, cancel_futures=True)
 
 
 class CommunityBoundaryTests(unittest.TestCase):
@@ -456,8 +480,151 @@ class CommunityBoundaryTests(unittest.TestCase):
                     service.errorMessage,
                     "Verified supporter access is required to download this artwork.",
                 )
+                self.assertFalse(any(paths.library_root.rglob("*.json")))
             finally:
                 service.close()
+
+    def test_public_download_opens_persistent_library_without_supporter_access(self):
+        test_root = ROOT / "runtime" / "community-tests"
+        test_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_root) as folder:
+            folder = Path(folder)
+            app_root = folder / "app"
+            paths = AppPaths(
+                app_root=app_root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=app_root / "runtime",
+                bundled_python=app_root / "python" / "python.exe",
+            )
+            desktop = DummyDesktop(folder / "unused.json")
+            log = DummyLog()
+            jsons = JsonService(paths, DummyPreview(), desktop, log)
+            service = CommunityService(paths, desktop, log, jsons=jsons, demo=True)
+            canonical = json.dumps({
+                "format": "kfps.community.v1",
+                "metadata": {"shape_count": 1},
+                "shapes": [{"type": 16, "color": [1, 2, 3, 255], "data": [1, 2, 3, 4, 5]}],
+            }, separators=(",", ":")).encode("utf-8")
+            import hashlib
+            digest = hashlib.sha256(canonical).hexdigest()
+            download_calls = []
+
+            class FakeClient:
+                def __init__(self, _base_url, token=""):
+                    self.token = token
+
+                def binary(self, path, authenticated=False, maximum=None):
+                    download_calls.append((str(path), bool(authenticated), maximum, self.token))
+                    if str(path).endswith("/download"):
+                        return canonical, {"Content-Type": "application/json"}
+                    raise CommunityApiError(404, "preview_missing", "No preview fixture.")
+
+            service._token = "regular-session"
+            service._session_user = {"id": "regular-viewer", "username": "RegularViewer"}
+            service._supporter = {"active": False, "verified_until": ""}
+            service._selected = {
+                "id": "public-artwork",
+                "title": "Public Fixture",
+                "creatorName": "Public Artist",
+                "supporterOnly": False,
+                "downloadUrl": "/v1/artworks/public-artwork/download",
+                "contentSha256": digest,
+                "shapeCount": 1,
+                "schemaId": "kfps-primitives",
+                "schemaKnown": True,
+            }
+            try:
+                with patch("kfps_ui.community_service.CommunityApiClient", FakeClient):
+                    service.downloadSelected()
+                    self.assertTrue(wait_for(lambda: bool(service.downloadedPath) and not service.busy), service.errorMessage)
+                downloaded = Path(service.downloadedPath)
+                self.assertTrue(downloaded.is_file())
+                self.assertTrue(download_calls[0][1])
+                self.assertEqual(download_calls[0][3], "regular-session")
+                self.assertFalse(service.supporterAccess)
+                self.assertTrue(wait_for(
+                    lambda: jsons.sourceIndex == 3
+                    and "Public Fixture.json" in [row["name"] for row in jsons.explorerModel.rows]
+                ))
+                self.assertEqual(jsons.currentFolderDisplay, "Library")
+                jsons.selectPath(str(downloaded))
+                self.assertFalse(jsons.selectedIsGameLibraryItem)
+
+                jsons.goUp()
+                self.assertEqual(
+                    ["Generated JSONs", "Editor JSONs", "Game Exports", "Library"],
+                    [row["name"] for row in jsons.explorerModel.rows],
+                )
+                jsons.setSource(3)
+                self.assertIn("Public Fixture.json", [row["name"] for row in jsons.explorerModel.rows])
+            finally:
+                service.close()
+                close_json_service(jsons)
+
+            restarted = JsonService(paths, DummyPreview(), desktop, log)
+            try:
+                self.assertTrue(wait_for(lambda: 3 in restarted._source_index_cache))
+                self.assertIn("Library", [row["name"] for row in restarted.explorerModel.rows])
+                restarted.setSource(3)
+                self.assertIn("Public Fixture.json", [row["name"] for row in restarted.explorerModel.rows])
+            finally:
+                close_json_service(restarted)
+
+    def test_rejected_download_does_not_write_or_change_output_source(self):
+        test_root = ROOT / "runtime" / "community-tests"
+        test_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_root) as folder:
+            folder = Path(folder)
+            app_root = folder / "app"
+            paths = AppPaths(
+                app_root=app_root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=app_root / "runtime",
+                bundled_python=app_root / "python" / "python.exe",
+            )
+            desktop = DummyDesktop(folder / "unused.json")
+            log = DummyLog()
+            jsons = JsonService(paths, DummyPreview(), desktop, log)
+            service = CommunityService(paths, desktop, log, jsons=jsons, demo=True)
+            canonical = json.dumps({
+                "format": "kfps.community.v1",
+                "metadata": {"shape_count": 1},
+                "shapes": [{"type": 16, "color": [1, 2, 3, 255], "data": [1, 2, 3, 4, 5]}],
+            }, separators=(",", ":")).encode("utf-8")
+
+            class FakeClient:
+                def __init__(self, _base_url, token=""):
+                    self.token = token
+
+                def binary(self, _path, authenticated=False, maximum=None):
+                    return canonical, {"Content-Type": "application/json"}
+
+            service._token = "regular-session"
+            service._session_user = {"id": "regular-viewer", "username": "RegularViewer"}
+            service._selected = {
+                "id": "tampered-artwork",
+                "title": "Tampered Fixture",
+                "creatorName": "Public Artist",
+                "supporterOnly": False,
+                "downloadUrl": "/v1/artworks/tampered-artwork/download",
+                "contentSha256": "0" * 64,
+            }
+            try:
+                self.assertEqual(jsons.sourceIndex, 0)
+                with patch("kfps_ui.community_service.CommunityApiClient", FakeClient):
+                    service.downloadSelected()
+                    self.assertTrue(wait_for(lambda: not service.busy and bool(service.errorMessage)))
+                self.assertIn("checksum", service.errorMessage.lower())
+                self.assertEqual(service.downloadedPath, "")
+                self.assertEqual(jsons.sourceIndex, 0)
+                self.assertFalse(any(paths.library_root.rglob("*.json")))
+            finally:
+                service.close()
+                close_json_service(jsons)
 
     def test_upload_browser_path_uses_the_same_validator_without_opening_file_explorer(self):
         test_root = ROOT / "runtime" / "community-tests"

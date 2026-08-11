@@ -6,6 +6,8 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
@@ -14,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from kfps_ui.cgroup_library_service import CGroupLibraryService
+from kfps_ui.app_paths import AppPaths
 from tools.cgroup.cgroup_codec import CGroupLayer, build_flat_payload, parse_flat_payload, wrap_payload
 from tools.cgroup.forza_source_decoder import (
     GroupNode,
@@ -37,6 +40,44 @@ class CGroupLibraryScanTests(unittest.TestCase):
     @staticmethod
     def _shape(color=(255, 255, 255, 255)) -> ShapeNode:
         return ShapeNode(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, color, 0)
+
+    def test_library_visibility_does_not_unlock_offline_save_tools(self):
+        class DummyLog:
+            def __init__(self):
+                self.messages = []
+
+            def append(self, message, level="info"):
+                self.messages.append((str(message), str(level)))
+
+        with tempfile.TemporaryDirectory() as temp:
+            app_root = Path(temp)
+            paths = AppPaths(
+                app_root=app_root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=app_root / "runtime",
+                bundled_python=app_root / "python" / "python.exe",
+            )
+            log = DummyLog()
+            service = CGroupLibraryService(
+                paths, object(), object(), log,
+                supporter=SimpleNamespace(unlocked=False),
+                demo=True,
+            )
+            try:
+                with patch.object(service._executor, "submit") as submit:
+                    service.scanSaves("fh6")
+                    service.createLayerGroupFromSelectedJson(str(app_root / "fixture.json"), "fh6")
+                    service.installJsonToFH6LayerGroup(
+                        str(app_root / "fixture.json"), str(app_root / "LayerGroup"),
+                    )
+                submit.assert_not_called()
+                self.assertFalse(service.running)
+                self.assertEqual(service.status, "Supporter unlock required")
+                self.assertTrue(all("unlock" in message.lower() for message, _level in log.messages))
+            finally:
+                service._executor.shutdown(wait=True, cancel_futures=True)
 
     def test_final_root_close_preserves_last_flat_mask(self):
         payload = bytearray(

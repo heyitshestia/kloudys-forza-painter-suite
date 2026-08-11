@@ -70,17 +70,6 @@ Item {
     }
 
     Connections {
-        target: supporterService
-        function onChanged() {
-            jsonService.setLibraryFolderVisible(supporterService.unlocked)
-            if (!supporterService.unlocked && jsonService.sourceIndex === 3)
-                jsonService.setSource(0)
-        }
-    }
-
-    Component.onCompleted: jsonService.setLibraryFolderVisible(supporterService.unlocked)
-
-    Connections {
         target: cgroupLibraryService
         function onFm8CreatorPromptRequested() {
             root.fm8CreatorConfirmStep = 1

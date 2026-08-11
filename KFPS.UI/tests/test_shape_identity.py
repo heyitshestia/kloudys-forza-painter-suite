@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ ROOT = UI.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.cgroup.shape_identity import (
+    canonical_shape_identity,
     canonical_resource_for_word,
     normalize_game_key,
     resource_shape_word,
@@ -16,6 +18,23 @@ from tools.cgroup.shape_identity import (
 
 
 class ShapeIdentityTests(unittest.TestCase):
+    def test_bundled_logo_is_sanitized_shape_efficient_and_portable(self):
+        path = ROOT / "assets" / "app" / "KFPS Logo.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual({"shapes"}, set(payload))
+        self.assertLessEqual(len(payload["shapes"]), 200)
+        self.assertGreater(len(payload["shapes"]), 0)
+
+        for shape in payload["shapes"]:
+            identity = canonical_shape_identity(shape)
+            self.assertEqual(0x100000 + identity.word, shape["type"])
+            self.assertEqual(
+                canonical_resource_for_word(identity.word),
+                (shape["resource_family"], shape["resource_index"]),
+            )
+            for game in ("fh4", "fh5", "fh6", "fm8"):
+                self.assertGreater(target_game_shape_word(shape, identity.word, game), 0)
+
     def test_upper_letter_symbol_slots_have_stable_shape_words(self):
         base_word = 1051477 & 0xFFFF
         self.assertEqual(base_word + 26, resource_shape_word("Upper_Letters_7", 27))

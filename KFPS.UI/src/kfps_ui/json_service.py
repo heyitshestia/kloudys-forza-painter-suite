@@ -291,7 +291,6 @@ class JsonService(QObject):
         self._selection_revision = 0
         self._management_status = ""
         self._current_folder = ""
-        self._library_folder_visible = True
         self._explorer_rows: list[dict] = []
         self._back_history: list[str] = []
         self._forward_history: list[str] = []
@@ -803,8 +802,7 @@ class JsonService(QObject):
         self._refresh_folder_model()
         rows = []
         if not self._current_folder:
-            source_count = 4 if self._library_folder_visible else 3
-            rows = [self._source_entry_row(source) for source in range(source_count)]
+            rows = [self._source_entry_row(source) for source in range(len(self._source_roots()))]
         else:
             root = self._root()
             root.mkdir(parents=True, exist_ok=True)
@@ -904,12 +902,11 @@ class JsonService(QObject):
         rows = []
         if not self._current_folder:
             rows.append({"displayName": "Outputs", "path": "", "depth": 0, "sourceIndex": -1})
-            source_count = 4 if self._library_folder_visible else 3
-            scopes = [(source, self._source_roots()[source], 1) for source in range(source_count)]
+            scopes = [(source, self._source_roots()[source], 1) for source in range(len(self._source_roots()))]
         else:
             current = Path(self._current_folder)
             source = self._managed_source_for_path(current)
-            if source < 0 or (source == 3 and not self._library_folder_visible):
+            if source < 0:
                 rows.append({"displayName": "Outputs", "path": "", "depth": 0, "sourceIndex": -1})
                 scopes = []
             else:
@@ -937,8 +934,7 @@ class JsonService(QObject):
 
     def _refresh_move_folder_model(self):
         rows = []
-        source_count = 4 if self._library_folder_visible else 3
-        for source in range(source_count):
+        for source in range(len(self._source_roots())):
             source_root = self._source_roots()[source]
             source_root.mkdir(parents=True, exist_ok=True)
             label = self._explorer_source_label(source)
@@ -951,22 +947,6 @@ class JsonService(QObject):
                     "sourceIndex": source,
                 })
         self._move_folder_model.replace(rows)
-
-    @Slot(bool)
-    def setLibraryFolderVisible(self, visible):
-        visible = bool(visible)
-        if visible == self._library_folder_visible:
-            return
-        self._library_folder_visible = visible
-        if not visible and self._source == 3 and self._current_folder:
-            self._source = 0
-            self._current_folder = ""
-            self._refresh_folder_model(force=True)
-            self._load_source(force=False)
-        else:
-            self._refresh_folder_model(force=True)
-            self._refresh_explorer()
-            self.changed.emit()
 
     @Slot()
     def warmIndex(self):
@@ -1180,7 +1160,11 @@ class JsonService(QObject):
         self._cache_save_pending = False
         payload = self._index_cache_payload()
         target = self._index_cache_file()
-        self._index_executor.submit(self._write_index_cache_payload, target, payload)
+        try:
+            self._index_executor.submit(self._write_index_cache_payload, target, payload)
+        except RuntimeError:
+            # A delayed Qt callback can arrive while the app is shutting down.
+            return
 
     @staticmethod
     def _write_index_cache_payload(target, payload):
@@ -1562,7 +1546,7 @@ class JsonService(QObject):
         if requested:
             candidate = Path(requested)
             source = self._managed_source_for_path(candidate)
-            if source < 0 or (source == 3 and not self._library_folder_visible):
+            if source < 0:
                 self._management_status = "That folder is outside the available KFPS output categories."
                 self.changed.emit()
                 return False
@@ -2063,6 +2047,20 @@ class JsonService(QObject):
                 self.clearSelection()
         self._selection_revision += 1
 
+    @staticmethod
+    def _rename_path_with_retry(source, target):
+        last_error = None
+        for attempt in range(5):
+            try:
+                source.rename(target)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                if attempt == 4:
+                    break
+                time.sleep(0.025 * (attempt + 1))
+        raise last_error
+
     @Slot(str, str, result=bool)
     def renameEntry(self, value, requested_name):
         source = Path(str(value or ""))
@@ -2108,18 +2106,18 @@ class JsonService(QObject):
             if same_location:
                 if source.name != target.name:
                     temporary = source.with_name(f".kfps-rename-{time.time_ns()}")
-                    source.rename(temporary)
-                    temporary.rename(target)
+                    self._rename_path_with_retry(source, temporary)
+                    self._rename_path_with_retry(temporary, target)
                     moved = True
             else:
-                source.rename(target)
+                self._rename_path_with_retry(source, target)
                 moved = True
             if is_folder:
                 self._write_folder_marker(target, name)
         except OSError as exc:
             if moved and target.exists() and not source.exists():
                 try:
-                    target.rename(source)
+                    self._rename_path_with_retry(target, source)
                 except OSError:
                     pass
             self._management_status = f"Could not rename {old_display_name}: {exc}"

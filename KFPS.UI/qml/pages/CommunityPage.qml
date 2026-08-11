@@ -181,14 +181,6 @@ Item {
         }
     }
 
-    Connections {
-        target: supporterService
-        function onChanged() {
-            if (!supporterService.unlocked && jsonService.sourceIndex === 3)
-                jsonService.setSource(0)
-        }
-    }
-
     ColumnLayout {
         anchors.fill: parent
         spacing: Theme.px(8)
@@ -1118,10 +1110,8 @@ Item {
                                         id: uploadSource
                                         Layout.fillWidth: true
                                         dense: true
-                                        model: supporterService.unlocked
-                                               ? ["Generated finals", "Editor exports", "Game exports", "Library"]
-                                               : ["Generated finals", "Editor exports", "Game exports"]
-                                        currentIndex: Math.min(jsonService.sourceIndex, count - 1)
+                                        model: ["Generated finals", "Editor exports", "Game exports", "Library"]
+                                        currentIndex: jsonService.sourceIndex
                                         toolTipText: "Choose which indexed KFPS output folder is shown in the upload browser."
                                         onActivated: {
                                             jsonService.setSource(currentIndex)

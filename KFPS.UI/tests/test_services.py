@@ -98,6 +98,8 @@ def shutdown_json_service(svc):
  if proc and proc.poll() is None:
   proc.kill();proc.communicate(timeout=2)
  wait_for(lambda:not svc.indexing,timeout=5.0)
+ svc._cache_save_pending=False
+ svc._save_index_cache_async()
  APP.processEvents()
  svc._preview_executor.shutdown(wait=True, cancel_futures=True)
  svc._index_executor.shutdown(wait=True, cancel_futures=True)
@@ -463,10 +465,41 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(str(exported.resolve()),svc.currentFolder);self.assertIn("outside the available KFPS output categories",svc.managementStatus)
     svc.setSearchQuery("Nested");self.assertEqual(["Nested.json"],[row["name"] for row in svc.explorerModel.rows])
     svc.clearSearch();self.assertEqual({"Managed","Nested.json","Root.json"},{row["name"] for row in svc.explorerModel.rows})
-    svc.setLibraryFolderVisible(False)
-    svc.goUp();self.assertNotIn("Library",[row["name"] for row in svc.explorerModel.rows])
+    svc.goUp();self.assertIn("Library",[row["name"] for row in svc.explorerModel.rows])
    finally:
     shutdown_json_service(svc)
+
+ def test_public_library_survives_community_download_navigation_and_parent_round_trip(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);library=app_root/"imgs"/"library";download=library/"Community"/"Creator"/"Public Vinyl.json"
+   download.parent.mkdir(parents=True);download.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(download),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda: 3 in svc._source_index_cache))
+    self.assertEqual(["Generated JSONs","Editor JSONs","Game Exports","Library"],[row["name"] for row in svc.explorerModel.rows])
+    svc.setSource(3);svc.refresh();svc.selectPath(str(download))
+    self.assertEqual("Library",svc.currentFolderDisplay)
+    self.assertEqual(["Library"],[row["displayName"] for row in svc.folderModel.rows])
+    self.assertIn("Public Vinyl.json",[row["name"] for row in svc.explorerModel.rows])
+    svc.goUp()
+    self.assertEqual("Outputs",svc.currentFolderDisplay)
+    self.assertEqual(["Generated JSONs","Editor JSONs","Game Exports","Library"],[row["name"] for row in svc.explorerModel.rows])
+    svc.setSource(3)
+    self.assertIn("Public Vinyl.json",[row["name"] for row in svc.explorerModel.rows])
+   finally:
+    shutdown_json_service(svc)
+
+ def test_output_rename_retries_transient_windows_file_locks(self):
+  class FlakyPath:
+   def __init__(self):self.attempts=0
+   def rename(self,_target):
+    self.attempts+=1
+    if self.attempts<3:raise PermissionError("temporarily in use")
+  source=FlakyPath()
+  with patch("kfps_ui.json_service.time.sleep") as sleep:
+   JsonService._rename_path_with_retry(source,object())
+  self.assertEqual(3,source.attempts);self.assertEqual(2,sleep.call_count)
 
  def test_output_explorer_file_operations_are_confined_and_round_trip(self):
   with tempfile.TemporaryDirectory() as td:

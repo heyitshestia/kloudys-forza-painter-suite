@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.12
+- Made the downloaded Community Library visible in Outputs and the Community upload browser for every user while keeping supporter-only downloads and offline save tools locked behind supporter access.
+- Fixed Community downloads becoming inaccessible after navigating away; Library files now remain reachable through parent navigation and after restarting KFPS, while rejected downloads leave the browser and filesystem unchanged.
+- Replaced the bundled black-and-white KFPS Community logo with the sanitized 181-shape portable version for faster previews and more efficient imports across supported games.
+- Hardened rapid Outputs file operations against transient Windows indexer locks and made delayed index-cache saves exit cleanly during shutdown.
+
 ## 3.1.11
 - Added Outputs sorting by newest date, natural alphabetical name, fewest shapes, and most shapes while keeping folders first and selections stable.
 - Added a right-click Move to folder submenu for one or many selected JSONs, covering every available output category and nested managed folder without overwriting filename collisions.
