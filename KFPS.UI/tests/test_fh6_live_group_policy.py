@@ -91,6 +91,31 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         self.assertTrue(reasons)
         self.assertFalse(live_export.locator_allows_flattened(session))
 
+    def test_fh4_fast_locator_requires_verified_recursive_export(self):
+        session = {
+            "type": "fh6_session_location_v1",
+            "game": "fh4",
+            "layer_count": 8,
+            "group_address": 0x1000,
+            "table_address": 0x2000,
+            "capacity_count": 2,
+            "vector_count": 2,
+            "validated_entries": 8,
+            "flattened_from_groups": True,
+            "export_access_verified": False,
+            "group_graph": {"is_flat_orphan": False},
+            "samples": [{} for _ in range(8)],
+        }
+        ok, reasons = live_export.validate_fast_session_report(session, 8, 0x1000, 0x2000)
+        self.assertFalse(ok)
+        self.assertIn("complete live vinyl hierarchy", " ".join(reasons))
+        self.assertFalse(live_export.locator_allows_flattened(session))
+
+        session["export_access_verified"] = True
+        ok, reasons = live_export.validate_fast_session_report(session, 8, 0x1000, 0x2000)
+        self.assertTrue(ok, reasons)
+        self.assertTrue(live_export.locator_allows_flattened(session))
+
     def test_live_affine_composition_matches_serialized_decoder_contract(self):
         parent = [120.0, 45.0, 1.8, 0.75, 32.0, 0.0]
         child = [-18.0, 26.0, 0.8, 1.25, 14.0, 0.12]

@@ -16,7 +16,7 @@ from collections import Counter
 from ctypes import wintypes
 from pathlib import Path
 
-from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree
+from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, MIN_HEADER_SIZE, assess_group_tree
 from game_profiles import PROFILES
 from tools.cgroup.shape_identity import canonical_resource_for_word
 
@@ -433,7 +433,7 @@ def validate_fast_session_report(session, requested_count, selected_group, selec
     graph = session.get("group_graph") or {}
     if graph and not graph.get("is_flat_orphan") and not flattened:
         reasons.append("locator session describes a grouped hierarchy without a verified flattened export")
-    if session.get("game") == "fh6" and session.get("export_access_verified") is not True:
+    if session.get("game") in LIVE_OWNERSHIP_GAMES and session.get("export_access_verified") is not True:
         reasons.append("locator session did not verify the complete live vinyl hierarchy")
     if flattened and not locator_allows_flattened(session):
         reasons.append("locator session did not authorize recursive grouped export")
@@ -1053,7 +1053,7 @@ def main():
         if not editable_ok:
             write_refusal_report(args, table, group, report_path, metadata=group_metadata, reasons=editable_reasons)
             sys.exit(2)
-        if args.game == "fh6":
+        if args.game in LIVE_OWNERSHIP_GAMES:
             root_parent = read_group_parent(handle, group)
             if root_parent is None or root_parent != 0:
                 write_refusal_report(
@@ -1132,7 +1132,7 @@ def main():
                 policy=live_policy_before,
             )
             sys.exit(2)
-        if args.game == "fh6":
+        if args.game in LIVE_OWNERSHIP_GAMES:
             if read_group_parent(handle, group) != 0:
                 write_refusal_report(
                     args,

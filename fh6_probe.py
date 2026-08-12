@@ -11,7 +11,7 @@ from pathlib import Path
 
 import psutil
 
-from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree
+from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, MIN_HEADER_SIZE, assess_group_tree
 from game_profiles import PROFILES, get_profile
 from fh6_rtti_registry import load_runtime_profiles
 from native import dereference_pointer, get_base_address, read_int, read_process_memory
@@ -1241,7 +1241,7 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
 
 
 def assess_calibrated_group_access(pid, profile, group_info, vtables):
-    if profile.key != "fh6":
+    if profile.key not in LIVE_OWNERSHIP_GAMES:
         return None
 
     def read_header(address):

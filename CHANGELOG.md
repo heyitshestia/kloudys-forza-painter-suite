@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.13
+- Extended fail-closed live-export ownership verification to FH4 after confirming that FH4 uses the same group ownership state as FH6.
+- Rechecked FH4 ownership immediately before and after reading every layer, and made ownership refusals terminal so fallback locators and stale validation reports cannot bypass the decision.
+
 ## 3.1.12
 - Made the downloaded Community Library visible in Outputs and the Community upload browser for every user while keeping supporter-only downloads and offline save tools locked behind supporter access.
 - Fixed Community downloads becoming inaccessible after navigating away; Library files now remain reachable through parent navigation and after restarting KFPS, while rejected downloads leave the browser and filesystem unchanged.
