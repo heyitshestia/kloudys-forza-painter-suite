@@ -784,28 +784,34 @@ def load_shared_rtti_profiles(refresh=True):
     return profiles
 
 
-def load_update_code_patterns(calibrated_profiles=None):
-    paths = [
-        ROOT / "update-codes.dat",
-        ROOT / "forza-codes.dat",
-        ROOT.parent / "forza-codes.dat",
-    ]
-    patterns = []
-    for path in paths:
-        if not path.exists():
-            continue
-        for line in path.read_bytes().splitlines():
-            item = line.strip()
-            if item:
-                patterns.append(item)
-        break
-    profiles = calibrated_profiles if calibrated_profiles is not None else load_shared_rtti_profiles()
-    for profile in profiles:
-        update_code = str(profile.get("update_code") or "").encode("ascii", "ignore").strip()
-        if update_code:
-            patterns.append(update_code)
-    if not profiles:
-        patterns.append(FH6_CALIBRATED_RTTI_PROFILE["update_code"])
+def load_update_code_patterns(calibrated_profiles=None, profile=None):
+    patterns = list(getattr(profile, "fixed_rtti_descriptor_names", ()) or ())
+    profile_key = str(getattr(profile, "key", "") or "").lower()
+
+    # Runtime and remotely calibrated codes belong to FH6. Retired games use
+    # their packaged profile codes so a current FH6 value cannot be mistaken
+    # for an FH5/FH4 locator candidate.
+    if not profile_key or profile_key == "fh6":
+        paths = [
+            ROOT / "update-codes.dat",
+            ROOT / "forza-codes.dat",
+            ROOT.parent / "forza-codes.dat",
+        ]
+        for path in paths:
+            if not path.exists():
+                continue
+            for line in path.read_bytes().splitlines():
+                item = line.strip()
+                if item:
+                    patterns.append(item)
+            break
+        profiles = calibrated_profiles if calibrated_profiles is not None else load_shared_rtti_profiles()
+        for runtime_profile in profiles:
+            update_code = str(runtime_profile.get("update_code") or "").encode("ascii", "ignore").strip()
+            if update_code:
+                patterns.append(update_code)
+        if not profiles:
+            patterns.append(FH6_CALIBRATED_RTTI_PROFILE["update_code"])
     patterns.append(b".?AVCLiveryGroup@@")
     seen = set()
     unique = []
@@ -981,7 +987,7 @@ def locate_clivery_group_rtti(pid, profile=None):
     )
     if calibrated:
         return calibrated
-    patterns = load_update_code_patterns(calibrated_profiles)
+    patterns = load_update_code_patterns(calibrated_profiles, profile=profile)
     game_name = str(getattr(profile, "key", "FH6")).upper()
     print(f"Loaded {len(patterns)} {game_name} group locator pattern(s).", flush=True)
     descriptor_match, descriptor_pattern = find_first_pattern_in_typed_regions(pid, patterns, MEM_IMAGE)
@@ -1023,11 +1029,14 @@ def locate_clivery_group_rtti(pid, profile=None):
     if not vtables:
         return None
 
+    fixed_patterns = tuple(getattr(profile, "fixed_rtti_descriptor_names", ()) or ())
     return {
         "descriptor_address": descriptor_address,
         "descriptor_offset": descriptor_offset,
         "info_addresses": info_addresses,
         "vtables": vtables,
+        "source": "fixed_profile_pattern" if descriptor_pattern in fixed_patterns else "pattern_scan",
+        "update_code": descriptor_pattern.decode("ascii", "replace") if descriptor_pattern else None,
     }
 
 
@@ -1503,7 +1512,8 @@ def flatten_calibrated_group(pid, profile, group_info, vtables, requested_count,
     }
 
 
-def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti, max_seconds=45):
+def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti, max_seconds=12):
+    """Directly scan for verified group vtables, then validate one exact root tree."""
     vtables = set(rtti.get("vtables") or [])
     if not vtables:
         return []
@@ -1529,26 +1539,39 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                 start = pos + 8
                 hits += 1
                 group_address = base + pos
+                if group_address % 8:
+                    continue
                 group_info = read_calibrated_group_vector(pid, profile, group_address, vtables, max_vector_count=max(3000, layer_count))
                 if not group_info:
                     continue
+                if int(group_info.get("parent_group") or 0) != 0:
+                    continue
+                if int(group_info.get("current_u16") or -1) != int(layer_count):
+                    continue
+                access = assess_calibrated_group_access(pid, profile, group_info, vtables)
+                if access is not None and not access.allowed:
+                    raise LocatorRefused(
+                        access.reason,
+                        {"matched_group_count": 1, "access_status": access.status},
+                    )
                 flat = flatten_calibrated_group(pid, profile, group_info, vtables, layer_count)
                 miss = abs(int(flat["shape_count"]) - int(layer_count)) + int(flat["invalid_count"]) * 10
                 if best_miss is None or miss < best_miss[0]:
                     best_miss = (miss, group_info, flat)
                 if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
+                    is_recursive = int(flat["group_count"]) > 1
                     print(
-                        f"Calibrated grouped candidate validated: top={group_info['vector_count']} flat={flat['shape_count']} "
+                        f"Direct group candidate validated: top={group_info['vector_count']} flat={flat['shape_count']} "
                         f"groups={flat['group_count']} depth={flat['max_depth']}",
                         flush=True,
                     )
                     return [{
-                        "score": 220 + min(layer_count, 3000) + flat["group_count"] * 10,
+                        "score": 420 + min(layer_count, 3000) + flat["group_count"] * 10,
                         "group_address": group_info["group_address"],
                         "count_address": group_info["count_address"],
                         "table_pointer_field": group_info["table_pointer_field"],
                         "table_address": group_info["table_address"],
-                        "count_kind": "rtti_flattened_group",
+                        "count_kind": "rtti_direct_recursive" if is_recursive else "rtti_direct_flat",
                         "current_u16": group_info.get("current_u16"),
                         "current_u32": group_info.get("current_u32"),
                         "samples": flat["samples"],
@@ -1556,13 +1579,21 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                         "vector_count": group_info["vector_count"],
                         "capacity_count": group_info["capacity_count"],
                         "top_vector_count": group_info["vector_count"],
-                        "flattened_from_groups": True,
+                        "flattened_from_groups": is_recursive,
                         "flattened_group_count": flat["group_count"],
                         "flattened_max_depth": flat["max_depth"],
+                        "group_graph": {
+                            "has_parent": False,
+                            "has_children": is_recursive,
+                            "is_flat_orphan": not is_recursive,
+                            "parent_count": 0,
+                            "child_count": max(0, flat["group_count"] - 1),
+                        },
                         "vtable": group_info["vtable"],
                         "rtti_source": rtti.get("source") or "pattern_scan",
                         "rtti_update_code": rtti.get("update_code"),
                         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                        "export_access_verified": access is None or access.allowed,
                     }]
         if region_index % 500 == 0:
             print(
@@ -1578,7 +1609,7 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
             flush=True,
         )
     print(
-        f"Calibrated grouped scan checked {scanned // (1024 * 1024)} MB, "
+        f"Direct group scan checked {scanned // (1024 * 1024)} MB, "
         f"type hits={hits}, candidates=0.",
         flush=True,
     )
@@ -1590,9 +1621,20 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
     if not rtti:
         return []
 
+    if rtti.get("source") == "fixed_profile_pattern":
+        groups = locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+        groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
+        return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+
     if rtti.get("source") == "static_profile":
-        # A retired title's exact vtable makes the count scan both faster and
-        # stricter than rebuilding the complete process-wide group graph.
+        # A retired title's verified vtable makes the count scan both faster
+        # and stricter than starting with a process-wide type scan. The graph
+        # fallback still handles nested groups and verifies their full tree.
         groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
         if groups:
             return groups[:FH6_LOCATOR_CANDIDATE_CAP]

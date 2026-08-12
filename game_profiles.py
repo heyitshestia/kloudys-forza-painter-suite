@@ -27,6 +27,7 @@ class GameProfile:
     static_rtti_vtable_offsets: Tuple[int, ...] = ()
     static_rtti_descriptor_name: bytes = b".?AVCLiveryGroup@@"
     static_build: str = ""
+    fixed_rtti_descriptor_names: Tuple[bytes, ...] = ()
     import_template_shape_word: int = -1
     import_template_min_ratio: float = 0.0
 
@@ -56,6 +57,9 @@ PROFILES: Dict[str, GameProfile] = {
         process_names=("ForzaHorizon5.exe",),
         signature_patterns=(KNOWN_LIVERY_SIGNATURE,),
         scan_regions=COMMON_SCAN_REGIONS,
+        # Final Steam and Microsoft Store/Xbox RTTI descriptor names. FH5 is
+        # retired, so these are packaged with KFPS instead of fetched remotely.
+        fixed_rtti_descriptor_names=(b"21530671058802", b"12610023981480"),
     ),
     "fh4": GameProfile(
         key="fh4",

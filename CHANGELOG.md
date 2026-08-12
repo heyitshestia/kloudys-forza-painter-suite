@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.14
+- Added fixed final-build FH5 live-export locator support for both Steam and Microsoft Store/Xbox installations, independent of the FH6 RTTI updater.
+- Added a faster direct FH5 group scan with verified recursive flattening, while retaining the existing count and graph locators as compatibility fallbacks.
+- Extended fail-closed ownership verification to FH5 so an export is refused whenever KFPS cannot verify the complete live vinyl hierarchy; some owned grouped vinyls may be conservatively refused until broader live FH5 validation is complete.
+
 ## 3.1.13
 - Extended fail-closed live-export ownership verification to FH4 after confirming that FH4 uses the same group ownership state as FH6.
 - Rechecked FH4 ownership immediately before and after reading every layer, and made ownership refusals terminal so fallback locators and stale validation reports cannot bypass the decision.
