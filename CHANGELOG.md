@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.15
+- Fixed live FH5 exports incorrectly refusing owned grouped vinyls that use mirrored nested groups, while retaining fail-closed ownership checks for restricted or unknown content.
+- Revalidated recursive flattening against a real 223-layer, 39-group FH5 vinyl and kept the corrected interpretation scoped to FH5 so FH4 and FH6 policy behavior remains unchanged.
+
 ## 3.1.14
 - Added fixed final-build FH5 live-export locator support for both Steam and Microsoft Store/Xbox installations, independent of the FH6 RTTI updater.
 - Added a faster direct FH5 group scan with verified recursive flattening, while retaining the existing count and graph locators as compatibility fallbacks.

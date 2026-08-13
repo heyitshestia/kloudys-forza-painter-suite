@@ -1,4 +1,4 @@
-"""Fail-closed policy checks for FH6 live vinyl group exports."""
+"""Fail-closed policy checks for live vinyl group exports."""
 
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from typing import Callable, Iterable
 
 _STATE_OFFSET = 0x134
 _STATE_SIZE = 4
+_TRANSFORM_STATE_FLAG = 0x10
 _CLEAR_STATES = frozenset((0x00, 0x20))
 _RESTRICTED_STATE = 0x21
+_TRANSFORMABLE_CHILD_STATES = frozenset((0x20, _RESTRICTED_STATE))
 MIN_HEADER_SIZE = _STATE_OFFSET + _STATE_SIZE
 DEFAULT_MAX_DEPTH = 32
 DEFAULT_MAX_GROUPS = 4096
@@ -38,14 +40,22 @@ class LiveGroupPolicyResult:
         }
 
 
-def classify_group_header(raw: bytes) -> str:
+def classify_group_header(raw: bytes, *, allow_transformed_child_state: bool = False) -> str:
     if len(raw) < MIN_HEADER_SIZE:
         return "unknown"
     state = struct.unpack_from("<I", raw, _STATE_OFFSET)[0]
-    # FH6 uses 0x00 for the root/flat object and 0x20 for an owned child group.
-    if state in _CLEAR_STATES:
+    # Mirrored FH5 child groups retain their access state and add one transform flag.
+    access_state = state
+    base_state = state & ~_TRANSFORM_STATE_FLAG
+    if (
+        allow_transformed_child_state
+        and state != base_state
+        and base_state in _TRANSFORMABLE_CHILD_STATES
+    ):
+        access_state = base_state
+    if access_state in _CLEAR_STATES:
         return "clear"
-    if state == _RESTRICTED_STATE:
+    if access_state == _RESTRICTED_STATE:
         return "restricted"
     return "unknown"
 
@@ -57,6 +67,7 @@ def assess_group_tree(
     *,
     max_depth: int = DEFAULT_MAX_DEPTH,
     max_groups: int = DEFAULT_MAX_GROUPS,
+    allow_transformed_child_state: bool = False,
 ) -> LiveGroupPolicyResult:
     entries: list[tuple[int, str, tuple[int, ...]]] = []
     seen: set[int] = set()
@@ -94,7 +105,10 @@ def assess_group_tree(
         active.add(group)
         try:
             header = read_header(group)
-            status = classify_group_header(header)
+            status = classify_group_header(
+                header,
+                allow_transformed_child_state=allow_transformed_child_state,
+            )
             if status == "restricted":
                 fail(
                     "restricted",

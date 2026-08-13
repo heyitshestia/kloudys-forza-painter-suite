@@ -1272,7 +1272,12 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables):
                 children.append(ptr)
         return children
 
-    return assess_group_tree(group_info["group_address"], read_header, read_children)
+    return assess_group_tree(
+        group_info["group_address"],
+        read_header,
+        read_children,
+        allow_transformed_child_state=profile.key == "fh5",
+    )
 
 
 def read_group_pointer_table(pid, table_address, count):

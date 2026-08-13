@@ -36,8 +36,50 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         self.assertEqual("clear", classify_group_header(policy_header(0)))
         self.assertEqual("clear", classify_group_header(policy_header(0x20)))
         self.assertEqual("restricted", classify_group_header(policy_header(0x21)))
+        self.assertEqual("unknown", classify_group_header(policy_header(0x30)))
+        self.assertEqual("unknown", classify_group_header(policy_header(0x31)))
+        self.assertEqual(
+            "clear",
+            classify_group_header(policy_header(0x30), allow_transformed_child_state=True),
+        )
+        self.assertEqual(
+            "restricted",
+            classify_group_header(policy_header(0x31), allow_transformed_child_state=True),
+        )
+        self.assertEqual("unknown", classify_group_header(policy_header(0x10)))
+        self.assertEqual("unknown", classify_group_header(policy_header(0x22)))
         self.assertEqual("unknown", classify_group_header(policy_header(0x7F)))
         self.assertEqual("unknown", classify_group_header(b"short"))
+
+    def test_transformed_clear_child_is_allowed_but_transformed_restricted_child_is_blocked(self):
+        children = {0x1000: [0x2000], 0x2000: []}
+        clear_headers = {0x1000: policy_header(), 0x2000: policy_header(0x30)}
+        unverified = assess_group_tree(
+            0x1000,
+            clear_headers.__getitem__,
+            lambda group: children[group],
+        )
+        self.assertFalse(unverified.allowed)
+        self.assertEqual("unknown", unverified.status)
+
+        clear = assess_group_tree(
+            0x1000,
+            clear_headers.__getitem__,
+            lambda group: children[group],
+            allow_transformed_child_state=True,
+        )
+        self.assertTrue(clear.allowed)
+        self.assertEqual("clear", clear.status)
+
+        restricted_headers = {0x1000: policy_header(), 0x2000: policy_header(0x31)}
+        restricted = assess_group_tree(
+            0x1000,
+            restricted_headers.__getitem__,
+            lambda group: children[group],
+            allow_transformed_child_state=True,
+        )
+        self.assertFalse(restricted.allowed)
+        self.assertEqual("restricted", restricted.status)
 
     def test_restricted_nested_child_blocks_clear_root(self):
         headers = {0x1000: policy_header(), 0x2000: policy_header(0x21)}

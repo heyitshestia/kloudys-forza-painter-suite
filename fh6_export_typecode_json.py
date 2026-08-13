@@ -794,13 +794,14 @@ def read_object_vtable(handle, address):
     return struct.unpack("<Q", raw)[0]
 
 
-def assess_fh6_live_group(handle, group, locator):
+def assess_fh6_live_group(handle, group, locator, *, game="fh6"):
     expected_vtable = locator_group_vtable(locator) or read_object_vtable(handle, group)
     if expected_vtable is None:
         return assess_group_tree(
             group,
             lambda _address: b"",
             lambda _address: (),
+            allow_transformed_child_state=game == "fh5",
         )
 
     def read_header(address):
@@ -823,7 +824,12 @@ def assess_fh6_live_group(handle, group, locator):
             children.append(ptr)
         return children
 
-    return assess_group_tree(group, read_header, read_children)
+    return assess_group_tree(
+        group,
+        read_header,
+        read_children,
+        allow_transformed_child_state=game == "fh5",
+    )
 
 
 def pointer_has_group_signature(handle, ptr, expected_vtable=None):
@@ -1065,7 +1071,12 @@ def main():
                     reasons=["KFPS could not verify the selected live vinyl root."],
                 )
                 sys.exit(2)
-            live_policy_before = assess_fh6_live_group(handle, group, locator_report)
+            live_policy_before = assess_fh6_live_group(
+                handle,
+                group,
+                locator_report,
+                game=args.game,
+            )
             if not live_policy_before.allowed:
                 write_refusal_report(
                     args,
@@ -1144,7 +1155,12 @@ def main():
                     policy=live_policy_before,
                 )
                 sys.exit(2)
-            live_policy_after = assess_fh6_live_group(handle, group, locator_report)
+            live_policy_after = assess_fh6_live_group(
+                handle,
+                group,
+                locator_report,
+                game=args.game,
+            )
             if not live_policy_after.allowed:
                 write_refusal_report(
                     args,
