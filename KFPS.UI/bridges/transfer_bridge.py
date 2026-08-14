@@ -226,7 +226,6 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
     if not candidates:
         raise RuntimeError(f"no matching loaded {game.upper()} group was found")
 
-    min_sample_ok = min(8, template_count)
     requires_fresh_circle_template = purpose.startswith("import")
     min_circle_count = int(template_count * 0.90) if requires_fresh_circle_template else 0
 
@@ -236,17 +235,20 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
     def candidate_sort_key(candidate):
         valid_ptrs = int(candidate.get("valid_ptrs") or 0)
         invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, template_count - valid_ptrs))
+        duplicate_ptrs = int(candidate.get("duplicate_ptr_count") or 0)
         sample_ok = candidate_sample_ok(candidate)
         exact_table = int(valid_ptrs == template_count and invalid_ptrs == 0)
-        exact_decoded = int(exact_table and sample_ok >= template_count)
+        exact_decoded = int(exact_table and sample_ok == template_count and duplicate_ptrs == 0)
         vector_bonus = int(candidate.get("vector_ok") is True)
         source_bonus = 1 if candidate.get("source") == "vector_header" else 0
         return (
+            int(candidate.get("strict_valid") is True),
             exact_decoded,
             exact_table,
             valid_ptrs,
             sample_ok,
             -invalid_ptrs,
+            -duplicate_ptrs,
             vector_bonus,
             source_bonus,
             int(candidate.get("score") or 0),
@@ -262,19 +264,22 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
         vector_ok = candidate.get("vector_ok")
         vector_count = candidate.get("vector_count")
         capacity_count = candidate.get("capacity_count")
-        if requires_fresh_circle_template and vector_ok is False:
+        duplicate_ptrs = int(candidate.get("duplicate_ptr_count") or 0)
+        if vector_ok is not True:
             return "vector metadata invalid"
-        if requires_fresh_circle_template and vector_count is not None and int(vector_count) != int(template_count):
+        if vector_count is None or int(vector_count) != int(template_count):
             return f"vector_count={vector_count}"
-        if capacity_count is not None and int(capacity_count) < int(template_count):
+        if capacity_count is None or int(capacity_count) < int(template_count):
             return f"capacity_count={capacity_count}"
         if valid_ptrs < template_count:
             return f"valid_ptrs={valid_ptrs}"
         invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, template_count - valid_ptrs))
         if invalid_ptrs:
             return f"invalid_ptrs={invalid_ptrs}"
-        if sample_ok < min_sample_ok:
-            return f"sample_ok={sample_ok}"
+        if duplicate_ptrs:
+            return f"duplicate_ptrs={duplicate_ptrs}"
+        if sample_ok != template_count:
+            return f"decoded_layers={sample_ok}"
         if requires_fresh_circle_template:
             circle_count = shape_count(candidate, 102)
             if circle_count < min_circle_count:

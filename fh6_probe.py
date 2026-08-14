@@ -6,6 +6,7 @@ import struct
 import sys
 import time
 import zlib
+from bisect import bisect_right
 from ctypes import wintypes
 from pathlib import Path
 
@@ -39,6 +40,7 @@ FH6_CALIBRATED_RTTI_PROFILE = {
 FH6_GROUP_GRAPH_ACCEPT_CAP = 5
 FH6_GROUP_GRAPH_SCAN_CAP = 4096
 FH6_LOCATOR_CANDIDATE_CAP = 5
+FH6_REGION_SCAN_CHUNK_SIZE = 64 * 1024 * 1024
 
 
 class LocatorRefused(RuntimeError):
@@ -834,6 +836,40 @@ def read_region(pid, base, size, max_size=256 * 1024 * 1024):
     return memory
 
 
+def build_region_contains(regions):
+    ranges = sorted((int(base), int(base) + int(size)) for base, size, _protect, _type in regions)
+    starts = [start for start, _end in ranges]
+
+    def contains(address, size=1):
+        address = int(address or 0)
+        size = int(size or 0)
+        if address < 0x10000 or size < 1:
+            return False
+        index = bisect_right(starts, address) - 1
+        if index < 0:
+            return False
+        start, end = ranges[index]
+        return start <= address and address + size <= end
+
+    return contains
+
+
+def iter_region_chunks(pid, base, size, *, chunk_size=FH6_REGION_SCAN_CHUNK_SIZE, overlap=0):
+    base = int(base)
+    size = int(size)
+    chunk_size = max(4096, int(chunk_size))
+    overlap = max(0, min(int(overlap), chunk_size - 1))
+    offset = 0
+    while offset < size:
+        requested = min(chunk_size, size - offset)
+        memory = read_region(pid, base + offset, requested, max_size=chunk_size)
+        if memory:
+            yield base + offset, memory
+        if offset + requested >= size or requested <= overlap:
+            break
+        offset += requested - overlap
+
+
 def scan_typed_regions(pid, pattern, region_type, writable_only=False, alignment=1, stop_after=None):
     if not pattern:
         return []
@@ -1101,100 +1137,135 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
         return []
     started = time.monotonic()
     pattern = struct.pack("<H", layer_count)
+    regions = sorted(
+        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
+        key=lambda region: (region[1], region[0]),
+    )
+    writable_contains = build_region_contains(regions)
     scanned = 0
     hits = 0
     next_progress = 512 * 1024 * 1024
-    for base, size, _protect, _type in iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True):
+    stopped_by_time = False
+    for base, size, _protect, _type in regions:
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped calibrated locator count scan after {max_seconds} seconds.", flush=True)
+            stopped_by_time = True
             break
-        memory = read_region(pid, base, size)
-        if not memory:
-            continue
-        scanned += len(memory)
-        if scanned >= next_progress:
-            print(
-                f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
-                f"count hits={hits}.",
-                flush=True,
-            )
-            next_progress += 512 * 1024 * 1024
-        start = 0
-        while True:
-            pos = memory.find(pattern, start)
-            if pos == -1:
-                break
-            start = pos + 1
-            hits += 1
-            if hits > max_count_hits:
-                print(f"Stopped calibrated locator count scan after {max_count_hits} count hits.", flush=True)
-                return []
-            count_address = base + pos
-            group_address = count_address - profile.livery_count_offset
-            if group_address < base:
-                continue
-            vtable = read_u64(pid, group_address)
-            if vtable not in vtables:
-                continue
-            group_info = read_calibrated_group_vector(pid, profile, group_address, vtables, max_vector_count=3000)
-            if not group_info or group_info.get("parent_group"):
-                continue
-            access = assess_calibrated_group_access(pid, profile, group_info, vtables)
-            if access is not None and not access.allowed:
-                raise LocatorRefused(
-                    access.reason,
-                    {"matched_group_count": 1, "access_status": access.status},
-                )
-            candidate = None
-            if int(group_info.get("vector_count") or -1) == int(layer_count):
-                candidate = build_clivery_group_candidate(
-                    pid,
-                    profile,
-                    layer_count,
-                    rtti,
-                    group_address,
-                    vtable,
-                    "u16_rtti_calibrated_count",
-                )
-            else:
-                flat = flatten_calibrated_group(pid, profile, group_info, vtables, layer_count)
-                if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
-                    candidate = {
-                        "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
-                        "group_address": group_info["group_address"],
-                        "count_address": group_info["count_address"],
-                        "table_pointer_field": group_info["table_pointer_field"],
-                        "table_address": group_info["table_address"],
-                        "count_kind": "u16_rtti_calibrated_recursive",
-                        "current_u16": group_info.get("current_u16"),
-                        "current_u32": group_info.get("current_u32"),
-                        "samples": flat["samples"],
-                        "validated_entries": flat["shape_count"],
-                        "vector_count": group_info["vector_count"],
-                        "capacity_count": group_info["capacity_count"],
-                        "top_vector_count": group_info["vector_count"],
-                        "flattened_from_groups": True,
-                        "flattened_group_count": flat["group_count"],
-                        "flattened_max_depth": flat["max_depth"],
-                        "group_graph": {
-                            "has_parent": False,
-                            "has_children": True,
-                            "is_flat_orphan": False,
-                            "parent_count": 0,
-                            "child_count": max(1, flat["group_count"] - 1),
-                        },
-                        "vtable": group_info["vtable"],
-                        "rtti_source": rtti.get("source") or "pattern_scan",
-                        "rtti_update_code": rtti.get("update_code"),
-                        "rtti_descriptor_offset": rtti.get("descriptor_offset"),
-                    }
-            if candidate:
-                candidate["export_access_verified"] = access is None or access.allowed
+        first_chunk = True
+        for chunk_base, memory in iter_region_chunks(pid, base, size, overlap=len(pattern) - 1):
+            scanned += len(memory) if first_chunk else max(0, len(memory) - (len(pattern) - 1))
+            first_chunk = False
+            if scanned >= next_progress:
                 print(
-                    f"Calibrated group candidate validated {candidate['validated_entries']}/{layer_count} layer(s).",
+                    f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
+                    f"count hits={hits}.",
                     flush=True,
                 )
-                return [candidate]
+                next_progress += 512 * 1024 * 1024
+            start = 0
+            while True:
+                pos = memory.find(pattern, start)
+                if pos == -1:
+                    break
+                start = pos + 1
+                hits += 1
+                if hits % 4096 == 0 and max_seconds and time.monotonic() - started > max_seconds:
+                    print(f"Stopped calibrated locator count scan after {max_seconds} seconds.", flush=True)
+                    stopped_by_time = True
+                    break
+                if hits > max_count_hits:
+                    print(f"Stopped calibrated locator count scan after {max_count_hits} count hits.", flush=True)
+                    return []
+                count_address = chunk_base + pos
+                group_address = count_address - profile.livery_count_offset
+                if group_address < base:
+                    continue
+                vtable = read_u64(pid, group_address)
+                if vtable not in vtables:
+                    continue
+                group_info = read_calibrated_group_vector(
+                    pid,
+                    profile,
+                    group_address,
+                    vtables,
+                    max_vector_count=3000,
+                    writable_contains=writable_contains,
+                )
+                if not group_info or group_info.get("parent_group"):
+                    continue
+                access = assess_calibrated_group_access(
+                    pid,
+                    profile,
+                    group_info,
+                    vtables,
+                    writable_contains=writable_contains,
+                )
+                if access is not None and not access.allowed:
+                    raise LocatorRefused(
+                        access.reason,
+                        {"matched_group_count": 1, "access_status": access.status},
+                    )
+                candidate = None
+                if int(group_info.get("vector_count") or -1) == int(layer_count):
+                    candidate = build_clivery_group_candidate(
+                        pid,
+                        profile,
+                        layer_count,
+                        rtti,
+                        group_address,
+                        vtable,
+                        "u16_rtti_calibrated_count",
+                    )
+                else:
+                    flat = flatten_calibrated_group(
+                        pid,
+                        profile,
+                        group_info,
+                        vtables,
+                        layer_count,
+                        writable_contains=writable_contains,
+                    )
+                    if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
+                        candidate = {
+                            "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
+                            "group_address": group_info["group_address"],
+                            "count_address": group_info["count_address"],
+                            "table_pointer_field": group_info["table_pointer_field"],
+                            "table_address": group_info["table_address"],
+                            "count_kind": "u16_rtti_calibrated_recursive",
+                            "current_u16": group_info.get("current_u16"),
+                            "current_u32": group_info.get("current_u32"),
+                            "samples": flat["samples"],
+                            "validated_entries": flat["shape_count"],
+                            "vector_count": group_info["vector_count"],
+                            "capacity_count": group_info["capacity_count"],
+                            "top_vector_count": group_info["vector_count"],
+                            "flattened_from_groups": True,
+                            "flattened_group_count": flat["group_count"],
+                            "flattened_max_depth": flat["max_depth"],
+                            "group_graph": {
+                                "has_parent": False,
+                                "has_children": True,
+                                "is_flat_orphan": False,
+                                "parent_count": 0,
+                                "child_count": max(1, flat["group_count"] - 1),
+                            },
+                            "vtable": group_info["vtable"],
+                            "rtti_source": rtti.get("source") or "pattern_scan",
+                            "rtti_update_code": rtti.get("update_code"),
+                            "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                        }
+                if candidate:
+                    candidate["export_access_verified"] = access is None or access.allowed
+                    print(
+                        f"Calibrated group candidate validated {candidate['validated_entries']}/{layer_count} layer(s).",
+                        flush=True,
+                    )
+                    return [candidate]
+            if stopped_by_time:
+                break
+        if stopped_by_time:
+            break
     print(
         f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
         f"count hits={hits}, candidates=0.",
@@ -1203,8 +1274,16 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
     return []
 
 
-def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vector_count=3000):
-    if not group_address or not is_private_writable_address(pid, group_address):
+def read_calibrated_group_vector(
+    pid,
+    profile,
+    group_address,
+    vtables,
+    max_vector_count=3000,
+    writable_contains=None,
+):
+    contains = writable_contains or (lambda address, size=1: is_private_writable_address(pid, address))
+    if not group_address or not contains(group_address, profile.layer_table_offset + 24):
         return None
     try:
         vtable = read_u64(pid, group_address)
@@ -1219,7 +1298,7 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
     parent_group = read_u64(pid, group_address + 0x60)
     if not table_address or table_end is None or table_capacity is None:
         return None
-    if not is_user_pointer(table_address) or not is_private_writable_address(pid, table_address):
+    if not is_user_pointer(table_address) or not contains(table_address, 1):
         return None
     if table_end < table_address or table_capacity < table_end:
         return None
@@ -1231,7 +1310,7 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
         return None
     if capacity_count < vector_count or capacity_count > max(max_vector_count + 10000, max_vector_count * 16):
         return None
-    if not is_private_writable_address(pid, table_end - 1) or not is_private_writable_address(pid, table_capacity - 1):
+    if not contains(table_address, max(1, vector_count * 8)) or not contains(table_capacity - 1, 1):
         return None
     return {
         "group_address": group_address,
@@ -1249,7 +1328,7 @@ def read_calibrated_group_vector(pid, profile, group_address, vtables, max_vecto
     }
 
 
-def assess_calibrated_group_access(pid, profile, group_info, vtables):
+def assess_calibrated_group_access(pid, profile, group_info, vtables, writable_contains=None):
     if profile.key not in LIVE_OWNERSHIP_GAMES:
         return None
 
@@ -1259,13 +1338,31 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables):
         except Exception:
             return b""
 
+    def read_group(address):
+        if writable_contains is None:
+            return read_calibrated_group_vector(
+                pid,
+                profile,
+                address,
+                vtables,
+                max_vector_count=3000,
+            )
+        return read_calibrated_group_vector(
+            pid,
+            profile,
+            address,
+            vtables,
+            max_vector_count=3000,
+            writable_contains=writable_contains,
+        )
+
     def read_children(address):
-        info = read_calibrated_group_vector(pid, profile, address, vtables, max_vector_count=3000)
+        info = read_group(address)
         if not info:
             raise RuntimeError("live group vector is unreadable")
         children = []
         for ptr in read_group_pointer_table(pid, info["table_address"], info["vector_count"]):
-            child = read_calibrated_group_vector(pid, profile, ptr, vtables, max_vector_count=3000)
+            child = read_group(ptr)
             if child:
                 if int(child.get("parent_group") or 0) != int(address):
                     raise RuntimeError("live child group parent link is inconsistent")
@@ -1282,6 +1379,14 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables):
 
 def read_group_pointer_table(pid, table_address, count):
     count = max(0, min(int(count), 3000))
+    if not count:
+        return []
+    try:
+        raw = read_process_memory(pid, table_address, count * 8)
+    except Exception:
+        raw = b""
+    if len(raw) == count * 8:
+        return list(struct.unpack(f"<{count}Q", raw))
     pointers = []
     for index in range(count):
         try:
@@ -1464,7 +1569,16 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
     return groups[:accept_cap]
 
 
-def flatten_calibrated_group(pid, profile, group_info, vtables, requested_count, depth=0, seen_groups=None):
+def flatten_calibrated_group(
+    pid,
+    profile,
+    group_info,
+    vtables,
+    requested_count,
+    depth=0,
+    seen_groups=None,
+    writable_contains=None,
+):
     if seen_groups is None:
         seen_groups = set()
     group_address = group_info["group_address"]
@@ -1478,12 +1592,20 @@ def flatten_calibrated_group(pid, profile, group_info, vtables, requested_count,
     samples = []
     table_address = group_info["table_address"]
     vector_count = group_info["vector_count"]
-    for index in range(vector_count):
-        ptr = read_pointer(pid, table_address + index * 8)
-        if not is_private_writable_address(pid, ptr):
+    contains = writable_contains or (lambda address, size=1: is_private_writable_address(pid, address))
+    pointers = read_group_pointer_table(pid, table_address, vector_count)
+    for ptr in pointers:
+        if not contains(ptr, 1):
             invalid_count += 1
             continue
-        child_info = read_calibrated_group_vector(pid, profile, ptr, vtables, max_vector_count=max(3000, requested_count))
+        child_info = read_calibrated_group_vector(
+            pid,
+            profile,
+            ptr,
+            vtables,
+            max_vector_count=max(3000, requested_count),
+            writable_contains=contains,
+        )
         if child_info:
             child = flatten_calibrated_group(
                 pid,
@@ -1493,6 +1615,7 @@ def flatten_calibrated_group(pid, profile, group_info, vtables, requested_count,
                 requested_count,
                 depth=depth + 1,
                 seen_groups=seen_groups,
+                writable_contains=contains,
             )
             shape_count += child["shape_count"]
             invalid_count += child["invalid_count"]
@@ -1524,46 +1647,76 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
         return []
     started = time.monotonic()
     patterns = [(vtable, struct.pack("<Q", vtable)) for vtable in vtables]
+    regions = sorted(
+        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
+        key=lambda region: (region[1], region[0]),
+    )
+    writable_contains = build_region_contains(regions)
     scanned = 0
     hits = 0
     best_miss = None
-    for region_index, (base, size, _protect, _type) in enumerate(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True), start=1):
+    seen_groups = set()
+    stopped_by_time = False
+    for region_index, (base, size, _protect, _type) in enumerate(regions, start=1):
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
+            stopped_by_time = True
             break
-        memory = read_region(pid, base, size)
-        if not memory:
-            continue
-        scanned += len(memory)
-        for vtable, pattern in patterns:
-            start = 0
-            while True:
-                pos = memory.find(pattern, start)
-                if pos == -1:
-                    break
-                start = pos + 8
-                hits += 1
-                group_address = base + pos
-                if group_address % 8:
-                    continue
-                group_info = read_calibrated_group_vector(pid, profile, group_address, vtables, max_vector_count=max(3000, layer_count))
-                if not group_info:
-                    continue
-                if int(group_info.get("parent_group") or 0) != 0:
-                    continue
-                if int(group_info.get("current_u16") or -1) != int(layer_count):
-                    continue
-                access = assess_calibrated_group_access(pid, profile, group_info, vtables)
-                if access is not None and not access.allowed:
-                    raise LocatorRefused(
-                        access.reason,
-                        {"matched_group_count": 1, "access_status": access.status},
+        first_chunk = True
+        for chunk_base, memory in iter_region_chunks(pid, base, size, overlap=7):
+            scanned += len(memory) if first_chunk else max(0, len(memory) - 7)
+            first_chunk = False
+            for vtable, pattern in patterns:
+                start = 0
+                while True:
+                    pos = memory.find(pattern, start)
+                    if pos == -1:
+                        break
+                    start = pos + 8
+                    hits += 1
+                    group_address = chunk_base + pos
+                    if group_address % 8 or group_address in seen_groups:
+                        continue
+                    seen_groups.add(group_address)
+                    group_info = read_calibrated_group_vector(
+                        pid,
+                        profile,
+                        group_address,
+                        vtables,
+                        max_vector_count=max(3000, layer_count),
+                        writable_contains=writable_contains,
                     )
-                flat = flatten_calibrated_group(pid, profile, group_info, vtables, layer_count)
-                miss = abs(int(flat["shape_count"]) - int(layer_count)) + int(flat["invalid_count"]) * 10
-                if best_miss is None or miss < best_miss[0]:
-                    best_miss = (miss, group_info, flat)
-                if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
+                    if not group_info or int(group_info.get("parent_group") or 0) != 0:
+                        continue
+                    # The count field stores the flattened shape total. A grouped
+                    # root can legitimately have a one-entry child vector.
+                    if int(group_info.get("current_u16") or -1) != int(layer_count):
+                        continue
+                    access = assess_calibrated_group_access(
+                        pid,
+                        profile,
+                        group_info,
+                        vtables,
+                        writable_contains=writable_contains,
+                    )
+                    if access is not None and not access.allowed:
+                        raise LocatorRefused(
+                            access.reason,
+                            {"matched_group_count": 1, "access_status": access.status},
+                        )
+                    flat = flatten_calibrated_group(
+                        pid,
+                        profile,
+                        group_info,
+                        vtables,
+                        layer_count,
+                        writable_contains=writable_contains,
+                    )
+                    miss = abs(int(flat["shape_count"]) - int(layer_count)) + int(flat["invalid_count"]) * 10
+                    if best_miss is None or miss < best_miss[0]:
+                        best_miss = (miss, group_info, flat)
+                    if flat["shape_count"] != layer_count or flat["invalid_count"]:
+                        continue
                     is_recursive = int(flat["group_count"]) > 1
                     print(
                         f"Direct group candidate validated: top={group_info['vector_count']} flat={flat['shape_count']} "
@@ -1599,7 +1752,18 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                         "rtti_update_code": rtti.get("update_code"),
                         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
                         "export_access_verified": access is None or access.allowed,
+                        "locator_scan_mb": scanned // (1024 * 1024),
+                        "locator_vtable_hits": hits,
+                        "locator_scan_complete": not stopped_by_time,
                     }]
+                if max_seconds and time.monotonic() - started > max_seconds:
+                    print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
+                    stopped_by_time = True
+                    break
+            if stopped_by_time:
+                break
+        if stopped_by_time:
+            break
         if region_index % 500 == 0:
             print(
                 f"Calibrated grouped scan checked {scanned // (1024 * 1024)} MB, "
@@ -1647,6 +1811,9 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
         return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     if rtti.get("source") == "calibrated_profile":
+        groups = locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
         if groups:
             return groups[:FH6_LOCATOR_CANDIDATE_CAP]
@@ -1690,71 +1857,84 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
     return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
 
-def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=None, max_candidates=200000):
+def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=None, max_candidates=750000):
     game_name = str(getattr(profile, "key", "FH6")).upper()
     started = time.monotonic()
     pattern = struct.pack("<H", layer_count)
     groups = []
     candidates = 0
     scanned = 0
-    for base, size, _protect, _type in iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True):
+    stopped = False
+    regions = sorted(
+        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
+        key=lambda region: (region[1], region[0]),
+    )
+    for base, size, _protect, _type in regions:
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped {game_name} layout-count scan after {max_seconds} seconds.", flush=True)
             break
-        memory = read_region(pid, base, size)
-        if not memory:
-            continue
-        scanned += len(memory)
-        start = 0
-        while True:
-            pos = memory.find(pattern, start)
-            if pos == -1:
+        first_chunk = True
+        for chunk_base, memory in iter_region_chunks(pid, base, size, overlap=len(pattern) - 1):
+            scanned += len(memory) if first_chunk else max(0, len(memory) - (len(pattern) - 1))
+            first_chunk = False
+            start = 0
+            while True:
+                pos = memory.find(pattern, start)
+                if pos == -1:
+                    break
+                start = pos + 1
+                candidates += 1
+                if candidates % 4096 == 0 and max_seconds and time.monotonic() - started > max_seconds:
+                    print(f"Stopped {game_name} layout-count scan after {max_seconds} seconds.", flush=True)
+                    stopped = True
+                    break
+                if candidates > max_candidates:
+                    print(f"Stopped {game_name} layout-count scan after {max_candidates} count hits.", flush=True)
+                    return groups
+                count_address = chunk_base + pos
+                group_address = count_address - profile.livery_count_offset
+                if group_address < base:
+                    continue
+                table_field = group_address + profile.layer_table_offset
+                try:
+                    table_address = read_u64(pid, table_field)
+                except Exception:
+                    continue
+                if not table_address or not is_user_pointer(table_address):
+                    continue
+                if not is_private_writable_address(pid, table_address):
+                    continue
+                vector_ok, vector = validate_group_vector(pid, profile, group_address, table_address, layer_count)
+                if not vector_ok:
+                    continue
+                score, samples = score_table(pid, profile, table_address, min(layer_count, 64))
+                if score <= 0:
+                    continue
+                ok, checked, valid_entries = validate_table_layer_coverage(pid, profile, table_address, layer_count)
+                if not ok:
+                    continue
+                groups.append({
+                    "score": score + 60,
+                    "group_address": group_address,
+                    "count_address": count_address,
+                    "table_pointer_field": table_field,
+                    "table_address": table_address,
+                    "count_kind": "u16_group_layout",
+                    "current_u16": layer_count,
+                    "current_u32": layer_count,
+                    "samples": samples,
+                    "validated_entries": valid_entries,
+                    "vector_count": vector.get("vector_count"),
+                    "capacity_count": vector.get("capacity_count"),
+                })
+                print(
+                    f"Layout candidate validated {valid_entries}/{layer_count} layer(s).",
+                    flush=True,
+                )
+            if stopped or groups:
                 break
-            start = pos + 1
-            candidates += 1
-            if candidates > max_candidates:
-                print(f"Stopped {game_name} layout-count scan after {max_candidates} count hits.", flush=True)
-                return groups
-            count_address = base + pos
-            group_address = count_address - profile.livery_count_offset
-            if group_address < base:
-                continue
-            table_field = group_address + profile.layer_table_offset
-            try:
-                table_address = read_u64(pid, table_field)
-            except Exception:
-                continue
-            if not table_address or not is_user_pointer(table_address):
-                continue
-            if not is_private_writable_address(pid, table_address):
-                continue
-            vector_ok, vector = validate_group_vector(pid, profile, group_address, table_address, layer_count)
-            if not vector_ok:
-                continue
-            score, samples = score_table(pid, profile, table_address, min(layer_count, 64))
-            if score <= 0:
-                continue
-            ok, checked, valid_entries = validate_table_layer_coverage(pid, profile, table_address, layer_count)
-            if not ok:
-                continue
-            groups.append({
-                "score": score + 60,
-                "group_address": group_address,
-                "count_address": count_address,
-                "table_pointer_field": table_field,
-                "table_address": table_address,
-                "count_kind": "u16_group_layout",
-                "current_u16": layer_count,
-                "current_u32": layer_count,
-                "samples": samples,
-                "validated_entries": valid_entries,
-                "vector_count": vector.get("vector_count"),
-                "capacity_count": vector.get("capacity_count"),
-            })
-            print(
-                f"Layout candidate validated {valid_entries}/{layer_count} layer(s).",
-                flush=True,
-            )
+        if stopped:
+            break
         if groups:
             break
     print(f"{game_name} layout-count scan checked {scanned // (1024 * 1024)} MB, count hits={candidates}.", flush=True)
@@ -1958,9 +2138,29 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             print(f"  sample[{index}] score={layer_score} {'; '.join(checks)}")
 
     if not best:
+        failure_reason = "No safe live layer group matched the requested layer count."
         if rejected:
             print(f"Rejected {rejected} unsafe count/table candidates. Best strong-layer coverage: {best_rejected_strict}/{layer_count}.")
         print("No safe FH6 layer group found with the current locator. Import should stop before writing.")
+        payload = {
+            "type": "fh6_session_location_v1",
+            "pid": pid,
+            "process": psutil.Process(pid).name(),
+            "game": profile.key,
+            "layer_count": layer_count,
+            "created": time.time(),
+            "no_match": True,
+            "refused": False,
+            "failure_reason": failure_reason,
+            "rejected_candidate_count": rejected,
+            "best_rejected_layer_coverage": best_rejected_strict,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+        }
+        if output_path:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            print(f"Wrote {game_name} session location to {output_path}")
         return None
 
     winner = best[0]

@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.17
+- Fixed intermittent FH6 live exports failing to locate the currently open vinyl even when the current RTTI profile was available.
+- Improved live-group scan coverage and prioritization so valid editor data is found before stale memory lookalikes on different PC memory layouts.
+- Hardened fallback validation against incomplete vectors, duplicate layer references, and partially decoded candidates while retaining fail-closed export safety and grouped-vinyl handling.
+- Added persistent diagnostics for failed fast-location attempts to make future compatibility reports actionable.
+
 ## 3.1.16
 - Added the public FH6 Full Livery Workshop for scanning local saves, previewing complete vinyl placement liveries on their exact car model, and managing shareable livery packages without requiring a supporter key.
 - Added portable local car-mesh preparation, deterministic section rendering, cached 3D previews, and an included standalone converter so a recipient can prepare supported FH6 cars from their own installation.

@@ -34,6 +34,7 @@ GROUP_HEADER_READ = 0x300
 LAYER_SIZE = 0xC0
 USER_MIN = 0x10000
 USER_MAX = 0x7FFFFFFFFFFF
+SCAN_CHUNK_SIZE = 64 * 1024 * 1024
 
 
 class MBI(ctypes.Structure):
@@ -204,16 +205,50 @@ def layer_summary(handle, ptr, index):
     }
 
 
+def candidate_rejection(candidate, expected_count=None):
+    count = int(expected_count if expected_count is not None else candidate.get("count") or 0)
+    valid_ptrs = int(candidate.get("valid_ptrs") or 0)
+    invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, count - valid_ptrs))
+    duplicate_ptrs = int(candidate.get("duplicate_ptr_count") or 0)
+    decoded_layers = int(candidate.get("layer_ok_count") or candidate.get("sample_ok_count") or 0)
+    vector_count = candidate.get("vector_count")
+    capacity_count = candidate.get("capacity_count")
+
+    if not candidate.get("group") or not candidate.get("table"):
+        return "missing group/table"
+    if candidate.get("vector_ok") is not True:
+        return "vector metadata invalid"
+    if vector_count is None or int(vector_count) != count:
+        return f"vector_count={vector_count}"
+    if capacity_count is None or int(capacity_count) < count:
+        return f"capacity_count={capacity_count}"
+    if valid_ptrs != count:
+        return f"valid_ptrs={valid_ptrs}"
+    if invalid_ptrs:
+        return f"invalid_ptrs={invalid_ptrs}"
+    if duplicate_ptrs:
+        return f"duplicate_ptrs={duplicate_ptrs}"
+    if decoded_layers != count:
+        return f"decoded_layers={decoded_layers}"
+    return ""
+
+
+def candidate_is_strict(candidate, expected_count=None):
+    return not candidate_rejection(candidate, expected_count)
+
+
 def candidate_sort_key(candidate):
     count = int(candidate.get("count") or 0)
     valid_ptrs = int(candidate.get("valid_ptrs") or 0)
     invalid_ptrs = int(candidate.get("invalid_ptrs") or 0)
     ok_count = int(candidate.get("layer_ok_count") or candidate.get("sample_ok_count") or 0)
+    strict = int(candidate_is_strict(candidate, count))
     exact_table = int(valid_ptrs == count and invalid_ptrs == 0)
     exact_ok = int(exact_table and ok_count == count)
     vector_bonus = int(candidate.get("vector_ok") is True)
     source_bonus = 1 if candidate.get("source") == "vector_header" else 0
     return (
+        strict,
         exact_ok,
         exact_table,
         valid_ptrs,
@@ -314,8 +349,15 @@ def validate_candidate(handle, contains, group, table, count, report_layers, sou
     invalid_ptrs = max(0, len(ptrs) - len(valid_ptrs))
     duplicate_ptr_count = len(ptrs) - len(set(ptrs)) if ptrs else 0
     vector_ok = not vector_reasons
-    exact_bonus = 100000 if len(valid_ptrs) == count and invalid_ptrs == 0 else 0
-    ok_bonus = 50000 if ok_count == count else 0
+    strict_valid = (
+        vector_ok
+        and len(valid_ptrs) == count
+        and invalid_ptrs == 0
+        and duplicate_ptr_count == 0
+        and ok_count == count
+    )
+    exact_bonus = 100000 if strict_valid else 0
+    ok_bonus = 50000 if strict_valid else 0
     score = (
         exact_bonus
         + ok_bonus
@@ -345,6 +387,7 @@ def validate_candidate(handle, contains, group, table, count, report_layers, sou
         "duplicate_ptr_count": duplicate_ptr_count,
         "layer_ok_count": ok_count,
         "sample_ok_count": ok_count,
+        "strict_valid": strict_valid,
         "shape_id_counts_sample": dict(sample_shape_counts.most_common(24)),
         "shape_id_counts_all": dict(all_shape_counts.most_common(64)),
         "mask_counts_all": dict(all_mask_counts.most_common(16)),
@@ -355,105 +398,161 @@ def validate_candidate(handle, contains, group, table, count, report_layers, sou
     }
 
 
+def iter_region_chunks(handle, region, *, chunk_size=SCAN_CHUNK_SIZE, overlap=0):
+    size = int(region["size"])
+    base = int(region["base"])
+    chunk_size = max(4096, int(chunk_size))
+    overlap = max(0, min(int(overlap), chunk_size - 1))
+    offset = 0
+    while offset < size:
+        requested = min(chunk_size, size - offset)
+        raw = read_memory(handle, base + offset, requested)
+        if raw:
+            yield base + offset, raw
+        if offset + requested >= size or requested <= overlap:
+            break
+        offset += requested - overlap
+
+
 def scan_count_headers(handle, regions, contains, count, deadline, report_layers, candidates, seen):
     pattern = struct.pack("<H", count)
-    scanned_mb = 0.0
+    scanned_bytes = 0
     hit_count = 0
+    chunks = 0
+    stopped_by_time = False
     for idx, region in enumerate(regions, 1):
         if deadline and time.time() > deadline:
             log("Count-header scan time limit reached.")
+            stopped_by_time = True
             break
-        raw = read_memory(handle, region["base"], min(region["size"], 128 * 1024 * 1024))
-        if not raw:
-            continue
-        scanned_mb += len(raw) / (1024 * 1024)
-        pos = 0
-        while True:
-            hit = raw.find(pattern, pos)
-            if hit < 0:
+        first_chunk = True
+        for chunk_base, raw in iter_region_chunks(handle, region, overlap=len(pattern) - 1):
+            chunks += 1
+            scanned_bytes += len(raw) if first_chunk else max(0, len(raw) - (len(pattern) - 1))
+            first_chunk = False
+            pos = 0
+            while True:
+                hit = raw.find(pattern, pos)
+                if hit < 0:
+                    break
+                pos = hit + 1
+                hit_count += 1
+                if hit_count % 4096 == 0 and deadline and time.time() > deadline:
+                    log("Count-header scan time limit reached.")
+                    stopped_by_time = True
+                    break
+                group = chunk_base + hit - GROUP_COUNT_OFF
+                if group in seen or group < region["base"]:
+                    continue
+                table = read_u64(handle, group + GROUP_TABLE_OFF)
+                item = validate_candidate(handle, contains, group, table, count, report_layers, "count_header")
+                if item:
+                    seen.add(group)
+                    add_candidate(candidates, item)
+            if stopped_by_time:
                 break
-            pos = hit + 1
-            hit_count += 1
-            group = region["base"] + hit - GROUP_COUNT_OFF
-            if group in seen or group < region["base"]:
-                continue
-            table = read_u64(handle, group + GROUP_TABLE_OFF)
-            item = validate_candidate(handle, contains, group, table, count, report_layers, "count_header")
-            if item:
-                seen.add(group)
-                add_candidate(candidates, item)
+        if stopped_by_time:
+            break
         if idx % 200 == 0:
-            log(f"Count scan {idx}/{len(regions)} regions, {scanned_mb:.0f} MB, candidates={len(candidates)}")
-    return {"scanned_mb": scanned_mb, "count_hits": hit_count}
+            log(f"Count scan {idx}/{len(regions)} regions, {scanned_bytes / (1024 * 1024):.0f} MB, candidates={len(candidates)}")
+    return {
+        "scanned_mb": scanned_bytes / (1024 * 1024),
+        "count_hits": hit_count,
+        "chunks": chunks,
+        "complete": not stopped_by_time,
+        "stopped_by_time": stopped_by_time,
+    }
 
 
 def scan_vector_headers(handle, regions, contains, count, deadline, report_layers, candidates, seen):
-    scanned_mb = 0.0
+    scanned_bytes = 0
     triple_hits = 0
+    chunks = 0
+    stopped_by_time = False
+    overlap = GROUP_TABLE_CAPACITY_OFF + 8
     for idx, region in enumerate(regions, 1):
         if deadline and time.time() > deadline:
             log("Vector-header scan time limit reached.")
+            stopped_by_time = True
             break
-        raw = read_memory(handle, region["base"], min(region["size"], 128 * 1024 * 1024))
-        if not raw:
-            continue
-        scanned_mb += len(raw) / (1024 * 1024)
-        limit = len(raw) - GROUP_TABLE_CAPACITY_OFF - 8
-        for off in range(0, max(0, limit), 8):
-            if off and off % (1024 * 1024) == 0 and deadline and time.time() > deadline:
+        first_chunk = True
+        for chunk_base, raw in iter_region_chunks(handle, region, overlap=overlap):
+            chunks += 1
+            scanned_bytes += len(raw) if first_chunk else max(0, len(raw) - overlap)
+            first_chunk = False
+            limit = len(raw) - GROUP_TABLE_CAPACITY_OFF - 8
+            start_offset = (-chunk_base) % 8
+            for off in range(start_offset, max(start_offset, limit), 8):
+                if off and off % (1024 * 1024) == 0 and deadline and time.time() > deadline:
+                    log("Vector-header scan time limit reached.")
+                    stopped_by_time = True
+                    break
+                group = chunk_base + off
+                if group in seen:
+                    continue
+                begin = struct.unpack_from("<Q", raw, off + GROUP_TABLE_OFF)[0]
+                end = struct.unpack_from("<Q", raw, off + GROUP_TABLE_END_OFF)[0]
+                capacity = struct.unpack_from("<Q", raw, off + GROUP_TABLE_CAPACITY_OFF)[0]
+                if end != begin + count * 8:
+                    continue
+                if capacity < end or (capacity - begin) % 8:
+                    continue
+                if not contains(begin, max(8, count * 8)) or not contains(end - 1) or not contains(capacity - 1):
+                    continue
+                triple_hits += 1
+                item = validate_candidate(handle, contains, group, begin, count, report_layers, "vector_header")
+                if item:
+                    seen.add(group)
+                    add_candidate(candidates, item)
+            if stopped_by_time:
                 break
-            group = region["base"] + off
-            if group in seen:
-                continue
-            begin = struct.unpack_from("<Q", raw, off + GROUP_TABLE_OFF)[0]
-            end = struct.unpack_from("<Q", raw, off + GROUP_TABLE_END_OFF)[0]
-            capacity = struct.unpack_from("<Q", raw, off + GROUP_TABLE_CAPACITY_OFF)[0]
-            if end != begin + count * 8:
-                continue
-            if capacity < end or (capacity - begin) % 8:
-                continue
-            if not contains(begin, max(8, count * 8)) or not contains(end - 1) or not contains(capacity - 1):
-                continue
-            triple_hits += 1
-            item = validate_candidate(handle, contains, group, begin, count, report_layers, "vector_header")
-            if item:
-                seen.add(group)
-                add_candidate(candidates, item)
+        if stopped_by_time:
+            break
         if idx % 200 == 0:
-            log(f"Vector scan {idx}/{len(regions)} regions, {scanned_mb:.0f} MB, candidates={len(candidates)}")
-    return {"scanned_mb": scanned_mb, "vector_triple_hits": triple_hits}
+            log(f"Vector scan {idx}/{len(regions)} regions, {scanned_bytes / (1024 * 1024):.0f} MB, candidates={len(candidates)}")
+    return {
+        "scanned_mb": scanned_bytes / (1024 * 1024),
+        "vector_triple_hits": triple_hits,
+        "chunks": chunks,
+        "complete": not stopped_by_time,
+        "stopped_by_time": stopped_by_time,
+    }
 
 
 def scan_groups(handle, count, max_seconds, report_layers):
-    regions = list(iter_regions(handle))
+    regions = sorted(iter_regions(handle), key=lambda region: (region["size"], region["base"]))
     contains = build_contains(regions)
     candidates = []
     seen = set()
     started = time.time()
     if max_seconds:
-        count_deadline = started + max(10, max_seconds * 0.65)
+        # Count matching uses CPython's native byte search and is substantially
+        # faster than the Python-level vector walk. Give it most of the fallback
+        # budget so late private regions are still reached.
+        count_deadline = started + max(10, max_seconds * 0.90)
         vector_deadline = started + max_seconds
     else:
         count_deadline = vector_deadline = None
     count_stats = scan_count_headers(handle, regions, contains, count, count_deadline, report_layers, candidates, seen)
-    has_exact_table = any(
-        int(candidate.get("valid_ptrs") or 0) == count
-        and int(candidate.get("invalid_ptrs") or 0) == 0
-        and int(candidate.get("layer_ok_count") or candidate.get("sample_ok_count") or 0) >= min(8, count)
-        for candidate in candidates
-    )
+    has_exact_table = any(candidate_is_strict(candidate, count) for candidate in candidates)
     if has_exact_table:
         vector_stats = {"skipped": True, "reason": "count scan found exact full table"}
     else:
         vector_stats = scan_vector_headers(handle, regions, contains, count, vector_deadline, report_layers, candidates, seen)
     candidates.sort(key=candidate_sort_key, reverse=True)
+    strict_candidates = sum(1 for candidate in candidates if candidate_is_strict(candidate, count))
     log(
         "Scan complete: "
         f"count={count_stats.get('scanned_mb', 0):.0f} MB/{count_stats.get('count_hits', 0)} hits, "
         f"vector={vector_stats.get('scanned_mb', 0):.0f} MB/{vector_stats.get('vector_triple_hits', 0)} hits, "
-        f"candidates={len(candidates)}"
+        f"candidates={len(candidates)}, strict={strict_candidates}"
     )
-    return candidates, {"regions": len(regions), "count_scan": count_stats, "vector_scan": vector_stats}
+    return candidates, {
+        "regions": len(regions),
+        "count_scan": count_stats,
+        "vector_scan": vector_stats,
+        "strict_candidate_count": strict_candidates,
+    }
 
 
 def main():

@@ -290,6 +290,35 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
             self.assertEqual(run_dir / "fallback-export-template-probe.json", report)
             self.assertTrue(report.exists())
 
+    def test_fallback_locator_rejects_duplicate_vector_invalid_candidate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                command = [str(item) for item in command]
+                if any(item.endswith("fh6_probe.py") for item in command):
+                    session = Path(command[command.index("--write-session") + 1])
+                    session.write_text(
+                        '{"type":"fh6_session_location_v1","layer_count":100,"no_match":true}',
+                        encoding="utf-8",
+                    )
+                    return 0
+                report = run_dir / "fh6-group100-probe-test.json"
+                report.write_text(
+                    '{"count":100,"candidates":[{"group":"0x4badf5fa7","table":"0x601000",'
+                    '"valid_ptrs":100,"invalid_ptrs":0,"duplicate_ptr_count":87,"layer_ok_count":98,'
+                    '"vector_ok":false,"vector_count":-786944,"capacity_count":512,"score":99152}]}',
+                    encoding="utf-8",
+                )
+                return 0
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "vector metadata invalid"):
+                    transfer_bridge.locate_universal_template(
+                        "fh6", 123, 100, run_dir, "export-template"
+                    )
+
     def test_fast_policy_refusal_is_terminal_and_never_runs_fallback_scan(self):
         with tempfile.TemporaryDirectory() as temp:
             run_dir = Path(temp)
