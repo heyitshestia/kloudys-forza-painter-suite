@@ -360,6 +360,7 @@ ApplicationWindow {
                             create: "CreatePage",
                             dashboard: "CreatePage",
                             outputs: "JsonPage",
+                            liveries: "LiveryPage",
                             community: "CommunityPage",
                             library: "JsonPage",
                             json: "JsonPage",

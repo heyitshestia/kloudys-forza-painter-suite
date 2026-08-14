@@ -20,6 +20,7 @@ from PySide6.QtGui import QCursor, QGuiApplication, QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWebEngineQuick import QtWebEngineQuick
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from fh6_rtti_registry import refresh_runtime_registry
@@ -32,6 +33,7 @@ from kfps_ui.cgroup_library_service import CGroupLibraryService
 from kfps_ui.community_service import CommunityService
 from kfps_ui.desktop_service import DesktopService
 from kfps_ui.editor_service import EditorService
+from kfps_ui.full_livery_service import FullLiveryService
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.help_service import HelpService
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
@@ -343,6 +345,7 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     QQuickStyle.setStyle("Basic")
+    QtWebEngineQuick.initialize()
     app = QApplication(sys.argv[:1])
     app.setApplicationDisplayName("KFPS")
 
@@ -410,6 +413,7 @@ def main():
     enforce_available_theme()
     supporter.changed.connect(enforce_available_theme)
     cgroup_library = CGroupLibraryService(paths, preview, jsons, logs, supporter=supporter, demo=args.demo)
+    full_livery = FullLiveryService(paths, logs, supporter=supporter, demo=args.demo)
     generation = GenerationService(paths, logs)
     transfer = TransferService(paths, logs, jsons)
     editor = EditorService(paths, preview, desktop, logs)
@@ -434,6 +438,7 @@ def main():
         "jsonService": jsons,
         "communityService": community,
         "cgroupLibraryService": cgroup_library,
+        "fullLiveryService": full_livery,
         "generationService": generation,
         "transferService": transfer,
         "editorService": editor,
@@ -859,7 +864,7 @@ def main():
         if screenshot_dir:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         audit_pages = [
-            "create", "outputs", "community", "editor", "tools", "support", "help",
+            "create", "outputs", "liveries", "community", "editor", "tools", "support", "help",
             "update", "settings", "images", "reports", "credits",
         ]
         audit_index = 0
@@ -901,6 +906,7 @@ def main():
                 QTimer.singleShot(50, app.quit)
 
         QTimer.singleShot(1700 if screenshot_target else 650, capture_and_report)
+    app.aboutToQuit.connect(full_livery.close)
     app.aboutToQuit.connect(community.close)
     return app.exec()
 

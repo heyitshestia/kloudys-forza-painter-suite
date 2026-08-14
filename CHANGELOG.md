@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.16
+- Added the public FH6 Full Livery Workshop for scanning local saves, previewing complete vinyl placement liveries on their exact car model, and managing shareable livery packages without requiring a supporter key.
+- Added portable local car-mesh preparation, deterministic section rendering, cached 3D previews, and an included standalone converter so a recipient can prepare supported FH6 cars from their own installation.
+- Added same-car package import and export with semantic source verification, automatic package revision migration, and fail-closed ownership protection for liveries containing content that cannot be shared.
+- Hardened package paths, integrity validation, render completeness, cancellation, stale-cache recovery, updater preservation, and uncached-to-cached startup behavior.
+
 ## 3.1.15
 - Fixed live FH5 exports incorrectly refusing owned grouped vinyls that use mirrored nested groups, while retaining fail-closed ownership checks for restricted or unknown content.
 - Revalidated recursive flattening against a real 223-layer, 39-group FH5 vinyl and kept the corrected interpretation scoped to FH5 so FH4 and FH6 policy behavior remains unchanged.

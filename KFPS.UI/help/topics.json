@@ -561,6 +561,35 @@
       "related": ["updates-runtime", "support-checklist"]
     },
     {
+      "key": "full-livery-packages",
+      "category": "transfer",
+      "title": "Package and inspect a complete FH6 livery",
+      "summary": "Turn an eligible owned FH6 livery into a verified share package and inspect it on the matching car.",
+      "keywords": ["full livery", "car", "mesh", "package", "kfpslivery", "3d", "projection", "share"],
+      "steps": [
+        "Open Liveries. This public tool is separate from individual vinyl-group import and export.",
+        "Choose FH6 Folder if KFPS did not find the game's Content folder automatically.",
+        "Select Scan Saves. The scan reads local full-car livery records and does not change the save.",
+        "Choose an owned livery. If it contains vinyls by another player, you can inspect it but must remove those vinyls in FH6 before Export Selected becomes available.",
+        "Use Add under Saved packages to receive a package from somebody else. KFPS verifies every listed file and the source car identity before accepting it.",
+        "Select a saved package to turn and zoom the matching local car. Use the section buttons to isolate the top, left, right, front, or back artwork.",
+        "Select Install in FH6 Save. KFPS accepts only the exact car named by the package, creates a recovery record, and adds a new livery without replacing an existing one. FH6 may remain open, although the game may need to reload its save before the new livery appears.",
+        "Choose a destination game on the right to see which data can be retained and which targets remain unsupported."
+      ],
+      "sections": [
+        {"heading": "What gets shared", "body": "The package contains the preserved FH6 livery record, canonical section-aware layers, exact car identity, derived projection data, integrity hashes, and livery-owned section images. Normal exports do not include an extracted car mesh or raw game projection assets."},
+        {"heading": "How the car appears", "body": "KFPS matches the package car to that computer's own FH6 installation and keeps an inspection-only mesh in the local runtime cache. A package can still be validated and cataloged when the local car mesh is unavailable."},
+        {"heading": "Current boundary", "body": "The workshop exports, receives, validates, catalogs, inspects, and installs complete liveries for the exact same FH6 car. Different-car and different-game installation remain blocked."},
+        {"heading": "Save safety", "body": "FH6 may remain open. Installation creates a new entry only, checks for save changes before committing, reopens the result afterward, removes a failed commit automatically, and keeps a recovery record in the KFPS runtime folder. The game may need to reload its save before the new livery appears."}
+      ],
+      "pitfalls": [
+        "Liveries owned by another player are excluded. Owned liveries containing another player's vinyls are preview-only until those vinyls are removed in FH6.",
+        "Every export and package-validation path rechecks ownership before preserving shareable source or layer data.",
+        "Different-car and cross-game full-livery installation are not supported."
+      ],
+      "related": ["export-games", "troubleshooting-transfer", "limitations"]
+    },
+    {
       "key": "troubleshooting-transfer",
       "category": "troubleshooting",
       "title": "Fix import or export",

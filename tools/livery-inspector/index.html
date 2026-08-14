@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>KFPS Full Livery Inspector</title>
+  <link rel="stylesheet" href="viewer.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.min.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="viewport" aria-label="Interactive full livery inspection view">
+    <canvas id="canvas"></canvas>
+    <div class="hud hud-left">
+      <strong id="title">Loading livery</strong>
+      <span id="vehicle">Reading package metadata...</span>
+    </div>
+    <div class="hud hud-right" role="toolbar" aria-label="Inspection controls">
+      <button id="reset" type="button" title="Reset the camera">Reset view</button>
+      <button id="rotate" type="button" title="Toggle slow automatic rotation" aria-pressed="false">Auto rotate</button>
+    </div>
+    <div class="section-strip" role="toolbar" aria-label="Visible livery sections">
+      <button type="button" class="active" data-section="all">All</button>
+      <button type="button" data-section="top">Top</button>
+      <button type="button" data-section="left">Left</button>
+      <button type="button" data-section="right">Right</button>
+      <button type="button" data-section="front">Front</button>
+      <button type="button" data-section="back">Back</button>
+    </div>
+    <div id="status" class="status" role="status">Preparing local 3D renderer...</div>
+    <div class="hint">Drag to turn · Wheel to zoom · Right-drag to pan</div>
+  </main>
+  <script>
+    window.__kfpsViewerBooted = false;
+    window.__kfpsViewerBootTimer = window.setTimeout(() => {
+      if (window.__kfpsViewerBooted) return;
+      const status = document.querySelector('#status');
+      status.textContent = 'The local 3D viewer could not start. A required viewer file is missing or unreadable.';
+      status.classList.remove('hidden');
+      status.classList.add('error');
+    }, 4000);
+  </script>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>

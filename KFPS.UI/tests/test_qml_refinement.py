@@ -79,7 +79,9 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('"support": "Support KFPS"', controller)
         self.assertIn('if (page === "support") return "heart"', self.read("shell/HeaderControls.qml"))
         self.assertIn('if (!supporterService.unlocked)', sidebar)
-        self.assertIn('items.splice(5, 0, { page: "support", label: "Support", icon: "heart" })', sidebar)
+        self.assertIn('{ page: "liveries", label: "Liveries", icon: "monitor" }', sidebar)
+        self.assertNotIn('supporterService.unlocked || demoMode', sidebar)
+        self.assertIn('items.splice(6, 0, { page: "support", label: "Support", icon: "heart" })', sidebar)
         self.assertIn('supporterService.unlocked && appController.currentPage === "support"', main)
         self.assertIn('objectName: "SupportPage"', support)
         self.assertIn('Component.onCompleted:', support)
@@ -267,13 +269,13 @@ class QmlRefinementTests(unittest.TestCase):
         payload = json.loads((UI / "help" / "topics.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(payload["version"], 2)
         self.assertEqual(9, len(payload["categories"]))
-        self.assertEqual(25, len(payload["topics"]))
+        self.assertEqual(26, len(payload["topics"]))
 
         topics = {topic["key"]: topic for topic in payload["topics"]}
         self.assertEqual(len(topics), len(payload["topics"]))
         for key in (
             "first-run", "fh6-template", "import-fh6", "json-browser",
-            "community-browse", "community-publish", "support-checklist",
+            "community-browse", "community-publish", "full-livery-packages", "support-checklist",
         ):
             self.assertIn(key, topics)
 

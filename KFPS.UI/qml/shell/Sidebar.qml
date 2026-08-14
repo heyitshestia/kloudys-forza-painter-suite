@@ -14,6 +14,7 @@ Item {
         var items = [
             { page: "create", label: "Create", icon: "generate" },
             { page: "outputs", label: "Outputs", icon: "json" },
+            { page: "liveries", label: "Liveries", icon: "monitor" },
             { page: "community", label: "Community", icon: "heart" },
             { page: "editor", label: "Editor", icon: "editor" },
             { page: "tools", label: "Tools", icon: "tools" },
@@ -22,7 +23,7 @@ Item {
             { page: "settings", label: "Settings", icon: "settings" }
         ]
         if (!supporterService.unlocked)
-            items.splice(5, 0, { page: "support", label: "Support", icon: "heart" })
+            items.splice(6, 0, { page: "support", label: "Support", icon: "heart" })
         return items
     }
     signal route(string page)
@@ -35,6 +36,8 @@ Item {
             return "outputs"
         if (page === "community")
             return "community"
+        if (page === "liveries")
+            return "liveries"
         if (page === "editor")
             return "editor"
         if (page === "tools" || page === "images")

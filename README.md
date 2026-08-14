@@ -31,6 +31,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 | `Community` | Browses shared vinyl artwork and creator profiles, inspects full previews, and provides authenticated uploads, verified downloads, favorites, follows, reports, and revision management. |
 | `Online Import / Export` | Imports compatible JSON into a prepared FH6 vinyl template and exports the currently loaded editable group through the live game locator. |
 | `Offline Save Library` | Supporter-unlocked tools for scanning supported Forza save folders into local JSON previews and importing compatible JSON into supported local save formats. |
+| `Liveries` | Public FH6 full-car livery packaging, exact-car 3D inspection, ownership-safe sharing, and transactional same-car save installation. |
 | `Editor` | Manages editable projects and launches the bundled local vinyl workspace for manual creation, tracing, native-shape text and pixel art, precise layer layout, history, validation, and JSON export. |
 | `Tools` | Collects useful prep links for background removal, browser upscaling, and browser downscaling/compression. |
 | `Support` | Explains the optional supporter extras, makes the one-time purchase terms explicit, and opens the official supporter-key page. This tab hides after supporter access is active. |
@@ -38,7 +39,7 @@ This page is the start-here guide. The full user manual is in [docs/USER_MANUAL.
 
 ## Optional Supporter Key
 
-KFPS keeps its core creation, editing, Community, and online live-transfer workflows available without a key. A supporter key is a **one-time purchase, not a subscription**. It unlocks complete FH4/FH5/FH6/FM8 vinyl-library exports with the games closed, supported FH4/FH6/FM8 offline save imports, the supporter Community catalog and sharing audience, and four supporter-only themes while helping fund continued development.
+KFPS keeps its core creation, editing, Community, online live-transfer, and FH6 Full Livery Workshop workflows available without a key. A supporter key is a **one-time purchase, not a subscription**. It unlocks complete FH4/FH5/FH6/FM8 vinyl-library exports with the games closed, supported FH4/FH6/FM8 offline save imports, the supporter Community catalog and sharing audience, and four supporter-only themes while helping fund continued development.
 
 https://ko-fi.com/s/2d1507698d
 
@@ -339,6 +340,31 @@ Current intent:
 FH4, FH5, FH6, and FM8 scans export discovered vinyl groups into separate KFPS Library JSON entries. FH4 offline import currently targets the Microsoft Store/Xbox WGS save format. It requires FH4 to be fully closed, creates a new group instead of replacing an existing one, makes a complete account-slot backup under `runtime/fh4-offline-import-backups`, and aborts if the save changes before commit. FH6 and FM8 use their own separate local-save import paths. FH5 remains scan/export-only.
 
 The first scan can take a while when many vinyls are present because KFPS has to inspect, convert, and render preview thumbnails. Later scans reuse valid cached outputs.
+
+## FH6 Full Livery Workshop
+
+The public `Liveries` tab is separate from individual vinyl-group import
+and export. It scans local FH6 full-car livery records read-only, deduplicates
+repeated save-slot copies, and renders the complete vinyl placement set on the
+matching neutral car chassis. Chassis geometry and livery UV maps come from the
+user's own FH6 installation and stay in a private local cache.
+
+Only an owned livery made entirely from artwork owned by the same account can
+be exported as a `.kfpslivery` share package. Foreign artwork can be inspected
+locally but remains blocked from every package creation and validation path.
+Packages carry the preserved FH6 source, canonical section layers, exact car
+identity, derived render data, and integrity hashes; they do not redistribute
+the game's car meshes.
+
+A verified package can be installed into FH6 only for the exact same car. FH6
+may remain open, although it may need to reload its save afterward. KFPS creates
+a new save entry without replacing an existing livery, aborts if the save changes
+during staging, reopens the committed data, automatically removes a failed commit,
+and retains a recovery record. Different-car and different-game full-livery
+installation remain blocked.
+
+The package contract and safety boundaries are documented in
+[tools/livery/README.md](tools/livery/README.md).
 
 ## Tools
 

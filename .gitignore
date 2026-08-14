@@ -13,6 +13,9 @@ webui-data/
 runtime/
 dist/
 build/
+!tools/livery-inspector/vendor/three/build/
+!tools/livery-inspector/vendor/three/build/three.core.min.js
+!tools/livery-inspector/vendor/three/build/three.module.min.js
 python/
 node_modules/
 .wrangler/

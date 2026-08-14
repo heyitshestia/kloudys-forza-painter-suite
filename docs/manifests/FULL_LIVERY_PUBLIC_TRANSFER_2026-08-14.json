@@ -1,0 +1,788 @@
+{
+  "format": "kfps_full_livery_public_transfer_manifest_v1",
+  "generated_utc": "2026-08-14T11:40:40Z",
+  "source_working_base": "6b4bcbc658e8a1bc8d339ad734f9280083c4b116",
+  "target_clean_base": "ca074fa91bdb94ad70481df87c2efac35eb674d7",
+  "feature_access": "public; no supporter key required",
+  "manifest_path": "docs/manifests/FULL_LIVERY_PUBLIC_TRANSFER_2026-08-14.json",
+  "manifest_hash": null,
+  "manifest_hash_note": "The manifest cannot include its own stable hash. Git records its final bytes.",
+  "hashed_file_count": 107,
+  "total_file_count_including_manifest": 108,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 524,
+      "sha256": "f732f834b90f3f2327516527d9c2f3c2f7cb93997dcf9d0f9948c6aa84dcaf65"
+    },
+    {
+      "path": ".gitignore",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 793,
+      "sha256": "3bf8708b91c9f02214968aa36d91f44e99740666caacc06d7378f22cf0435ca2"
+    },
+    {
+      "path": "docs/FULL_LIVERY_PORTABILITY_VALIDATION.md",
+      "action": "added",
+      "category": "documentation",
+      "bytes": 5823,
+      "sha256": "ebfeb4efe0252ce8ad8bde2e1f3bf66e50019740e9fd85ef19a9fd4c0358baba"
+    },
+    {
+      "path": "json_preview_renderer.py",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 25119,
+      "sha256": "b53b73be906f84cf9adcbed1607c7b9b3104dbf57061c64f0e088d89145c375d"
+    },
+    {
+      "path": "KFPS.UI/app.py",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 39756,
+      "sha256": "cfd2de320c98552460b782650003dbc32301d350b1b7d836935c7035a5a1d242"
+    },
+    {
+      "path": "KFPS.UI/help/topics.json",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 57824,
+      "sha256": "c0867cb4742d2f4db4680f0d3f6ae07054ecd74dcf02231dabf18f9bcbd9d579"
+    },
+    {
+      "path": "KFPS.UI/qml/Main.qml",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 17422,
+      "sha256": "4d130e1d20a78b13eac757404f3ed5190d81c0918da079c4ef8b91caf95a95d9"
+    },
+    {
+      "path": "KFPS.UI/qml/pages/LiveryPage.qml",
+      "action": "added",
+      "category": "application-integration",
+      "bytes": 20692,
+      "sha256": "23bec69c59749b25264ab7b25b65d219d8c71983a11f42c0eb5aa3518c5cd45d"
+    },
+    {
+      "path": "KFPS.UI/qml/shell/Sidebar.qml",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 16857,
+      "sha256": "38253d3ade20045ea60e5520d3580972e5d129fa49f2022b4b8b5620421cffa2"
+    },
+    {
+      "path": "KFPS.UI/src/kfps_ui/app_controller.py",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 3367,
+      "sha256": "e53f692cac7fd448b25f8ea6f08afa8f963162fbc3b6517ecb12067b10c8412d"
+    },
+    {
+      "path": "KFPS.UI/src/kfps_ui/full_livery_service.py",
+      "action": "added",
+      "category": "application-integration",
+      "bytes": 55524,
+      "sha256": "1aca32fedb2cb1a1dc16904d23df0514e36767218dd60e2d14523a7796d364bc"
+    },
+    {
+      "path": "KFPS.UI/tests/test_full_livery_package.py",
+      "action": "added",
+      "category": "test",
+      "bytes": 85647,
+      "sha256": "fc4bc8e8735868ad4fd64ecb3d9b5a8159b5501d989512ec580c1c3ebf08b5f5"
+    },
+    {
+      "path": "KFPS.UI/tests/test_portable_chassis_converter.py",
+      "action": "added",
+      "category": "test",
+      "bytes": 8632,
+      "sha256": "ccdfd8845c40127a22e763eaaa82f1ce35c44d692b099a30d16ec857912bb98a"
+    },
+    {
+      "path": "KFPS.UI/tests/test_qml_refinement.py",
+      "action": "modified",
+      "category": "test",
+      "bytes": 24179,
+      "sha256": "8490e6371b9c1916492191fdb9b3f9fc15d501b7097759cc755013929b1d36a8"
+    },
+    {
+      "path": "KFPS.UI/tools/capture_pages.py",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 3927,
+      "sha256": "437052cfcd38dddc25364072278dd1dcf67cc399dac9df28917c0b78d6e4feee"
+    },
+    {
+      "path": "README.md",
+      "action": "modified",
+      "category": "documentation",
+      "bytes": 28372,
+      "sha256": "3d6a794bad78fe70eed9e3fe07ed145d7c466ee709921c25882074b1d8fd2b1c"
+    },
+    {
+      "path": "tools/cgroup/forza_source_decoder.py",
+      "action": "modified",
+      "category": "application-integration",
+      "bytes": 60510,
+      "sha256": "b66087939ae00be4aa18d4b58b6f1832f9982ceb08d0437e73f17c37a380ddcf"
+    },
+    {
+      "path": "tools/livery-inspector/index.html",
+      "action": "added",
+      "category": "viewer-runtime",
+      "bytes": 2182,
+      "sha256": "ae7447aa50806c12c44d7595ccdbd8812da8f54a4fb03f87f544bc3ca3016b65"
+    },
+    {
+      "path": "tools/livery-inspector/THIRD_PARTY.md",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 864,
+      "sha256": "78c724861b61a144b8a0dfebbc104fd2d2edb87828a8382f3dbf35cd8c079a06"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/build/three.core.min.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 385386,
+      "sha256": "05b2609338c76cd65daf74f3ac515bc9a5045e1b3b33edc07d8c9bd55250fa90"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/build/three.module.min.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 365552,
+      "sha256": "86bcee248b64f44bcfc23c331ae74619061957d59cab040171dcb6fb5900beb6"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/examples/jsm/controls/OrbitControls.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 40504,
+      "sha256": "faabb4e8dfd9235ee4a9fd7c9a3d75f90f1689dbd4944bd6fd32117dacec5f93"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/examples/jsm/loaders/GLTFLoader.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 114959,
+      "sha256": "97642d720f16cc9a0c9844934198e4d0c023bea8e89576d0f7545d03b2d103d2"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/examples/jsm/utils/BufferGeometryUtils.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 37621,
+      "sha256": "5c552223a9309883743b80538d6e9cdb45e3227f30d3ec56fb2c39b46e78d595"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/examples/jsm/utils/SkeletonUtils.js",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 11535,
+      "sha256": "b1632a703206c3d830de9fcbe515696770d04b71a15ee6b50afa6d2c3298c86f"
+    },
+    {
+      "path": "tools/livery-inspector/vendor/three/LICENSE",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1081,
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+    },
+    {
+      "path": "tools/livery-inspector/viewer.css",
+      "action": "added",
+      "category": "viewer-runtime",
+      "bytes": 2178,
+      "sha256": "f7b824ef0d7536ca15f34f09fa4790a8226e085e126e4dae9a079306a2d3bd0b"
+    },
+    {
+      "path": "tools/livery-inspector/viewer.js",
+      "action": "added",
+      "category": "viewer-runtime",
+      "bytes": 18183,
+      "sha256": "6399c3e39193ba8478bcf86ba8ca3e562fa1b9fbd7e33fe401ae277e1ddcb945"
+    },
+    {
+      "path": "tools/livery/__init__.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 1113,
+      "sha256": "f97c2bf4b213b01b55fb6694e6a2555a28b6993a4223ae34eb7c9aca5378dac5"
+    },
+    {
+      "path": "tools/livery/chassis-converter/.gitignore",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 107,
+      "sha256": "65171b7b92fe96fdb8da350f01b5e039463b04b46a167f420e42022eb9e0df63"
+    },
+    {
+      "path": "tools/livery/chassis-converter/bin/win-x64/Kfps.ChassisConverter.exe",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 36875572,
+      "sha256": "c2a2d219ec08e0d569bacd13bf757da3d034bac10c49ea994fc9c68bcc19f25d"
+    },
+    {
+      "path": "tools/livery/chassis-converter/GlbWriter.cs",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 6951,
+      "sha256": "86466aae2b9d4171ae0d51d64b59e50284e17b8ca294f00bd2e0f8375abf8b91"
+    },
+    {
+      "path": "tools/livery/chassis-converter/Kfps.ChassisConverter.csproj",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 1038,
+      "sha256": "be367040b29faf877fe759b6ca1c6dab0dbef0746be048ed228bf1365c46c30c"
+    },
+    {
+      "path": "tools/livery/chassis-converter/licenses/dotnet-runtime-LICENSE.txt",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1116,
+      "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+    },
+    {
+      "path": "tools/livery/chassis-converter/licenses/dotnet-runtime-THIRD-PARTY-NOTICES.txt",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 74244,
+      "sha256": "fa3e9d0a2c52476f04fe798d7dc4f6e7edb7b68a3d2f4d5f59a39bce957eedc8"
+    },
+    {
+      "path": "tools/livery/chassis-converter/licenses/Microsoft.Extensions.Logging-LICENSE.txt",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1116,
+      "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+    },
+    {
+      "path": "tools/livery/chassis-converter/licenses/Syroot.BinaryData-LICENSE.txt",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1068,
+      "sha256": "65b5ddb264063c48811d6830357edeb179ae47a98e47bc5b34099615f5ceb9b3"
+    },
+    {
+      "path": "tools/livery/chassis-converter/Program.cs",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 27444,
+      "sha256": "e6abd88d263f6a41068dae92ca89c5c234f2e827816fa83c801d7c825fabac88"
+    },
+    {
+      "path": "tools/livery/chassis-converter/README.md",
+      "action": "added",
+      "category": "documentation",
+      "bytes": 2384,
+      "sha256": "c28f50238d4d10793c7acf811eff5a1383b39e7c322daff7826b2933f4445bfb"
+    },
+    {
+      "path": "tools/livery/chassis-converter/THIRD_PARTY.md",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 800,
+      "sha256": "d1c059993fcc864d88a3ae4cbfef88cd2ccb15d3bca8d6769eabfa69cc5fc2c7"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/DurangoTypes/DurangoTypes.csproj",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 337,
+      "sha256": "a7847245d1e16d3364741c5bae79736356f28e3d3792a1f1dd92581f56ad891e"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/DurangoTypes/Enums.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 6602,
+      "sha256": "51fadbb296bee97d0909762a06198b25a4dcc39ddb97838e494fb7f49e1e27f9"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/DurangoTypes/Structs.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 4145,
+      "sha256": "e7c711237210ee0866d0f5358cd7d1074b60b7d23340985b0bef26c460554449"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/BufferHeader.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 5351,
+      "sha256": "4dda48e74de9176e83e810a03380382f16f939880cadd2ea8331f6920ae57710"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/CbexBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 955,
+      "sha256": "103c90d6896304960322bca16f31577df32de9a957d0d83f014743de848239c6"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/FrxtBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 677,
+      "sha256": "e898b040c1011301f337b515d46b8529455c627066aed398fb4b5a8e58d82bc5"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/GenericBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 510,
+      "sha256": "89ce8e8afd9b446ed2ffc4a0521ca83cce9f5fca46a3f4e1bac71161cbb1d803"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/IndexBufferBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 668,
+      "sha256": "b064afd4c602b9a48bd815b3629d9272a5d03ede6aaa1d1f1055a809a32acc66"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/LightScenarioBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 8822,
+      "sha256": "95a118e4709a11e0017850471da43612635bfa0038367629220426a905b77b62"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ManufacturerColorsBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 5358,
+      "sha256": "f8e2fbc806ad38b2b92f8907bf401f6cd63ab8bc0e8d4075230f9ce7d8620e25"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 3155,
+      "sha256": "e6ebc1d3db5a534b91d741f8d31f0f2c9c4e5899dd03a09ea7b3307d4e98bb1e"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialResourceBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 682,
+      "sha256": "53ca646fa011872c44e0245879fe8356882ff30e198c12e5e6e7cb32dbe1ef75"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialShaderParameterBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 12560,
+      "sha256": "8d36f5fd9ae81dac9ca34d4bc258ed42b38391adf5ccb167f68de9220ddaf689"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MatLBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1353,
+      "sha256": "0124168317400afaf5ea66972fe93d18ba346f04c9acdc687313d4158b4819a4"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MeshBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 16517,
+      "sha256": "8dc52d5c815f92f4e68220d15d3d86a55292732a74cb32cdfea1833a38c68ca0"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ModelBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 4340,
+      "sha256": "4093ebf1dc937faefc924a64a7f92b9ca232fac6dbccfdea3f8b5609b797ee26"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MorphBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 926,
+      "sha256": "eb4810f0b891a49e0633c0127c3d81766bb7b2589a3d13ea7a052aeec21da1c5"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MorphBufferBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 635,
+      "sha256": "439f4fb1727a2644fe7a2dba1f88438b454633adfdffbc8a1517e770b7b27a2b"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ParmBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1197,
+      "sha256": "1ae099c4b7b694556e4d0b675caf1dd8a09e3a1d5d8f5e7c7a39ac4f72b3f138"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ParticlesBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 541,
+      "sha256": "33b57b23a868d7d986de7b42d4b96eea2595979876a4f4ef2df389331cf4888f"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/RenderTargetBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 5114,
+      "sha256": "890ae0b02c90768eb641df6d382e9445666acce58d3d0bc4aeaaec766e3efbab"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ShaderParameterMappingBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 4268,
+      "sha256": "8e79b2c905c68ba50e49b021716db7f666da189498721ace88fef23e8c1aab95"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ShudBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1113,
+      "sha256": "2ffd1ed3f3a93bbf656e92635134ebd895c72b0bf24c73db0ae5e543b8de3c11"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/SkeletonBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 9255,
+      "sha256": "a1ce8c8701359fabf34c0fd31aa01d8eb60a6e70ae4ace7e875c30e0bc9bfe09"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/SkinBufferBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 634,
+      "sha256": "42408f07293b8569348604dab7155b3a94344d1ffa141515c319d4e49e53736f"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/StexBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 888,
+      "sha256": "d9ed4d605614bf1916d82a1fe4defe8e6bbd2e5d643ebee59f5f9f3e2ce3711b"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/TextureContentBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 608,
+      "sha256": "c6aa990b720c9a720d5c6c7c66a284507e927503566abd8b11e383ed718b735b"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/TrevBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1106,
+      "sha256": "2390dda2ae939c1fc85ac29827f29449f23e8849b1950ebc84930fb5c03886f3"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VersVarsBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1254,
+      "sha256": "88dd0c9be4d959ef3476bd69cce1c3d8c8d351d0cb11e5ffaa5cfc7b82cd5ca3"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VertexBufferBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 595,
+      "sha256": "0ab4b5b237a5884d4c83b2e91623d991ae4eb941ae2c5de44b71e71b8d6e78b8"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VertexLayoutBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 4064,
+      "sha256": "55b9e25b46c5e3ce4ae921457a99bb24e5c625692aa65439ac96d39a031fe22e"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Bundle.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 14133,
+      "sha256": "ffee34a8e00bd3dacad9c26c5e2cdf9abde5fbd5bac4aca46dc314fcc2b64a5e"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/BundleBlob.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 6046,
+      "sha256": "082c4ad5797332861c1ad1f26241f534adabd48a56c860d703a74a3c36750040"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/BundleMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1803,
+      "sha256": "7bd26ab07a9b0adbf6934e36c94665ad1a7237da568abebc2c15575f1233bad8"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/CarbinParser.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 33161,
+      "sha256": "62e3f0b3b2fa50b2f0b69592d3d4959a7ea835c8398f623de22afab5878fd065"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/ForzaTools.Bundles.csproj",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 606,
+      "sha256": "5f822711a83665bd59a0a7faa27239029773339e46f727b8341dc8fa15237207"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/ACMRMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 542,
+      "sha256": "478fd28033418cbd2f9ea2de25f553aa7f8a372317f742c3caac1414a955490b"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/ARTXMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 2050,
+      "sha256": "0472d3e74afef14cfac333eafca668af0c036e57d0c3ef203ba5d4502abce6ed"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/AtlasMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 790,
+      "sha256": "11cb05ac8115203c48a3c20add4bee61d381ae0bdb0f7b6d52efc6f7a4641cda"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/BlendMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 850,
+      "sha256": "215043d1ab94dbacda60e796dd1426f3039b9f8f8a4d635978f5e629e6e508c8"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/BoundaryBoxMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1040,
+      "sha256": "659c028e6ccaf869a3e53c2dcb33cd36313085c4a71c279dbc47b58cfd0436fb"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/IdentifierMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 589,
+      "sha256": "d5cfd8b08a5b2af6373a3ccecc5a02e6180d63693e72aa1d27534f9dd06e3103"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/NameMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 639,
+      "sha256": "3e8176cfb46c286f2d7e06ba1487b496b34c289a7ead4002320cc4aa17ddfaef"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/RawMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 591,
+      "sha256": "6ec839e50e3a1137240cb175a8d84af3b8052ba0d049f3933a51f06e1147187e"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaderMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 2278,
+      "sha256": "5adc41770519fe01cc40185c1af5d77d4317f5941050806572671332316e0515"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaders/DurangoTextureContentHeader.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 6231,
+      "sha256": "7fec916b23edc1db55cf4c063e90b96fc35cd91abb55588eba34a718bfbb89d7"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaders/PCTextureContentHeader.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 11767,
+      "sha256": "c8ca3b6de5e64c97b8d9eda81694f183713b3ea4399a3b497259a59bf6d2c5b4"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureReferenceMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 926,
+      "sha256": "9734744ab9ed9372ac936b8da03957130dd6af3d2d456a793d7263662b284dee"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/VDCLMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 2832,
+      "sha256": "3fc40c37c13f690c9664f83e9f33116107f7691e1c10ab91f96582a8a73e8abc"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/VertexDeclarationMetadata.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 2123,
+      "sha256": "4057b05328b7e8ea2c7940d8cb21471d8858c7f9d02a550028e2e214c86f0036"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/StreamExtensions.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 3214,
+      "sha256": "1e3ed16380343af64ceb27ede43bfda634adbc5264e204c600f8d3e0bc2e4b84"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Shared/DxgiUtils.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 18108,
+      "sha256": "5505163280bc23babe5cb7d7a85e077a83f7b354b93981872b70d6add66dad9a"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Shared/ForzaTools.Shared.csproj",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 503,
+      "sha256": "152ab0945c692703002844de1239a659887fdcb674def6fb4a2c81d266940d9c"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Shared/VertexElement.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 377,
+      "sha256": "6a4689dad5f329186dcb4d710d9846d8d96e9f1907c797c2bb321c56fb74debf"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/LICENSE",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 1063,
+      "sha256": "060de21653e46bb07f56056946ef3a80a52fd91de39dc6e7280906819a0c4cab"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ModelImporter.cs",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 26175,
+      "sha256": "27bda24a5531cd903f9db3f132ffcd223aaf0a07d0b9f416bb7b5942d8ec9b35"
+    },
+    {
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/PROVENANCE.md",
+      "action": "added",
+      "category": "vendored-runtime-and-notices",
+      "bytes": 504,
+      "sha256": "17b4d995e3d845368df4ab3bffe947e5339933d12ef278633ec7eea8a73bf171"
+    },
+    {
+      "path": "tools/livery/export_full_livery_package.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 990,
+      "sha256": "aaf47bee65ba9437ce9b2591895c971c0a4436e8658923c0ba37c3e49df16bf5"
+    },
+    {
+      "path": "tools/livery/fh6_save_installer.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 25979,
+      "sha256": "2f9831c76ea2d6085bcd6bcbb0212a13256fe287fd33709f56f2d76969239ca1"
+    },
+    {
+      "path": "tools/livery/inspector_server.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 10588,
+      "sha256": "ac67a9ab1caab25fff80ec66670ec524d63bbd59fa47cc3eb8c36076d07c72d1"
+    },
+    {
+      "path": "tools/livery/package.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 44853,
+      "sha256": "52e3d2d4df65adb258fa33c6899aa54ac9347d8ba408fefc6ed4ce98e2b45300"
+    },
+    {
+      "path": "tools/livery/portable_mesh_converter.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 16824,
+      "sha256": "76cc1dcaf1d37055c1373f6314eafd6dbc17a40ff3e2c7ecd556863adc8d1dac"
+    },
+    {
+      "path": "tools/livery/raster_decals.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 5688,
+      "sha256": "125811f57c71e4218c863b98c1ae488fffa8f865cb1143dc02fad8ab37730c62"
+    },
+    {
+      "path": "tools/livery/README.md",
+      "action": "added",
+      "category": "documentation",
+      "bytes": 9470,
+      "sha256": "c49c79d7d86dc17cfded4cfffe3e36fe977d5acd9f11362d76e33267e4ba63f8"
+    },
+    {
+      "path": "tools/livery/render_contract.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 19854,
+      "sha256": "fbff5320b949354f4077cfaec4825ba990c7ef276f53720e48c64099d25b57b7"
+    },
+    {
+      "path": "tools/livery/serve_inspector.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 1038,
+      "sha256": "53c69220016458b4a454f56b09ddff2408fd77000dea73a9a9223d1e454cd335"
+    },
+    {
+      "path": "tools/livery/vehicle_assets.py",
+      "action": "added",
+      "category": "livery-runtime",
+      "bytes": 19909,
+      "sha256": "c5e59d2c26ab8c7b609aecefe968d5fdd25b50f4c845d9719230358772c98df7"
+    }
+  ],
+  "excluded_source_workspace_changes": [
+    "assets/app/KFPS Logo.json",
+    "docs/research/FH6_SAME_CAR_FULL_LIVERY_INSTALL_2026-08-13.md",
+    "docs/research/FULL_LIVERY_PROTOTYPE_CODE_AUDIT_2026-08-13.md",
+    "docs/research/FULL_LIVERY_RENDERER_FUNCTION_MAP_AND_FLS_COMPARISON_2026-08-13.md",
+    "fh6_export_typecode_json.py",
+    "fh6_live_group_policy.py",
+    "fh6_probe.py",
+    "game_profiles.py",
+    "KFPS.UI/qml/pages/CommunityPage.qml",
+    "KFPS.UI/qml/pages/JsonPage.qml",
+    "KFPS.UI/src/kfps_ui/json_service.py",
+    "KFPS.UI/tests/test_cgroup_library_scan.py",
+    "KFPS.UI/tests/test_community.py",
+    "KFPS.UI/tests/test_fh5_live_transfer.py",
+    "KFPS.UI/tests/test_fh6_live_group_policy.py",
+    "KFPS.UI/tests/test_services.py",
+    "KFPS.UI/tests/test_shape_identity.py",
+    "tools/livery/development_mesh_converter.py"
+  ],
+  "exclusion_policy": [
+    "No runtime caches, generated artwork, saved livery packages, personal files, keys, receipts, local Python, or dependencies are included.",
+    "Historical WIP research notes and the obsolete Blender development bridge are not part of the product transfer.",
+    "Unrelated DIRTY changes and files already superseded by the newer CLEAN baseline are not transferred."
+  ]
+}

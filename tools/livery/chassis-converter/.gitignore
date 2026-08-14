@@ -1,0 +1,6 @@
+/obj/
+/bin/Release/
+/bin/win-x64/*
+!/bin/win-x64/Kfps.ChassisConverter.exe
+/vendor/**/bin/
+/vendor/**/obj/

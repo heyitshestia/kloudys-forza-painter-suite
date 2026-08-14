@@ -7,10 +7,12 @@ and the Fabric editor browser so JSON previews stay consistent.
 
 from __future__ import annotations
 
+import concurrent.futures
 import io
 import json
 import math
 from pathlib import Path
+from typing import Callable
 
 from geometry_json import ELLIPSE, RECTANGLE, ROTATED_ELLIPSE, ROTATED_RECTANGLE, load_normalized_geometry
 
@@ -317,6 +319,58 @@ def _transform_resource_polygon(points: list[tuple[float, float]], data: list) -
     return transformed
 
 
+def _render_raster_layer_canvas(
+    source,
+    data: list,
+    color: tuple[int, int, int, int],
+    canvas_size: tuple[int, int],
+    world_bounds: tuple[float, float, float, float],
+):
+    from PIL import Image, ImageChops
+
+    # FH6 decal swatches use the opposite vertical texture convention from
+    # the section canvas used by KFPS.
+    source = source.convert("RGBA").transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    if color != (255, 255, 255, 255):
+        source = ImageChops.multiply(source, Image.new("RGBA", source.size, color))
+    source_width, source_height = source.size
+    canvas_width, canvas_height = canvas_size
+    min_x, min_y, max_x, max_y = world_bounds
+
+    def source_to_canvas(u: float, v: float) -> tuple[float, float]:
+        local_x = u - source_width / 2.0
+        local_y = source_height / 2.0 - v
+        world = _transform_resource_polygon([(local_x, local_y)], data)[0]
+        return (
+            (world[0] - min_x) * canvas_width / (max_x - min_x),
+            (max_y - world[1]) * canvas_height / (max_y - min_y),
+        )
+
+    origin = source_to_canvas(0.0, 0.0)
+    x_axis = source_to_canvas(1.0, 0.0)
+    y_axis = source_to_canvas(0.0, 1.0)
+    a, d = x_axis[0] - origin[0], x_axis[1] - origin[1]
+    b, e = y_axis[0] - origin[0], y_axis[1] - origin[1]
+    c, f = origin
+    determinant = a * e - b * d
+    if abs(determinant) < 1e-12:
+        return None
+    inverse = (
+        e / determinant,
+        -b / determinant,
+        (b * f - e * c) / determinant,
+        -d / determinant,
+        a / determinant,
+        (d * c - a * f) / determinant,
+    )
+    return source.transform(
+        canvas_size,
+        Image.Transform.AFFINE,
+        inverse,
+        resample=Image.Resampling.BICUBIC,
+    )
+
+
 def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
     from PIL import Image, ImageDraw
 
@@ -458,3 +512,136 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparen
         if transformed:
             polygons.append({"polygons": transformed, "color": color, "mask": is_mask})
     return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background) if polygons else None
+
+
+def render_typecode_layers_canvas(
+    shapes: list[dict],
+    width: int = 2048,
+    height: int = 1024,
+    world_bounds: tuple[float, float, float, float] = (-1024.0, -512.0, 1024.0, 512.0),
+    raster_resolver: Callable[[int], object | None] | None = None,
+    cancel_event=None,
+) -> bytes | None:
+    """Render type-code layers without auto-cropping their Forza coordinate space."""
+    from PIL import Image, ImageDraw
+
+    width = max(1, min(8192, int(width)))
+    height = max(1, min(8192, int(height)))
+    min_x, min_y, max_x, max_y = [float(value) for value in world_bounds]
+    if max_x <= min_x or max_y <= min_y:
+        raise ValueError("world_bounds must describe a positive area")
+
+    def to_canvas(point: tuple[float, float]) -> tuple[float, float]:
+        return (
+            (point[0] - min_x) * width / (max_x - min_x),
+            (max_y - point[1]) * height / (max_y - min_y),
+        )
+
+    def layer_bounds(polygons: list[list[tuple[float, float]]]) -> tuple[int, int, int, int] | None:
+        xs = [point[0] for polygon in polygons for point in polygon]
+        ys = [point[1] for polygon in polygons for point in polygon]
+        if not xs or not ys:
+            return None
+        left = max(0, math.floor(min(xs)) - 2)
+        top = max(0, math.floor(min(ys)) - 2)
+        right = min(width, math.ceil(max(xs)) + 3)
+        bottom = min(height, math.ceil(max(ys)) + 3)
+        return (left, top, right, bottom) if right > left and bottom > top else None
+
+    def local_polygons(
+        polygons: list[list[tuple[float, float]]],
+        left: int,
+        top: int,
+    ) -> list[list[tuple[float, float]]]:
+        return [[(x - left, y - top) for x, y in polygon] for polygon in polygons]
+
+    artwork = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    artwork_draw = ImageDraw.Draw(artwork)
+    rendered = False
+    for shape_index, shape in enumerate(shapes):
+        if shape_index % 32 == 0 and cancel_event is not None and cancel_event.is_set():
+            raise concurrent.futures.CancelledError()
+        if not isinstance(shape, dict):
+            continue
+        data = list(shape.get("data") or [])
+        if len(data) < 4:
+            continue
+        is_mask = _shape_mask_flag(shape, data)
+        color = _color_tuple(shape.get("color"))
+        if not is_mask and (not color or color[3] <= 0):
+            continue
+        try:
+            [float(item) for item in data[:4]]
+            type_code = int(shape.get("type", ROTATED_ELLIPSE))
+        except (TypeError, ValueError):
+            continue
+        if shape.get("is_raster_logo"):
+            if raster_resolver is None:
+                continue
+            try:
+                raster_id = int(shape.get("raster_id") or 0)
+                source = raster_resolver(raster_id) if raster_id > 0 else None
+                layer = (
+                    _render_raster_layer_canvas(source, data, color, (width, height), world_bounds)
+                    if source is not None
+                    else None
+                )
+            except (TypeError, ValueError, OSError):
+                layer = None
+            if layer is None:
+                continue
+            if is_mask:
+                alpha = layer.getchannel("A")
+                if alpha.getbbox():
+                    artwork.paste((0, 0, 0, 0), (0, 0, width, height), alpha)
+                    rendered = True
+            else:
+                artwork.alpha_composite(layer)
+                rendered = True
+            continue
+        word = _shape_word_from_shape(shape, type_code)
+        resource = _resolve_vinyl_resource(type_code, shape)
+        triangles = _resource_triangles(*resource) if resource else None
+        if not triangles:
+            triangles = _fallback_triangles(word)
+        polygons = [_transform_resource_polygon(poly, data) for poly in triangles]
+        polygons = [[to_canvas(point) for point in polygon] for polygon in polygons if len(polygon) >= 3]
+        if not polygons:
+            continue
+
+        if is_mask:
+            bounds = layer_bounds(polygons)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
+            cutout = Image.new("L", (right - left, bottom - top), 0)
+            draw = ImageDraw.Draw(cutout)
+            for polygon in local_polygons(polygons, left, top):
+                draw.polygon(polygon, fill=255)
+            if cutout.getbbox():
+                artwork.paste((0, 0, 0, 0), bounds, cutout)
+                rendered = True
+            continue
+
+        if color[3] == 255:
+            for polygon in polygons:
+                artwork_draw.polygon(polygon, fill=color)
+        else:
+            bounds = layer_bounds(polygons)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
+            layer = Image.new("RGBA", (right - left, bottom - top), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(layer, "RGBA")
+            for polygon in local_polygons(polygons, left, top):
+                draw.polygon(polygon, fill=color)
+            artwork.alpha_composite(layer, dest=(left, top))
+        rendered = True
+
+    if not rendered:
+        return None
+    if cancel_event is not None and cancel_event.is_set():
+        raise concurrent.futures.CancelledError()
+    out = io.BytesIO()
+    artwork.save(out, format="PNG", optimize=False)
+    return out.getvalue()
