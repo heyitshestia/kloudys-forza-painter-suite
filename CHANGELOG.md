@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.19
+- Restored near-instant FH6 RTTI exports by searching the normal editor allocation range before broader balanced memory coverage.
+- Moved the verified FH6 RTTI graph fallback ahead of the noisy count scan while retaining the established FH4 and FH5 locator order.
+- Expanded successful locator diagnostics and verified an 82-layer nested export in 1.59 seconds with ownership protection intact.
+
 ## 3.1.18
 - Fixed FH6 live exports timing out after scanning small memory allocations while leaving the largest active heap regions untouched.
 - Balanced large and small memory-region coverage across the fast and fallback locators without weakening strict layer validation or ownership protection.

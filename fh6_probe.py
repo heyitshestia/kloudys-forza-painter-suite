@@ -43,6 +43,8 @@ FH6_LOCATOR_CANDIDATE_CAP = 5
 FH6_REGION_SCAN_CHUNK_SIZE = 64 * 1024 * 1024
 FH6_COUNT_SCAN_CHUNK_SIZE = 8 * 1024 * 1024
 FH6_SMALL_REGIONS_PER_LARGE_CHUNK = 16
+FH6_GROUP_ARENA_MIN_SIZE = 8 * 1024 * 1024
+FH6_GROUP_ARENA_MAX_SIZE = 16 * 1024 * 1024
 LAST_LOCATOR_DIAGNOSTICS = {}
 
 
@@ -884,6 +886,7 @@ def iter_balanced_region_chunks(
     chunk_size=FH6_REGION_SCAN_CHUNK_SIZE,
     overlap=0,
     small_regions_per_large=FH6_SMALL_REGIONS_PER_LARGE_CHUNK,
+    preferred_size_range=None,
 ):
     """Interleave large heap stripes with complete small allocations.
 
@@ -896,6 +899,23 @@ def iter_balanced_region_chunks(
     overlap = max(0, min(int(overlap), chunk_size - 1))
     small_regions_per_large = max(1, int(small_regions_per_large))
     normalized = [tuple(region) for region in regions if int(region[1]) > 0]
+    preferred_regions = []
+    if preferred_size_range:
+        preferred_min, preferred_max = (int(value) for value in preferred_size_range)
+        preferred_regions = sorted(
+            (
+                region
+                for region in normalized
+                if preferred_min <= int(region[1]) <= preferred_max
+            ),
+            key=lambda region: int(region[0]),
+        )
+        preferred_keys = {(int(region[0]), int(region[1])) for region in preferred_regions}
+        normalized = [
+            region
+            for region in normalized
+            if (int(region[0]), int(region[1])) not in preferred_keys
+        ]
     small_regions = sorted(
         (region for region in normalized if int(region[1]) <= chunk_size),
         key=lambda region: int(region[0]),
@@ -926,6 +946,11 @@ def iter_balanced_region_chunks(
 
     large_iter = iter(large_chunks())
     small_iter = iter(small_regions)
+    for region in preferred_regions:
+        base, size = int(region[0]), int(region[1])
+        memory = read_region(pid, base, size, max_size=chunk_size)
+        if memory:
+            yield region, base, memory, len(memory)
     large_done = False
     small_done = False
     while not (large_done and small_done):
@@ -1768,7 +1793,12 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
     best_miss = None
     seen_groups = set()
     stopped_by_time = False
-    scheduled_chunks = iter_balanced_region_chunks(pid, regions, overlap=7)
+    scheduled_chunks = iter_balanced_region_chunks(
+        pid,
+        regions,
+        overlap=7,
+        preferred_size_range=(FH6_GROUP_ARENA_MIN_SIZE, FH6_GROUP_ARENA_MAX_SIZE),
+    )
     for chunk_index, (_region, chunk_base, memory, unique_size) in enumerate(scheduled_chunks, start=1):
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
@@ -1935,12 +1965,12 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
         groups = locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti)
         if groups:
             return groups[:FH6_LOCATOR_CANDIDATE_CAP]
-        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
-        if groups:
-            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
         if groups:
             return groups
+        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         print(
             "Calibrated locator count scan did not find a validated group; "
             "skipping broad type scan to avoid long stale-memory searches.",
@@ -2149,10 +2179,14 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "group_graph_partial": winner.get("group_graph_partial"),
             "global_group_count": winner.get("global_group_count"),
             "graph_scan_mb": winner.get("graph_scan_mb"),
+            "locator_scan_mb": winner.get("locator_scan_mb"),
+            "locator_vtable_hits": winner.get("locator_vtable_hits"),
+            "locator_scan_complete": winner.get("locator_scan_complete"),
             "vtable": winner.get("vtable"),
             "rtti_source": winner.get("rtti_source"),
             "rtti_update_code": winner.get("rtti_update_code"),
             "rtti_descriptor_offset": winner.get("rtti_descriptor_offset"),
+            "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
             "samples": serialize_samples(winner["samples"]),
         }
         if output_path:

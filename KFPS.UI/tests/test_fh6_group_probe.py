@@ -139,6 +139,31 @@ class Fh6GroupProbeTests(unittest.TestCase):
             [address for _region, address, _raw, _unique in chunks],
         )
 
+    def test_fast_scan_can_prioritize_probable_editor_arenas(self):
+        regions = [
+            (0x10000, 4, 0, 0),
+            (0x20000, 9000, 0, 0),
+            (0x30000, 20000, 0, 0),
+        ]
+
+        with patch.object(
+            fh6_probe,
+            "read_region",
+            side_effect=lambda _pid, _address, size, max_size=None: b"x" * size,
+        ):
+            chunks = list(
+                fh6_probe.iter_balanced_region_chunks(
+                    123,
+                    regions,
+                    chunk_size=4096,
+                    small_regions_per_large=1,
+                    preferred_size_range=(8000, 10000),
+                )
+            )
+
+        self.assertEqual(0x20000, chunks[0][1])
+        self.assertEqual(9000, chunks[0][3])
+
     def test_malformed_count_candidate_does_not_skip_vector_scan(self):
         false_match = candidate(vector_ok=False, duplicate_ptr_count=87, layer_ok_count=98)
 
