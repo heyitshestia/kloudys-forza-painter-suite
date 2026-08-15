@@ -173,6 +173,29 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
         raise PortableMeshConverterError("The converted chassis GLB binary declaration is invalid.")
     nodes = _document_array(document, "nodes")
     meshes = _document_array(document, "meshes")
+    scenes = _document_array(document, "scenes")
+    part_options: list[dict] = []
+    option_keys: set[tuple[str, int]] = set()
+    if scenes:
+        scene = scenes[_array_index(document.get("scene", 0), scenes, "scene")]
+        if not isinstance(scene, dict):
+            raise PortableMeshConverterError("The converted chassis has an invalid GLB scene record.")
+        raw_options = (scene.get("extras") or {}).get("kfps_part_options") or []
+        if not isinstance(raw_options, list) or any(not isinstance(item, dict) for item in raw_options):
+            raise PortableMeshConverterError("The converted chassis has invalid part-option metadata.")
+        for option in raw_options:
+            try:
+                part_name = str(option["part_type"]).strip()
+                part_type = int(option["part_type_value"])
+                option_id = int(option["id"])
+                level = int(option["level"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PortableMeshConverterError("The converted chassis has invalid part-option metadata.") from exc
+            key = (part_name, option_id)
+            if not part_name or part_type < 0 or level < 0 or key in option_keys:
+                raise PortableMeshConverterError("The converted chassis has invalid part-option metadata.")
+            option_keys.add(key)
+            part_options.append(option)
     roles: dict[int, str] = {}
     allowed_sides: dict[int, object] = {}
     for node in nodes:
@@ -186,6 +209,8 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
             allowed_sides[mesh_index] = extras["kfps_allowed_sides"]
     paint = 0
     glass = 0
+    direct_uv3 = 0
+    projected = 0
     triangles = 0
     for index, mesh in enumerate(meshes):
         if not isinstance(mesh, dict):
@@ -195,6 +220,16 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
         if role not in ROLE_NAMES:
             raise PortableMeshConverterError("The converted chassis has an invalid material role.")
         raw_allowed = extras.get("kfps_allowed_sides", allowed_sides.get(index))
+        raw_option_ids = extras.get("kfps_part_option_ids") or []
+        part_type = str(extras.get("kfps_part_type") or "").strip()
+        if not isinstance(raw_option_ids, list) or any(
+            isinstance(value, bool) or not isinstance(value, int) for value in raw_option_ids
+        ):
+            raise PortableMeshConverterError("The converted chassis has invalid mesh part-option metadata.")
+        if raw_option_ids and (
+            not part_type or any((part_type, option_id) not in option_keys for option_id in raw_option_ids)
+        ):
+            raise PortableMeshConverterError("The converted chassis references an unknown car-part option.")
         declared_allowed: int | None = None
         if raw_allowed is not None:
             if isinstance(raw_allowed, bool) or not isinstance(raw_allowed, (int, float)):
@@ -248,23 +283,32 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
                 ):
                     raise PortableMeshConverterError("The converted chassis livery UV contract is invalid.")
                 has_uv3 = True
+        if role in {"paint", "glass"} and not has_uv3:
+            raise PortableMeshConverterError(
+                "The converted chassis did not preserve exact FH6 livery coordinates."
+            )
         if declared_allowed is not None:
             valid_mask = 0x3F if role == "paint" else 0x7C0 if role == "glass" else 0
             if declared_allowed & ~valid_mask or (has_uv3 and role in {"paint", "glass"} and declared_allowed == 0):
                 raise PortableMeshConverterError("The converted chassis has an invalid livery-side declaration.")
-        if role == "paint" and has_uv3:
+        if role == "paint":
             paint += 1
-        elif role == "glass" and has_uv3:
+            direct_uv3 += 1
+        elif role == "glass":
             glass += 1
+            direct_uv3 += 1
     if not meshes or paint == 0:
         raise PortableMeshConverterError(
-            "The converted chassis did not preserve livery-bearing paint geometry and TEXCOORD_3."
+            "The converted chassis did not preserve livery-bearing paint geometry."
         )
     return {
         "mesh_count": len(meshes),
         "paint_meshes": paint,
         "glass_meshes": glass,
         "triangle_count": triangles,
+        "direct_uv3_meshes": direct_uv3,
+        "projected_livery_meshes": projected,
+        "part_option_count": len(part_options),
     }
 
 
@@ -348,7 +392,7 @@ def convert_vehicle_model_to_glb(
         if unresolved:
             output_path.unlink(missing_ok=True)
             raise PortableMeshConverterError(
-                f"The local chassis converter could not resolve {unresolved} stock model instance(s)."
+                f"The local chassis converter could not resolve {unresolved} car model instance(s)."
             )
     validate_local_chassis_glb(output_path)
     return output_path

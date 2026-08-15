@@ -10,7 +10,10 @@ internal static class GlbWriter
     private const uint JsonChunk = 0x4E4F534A;
     private const uint BinChunk = 0x004E4942;
 
-    public static void Write(string path, IReadOnlyList<ChassisMesh> meshes)
+    public static void Write(
+        string path,
+        IReadOnlyList<ChassisMesh> meshes,
+        IReadOnlyList<PartOptionDescriptor> partOptions)
     {
         using var binary = new MemoryStream();
         var bufferViews = new List<object>();
@@ -36,6 +39,8 @@ internal static class GlbWriter
                 ["kfps_part_type"] = mesh.PartType,
                 ["kfps_instance_identity"] = mesh.InstanceIdentity,
                 ["kfps_stock_part"] = mesh.StockPart,
+                ["kfps_part_option_ids"] = mesh.PartOptionIds,
+                ["kfps_draw_groups"] = mesh.DrawGroups,
                 ["kfps_allowed_sides"] = mesh.AllowedSides,
             };
             meshRecords.Add(new
@@ -51,7 +56,27 @@ internal static class GlbWriter
         {
             asset = new { version = "2.0", generator = "KFPS local chassis converter" },
             scene = 0,
-            scenes = new[] { new { nodes = Enumerable.Range(0, nodes.Count).ToArray() } },
+            scenes = new[]
+            {
+                new
+                {
+                    nodes = Enumerable.Range(0, nodes.Count).ToArray(),
+                    extras = new
+                    {
+                        kfps_format = "kfps_local_chassis_scene_v2",
+                        kfps_part_options = partOptions.Select(option => new
+                        {
+                            part_type = option.PartType,
+                            part_type_value = option.PartTypeValue,
+                            id = option.Id,
+                            level = option.Level,
+                            car_body_id = option.CarBodyId,
+                            parent_is_stock = option.ParentIsStock,
+                            stock = option.Stock,
+                        }).ToArray(),
+                    },
+                },
+            },
             nodes,
             meshes = meshRecords,
             accessors,

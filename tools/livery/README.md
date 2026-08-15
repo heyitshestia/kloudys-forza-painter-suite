@@ -121,9 +121,11 @@ The embedded inspector is local-only:
 - A random token scopes every localhost server session.
 - Static paths and package member paths are constrained and packages are fully
   revalidated before serving.
-- The package identifies the car. KFPS resolves and privately caches the stock
-  inspection parts from that PC's FH6 installation. Only model entries already
-  authored in car space are combined into the static GLB.
+- The package identifies the car. KFPS resolves and privately caches the full
+  authored car scene from that PC's FH6 installation. Scene transforms are
+  retained, explicit stock parts are shown by default, and complete locally
+  available upgrade choices can be selected in the inspector. Incomplete
+  optional variants are omitted rather than leaving partial geometry visible.
 - Paint and glass use FH6's dedicated `TEXCOORD_3` livery coordinates. Top,
   left, right, front, back, and glass masks remain independent because their UV
   rectangles overlap. A surface-facing test chooses the applicable section,
@@ -138,10 +140,14 @@ The embedded inspector is local-only:
 - No extracted game mesh or raw projection asset is included by the normal KFPS
   export workflow.
 - `Kfps.ChassisConverter.exe` is a self-contained Windows x64 helper. It reads
-  only the selected stock model entries from the recipient's own FH6 car archive,
-  preserves the highest-detail chassis geometry and livery UV channels, and
-  writes a private local GLB cache. End users do not need Blender, .NET, or a
-  separate extraction-tool installation.
+  the local scene and referenced model entries from the recipient's own FH6 car
+  archive, preserves the highest-detail chassis geometry and exact livery UV
+  channels, and writes a private local GLB cache. End users do not need Blender,
+  .NET, or a separate extraction-tool installation.
+- Livery-bearing paint and glass without exact `TEXCOORD_3` coordinates are
+  rejected. KFPS does not substitute a visually approximate world-space
+  projection, because the approximation breaks scale and alignment on curved,
+  asymmetric, and window geometry.
 - A new package selection cancels an obsolete conversion. Corrupt cached GLBs
   are rejected and rebuilt from the local game archive.
 
@@ -152,13 +158,17 @@ The embedded inspector is local-only:
 - The section-aware contract has been visually validated on the user-verified
   803-placement `ALF_00_SE048SP_90` and 10,368-placement `nis_gtrlm_95`
   liveries. The same untuned mapping handles body sides, top, front windshield,
-  and rear windshield without cross-section bleed. More cars with unusual wing,
-  mirror, and all-eleven-section coverage are still required before calling it
-  exact across the full catalog.
+  rear windshield, and a selectable Nissan wing without cross-section bleed.
+- A structural conversion audit covered all 660 car archives in the tested FH6
+  installation. All 652 livery-capable archives produced validated exact-UV
+  scenes; eight traffic-only archives had no usable livery-bearing paint and are
+  intentionally unsupported. This proves catalog-wide structural compatibility,
+  not pixel-perfect visual validation of every car. More user-verified cars with
+  unusual wings, mirrors, windows, and all-eleven-section coverage remain useful.
 - The neutral wheels make the current inspector coherent but are not a faithful
   reconstruction of each car's installed wheel, tire, brake, or suspension
-  configuration. Exact stock/upgrade assembly remains separate from livery
-  placement.
+  configuration. Selectable scene-authored body options are supported, but the
+  recipient's exact installed tuning configuration is not reconstructed.
 - Base-paint color and material state are not decoded yet. Empty placement
   records remain hidden because this milestone cannot distinguish an unused
   record from a paint-only design reliably.

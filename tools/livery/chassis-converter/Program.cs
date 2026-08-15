@@ -24,6 +24,8 @@ internal sealed record ChassisMesh(
     string PartType,
     string InstanceIdentity,
     bool StockPart,
+    int[] PartOptionIds,
+    int DrawGroups,
     int AllowedSides,
     Vector3[] Positions,
     Vector3[] Normals,
@@ -37,7 +39,19 @@ internal sealed record ModelInstance(
     short BoneId,
     CCarParts PartType,
     bool WindowHint,
-    string Identity);
+    string Identity,
+    bool StockPart,
+    int[] PartOptionIds,
+    int DrawGroups);
+
+internal sealed record PartOptionDescriptor(
+    string PartType,
+    int PartTypeValue,
+    int Id,
+    int Level,
+    int CarBodyId,
+    bool ParentIsStock,
+    bool Stock);
 
 internal sealed record ImportedModel(Bundle Bundle, ImporterResult Imported);
 
@@ -45,7 +59,9 @@ internal sealed record ChassisExtraction(
     List<ChassisMesh> Meshes,
     int RequestedInstances,
     int ResolvedInstances,
-    string[] UnresolvedPaths);
+    string[] UnresolvedRequiredPaths,
+    string[] SkippedOptionalPaths,
+    List<PartOptionDescriptor> PartOptions);
 
 internal static class Program
 {
@@ -92,14 +108,24 @@ internal static class Program
             var meshes = extraction.Meshes;
             if (meshes.Count == 0)
                 throw new InvalidDataException("The selected car scene contained no renderable triangle meshes.");
-            if (!meshes.Any(mesh => mesh.Role == "paint" && mesh.UvChannels.ContainsKey(3)))
-                throw new InvalidDataException("The converted chassis has no livery-bearing paint geometry with TEXCOORD_3.");
+            if (!meshes.Any(mesh => mesh.Role == "paint"))
+            {
+                var detail = Environment.GetEnvironmentVariable("KFPS_CHASSIS_DIAGNOSTICS") == "1"
+                    ? " UV3 materials: " + string.Join(", ", meshes
+                        .Where(mesh => mesh.UvChannels.ContainsKey(3))
+                        .Select(mesh => string.IsNullOrWhiteSpace(mesh.MaterialName) ? "<unnamed>" : mesh.MaterialName)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(value => value)
+                        .Take(40))
+                    : "";
+                throw new InvalidDataException("The converted chassis has no livery-bearing paint geometry." + detail);
+            }
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             var temporary = outputPath + $".{Environment.ProcessId}.tmp";
             try
             {
-                GlbWriter.Write(temporary, meshes);
+                GlbWriter.Write(temporary, meshes, extraction.PartOptions);
                 File.Move(temporary, outputPath, true);
             }
             finally
@@ -109,25 +135,33 @@ internal static class Program
 
             Console.WriteLine(JsonSerializer.Serialize(new
             {
-                format = "kfps_local_chassis_conversion_v3",
+                format = "kfps_local_chassis_conversion_v4",
                 output = outputPath,
                 mesh_count = meshes.Count,
                 paint_meshes = meshes.Count(mesh => mesh.Role == "paint"),
                 glass_meshes = meshes.Count(mesh => mesh.Role == "glass"),
+                direct_uv3_meshes = meshes.Count(mesh => (mesh.Role is "paint" or "glass") && mesh.UvChannels.ContainsKey(3)),
+                projected_livery_meshes = meshes.Count(mesh => (mesh.Role is "paint" or "glass") && !mesh.UvChannels.ContainsKey(3)),
+                part_option_count = extraction.PartOptions.Count,
                 triangle_count = meshes.Sum(mesh => mesh.Indices.Length / 3),
                 source_entry_count = meshes.Select(mesh => mesh.SourceEntry)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
                 scene_assembled = sceneAssembled,
                 requested_instance_count = extraction.RequestedInstances,
                 resolved_instance_count = extraction.ResolvedInstances,
-                unresolved_instance_count = extraction.UnresolvedPaths.Length,
-                unresolved_paths = extraction.UnresolvedPaths,
+                unresolved_instance_count = extraction.UnresolvedRequiredPaths.Length,
+                unresolved_paths = extraction.UnresolvedRequiredPaths,
+                skipped_optional_instance_count = extraction.SkippedOptionalPaths.Length,
+                skipped_optional_paths = extraction.SkippedOptionalPaths,
             }, JsonOptions()));
             return 0;
         }
         catch (Exception error)
         {
-            Console.Error.WriteLine(error.Message);
+            Console.Error.WriteLine(
+                Environment.GetEnvironmentVariable("KFPS_CHASSIS_DIAGNOSTICS") == "1"
+                    ? error.ToString()
+                    : error.Message);
             return 1;
         }
     }
@@ -161,9 +195,9 @@ internal static class Program
         if (carbin.Scene is null)
             throw new InvalidDataException("The selected car scene is empty.");
 
-        var instances = StockModelInstances(carbin.Scene);
+        var instances = SceneModelInstances(carbin.Scene, out var partOptions);
         if (instances.Count == 0)
-            throw new InvalidDataException("The selected car scene contains no stock model instances.");
+            throw new InvalidDataException("The selected car scene contains no model instances.");
 
         var mediaName = string.IsNullOrWhiteSpace(carbin.Scene.MediaName)
             ? Path.GetFileNameWithoutExtension(requestedCarbin)
@@ -171,13 +205,26 @@ internal static class Program
         var cache = new Dictionary<string, ImportedModel>(StringComparer.OrdinalIgnoreCase);
         var result = new List<ChassisMesh>();
         var resolved = 0;
-        var unresolved = new List<string>();
+        var unresolvedRequired = new List<ModelInstance>();
+        var skippedOptional = new List<ModelInstance>();
+        void RecordUnresolved(ModelInstance instance)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(instance.Path.Replace('\\', '/')).ToLowerInvariant();
+            var missingVariant = fileName.Contains("custom", StringComparison.Ordinal)
+                || fileName.EndsWith("_b", StringComparison.Ordinal)
+                || fileName.EndsWith("_c", StringComparison.Ordinal)
+                || fileName.EndsWith("_d", StringComparison.Ordinal)
+                || fileName.EndsWith("_race", StringComparison.Ordinal)
+                || fileName.EndsWith("_wide", StringComparison.Ordinal);
+            if (instance.StockPart && !missingVariant) unresolvedRequired.Add(instance);
+            else skippedOptional.Add(instance);
+        }
         foreach (var instance in instances)
         {
             var entryName = ResolveModelEntry(instance.Path, mediaName, available);
             if (entryName is null)
             {
-                unresolved.Add(instance.Path);
+                RecordUnresolved(instance);
                 continue;
             }
             if (entryName.Contains("__slod", StringComparison.OrdinalIgnoreCase))
@@ -193,13 +240,59 @@ internal static class Program
             var before = result.Count;
             AppendMeshes(result, model.Imported, entryName, instance, instanceTransform);
             if (result.Count > before) resolved++;
-            else unresolved.Add(instance.Path);
+            else RecordUnresolved(instance);
         }
+
+        var invalidOptions = skippedOptional
+            .Where(instance => !instance.StockPart)
+            .SelectMany(instance => instance.PartOptionIds.Select(id => (instance.PartType.ToString(), id)))
+            .ToHashSet();
+        if (invalidOptions.Count > 0)
+        {
+            var filtered = new List<ChassisMesh>(result.Count);
+            foreach (var mesh in result)
+            {
+                var optionIds = mesh.PartOptionIds
+                    .Where(id => !invalidOptions.Contains((mesh.PartType, id)))
+                    .ToArray();
+                if (mesh.PartOptionIds.Length > 0 && optionIds.Length == 0 && !mesh.StockPart)
+                    continue;
+                filtered.Add(mesh with { PartOptionIds = optionIds });
+            }
+            result = filtered;
+            partOptions = partOptions
+                .Where(option => !invalidOptions.Contains((option.PartType, option.Id)))
+                .ToList();
+        }
+        var declaredOptions = partOptions
+            .Select(option => (option.PartType, option.Id))
+            .ToHashSet();
+        var declaredMeshes = new List<ChassisMesh>(result.Count);
+        foreach (var mesh in result)
+        {
+            var optionIds = mesh.PartOptionIds
+                .Where(id => declaredOptions.Contains((mesh.PartType, id)))
+                .ToArray();
+            if (mesh.PartOptionIds.Length > 0 && optionIds.Length == 0 && !mesh.StockPart)
+                continue;
+            declaredMeshes.Add(mesh with { PartOptionIds = optionIds });
+        }
+        result = declaredMeshes;
+        var representedOptions = result
+            .SelectMany(mesh => mesh.PartOptionIds.Select(id => (mesh.PartType, id)))
+            .ToHashSet();
+        partOptions = partOptions
+            .Where(option => representedOptions.Contains((option.PartType, option.Id)))
+            .ToList();
         return new ChassisExtraction(
             result,
             instances.Count,
             resolved,
-            unresolved.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value).ToArray());
+            unresolvedRequired.Select(instance => instance.Path)
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value).ToArray(),
+            skippedOptional.Select(instance => instance.Path)
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value).ToArray(),
+            partOptions);
     }
 
     private static ChassisExtraction ExtractLooseMeshes(string archivePath, IReadOnlyList<string> requested)
@@ -219,10 +312,13 @@ internal static class Program
                 -1,
                 CCarParts.CarBody,
                 false,
-                $"legacy:{requestedName}");
+                $"legacy:{requestedName}",
+                true,
+                [],
+                1);
             AppendMeshes(result, model.Imported, requestedName, instance, Matrix4x4.Identity);
         }
-        return new ChassisExtraction(result, requested.Count, requested.Count, []);
+        return new ChassisExtraction(result, requested.Count, requested.Count, [], [], []);
     }
 
     private static ImportedModel LoadModel(ZipArchiveEntry entry, string entryName)
@@ -257,6 +353,8 @@ internal static class Program
             var positions = TransformPositions(geometry, instanceTransform);
             var normals = TransformNormals(geometry, instanceTransform);
             var indices = CleanTriangleIndices(geometry.Indices);
+            if (indices.Length == 0)
+                continue;
             ValidateGeometry(geometry.Name, positions, normals, indices);
             var uvs = TransformUvChannels(geometry, positions.Length);
             var identity = $"{sourceEntry} {geometry.Name} {geometry.MaterialName}";
@@ -274,8 +372,10 @@ internal static class Program
                 role,
                 instance.PartType.ToString(),
                 instance.Identity,
-                true,
-                RenderedLiverySides(role, geometry.Name, hasUv3),
+                instance.StockPart,
+                instance.PartOptionIds,
+                instance.DrawGroups,
+                RenderedLiverySides(role, geometry.Name, instance.PartType),
                 positions,
                 normals,
                 uvs,
@@ -283,16 +383,30 @@ internal static class Program
         }
     }
 
-    private static List<ModelInstance> StockModelInstances(Scene scene)
+    private static List<ModelInstance> SceneModelInstances(
+        Scene scene,
+        out List<PartOptionDescriptor> partOptions)
     {
         var output = new List<ModelInstance>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var byIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
+        partOptions = [];
 
-        void Add(CarRenderModel model, CCarParts partType, bool stock)
+        void Add(CarRenderModel model, CCarParts partType, bool stock, IEnumerable<int>? optionIds = null)
         {
-            if (!stock || string.IsNullOrWhiteSpace(model.Path)) return;
+            if (string.IsNullOrWhiteSpace(model.Path)) return;
             var key = InstanceKey(model, partType);
-            if (!seen.Add(key)) return;
+            var ids = (optionIds ?? []).Distinct().OrderBy(value => value).ToArray();
+            if (byIdentity.TryGetValue(key, out var existingIndex))
+            {
+                var existing = output[existingIndex];
+                output[existingIndex] = existing with
+                {
+                    StockPart = existing.StockPart || stock,
+                    PartOptionIds = existing.PartOptionIds.Concat(ids).Distinct().OrderBy(value => value).ToArray(),
+                };
+                return;
+            }
+            byIdentity[key] = output.Count;
             output.Add(new ModelInstance(
                 model.Path,
                 model.Transform,
@@ -300,7 +414,10 @@ internal static class Program
                 model.BoneId,
                 partType,
                 model.IsInteriorWindshield || model.IsLeftSideWindow != 0 || model.IsRightSideWindow != 0,
-                key));
+                key,
+                stock,
+                ids,
+                model.RawDrawGroupsValue));
         }
 
         foreach (var entry in scene.NonUpgradableParts)
@@ -310,23 +427,24 @@ internal static class Program
         foreach (var part in scene.UpgradableParts)
         {
             var stock = part.Upgrades.Where(upgrade => upgrade.IsStock).ToList();
-            if (stock.Count == 0 && part.Upgrades.Count > 0)
-            {
-                var lowestLevel = part.Upgrades.Min(upgrade => upgrade.Level);
-                stock = part.Upgrades
-                    .Where(upgrade => upgrade.Level == lowestLevel)
-                    .OrderBy(upgrade => upgrade.Id)
-                    .Take(1)
-                    .ToList();
-            }
             var stockIds = stock.Select(upgrade => upgrade.Id).ToHashSet();
-            foreach (var upgrade in stock)
+            foreach (var upgrade in part.Upgrades)
+            {
+                partOptions.Add(new PartOptionDescriptor(
+                    part.Type.ToString(),
+                    checked((int)part.Type),
+                    upgrade.Id,
+                    upgrade.Level,
+                    upgrade.CarBodyId,
+                    upgrade.ParentIsStock,
+                    stockIds.Contains(upgrade.Id)));
                 foreach (var model in upgrade.Models)
-                    Add(model, part.Type, true);
+                    Add(model, part.Type, stockIds.Contains(upgrade.Id), [upgrade.Id]);
+            }
             foreach (var shared in part.SharedModels)
             {
                 var selected = shared.UpgradeIds.Count == 0 || shared.UpgradeIds.Any(stockIds.Contains);
-                Add(shared.Model, part.Type, selected);
+                Add(shared.Model, part.Type, selected, shared.UpgradeIds);
             }
         }
         return output;
@@ -551,7 +669,10 @@ internal static class Program
         if (string.IsNullOrWhiteSpace(name) || name.Contains("caliper") || name.Contains("texture"))
             return false;
         return name.StartsWith("carpaint", StringComparison.Ordinal)
-            || name.StartsWith("car_paint", StringComparison.Ordinal);
+            || name.StartsWith("car_paint", StringComparison.Ordinal)
+            || name.StartsWith("paint_", StringComparison.Ordinal)
+            || name.EndsWith("_paint", StringComparison.Ordinal)
+            || name.Contains("_paint_", StringComparison.Ordinal);
     }
 
     private static bool IsWindowGlassMaterial(string rawName)
@@ -608,13 +729,17 @@ internal static class Program
     private static bool IsTrunkPanelMesh(string name) =>
         name.StartsWith("trunk", StringComparison.OrdinalIgnoreCase) && !IsSpoilerMesh(name);
 
-    private static int RenderedLiverySides(string role, string meshName, bool hasUv3)
+    private static int RenderedLiverySides(string role, string meshName, CCarParts partType)
     {
-        if (!hasUv3) return 0;
         if (role == "glass") return AllGlassSides;
         if (role != "paint") return 0;
         if (IsSpoilerMesh(meshName)) return SideSpoiler;
         if (IsTrunkPanelMesh(meshName)) return SideBack | SideTop;
+        if (partType == CCarParts.FrontBumper) return SideFront | SideLeft | SideRight;
+        if (partType == CCarParts.RearBumper) return SideBack | SideLeft | SideRight;
+        if (partType == CCarParts.Hood) return SideTop;
+        if (partType == CCarParts.SideSkirts) return SideLeft | SideRight;
+        if (partType == CCarParts.RearWing) return SideSpoiler;
         return AllBodySides;
     }
 

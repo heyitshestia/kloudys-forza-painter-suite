@@ -20,8 +20,8 @@ TXCB_TAG = 0x54584342
 TXCH_TAG = 0x54584348
 UNSIGNED_BC4 = 3
 ATLAS_SIZE = (2048, 1024)
-RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v2"
-RENDER_CONTRACT_REVISION = 6
+RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v3"
+RENDER_CONTRACT_REVISION = 7
 MASK_PAGE_COUNT = 3
 MASK_CHANNELS = 4
 PAINT_ATLAS_WIDTH = 2048
@@ -462,7 +462,7 @@ def build_local_livery_atlases(
     mask_filenames: list[str] = []
     for page_index, page in enumerate(mask_pages):
         filename = f"section-masks-{page_index}.png"
-        _save_png(Image.fromarray(page, mode="RGBA"), output / filename)
+        _save_png(Image.fromarray(page), output / filename)
         mask_filenames.append(filename)
 
     records: list[dict[str, Any]] = []
@@ -487,7 +487,13 @@ def build_local_livery_atlases(
     index = {
         "format": RENDER_CONTRACT_FORMAT,
         "signature": signature,
-        "uv_contract": {"attribute": "TEXCOORD_3", "u_scale": 0.5, "flip_u": False, "flip_v": False},
+        "uv_contract": {
+            "attribute": "TEXCOORD_3",
+            "u_scale": 0.5,
+            "flip_u": False,
+            "flip_v": False,
+            "world_projection_fallback": False,
+        },
         "assembly": read_vehicle_assembly_metadata(asset),
         "paint_size": list(paint_atlas.size),
         "mask_size": list(ATLAS_SIZE),

@@ -59,6 +59,41 @@ html, body, #viewport {
   flex-direction: row;
 }
 
+.part-controls {
+  position: absolute;
+  top: 54px;
+  right: 16px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto minmax(120px, 190px);
+  align-items: center;
+  gap: 5px 8px;
+  max-height: min(48vh, 360px);
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid #2f3841;
+  border-radius: 4px;
+  background: rgba(7, 10, 13, .92);
+}
+
+.part-controls.hidden { display: none; }
+
+.part-controls label {
+  color: #aeb8c1;
+  font-size: 11px;
+}
+
+.part-controls select {
+  min-height: 28px;
+  min-width: 0;
+  padding: 3px 24px 3px 7px;
+  border: 1px solid #39434d;
+  border-radius: 3px;
+  color: #e8edf1;
+  background: #0e1216;
+  font: 600 11px/1 "Segoe UI", Arial, sans-serif;
+}
+
 button {
   min-height: 30px;
   padding: 5px 11px;
@@ -126,4 +161,5 @@ button[aria-pressed="true"], button.active {
   .section-strip { bottom: 12px; max-width: calc(100% - 16px); overflow-x: auto; }
   .hint { display: none; }
   button { min-height: 34px; }
+  .part-controls { top: 104px; max-width: calc(100% - 32px); }
 }

@@ -8,6 +8,7 @@ and the Fabric editor browser so JSON previews stay consistent.
 from __future__ import annotations
 
 import concurrent.futures
+import base64
 import io
 import json
 import math
@@ -61,6 +62,10 @@ VINYL_TYPE_BASES = {
 }
 
 VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {}
+VINYL_RESOURCE_ALPHA_CACHE: dict[
+    tuple[str, int],
+    list[tuple[list[tuple[float, float]], tuple[int, int, int]]],
+] = {}
 SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
 
 
@@ -291,6 +296,51 @@ def _resource_triangles(family: str, index: int) -> list[list[tuple[float, float
     return triangles
 
 
+def _resource_alpha_triangles(
+    family: str,
+    index: int,
+) -> list[tuple[list[tuple[float, float]], tuple[int, int, int]]] | None:
+    """Return native triangles with their per-vertex FH6 opacity values."""
+
+    key = (family, int(index))
+    if key in VINYL_RESOURCE_ALPHA_CACHE:
+        return VINYL_RESOURCE_ALPHA_CACHE[key]
+    path = VINYL_RESOURCE_ROOT / family / str(index)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        vertices = payload.get("Vertices") or []
+        indices = payload.get("Indices") or []
+        encoded_alpha = payload.get("VerticesAlpha")
+        alpha = base64.b64decode(encoded_alpha, validate=True) if encoded_alpha else b""
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if alpha and len(alpha) != len(vertices):
+        return None
+    if not alpha:
+        alpha = bytes([255]) * len(vertices)
+
+    triangles: list[tuple[list[tuple[float, float]], tuple[int, int, int]]] = []
+    for pos in range(0, len(indices) - 2, 3):
+        points: list[tuple[float, float]] = []
+        values: list[int] = []
+        for raw_index in indices[pos : pos + 3]:
+            try:
+                vertex_index = int(raw_index)
+                vertex = vertices[vertex_index]
+                points.append((float(vertex.get("X", 0.0)), float(vertex.get("Y", 0.0))))
+                values.append(alpha[vertex_index])
+            except (TypeError, ValueError, IndexError, AttributeError):
+                break
+        if len(points) == 3:
+            triangles.append((points, (values[0], values[1], values[2])))
+    if not triangles:
+        return None
+    VINYL_RESOURCE_ALPHA_CACHE[key] = triangles
+    return triangles
+
+
 def _fallback_triangles(word: int) -> list[list[tuple[float, float]]]:
     if (int(word) & 0xFFFF) == 0x65:
         return [[(-64.0, -64.0), (64.0, -64.0), (64.0, 64.0), (-64.0, 64.0)]]
@@ -514,6 +564,62 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparen
     return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background) if polygons else None
 
 
+def _rasterize_vertex_alpha_triangles(
+    triangles: list[tuple[list[tuple[float, float]], tuple[int, int, int]]],
+    bounds: tuple[int, int, int, int],
+    color: tuple[int, int, int, int],
+):
+    """Rasterize native per-vertex opacity without losing gradient shape behavior."""
+
+    import numpy as np
+    from PIL import Image
+
+    left, top, right, bottom = bounds
+    width = right - left
+    height = bottom - top
+    coverage = np.zeros((height, width), dtype=np.float32)
+    for points, vertex_alpha in triangles:
+        if len(points) != 3:
+            continue
+        local = [(float(x) - left, float(y) - top) for x, y in points]
+        x0, y0 = local[0]
+        x1, y1 = local[1]
+        x2, y2 = local[2]
+        denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(denominator) < 1e-10:
+            continue
+        min_x = max(0, int(math.floor(min(x0, x1, x2))))
+        max_x = min(width, int(math.ceil(max(x0, x1, x2))) + 1)
+        min_y = max(0, int(math.floor(min(y0, y1, y2))))
+        max_y = min(height, int(math.ceil(max(y0, y1, y2))) + 1)
+        if min_x >= max_x or min_y >= max_y:
+            continue
+        xs = np.arange(min_x, max_x, dtype=np.float32) + 0.5
+        ys = np.arange(min_y, max_y, dtype=np.float32)[:, None] + 0.5
+        weight0 = ((y1 - y2) * (xs - x2) + (x2 - x1) * (ys - y2)) / denominator
+        weight1 = ((y2 - y0) * (xs - x2) + (x0 - x2) * (ys - y2)) / denominator
+        weight2 = 1.0 - weight0 - weight1
+        inside = (weight0 >= -1e-5) & (weight1 >= -1e-5) & (weight2 >= -1e-5)
+        interpolated = (
+            weight0 * float(vertex_alpha[0])
+            + weight1 * float(vertex_alpha[1])
+            + weight2 * float(vertex_alpha[2])
+        ) / 255.0
+        region = coverage[min_y:max_y, min_x:max_x]
+        np.maximum(region, np.where(inside, interpolated, 0.0), out=region)
+
+    rgba = np.empty((height, width, 4), dtype=np.uint8)
+    rgba[..., 0] = color[0]
+    rgba[..., 1] = color[1]
+    rgba[..., 2] = color[2]
+    rgba[..., 3] = np.clip(
+        np.rint(coverage * float(color[3])),
+        0,
+        255,
+    ).astype(np.uint8)
+    return Image.fromarray(rgba)
+
+
 def render_typecode_layers_canvas(
     shapes: list[dict],
     width: int = 2048,
@@ -521,6 +627,7 @@ def render_typecode_layers_canvas(
     world_bounds: tuple[float, float, float, float] = (-1024.0, -512.0, 1024.0, 512.0),
     raster_resolver: Callable[[int], object | None] | None = None,
     cancel_event=None,
+    strict_assets: bool = False,
 ) -> bytes | None:
     """Render type-code layers without auto-cropping their Forza coordinate space."""
     from PIL import Image, ImageDraw
@@ -577,6 +684,8 @@ def render_typecode_layers_canvas(
             continue
         if shape.get("is_raster_logo"):
             if raster_resolver is None:
+                if strict_assets:
+                    raise ValueError(f"layer {shape_index + 1} needs a built-in raster decal resolver")
                 continue
             try:
                 raster_id = int(shape.get("raster_id") or 0)
@@ -589,6 +698,10 @@ def render_typecode_layers_canvas(
             except (TypeError, ValueError, OSError):
                 layer = None
             if layer is None:
+                if strict_assets:
+                    raise ValueError(
+                        f"layer {shape_index + 1} references unavailable raster decal {shape.get('raster_id')!r}"
+                    )
                 continue
             if is_mask:
                 alpha = layer.getchannel("A")
@@ -601,12 +714,48 @@ def render_typecode_layers_canvas(
             continue
         word = _shape_word_from_shape(shape, type_code)
         resource = _resolve_vinyl_resource(type_code, shape)
-        triangles = _resource_triangles(*resource) if resource else None
-        if not triangles:
-            triangles = _fallback_triangles(word)
-        polygons = [_transform_resource_polygon(poly, data) for poly in triangles]
+        alpha_triangles = _resource_alpha_triangles(*resource) if resource else None
+        if not alpha_triangles:
+            if strict_assets:
+                identity = f"{resource[0]}/{resource[1]}" if resource else f"shape word 0x{word:04X}"
+                raise ValueError(f"layer {shape_index + 1} has no exact native resource for {identity}")
+            triangles = _resource_triangles(*resource) if resource else None
+            if not triangles:
+                triangles = _fallback_triangles(word)
+            alpha_triangles = [(triangle, (255, 255, 255)) for triangle in triangles]
+        transformed_alpha = [
+            (_transform_resource_polygon(points, data), values)
+            for points, values in alpha_triangles
+        ]
+        polygons = [points for points, _ in transformed_alpha]
         polygons = [[to_canvas(point) for point in polygon] for polygon in polygons if len(polygon) >= 3]
         if not polygons:
+            if strict_assets:
+                raise ValueError(f"layer {shape_index + 1} produced no native geometry")
+            continue
+
+        canvas_alpha = [
+            (polygon, transformed_alpha[index][1])
+            for index, polygon in enumerate(polygons)
+        ]
+        has_vertex_alpha = any(any(value != 255 for value in values) for _, values in canvas_alpha)
+        if has_vertex_alpha:
+            bounds = layer_bounds(polygons)
+            if bounds is None:
+                if strict_assets:
+                    raise ValueError(f"layer {shape_index + 1} is outside the renderable canvas")
+                continue
+            gradient_layer = _rasterize_vertex_alpha_triangles(canvas_alpha, bounds, color)
+            gradient_alpha = gradient_layer.getchannel("A")
+            if gradient_alpha.getbbox() is None:
+                if strict_assets:
+                    raise ValueError(f"layer {shape_index + 1} has no visible native opacity")
+                continue
+            if is_mask:
+                artwork.paste((0, 0, 0, 0), bounds, gradient_alpha)
+            else:
+                artwork.alpha_composite(gradient_layer, dest=(bounds[0], bounds[1]))
+            rendered = True
             continue
 
         if is_mask:

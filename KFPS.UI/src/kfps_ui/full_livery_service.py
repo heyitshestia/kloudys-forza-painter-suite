@@ -50,7 +50,7 @@ from .models import DictListModel
 from .qt_utils import safe_file_part
 
 
-INSPECTION_MESH_CACHE_REVISION = 5
+INSPECTION_MESH_CACHE_REVISION = 6
 
 
 class FullLiveryService(QObject):
@@ -962,7 +962,7 @@ class FullLiveryService(QObject):
 
     def _cached_mesh_path(self, asset) -> Path:
         return self._mesh_cache / (
-            f"{asset.model_code}-{asset.archive_mtime_ns}.direct-uv3-v{INSPECTION_MESH_CACHE_REVISION}.glb"
+            f"{asset.model_code}-{asset.archive_mtime_ns}.local-chassis-v{INSPECTION_MESH_CACHE_REVISION}.glb"
         )
 
     def _prepare_local_mesh(self, manifest: dict[str, Any], package_path: str) -> None:

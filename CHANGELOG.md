@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.23
+- Rebuilt FH6 full-livery model preparation around each car's complete authored scene, preserving transformed chassis and window geometry while exposing complete locally available body-part variants.
+- Reworked livery mapping to use exact FH6 livery coordinates and independent section masks only, eliminating inaccurate guessed projection on curved, asymmetric, and window geometry.
+- Improved native-gradient and raster-decal rendering, invalidated stale livery caches, and hardened package and converter validation across the installed FH6 car catalog.
+
 ## 3.1.22
 - Fixed GPU memory growth in the full-livery 3D viewer by releasing WebGL textures, materials, geometry, animation work, and rendering contexts when previews close or change.
 - Stopped hidden livery previews from rendering and eliminated unnecessary per-frame canvas resizing, with particular benefit for affected AMD GPUs.

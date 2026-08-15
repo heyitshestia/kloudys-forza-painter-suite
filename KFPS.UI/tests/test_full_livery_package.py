@@ -488,6 +488,50 @@ class FullLiveryPackageTests(unittest.TestCase):
                 cancel_event=cancelled,
             )
 
+    def test_canvas_renderer_preserves_native_vertex_alpha_gradients(self):
+        data = render_typecode_layers_canvas(
+            [{
+                "type": 1050977,
+                "resource_family": "Community_Vinyls_4",
+                "resource_index": 1,
+                "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                "color": [255, 255, 255, 255],
+            }],
+            width=256,
+            height=256,
+            world_bounds=(-128.0, -128.0, 128.0, 128.0),
+            strict_assets=True,
+        )
+
+        self.assertIsNotNone(data)
+        rendered = Image.open(io.BytesIO(data)).convert("RGBA")
+        alpha_values = set(rendered.getchannel("A").getdata())
+        self.assertTrue(any(0 < value < 255 for value in alpha_values))
+
+    def test_canvas_renderer_strict_mode_rejects_missing_native_and_raster_assets(self):
+        with self.assertRaisesRegex(ValueError, "no exact native resource"):
+            render_typecode_layers_canvas(
+                [{
+                    "type": 1099999,
+                    "type_word": 0xF00D,
+                    "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                    "color": [255, 255, 255, 255],
+                }],
+                strict_assets=True,
+            )
+        with self.assertRaisesRegex(ValueError, "raster decal resolver"):
+            render_typecode_layers_canvas(
+                [{
+                    "type": 1000000 + 0xAAFA,
+                    "type_word": 0xAAFA,
+                    "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                    "color": [255, 255, 255, 255],
+                    "is_raster_logo": True,
+                    "raster_id": 11002,
+                }],
+                strict_assets=True,
+            )
+
     def test_saved_package_list_hides_zero_placement_liveries(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1428,7 +1472,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             )
             try:
                 self.assertEqual(
-                "TEST_CAR-1234.direct-uv3-v5.glb",
+                "TEST_CAR-1234.local-chassis-v6.glb",
                     service._cached_mesh_path(asset).name,
                 )
             finally:

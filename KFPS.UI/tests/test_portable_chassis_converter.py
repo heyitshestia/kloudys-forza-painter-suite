@@ -35,6 +35,7 @@ def _write_minimal_chassis(
     position_accessor: int = 0,
     node_mesh: int = 0,
     allowed_sides: int | float | None = None,
+    include_uv3: bool = True,
 ) -> None:
     positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
     normals = struct.pack("<9f", 0, 0, 1, 0, 0, 1, 0, 0, 1)
@@ -74,6 +75,9 @@ def _write_minimal_chassis(
     extras = {"kfps_role": role}
     if allowed_sides is not None:
         extras["kfps_allowed_sides"] = allowed_sides
+    attributes = {"POSITION": position_accessor, "NORMAL": 1}
+    if include_uv3:
+        attributes["TEXCOORD_3"] = 2
     document = {
         "asset": {"version": "2.0"},
         "scene": 0,
@@ -81,7 +85,7 @@ def _write_minimal_chassis(
         "nodes": [{"mesh": node_mesh, "extras": extras}],
         "meshes": [{
             "primitives": [{
-                "attributes": {"POSITION": position_accessor, "NORMAL": 1, "TEXCOORD_3": 2},
+                "attributes": attributes,
                 "indices": 3,
                 "mode": 4,
             }],
@@ -109,7 +113,15 @@ class PortableChassisConverterTests(unittest.TestCase):
             path = Path(temp) / "fixture.glb"
             _write_minimal_chassis(path)
             self.assertEqual(
-                {"mesh_count": 1, "paint_meshes": 1, "glass_meshes": 0, "triangle_count": 1},
+                {
+                    "mesh_count": 1,
+                    "paint_meshes": 1,
+                    "glass_meshes": 0,
+                    "triangle_count": 1,
+                    "direct_uv3_meshes": 1,
+                    "projected_livery_meshes": 0,
+                    "part_option_count": 0,
+                },
                 validate_local_chassis_glb(path),
             )
 
@@ -149,6 +161,13 @@ class PortableChassisConverterTests(unittest.TestCase):
             path = Path(temp) / "unknown-role.glb"
             _write_minimal_chassis(path, role="external")
             with self.assertRaisesRegex(PortableMeshConverterError, "material role"):
+                validate_local_chassis_glb(path)
+
+    def test_validator_rejects_livery_geometry_without_exact_uv3_coordinates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "projected-paint.glb"
+            _write_minimal_chassis(path, include_uv3=False)
+            with self.assertRaisesRegex(PortableMeshConverterError, "exact FH6 livery coordinates"):
                 validate_local_chassis_glb(path)
 
     def test_validator_accepts_role_appropriate_livery_sides_and_rejects_invalid_masks(self):
@@ -208,8 +227,24 @@ class PortableChassisConverterTests(unittest.TestCase):
             ROOT / "runtime" / "full-livery" / "cache" / "vehicle-index.json",
         )
         expected = {
-            3304: {"mesh_count": 683, "paint_meshes": 14, "glass_meshes": 8, "triangle_count": 698940},
-            2738: {"mesh_count": 746, "paint_meshes": 42, "glass_meshes": 13, "triangle_count": 432488},
+            3304: {
+                "mesh_count": 683,
+                "paint_meshes": 14,
+                "glass_meshes": 8,
+                "triangle_count": 698940,
+                "direct_uv3_meshes": 22,
+                "projected_livery_meshes": 0,
+                "part_option_count": 0,
+            },
+            2738: {
+                "mesh_count": 812,
+                "paint_meshes": 44,
+                "glass_meshes": 13,
+                "triangle_count": 463326,
+                "direct_uv3_meshes": 57,
+                "projected_livery_meshes": 0,
+                "part_option_count": 5,
+            },
         }
         with tempfile.TemporaryDirectory() as temp:
             for car_id, contract in expected.items():

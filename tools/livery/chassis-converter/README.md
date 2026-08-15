@@ -1,10 +1,11 @@
 # KFPS Local Chassis Converter
 
-This helper converts the stock inspection model entries from a user's own FH6
-car archive into a neutral GLB cache used by the KFPS full-livery viewer. It
-preserves triangle geometry, normals, and texture-coordinate channels 0 through
-3. It does not extract paints, textures, material finishes, or other game assets
-into shareable livery packages.
+This helper converts the complete locally authored FH6 car scene from a user's
+own car archive into a neutral GLB cache used by the KFPS full-livery viewer. It
+preserves scene transforms, triangle geometry, normals, texture-coordinate
+channels 0 through 3, and complete selectable part options. It does not extract
+paints, textures, material finishes, or other game assets into shareable livery
+packages.
 
 The published Windows x64 executable is self-contained. End users do not need
 .NET, Blender, Python, or a separate extraction-tool checkout to prepare a local
@@ -23,21 +24,29 @@ The KFPS build copies the single-file executable into
 ## Input Contract
 
 The executable accepts `--request <json-path>`. The request contains the local
-car ZIP path, selected stock modelbin entries, and a local GLB output path. KFPS
-creates this request in a temporary folder and terminates the converter when a
-newer selection supersedes it.
+car ZIP path, its scene entry, and a local GLB output path. KFPS creates this
+request in a temporary folder and terminates the converter when a newer
+selection supersedes it.
 
 The conversion contract keeps only the highest-detail model level, removes
 degenerate and duplicate faces, applies each mesh's FH6 UV scale and offset,
 normalizes coordinate handedness and triangle winding, and labels neutral paint,
-glass, trim, dark, and hidden geometry for KFPS's Three.js renderer. Livery
-meshes also carry an allowed-section bitset: ordinary body paint accepts the
-five body projections, spoilers accept only the spoiler projection, trunk panels
-accept back and top, and verified exterior windows accept only glass projections.
+glass, trim, dark, and hidden geometry for KFPS's Three.js renderer. It follows
+the scene's explicit stock flags and includes a non-stock option only when every
+model needed by that option resolves from the archive. Missing optional damage
+or body-kit variants are skipped; missing required core geometry fails the
+conversion.
+
+Livery meshes must preserve FH6's exact `TEXCOORD_3` coordinates. The validator
+rejects guessed world-space projection because it produces plausible but wrong
+artwork on curved and asymmetric panels. Each accepted livery mesh also carries
+an allowed-section bitset: ordinary body paint accepts the five body
+projections, spoilers accept only the spoiler projection, trunk panels accept
+back and top, and verified exterior windows accept only glass projections.
 Interior window shells and lamp glass are excluded from livery routing. The
 Python boundary validates every GLB buffer, accessor, index range, livery UV
-channel, material role, and allowed-section declaration before accepting the
-cache file.
+channel, material role, selectable-part reference, and allowed-section
+declaration before accepting the cache file.
 
 ## Provenance
 

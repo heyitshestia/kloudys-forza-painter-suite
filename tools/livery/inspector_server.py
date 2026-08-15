@@ -162,6 +162,7 @@ class LiveryInspectorServer:
             runtime_manifest["inspection_runtime"] = {
                 "local_mesh": self._local_mesh is not None,
                 "direct_uv3": self._local_mesh is not None and bool(self._local_render),
+                "world_projection_fallback": False,
                 "render_contract": self._local_render.get("metadata") or {},
             }
             self._send(request, json.dumps(runtime_manifest).encode("utf-8"), "application/json")

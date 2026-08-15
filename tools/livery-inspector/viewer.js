@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const SECTION_COUNT = 11;
-const RENDER_CONTRACT_FORMAT = 'kfps_fh6_section_render_contract_v2';
+const RENDER_CONTRACT_FORMAT = 'kfps_fh6_section_render_contract_v3';
 const ALL_BODY_SIDES = 0x1f;
 const ALL_GLASS_SIDES = 0x7c0;
 const canvas = document.querySelector('#canvas');
@@ -13,6 +13,7 @@ const title = document.querySelector('#title');
 const vehicle = document.querySelector('#vehicle');
 const resetButton = document.querySelector('#reset');
 const rotateButton = document.querySelector('#rotate');
+const partControls = document.querySelector('#parts');
 const sectionButtons = [...document.querySelectorAll('[data-section]')];
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
@@ -102,6 +103,8 @@ let homeTarget = controls.target.clone();
 let paintMaterials = [];
 let glassMaterials = [];
 let renderContract = null;
+let selectedPartOptions = new Map();
+let selectablePartGroups = new Map();
 
 function setStatus(message, error = false) {
   status.textContent = message;
@@ -156,6 +159,69 @@ function allowedSlotArray(mask) {
   return allowed;
 }
 
+function meshPartOptionIds(mesh) {
+  const values = mesh.userData?.kfps_part_option_ids;
+  return Array.isArray(values) ? values.map(Number).filter(Number.isInteger) : [];
+}
+
+function meshPartVisible(mesh) {
+  const optionIds = meshPartOptionIds(mesh);
+  if (!optionIds.length) return true;
+  const partType = String(mesh.userData?.kfps_part_type || '');
+  const selected = selectedPartOptions.get(partType);
+  if (Number.isInteger(selected)) return optionIds.includes(selected);
+  return mesh.userData?.kfps_stock_part === true;
+}
+
+function partTypeLabel(value) {
+  return String(value || 'Car part')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ');
+}
+
+function preparePartControls(options) {
+  selectedPartOptions = new Map();
+  selectablePartGroups = new Map();
+  partControls.replaceChildren();
+  for (const option of Array.isArray(options) ? options : []) {
+    const partType = String(option?.part_type || '');
+    const id = Number(option?.id);
+    if (!partType || !Number.isInteger(id)) continue;
+    if (!selectablePartGroups.has(partType)) selectablePartGroups.set(partType, []);
+    selectablePartGroups.get(partType).push({
+      id,
+      level: Number(option?.level) || 0,
+      stock: option?.stock === true,
+    });
+  }
+  for (const [partType, optionsForPart] of selectablePartGroups) {
+    optionsForPart.sort((a, b) => Number(b.stock) - Number(a.stock) || a.level - b.level || a.id - b.id);
+    const alternatives = optionsForPart.filter(option => !option.stock);
+    selectedPartOptions.set(partType, null);
+    if (!alternatives.length) continue;
+    const label = document.createElement('label');
+    const select = document.createElement('select');
+    const controlId = `part-${partType.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+    label.htmlFor = controlId;
+    label.textContent = partTypeLabel(partType);
+    select.id = controlId;
+    select.dataset.partType = partType;
+    const stockOption = document.createElement('option');
+    stockOption.value = '';
+    stockOption.textContent = 'Stock';
+    stockOption.selected = true;
+    select.append(stockOption);
+    for (const option of alternatives) {
+      const element = document.createElement('option');
+      element.value = String(option.id);
+      element.textContent = `Option ${option.level || option.id}`;
+      select.append(element);
+    }
+    partControls.append(label, select);
+  }
+  partControls.classList.toggle('hidden', partControls.childElementCount === 0);
+}
+
 async function loadTexture(url, color = false) {
   const texture = trackTexture(await new THREE.TextureLoader().loadAsync(url));
   texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -186,9 +252,16 @@ function sectionArrays(contract, kind) {
   return { sourceRegions, paintRegions, facings, present };
 }
 
-function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allowedSides, transparent = false) {
+function sectionAwareMaterial(
+  paintTexture,
+  maskTextures,
+  baseColor,
+  kind,
+  allowedSides,
+  transparent = false
+) {
   const arrays = sectionArrays(renderContract, kind);
-  return trackMaterial(new THREE.ShaderMaterial({
+  const material = trackMaterial(new THREE.ShaderMaterial({
     uniforms: {
       paintMap: { value: paintTexture },
       maskMap0: { value: maskTextures[0] },
@@ -247,21 +320,28 @@ function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allow
 
       void main() {
         vec3 normalValue = normalize(worldNormalValue);
-        vec4 page0 = texture2D(maskMap0, atlasUv);
-        vec4 page1 = texture2D(maskMap1, atlasUv);
-        vec4 page2 = texture2D(maskMap2, atlasUv);
         float bestCoverage = 0.0;
         int bestSlot = -1;
+        vec2 bestAtlasUv = atlasUv;
         for (int slot = 0; slot < ${SECTION_COUNT}; ++slot) {
           if (
             enabledSlots[slot] < 0.5
             || meshAllowedSlots[slot] < 0.5
             || dot(sideFacing[slot], normalValue) <= 0.0
           ) continue;
+          vec2 candidateUv = atlasUv;
+          if (
+            candidateUv.x < 0.0 || candidateUv.x > 1.0
+            || candidateUv.y < 0.0 || candidateUv.y > 1.0
+          ) continue;
+          vec4 page0 = texture2D(maskMap0, candidateUv);
+          vec4 page1 = texture2D(maskMap1, candidateUv);
+          vec4 page2 = texture2D(maskMap2, candidateUv);
           float candidate = slotCoverage(slot, page0, page1, page2);
           if (candidate > bestCoverage) {
             bestCoverage = candidate;
             bestSlot = slot;
+            bestAtlasUv = candidateUv;
           }
         }
 
@@ -270,7 +350,7 @@ function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allow
           vec4 source = sourceRegions[bestSlot];
           vec2 sourceSize = source.zw - source.xy;
           if (sourceSize.x > 0.000001 && sourceSize.y > 0.000001) {
-            vec2 sectionUv = clamp((atlasUv - source.xy) / sourceSize, 0.0, 1.0);
+            vec2 sectionUv = clamp((bestAtlasUv - source.xy) / sourceSize, 0.0, 1.0);
             vec4 paint = paintRegions[bestSlot];
             vec2 paintUv = mix(paint.xy, paint.zw, sectionUv);
             decal = texture2D(paintMap, paintUv);
@@ -292,6 +372,7 @@ function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allow
     depthWrite: !transparent,
     side: THREE.DoubleSide,
   }));
+  return material;
 }
 
 function frameModel(bounds) {
@@ -428,7 +509,6 @@ async function loadPackage() {
     renderContract = runtime.render_contract || {};
     if (
       !runtime.local_mesh
-      || !runtime.direct_uv3
       || renderContract.format !== RENDER_CONTRACT_FORMAT
     ) {
       throw new Error(
@@ -457,6 +537,14 @@ async function loadPackage() {
     if (viewerDisposed) return;
     const [paintTexture, mask0, mask1, mask2, gltf] = loadResults.map(result => result.value);
     model = gltf.scene;
+    preparePartControls(model.userData?.kfps_part_options);
+    model.traverse(child => {
+      if (!child.isMesh) return;
+      const category = meshCategory(child);
+      child.userData.kfps_base_visible = category !== 'hidden';
+      child.visible = child.userData.kfps_base_visible && meshPartVisible(child);
+    });
+    model.updateMatrixWorld(true);
     paintMaterials = [];
     glassMaterials = [];
     const materialCache = new Map();
@@ -483,11 +571,23 @@ async function loadPackage() {
       if (!child.isMesh) return;
       meshCount += 1;
       const category = meshCategory(child);
-      if (category === 'paint' && child.geometry.getAttribute('uv3')) {
-        child.material = liveryMaterial('body', meshAllowedSides(child, category));
+      if (category === 'paint') {
+        if (!child.geometry.getAttribute('uv3')) {
+          throw new Error('The local car mesh does not contain exact FH6 livery coordinates.');
+        }
+        child.material = liveryMaterial(
+          'body',
+          meshAllowedSides(child, category)
+        );
         paintCount += 1;
-      } else if (category === 'glass' && child.geometry.getAttribute('uv3')) {
-        child.material = liveryMaterial('glass', meshAllowedSides(child, category));
+      } else if (category === 'glass') {
+        if (!child.geometry.getAttribute('uv3')) {
+          throw new Error('The local car glass does not contain exact FH6 livery coordinates.');
+        }
+        child.material = liveryMaterial(
+          'glass',
+          meshAllowedSides(child, category)
+        );
         child.renderOrder = 2;
         glassCount += 1;
       } else if (category === 'hidden') {
@@ -499,6 +599,20 @@ async function loadPackage() {
           metalness: 0.15,
         }));
       }
+    });
+    const refreshPartSelection = () => {
+      model.traverse(child => {
+        if (!child.isMesh) return;
+        child.visible = child.userData.kfps_base_visible !== false && meshPartVisible(child);
+      });
+      model.updateMatrixWorld(true);
+    };
+    partControls.querySelectorAll('select').forEach(select => {
+      select.addEventListener('change', () => {
+        const selected = select.value === '' ? null : Number(select.value);
+        selectedPartOptions.set(select.dataset.partType, selected);
+        refreshPartSelection();
+      });
     });
     if (!meshCount || !paintCount) {
       throw new Error('The local car conversion did not preserve FH6 livery-bearing paint geometry.');
@@ -512,7 +626,7 @@ async function loadPackage() {
     setSectionFilter('all');
     setStatus('');
     console.info(
-      `KFPS section-aware UV3 inspector: ${paintCount} paint, ${glassCount} glass, `
+      `KFPS section-aware inspector: ${paintCount} paint, ${glassCount} glass, `
       + `${meshCount} local meshes, ${wheelCount} neutral inspection wheels, `
       + `${(renderContract.sections || []).length} livery sections.`
     );
