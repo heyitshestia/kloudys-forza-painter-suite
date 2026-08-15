@@ -36,6 +36,153 @@ def candidate(**overrides):
 
 
 class Fh6GroupProbeTests(unittest.TestCase):
+    def test_allocator_window_selection_clips_regions_without_crossing_bounds(self):
+        regions = [
+            (0x260000000, 0x18000000, 0x04, fh6_probe.MEM_PRIVATE),
+            (0x278000000, 0x10000000, 0x04, fh6_probe.MEM_PRIVATE),
+            (0x290000000, 0x01000000, 0x04, fh6_probe.MEM_PRIVATE),
+        ]
+
+        selected = fh6_probe.regions_in_allocator_windows(
+            regions,
+            [(0x270000000, 0x280000000)],
+        )
+
+        self.assertEqual(
+            [
+                (0x270000000, 0x08000000, 0x04, fh6_probe.MEM_PRIVATE),
+                (0x278000000, 0x08000000, 0x04, fh6_probe.MEM_PRIVATE),
+            ],
+            selected,
+        )
+
+    def test_allocator_cache_persists_windows_but_never_a_group_pointer(self):
+        rtti = {"profile_id": "profile-test"}
+        with tempfile.TemporaryDirectory() as temp, patch.object(
+            fh6_probe,
+            "FH6_LOCATOR_CACHE_PATH",
+            Path(temp) / "locator-cache.json",
+        ):
+            fh6_probe.save_fh6_allocator_cache(
+                rtti,
+                [(0x270000000, 0x280000000)],
+            )
+            cached = fh6_probe.load_fh6_allocator_cache(rtti)
+            self.assertEqual([(0x270000000, 0x280000000)], cached["windows"])
+            raw = json.loads(fh6_probe.FH6_LOCATOR_CACHE_PATH.read_text(encoding="utf-8"))
+            profile_cache = raw["profiles"]["profile-test"]
+            self.assertNotIn("group_address", profile_cache)
+            self.assertNotIn("process", profile_cache)
+
+    def test_calibrated_profile_uses_allocator_locator_exclusively(self):
+        profile = get_profile("fh6")
+        rtti = {"source": "calibrated_profile", "profile_id": "profile-test"}
+        expected = [{"group_address": 0x272773BA0}]
+        with patch.object(
+            fh6_probe,
+            "locate_clivery_group_rtti",
+            return_value=rtti,
+        ), patch.object(
+            fh6_probe,
+            "locate_clivery_group_by_allocator",
+            return_value=expected,
+        ) as allocator_locator, patch.object(
+            fh6_probe,
+            "locate_clivery_groups_by_calibrated_count",
+        ) as count_locator, patch.object(
+            fh6_probe,
+            "locate_clivery_groups_by_calibrated_graph",
+        ) as graph_locator:
+            actual = fh6_probe.locate_clivery_groups_by_rtti(123, profile, 82)
+
+        self.assertIs(expected, actual)
+        allocator_locator.assert_called_once_with(123, profile, 82, rtti)
+        count_locator.assert_not_called()
+        graph_locator.assert_not_called()
+
+    def test_complete_exact_rtti_no_match_skips_all_count_fallbacks(self):
+        profile = get_profile("fh6")
+        process = SimpleNamespace(name=lambda: "forzahorizon6.exe")
+
+        def exact_no_match(_pid, _profile, _layer_count):
+            fh6_probe.record_locator_diagnostic(
+                "calibrated_exact_authoritative",
+                complete=True,
+                active_group_found=False,
+            )
+            return []
+
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "session.json"
+            with patch.object(fh6_probe.psutil, "Process", return_value=process), patch.object(
+                fh6_probe,
+                "locate_clivery_groups_by_rtti",
+                side_effect=exact_no_match,
+            ), patch.object(
+                fh6_probe,
+                "locate_clivery_groups_by_layout_count",
+            ) as layout_locator, patch.object(
+                fh6_probe,
+                "find_count_candidates",
+            ) as count_locator:
+                result = fh6_probe.auto_locate_count_table(
+                    123,
+                    profile,
+                    82,
+                    limit_mb=1,
+                    max_matches=1,
+                    progress_every=1,
+                    radius=0x100,
+                    output_path=output,
+                    max_seconds=1,
+                )
+
+            persisted = json.loads(output.read_text(encoding="utf-8"))
+            self.assertIsNone(result)
+            self.assertTrue(persisted["no_match"])
+            self.assertTrue(persisted["authoritative_no_match"])
+            layout_locator.assert_not_called()
+            count_locator.assert_not_called()
+
+    def test_incomplete_allocator_retry_fails_closed(self):
+        failed_region = (0x270000000, 0x1000, 0x04, fh6_probe.MEM_PRIVATE)
+        initial = [{"group_address": 0x272773BA0}]
+        stats = {
+            "complete": False,
+            "stopped_by": "read_failure",
+            "failed_regions": [failed_region],
+        }
+        retry_stats = {
+            "complete": False,
+            "stopped_by": "read_failure",
+            "failed_regions": [failed_region],
+            "failed_mb": 1,
+            "vtable_hits": 0,
+        }
+        with patch.object(
+            fh6_probe,
+            "scan_exact_calibrated_vtables",
+            return_value=([], [], retry_stats),
+        ) as retry:
+            with self.assertRaisesRegex(
+                fh6_probe.LocatorRefused,
+                "could not read every eligible",
+            ):
+                fh6_probe.finish_incomplete_exact_scan(
+                    123,
+                    get_profile("fh6"),
+                    82,
+                    {"vtables": [0x140001000]},
+                    [failed_region],
+                    initial,
+                    [],
+                    stats,
+                    diagnostic_name="allocator_retry_test",
+                    locator_kind="rtti_allocator_exact_retry",
+                )
+
+        retry.assert_called_once()
+
     def test_rejects_the_observed_duplicate_vector_invalid_false_candidate(self):
         observed_false_match = candidate(
             vector_ok=False,

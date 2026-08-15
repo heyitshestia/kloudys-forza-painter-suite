@@ -145,6 +145,7 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
     use_research_scanner = False
     if not use_research_scanner:
         log(f"Fast-locating loaded {game.upper()} group with {template_count} layers...")
+        session = None
         fast_cmd = [
             sys.executable,
             ROOT / "fh6_probe.py",
@@ -197,6 +198,13 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                     log(f"{game.upper()} group fast-located and validated for {template_count} layer(s){detail}.")
         if group and table:
             return group, table, session_report
+        if isinstance(session, dict) and session.get("authoritative_no_match"):
+            reason = str(
+                session.get("failure_reason")
+                or "A complete exact-RTTI scan did not find the requested live FH6 group."
+            )
+            log(reason)
+            raise RuntimeError(reason)
         log("Fast locate did not produce a usable group/table. Falling back to research scanner.")
     else:
         log("Universal import/export uses the research scanner so grouped vinyl child tables can be found safely.")

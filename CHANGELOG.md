@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.20
+- Replaced broad FH6 layer-count searches with exact RTTI type matching inside the verified livery allocator, reducing normal grouped-vinyl location to a small, deterministic memory scan.
+- Added allocator-window discovery and persistent profile caching without reusing stale group pointers; every export still rediscovers and validates the complete currently open hierarchy and ownership state.
+- Made complete exact-RTTI no-match results terminal so KFPS no longer launches noisy multi-gigabyte fallback scans after authoritative coverage, with expanded diagnostics and regression tests.
+
 ## 3.1.19
 - Restored near-instant FH6 RTTI exports by searching the normal editor allocation range before broader balanced memory coverage.
 - Moved the verified FH6 RTTI graph fallback ahead of the noisy count scan while retaining the established FH4 and FH5 locator order.

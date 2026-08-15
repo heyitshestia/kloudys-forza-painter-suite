@@ -343,6 +343,33 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
             self.assertEqual(1, len(calls))
             self.assertFalse((run_dir / "fallback-export-template-probe.json").exists())
 
+    def test_authoritative_exact_no_match_never_runs_fallback_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            calls = []
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                command = [str(item) for item in command]
+                calls.append(command)
+                session = Path(command[command.index("--write-session") + 1])
+                session.write_text(
+                    '{"type":"fh6_session_location_v1","layer_count":82,'
+                    '"no_match":true,"authoritative_no_match":true,'
+                    '"failure_reason":"Exact RTTI coverage found no open 82-layer group."}',
+                    encoding="utf-8",
+                )
+                return 0
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "Exact RTTI coverage"):
+                    transfer_bridge.locate_universal_template(
+                        "fh6", 123, 82, run_dir, "export-template"
+                    )
+
+            self.assertEqual(1, len(calls))
+            self.assertFalse((run_dir / "fallback-export-template-probe.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

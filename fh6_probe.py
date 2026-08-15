@@ -45,6 +45,10 @@ FH6_COUNT_SCAN_CHUNK_SIZE = 8 * 1024 * 1024
 FH6_SMALL_REGIONS_PER_LARGE_CHUNK = 16
 FH6_GROUP_ARENA_MIN_SIZE = 8 * 1024 * 1024
 FH6_GROUP_ARENA_MAX_SIZE = 16 * 1024 * 1024
+FH6_DEFAULT_ALLOCATOR_WINDOWS = ((0x270000000, 0x280000000),)
+FH6_DISCOVERED_ALLOCATOR_WINDOW_SIZE = 0x10000000
+FH6_LOCATOR_CACHE_FORMAT = "kfps_fh6_allocator_cache_v2"
+FH6_LOCATOR_CACHE_PATH = ROOT / "runtime" / "fh6-rtti" / "live-locator-cache.json"
 LAST_LOCATOR_DIAGNOSTICS = {}
 
 
@@ -56,6 +60,104 @@ class LocatorRefused(RuntimeError):
 
 def record_locator_diagnostic(name, **values):
     LAST_LOCATOR_DIAGNOSTICS[str(name)] = values
+
+
+def runtime_diagnostic_identity():
+    def read_text(name):
+        try:
+            return (ROOT / name).read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    return {
+        "kfps_version": read_text("VERSION"),
+        "build_commit": read_text("BUILD_COMMIT"),
+    }
+
+
+def normalize_allocator_windows(values):
+    windows = []
+    for value in values or []:
+        try:
+            start, end = (int(item) for item in value)
+        except (TypeError, ValueError):
+            continue
+        if start < 0x10000 or end <= start or end > 0x800000000000:
+            continue
+        if end - start > 0x100000000:
+            continue
+        windows.append((start, end))
+    windows.sort()
+    merged = []
+    for start, end in windows:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged[:8]
+
+
+def allocator_window_for_address(address):
+    size = FH6_DISCOVERED_ALLOCATOR_WINDOW_SIZE
+    start = int(address) & ~(size - 1)
+    return start, start + size
+
+
+def load_fh6_allocator_cache(rtti):
+    empty = {"windows": []}
+    profile_id = str(rtti.get("profile_id") or "").strip()
+    if not profile_id:
+        return empty
+    try:
+        raw = json.loads(FH6_LOCATOR_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return empty
+    if not isinstance(raw, dict) or raw.get("format") != FH6_LOCATOR_CACHE_FORMAT:
+        return empty
+    profiles = raw.get("profiles")
+    profile_cache = profiles.get(profile_id) if isinstance(profiles, dict) else None
+    if not isinstance(profile_cache, dict):
+        return empty
+    return {
+        "windows": normalize_allocator_windows(profile_cache.get("allocator_windows")),
+    }
+
+
+def save_fh6_allocator_cache(rtti, allocator_windows):
+    profile_id = str(rtti.get("profile_id") or "").strip()
+    if not profile_id:
+        return
+    try:
+        raw = json.loads(FH6_LOCATOR_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        raw = {}
+    if not isinstance(raw, dict) or raw.get("format") != FH6_LOCATOR_CACHE_FORMAT:
+        raw = {"format": FH6_LOCATOR_CACHE_FORMAT, "profiles": {}}
+    profiles = raw.setdefault("profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {}
+        raw["profiles"] = profiles
+    windows = normalize_allocator_windows(allocator_windows)
+    profiles[profile_id] = {
+        "allocator_windows": [[start, end] for start, end in windows],
+        "updated": time.time(),
+    }
+    if len(profiles) > 16:
+        ordered = sorted(
+            profiles.items(),
+            key=lambda item: float(item[1].get("updated") or 0.0) if isinstance(item[1], dict) else 0.0,
+            reverse=True,
+        )
+        raw["profiles"] = dict(ordered[:16])
+    try:
+        FH6_LOCATOR_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = FH6_LOCATOR_CACHE_PATH.with_name(
+            f".{FH6_LOCATOR_CACHE_PATH.name}.{time.time_ns()}.tmp"
+        )
+        temporary.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(FH6_LOCATOR_CACHE_PATH)
+    except OSError:
+        pass
 
 
 class MEMORY_BASIC_INFORMATION(ctypes.Structure):
@@ -1778,6 +1880,416 @@ def flatten_calibrated_group(
     }
 
 
+def regions_in_allocator_windows(regions, windows):
+    selected = []
+    for base, size, protect, region_type in regions:
+        region_end = int(base) + int(size)
+        for window_start, window_end in windows:
+            start = max(int(base), int(window_start))
+            end = min(region_end, int(window_end))
+            if end > start:
+                selected.append((start, end - start, protect, region_type))
+    return selected
+
+
+def evaluate_exact_calibrated_root(
+    pid,
+    profile,
+    layer_count,
+    rtti,
+    group_address,
+    writable_contains,
+    *,
+    locator_kind,
+):
+    vtables = set(rtti.get("vtables") or [])
+    group_info = read_calibrated_group_vector(
+        pid,
+        profile,
+        int(group_address),
+        vtables,
+        max_vector_count=max(3000, layer_count),
+        writable_contains=writable_contains,
+    )
+    if not group_info or int(group_info.get("parent_group") or 0) != 0:
+        return None, None
+    if int(group_info.get("current_u16") or -1) != int(layer_count):
+        return None, None
+    access = assess_calibrated_group_access(
+        pid,
+        profile,
+        group_info,
+        vtables,
+        writable_contains=writable_contains,
+    )
+    if access is not None and not access.allowed:
+        return None, access
+    flat = flatten_calibrated_group(
+        pid,
+        profile,
+        group_info,
+        vtables,
+        layer_count,
+        writable_contains=writable_contains,
+    )
+    if int(flat["shape_count"]) != int(layer_count) or int(flat["invalid_count"]):
+        return None, None
+    is_recursive = int(flat["group_count"]) > 1
+    return {
+        "score": 500 + min(layer_count, 3000) + int(flat["group_count"]) * 10,
+        "group_address": group_info["group_address"],
+        "count_address": group_info["count_address"],
+        "table_pointer_field": group_info["table_pointer_field"],
+        "table_address": group_info["table_address"],
+        "count_kind": locator_kind,
+        "current_u16": group_info.get("current_u16"),
+        "current_u32": group_info.get("current_u32"),
+        "samples": flat["samples"],
+        "validated_entries": flat["shape_count"],
+        "vector_count": group_info["vector_count"],
+        "capacity_count": group_info["capacity_count"],
+        "top_vector_count": group_info["vector_count"],
+        "flattened_from_groups": is_recursive,
+        "flattened_group_count": flat["group_count"],
+        "flattened_max_depth": flat["max_depth"],
+        "group_graph": {
+            "has_parent": False,
+            "has_children": is_recursive,
+            "is_flat_orphan": not is_recursive,
+            "parent_count": 0,
+            "child_count": max(0, int(flat["group_count"]) - 1),
+        },
+        "vtable": group_info["vtable"],
+        "rtti_source": rtti.get("source") or "pattern_scan",
+        "rtti_update_code": rtti.get("update_code"),
+        "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+        "export_access_verified": access is None or access.allowed,
+    }, None
+
+
+def scan_exact_calibrated_vtables(
+    pid,
+    profile,
+    layer_count,
+    rtti,
+    all_regions,
+    scan_regions,
+    *,
+    diagnostic_name,
+    locator_kind,
+    stop_on_candidate=False,
+    progress_mb=512,
+):
+    vtables = set(rtti.get("vtables") or [])
+    if not vtables:
+        return [], [], {"complete": True, "failed_regions": []}
+    patterns = [(vtable, struct.pack("<Q", vtable)) for vtable in vtables]
+    writable_contains = build_region_contains(all_regions)
+    total_bytes = sum(int(region[1]) for region in scan_regions)
+    scanned = 0
+    failed_bytes = 0
+    raw_hits = 0
+    seen_groups = set()
+    candidates = {}
+    refusals = []
+    failed_regions = []
+    started = time.monotonic()
+    next_progress = max(1, int(progress_mb)) * 1024 * 1024
+
+    for base, size, protect, region_type in scan_regions:
+        overlap = 7
+        offset = 0
+        first_chunk = True
+        while offset < int(size):
+            requested = min(FH6_REGION_SCAN_CHUNK_SIZE, int(size) - offset)
+            chunk_base = int(base) + offset
+            memory = read_region(
+                pid,
+                chunk_base,
+                requested,
+                max_size=FH6_REGION_SCAN_CHUNK_SIZE,
+            )
+            unique_size = requested if first_chunk else max(0, requested - overlap)
+            first_chunk = False
+            if not memory:
+                failed_bytes += unique_size
+                failed_regions.append((chunk_base, requested, protect, region_type))
+            else:
+                scanned += unique_size
+                for _vtable, pattern in patterns:
+                    start = 0
+                    while True:
+                        position = memory.find(pattern, start)
+                        if position == -1:
+                            break
+                        start = position + 8
+                        group_address = chunk_base + position
+                        if group_address % 8 or group_address in seen_groups:
+                            continue
+                        seen_groups.add(group_address)
+                        raw_hits += 1
+                        candidate, refusal = evaluate_exact_calibrated_root(
+                            pid,
+                            profile,
+                            layer_count,
+                            rtti,
+                            group_address,
+                            writable_contains,
+                            locator_kind=locator_kind,
+                        )
+                        if candidate:
+                            candidates[int(candidate["group_address"])] = candidate
+                            if stop_on_candidate:
+                                stats = {
+                                    "scanned_mb": scanned // (1024 * 1024),
+                                    "total_mb": total_bytes // (1024 * 1024),
+                                    "failed_mb": failed_bytes // (1024 * 1024),
+                                    "vtable_hits": raw_hits,
+                                    "candidate_count": len(candidates),
+                                    "complete": False,
+                                    "stopped_by": "match",
+                                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                                    "failed_regions": failed_regions,
+                                }
+                                record_locator_diagnostic(
+                                    diagnostic_name,
+                                    **{key: value for key, value in stats.items() if key != "failed_regions"},
+                                )
+                                return list(candidates.values()), refusals, stats
+                        elif refusal is not None:
+                            refusals.append(refusal)
+            if scanned + failed_bytes >= next_progress:
+                print(
+                    f"Exact RTTI recovery checked {(scanned + failed_bytes) // (1024 * 1024)}/"
+                    f"{max(1, total_bytes // (1024 * 1024))} MB, type hits={raw_hits}.",
+                    flush=True,
+                )
+                next_progress += max(1, int(progress_mb)) * 1024 * 1024
+            if offset + requested >= int(size) or requested <= overlap:
+                break
+            offset += requested - overlap
+
+    complete = failed_bytes == 0 and scanned >= total_bytes
+    stats = {
+        "scanned_mb": scanned // (1024 * 1024),
+        "total_mb": total_bytes // (1024 * 1024),
+        "failed_mb": failed_bytes // (1024 * 1024),
+        "vtable_hits": raw_hits,
+        "candidate_count": len(candidates),
+        "complete": complete,
+        "stopped_by": "complete" if complete else "read_failure",
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "failed_regions": failed_regions,
+    }
+    record_locator_diagnostic(
+        diagnostic_name,
+        **{key: value for key, value in stats.items() if key != "failed_regions"},
+    )
+    return list(candidates.values()), refusals, stats
+
+
+def finish_incomplete_exact_scan(
+    pid,
+    profile,
+    layer_count,
+    rtti,
+    all_regions,
+    candidates,
+    refusals,
+    stats,
+    *,
+    diagnostic_name,
+    locator_kind,
+):
+    if stats.get("complete"):
+        return candidates, refusals
+    failed_regions = stats.get("failed_regions") or []
+    if not failed_regions:
+        raise LocatorRefused(
+            "KFPS could not prove complete coverage of the FH6 livery allocator.",
+            {"scan_status": stats.get("stopped_by") or "incomplete"},
+        )
+    print("Retrying FH6 livery allocator pages that changed during the scan.", flush=True)
+    retry_candidates, retry_refusals, retry_stats = scan_exact_calibrated_vtables(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        failed_regions,
+        diagnostic_name=diagnostic_name,
+        locator_kind=locator_kind,
+    )
+    candidates.extend(retry_candidates)
+    refusals.extend(retry_refusals)
+    if not retry_stats.get("complete"):
+        raise LocatorRefused(
+            "KFPS could not read every eligible FH6 livery allocator page.",
+            {
+                "failed_mb": retry_stats.get("failed_mb"),
+                "vtable_hits": retry_stats.get("vtable_hits"),
+            },
+        )
+    return candidates, refusals
+
+
+def select_exact_calibrated_candidate(candidates):
+    unique = {int(item["group_address"]): item for item in candidates}
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    if len(unique) > 1:
+        raise LocatorRefused(
+            "KFPS found multiple exact live FH6 groups with the requested layer count.",
+            {"matched_group_count": len(unique)},
+        )
+    return None
+
+
+def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
+    all_regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
+    cache = load_fh6_allocator_cache(rtti)
+    learned_windows = normalize_allocator_windows(cache.get("windows"))
+    record_locator_diagnostic(
+        "calibrated_allocator_cache",
+        learned_window_count=len(learned_windows),
+    )
+
+    allocator_windows = normalize_allocator_windows(
+        [*FH6_DEFAULT_ALLOCATOR_WINDOWS, *learned_windows]
+    )
+    allocator_regions = regions_in_allocator_windows(all_regions, allocator_windows)
+    print(
+        f"Searching the FH6 livery allocator ({sum(region[1] for region in allocator_regions) // (1024 * 1024)} MB committed).",
+        flush=True,
+    )
+    candidates, refusals, allocator_stats = scan_exact_calibrated_vtables(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        allocator_regions,
+        diagnostic_name="calibrated_allocator",
+        locator_kind="rtti_allocator_exact",
+    )
+    candidates, refusals = finish_incomplete_exact_scan(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        candidates,
+        refusals,
+        allocator_stats,
+        diagnostic_name="calibrated_allocator_retry",
+        locator_kind="rtti_allocator_exact_retry",
+    )
+    winner = select_exact_calibrated_candidate(candidates)
+    if winner:
+        save_fh6_allocator_cache(
+            rtti,
+            [*allocator_windows, allocator_window_for_address(winner["group_address"])],
+        )
+        print("FH6 group resolved from the dedicated livery allocator.", flush=True)
+        return [winner]
+
+    print(
+        "The active group was not in a known allocator window. Running one complete exact-RTTI recovery scan.",
+        flush=True,
+    )
+    recovery_candidates, recovery_refusals, recovery_stats = scan_exact_calibrated_vtables(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        all_regions,
+        diagnostic_name="calibrated_exact_recovery",
+        locator_kind="rtti_exact_recovery",
+        stop_on_candidate=True,
+    )
+    refusals.extend(recovery_refusals)
+    if recovery_candidates:
+        discovered_window = allocator_window_for_address(recovery_candidates[0]["group_address"])
+        discovered_regions = regions_in_allocator_windows(all_regions, [discovered_window])
+        verified_candidates, verified_refusals, verified_stats = scan_exact_calibrated_vtables(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            all_regions,
+            discovered_regions,
+            diagnostic_name="calibrated_discovered_allocator",
+            locator_kind="rtti_discovered_allocator_exact",
+        )
+        verified_candidates, verified_refusals = finish_incomplete_exact_scan(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            all_regions,
+            verified_candidates,
+            verified_refusals,
+            verified_stats,
+            diagnostic_name="calibrated_discovered_allocator_retry",
+            locator_kind="rtti_discovered_allocator_exact_retry",
+        )
+        refusals.extend(verified_refusals)
+        winner = select_exact_calibrated_candidate(verified_candidates)
+        if winner:
+            save_fh6_allocator_cache(
+                rtti,
+                [*allocator_windows, discovered_window],
+            )
+            print("FH6 group resolved and its allocator window was cached for this build.", flush=True)
+            return [winner]
+
+    if not recovery_stats.get("complete"):
+        retry_regions = recovery_stats.get("failed_regions") or []
+        if retry_regions:
+            print("Retrying memory pages that changed during the exact RTTI scan.", flush=True)
+            retry_candidates, retry_refusals, retry_stats = scan_exact_calibrated_vtables(
+                pid,
+                profile,
+                layer_count,
+                rtti,
+                all_regions,
+                retry_regions,
+                diagnostic_name="calibrated_exact_retry",
+                locator_kind="rtti_exact_retry",
+            )
+            refusals.extend(retry_refusals)
+            winner = select_exact_calibrated_candidate(retry_candidates)
+            if winner:
+                discovered_window = allocator_window_for_address(winner["group_address"])
+                save_fh6_allocator_cache(
+                    rtti,
+                    [*allocator_windows, discovered_window],
+                )
+                return [winner]
+            if not retry_stats.get("complete"):
+                raise LocatorRefused(
+                    "KFPS could not read every eligible FH6 memory page during exact RTTI recovery.",
+                    {
+                        "failed_mb": retry_stats.get("failed_mb"),
+                        "vtable_hits": retry_stats.get("vtable_hits"),
+                    },
+                )
+
+    if refusals:
+        refusal = refusals[0]
+        raise LocatorRefused(
+            refusal.reason,
+            {"matched_group_count": len(refusals), "access_status": refusal.status},
+        )
+    record_locator_diagnostic(
+        "calibrated_exact_authoritative",
+        complete=True,
+        active_group_found=False,
+    )
+    return []
+
+
 def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti, max_seconds=12):
     """Directly scan for verified group vtables, then validate one exact root tree."""
     vtables = set(rtti.get("vtables") or [])
@@ -1962,21 +2474,7 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
         return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     if rtti.get("source") == "calibrated_profile":
-        groups = locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti)
-        if groups:
-            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
-        groups = locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti)
-        if groups:
-            return groups
-        groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
-        if groups:
-            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
-        print(
-            "Calibrated locator count scan did not find a validated group; "
-            "skipping broad type scan to avoid long stale-memory searches.",
-            flush=True,
-        )
-        return []
+        return locate_clivery_group_by_allocator(pid, profile, layer_count, rtti)
 
     groups = []
     vtable_patterns = [(vtable, struct.pack("<Q", vtable)) for vtable in rtti["vtables"]]
@@ -2116,9 +2614,13 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
     try:
         if profile.key == "fh6":
             fast_groups = locate_clivery_groups_by_rtti(pid, profile, layer_count)
-            if not fast_groups:
+            exact_authoritative = bool(
+                (LAST_LOCATOR_DIAGNOSTICS.get("calibrated_exact_authoritative") or {}).get("complete")
+            )
+            if not fast_groups and not exact_authoritative:
                 fast_groups = locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=max_seconds)
         else:
+            exact_authoritative = False
             fast_groups = locate_clivery_groups_by_rtti(pid, profile, layer_count)
             if not fast_groups:
                 fast_groups = locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=max_seconds)
@@ -2130,9 +2632,11 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "game": profile.key,
             "layer_count": layer_count,
             "created": time.time(),
+            **runtime_diagnostic_identity(),
             "refused": True,
             "refusal_reason": str(exc),
             "locator_details": exc.details,
+            "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
         }
         print(str(exc), flush=True)
         if output_path:
@@ -2159,6 +2663,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "game": profile.key,
             "layer_count": layer_count,
             "created": time.time(),
+            **runtime_diagnostic_identity(),
             "group_address": winner["group_address"],
             "count_address": winner["count_address"],
             "table_pointer_field": winner["table_pointer_field"],
@@ -2195,6 +2700,35 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
                 json.dump(payload, handle, indent=2)
             print(f"Wrote {game_name} session location to {output_path}")
         return payload
+
+    if profile.key == "fh6" and exact_authoritative:
+        failure_reason = (
+            "A complete exact-RTTI scan did not find the requested live FH6 group. "
+            "Confirm the vinyl is open in the editor and its displayed layer count is correct."
+        )
+        print(failure_reason, flush=True)
+        print("No noisy layer-count fallback will be used after complete RTTI coverage.", flush=True)
+        payload = {
+            "type": "fh6_session_location_v1",
+            "pid": pid,
+            "process": psutil.Process(pid).name(),
+            "game": profile.key,
+            "layer_count": layer_count,
+            "created": time.time(),
+            **runtime_diagnostic_identity(),
+            "no_match": True,
+            "authoritative_no_match": True,
+            "refused": False,
+            "failure_reason": failure_reason,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
+        }
+        if output_path:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            print(f"Wrote {game_name} session location to {output_path}")
+        return None
 
     if profile.key == "fh6":
         print(f"No safe {game_name} layer group found by the fast layout locator. Trying slower count/table fallback before giving up.")
@@ -2306,6 +2840,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "game": profile.key,
             "layer_count": layer_count,
             "created": time.time(),
+            **runtime_diagnostic_identity(),
             "no_match": True,
             "refused": False,
             "failure_reason": failure_reason,
@@ -2329,6 +2864,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
         "game": profile.key,
         "layer_count": layer_count,
         "created": time.time(),
+        **runtime_diagnostic_identity(),
         "group_address": winner.get("group_address"),
         "count_address": winner["count_address"],
         "table_pointer_field": winner["table_pointer_field"],
