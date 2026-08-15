@@ -41,12 +41,19 @@ FH6_GROUP_GRAPH_ACCEPT_CAP = 5
 FH6_GROUP_GRAPH_SCAN_CAP = 4096
 FH6_LOCATOR_CANDIDATE_CAP = 5
 FH6_REGION_SCAN_CHUNK_SIZE = 64 * 1024 * 1024
+FH6_COUNT_SCAN_CHUNK_SIZE = 8 * 1024 * 1024
+FH6_SMALL_REGIONS_PER_LARGE_CHUNK = 16
+LAST_LOCATOR_DIAGNOSTICS = {}
 
 
 class LocatorRefused(RuntimeError):
     def __init__(self, message, details=None):
         super().__init__(message)
         self.details = details or {}
+
+
+def record_locator_diagnostic(name, **values):
+    LAST_LOCATOR_DIAGNOSTICS[str(name)] = values
 
 
 class MEMORY_BASIC_INFORMATION(ctypes.Structure):
@@ -870,6 +877,76 @@ def iter_region_chunks(pid, base, size, *, chunk_size=FH6_REGION_SCAN_CHUNK_SIZE
         offset += requested - overlap
 
 
+def iter_balanced_region_chunks(
+    pid,
+    regions,
+    *,
+    chunk_size=FH6_REGION_SCAN_CHUNK_SIZE,
+    overlap=0,
+    small_regions_per_large=FH6_SMALL_REGIONS_PER_LARGE_CHUNK,
+):
+    """Interleave large heap stripes with complete small allocations.
+
+    Scanning regions smallest-first can leave every large allocation untouched
+    when a deadline expires. Scanning a large allocation to completion first has
+    the opposite failure mode. This schedule advances through large allocations
+    one chunk at a time while continuing to cover address-ordered small regions.
+    """
+    chunk_size = max(4096, int(chunk_size))
+    overlap = max(0, min(int(overlap), chunk_size - 1))
+    small_regions_per_large = max(1, int(small_regions_per_large))
+    normalized = [tuple(region) for region in regions if int(region[1]) > 0]
+    small_regions = sorted(
+        (region for region in normalized if int(region[1]) <= chunk_size),
+        key=lambda region: int(region[0]),
+    )
+    large_regions = sorted(
+        (region for region in normalized if int(region[1]) > chunk_size),
+        key=lambda region: (-int(region[1]), int(region[0])),
+    )
+
+    def large_chunks():
+        step = chunk_size - overlap
+        offset = 0
+        while True:
+            emitted = False
+            for region in large_regions:
+                base, size = int(region[0]), int(region[1])
+                if offset >= size:
+                    continue
+                requested = min(chunk_size, size - offset)
+                memory = read_region(pid, base + offset, requested, max_size=chunk_size)
+                emitted = True
+                if memory:
+                    unique_size = len(memory) if offset == 0 else max(0, len(memory) - overlap)
+                    yield region, base + offset, memory, unique_size
+            if not emitted:
+                break
+            offset += step
+
+    large_iter = iter(large_chunks())
+    small_iter = iter(small_regions)
+    large_done = False
+    small_done = False
+    while not (large_done and small_done):
+        if not large_done:
+            try:
+                yield next(large_iter)
+            except StopIteration:
+                large_done = True
+        if not small_done:
+            for _ in range(small_regions_per_large):
+                try:
+                    region = next(small_iter)
+                except StopIteration:
+                    small_done = True
+                    break
+                base, size = int(region[0]), int(region[1])
+                memory = read_region(pid, base, size, max_size=chunk_size)
+                if memory:
+                    yield region, base, memory, len(memory)
+
+
 def scan_typed_regions(pid, pattern, region_type, writable_only=False, alignment=1, stop_after=None):
     if not pattern:
         return []
@@ -915,7 +992,14 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
     if getattr(profile, "key", "") != "fh6":
         return None
     module_base = get_base_address(pid)
+    module_size = read_pe_image_size(pid, module_base)
     profiles = calibrated_profiles if calibrated_profiles is not None else load_shared_rtti_profiles()
+    record_locator_diagnostic(
+        "rtti_profile",
+        module_size=module_size,
+        profile_count=len(profiles),
+        matched=False,
+    )
     for candidate in profiles:
         try:
             descriptor_offset = int(candidate["descriptor_offset"])
@@ -931,6 +1015,15 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
         if not found_code or found_code != update_code.rstrip(b"\x00 "):
             continue
         source = str(candidate.get("_registry_source") or "profile")
+        record_locator_diagnostic(
+            "rtti_profile",
+            module_size=module_size,
+            profile_count=len(profiles),
+            matched=True,
+            registry_source=source,
+            profile_id=candidate.get("profile_id"),
+            game_build=candidate.get("game_build"),
+        )
         print(f"Using verified FH6 group locator profile ({source}).", flush=True)
         return {
             "descriptor_address": descriptor_address,
@@ -1137,139 +1230,159 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
         return []
     started = time.monotonic()
     pattern = struct.pack("<H", layer_count)
-    regions = sorted(
-        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
-        key=lambda region: (region[1], region[0]),
-    )
+    regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
     writable_contains = build_region_contains(regions)
+    total_bytes = sum(int(region[1]) for region in regions)
     scanned = 0
     hits = 0
     next_progress = 512 * 1024 * 1024
     stopped_by_time = False
-    for base, size, _protect, _type in regions:
+    for region, chunk_base, memory, unique_size in iter_balanced_region_chunks(
+        pid,
+        regions,
+        chunk_size=FH6_COUNT_SCAN_CHUNK_SIZE,
+        overlap=len(pattern) - 1,
+    ):
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped calibrated locator count scan after {max_seconds} seconds.", flush=True)
             stopped_by_time = True
             break
-        first_chunk = True
-        for chunk_base, memory in iter_region_chunks(pid, base, size, overlap=len(pattern) - 1):
-            scanned += len(memory) if first_chunk else max(0, len(memory) - (len(pattern) - 1))
-            first_chunk = False
-            if scanned >= next_progress:
-                print(
-                    f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
-                    f"count hits={hits}.",
-                    flush=True,
+        scanned += unique_size
+        if scanned >= next_progress:
+            print(
+                f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
+                f"count hits={hits}.",
+                flush=True,
+            )
+            next_progress += 512 * 1024 * 1024
+        region_base = int(region[0])
+        start = 0
+        while True:
+            pos = memory.find(pattern, start)
+            if pos == -1:
+                break
+            start = pos + 1
+            hits += 1
+            if hits % 4096 == 0 and max_seconds and time.monotonic() - started > max_seconds:
+                print(f"Stopped calibrated locator count scan after {max_seconds} seconds.", flush=True)
+                stopped_by_time = True
+                break
+            if hits > max_count_hits:
+                print(f"Stopped calibrated locator count scan after {max_count_hits} count hits.", flush=True)
+                record_locator_diagnostic(
+                    "calibrated_count",
+                    scanned_mb=scanned // (1024 * 1024),
+                    total_mb=total_bytes // (1024 * 1024),
+                    count_hits=hits,
+                    stopped_by="hit_limit",
                 )
-                next_progress += 512 * 1024 * 1024
-            start = 0
-            while True:
-                pos = memory.find(pattern, start)
-                if pos == -1:
-                    break
-                start = pos + 1
-                hits += 1
-                if hits % 4096 == 0 and max_seconds and time.monotonic() - started > max_seconds:
-                    print(f"Stopped calibrated locator count scan after {max_seconds} seconds.", flush=True)
-                    stopped_by_time = True
-                    break
-                if hits > max_count_hits:
-                    print(f"Stopped calibrated locator count scan after {max_count_hits} count hits.", flush=True)
-                    return []
-                count_address = chunk_base + pos
-                group_address = count_address - profile.livery_count_offset
-                if group_address < base:
-                    continue
-                vtable = read_u64(pid, group_address)
-                if vtable not in vtables:
-                    continue
-                group_info = read_calibrated_group_vector(
+                return []
+            count_address = chunk_base + pos
+            group_address = count_address - profile.livery_count_offset
+            if group_address < region_base:
+                continue
+            vtable = read_u64(pid, group_address)
+            if vtable not in vtables:
+                continue
+            group_info = read_calibrated_group_vector(
+                pid,
+                profile,
+                group_address,
+                vtables,
+                max_vector_count=3000,
+                writable_contains=writable_contains,
+            )
+            if not group_info or group_info.get("parent_group"):
+                continue
+            access = assess_calibrated_group_access(
+                pid,
+                profile,
+                group_info,
+                vtables,
+                writable_contains=writable_contains,
+            )
+            if access is not None and not access.allowed:
+                raise LocatorRefused(
+                    access.reason,
+                    {"matched_group_count": 1, "access_status": access.status},
+                )
+            candidate = None
+            if int(group_info.get("vector_count") or -1) == int(layer_count):
+                candidate = build_clivery_group_candidate(
                     pid,
                     profile,
+                    layer_count,
+                    rtti,
                     group_address,
-                    vtables,
-                    max_vector_count=3000,
-                    writable_contains=writable_contains,
+                    vtable,
+                    "u16_rtti_calibrated_count",
                 )
-                if not group_info or group_info.get("parent_group"):
-                    continue
-                access = assess_calibrated_group_access(
+            else:
+                flat = flatten_calibrated_group(
                     pid,
                     profile,
                     group_info,
                     vtables,
+                    layer_count,
                     writable_contains=writable_contains,
                 )
-                if access is not None and not access.allowed:
-                    raise LocatorRefused(
-                        access.reason,
-                        {"matched_group_count": 1, "access_status": access.status},
-                    )
-                candidate = None
-                if int(group_info.get("vector_count") or -1) == int(layer_count):
-                    candidate = build_clivery_group_candidate(
-                        pid,
-                        profile,
-                        layer_count,
-                        rtti,
-                        group_address,
-                        vtable,
-                        "u16_rtti_calibrated_count",
-                    )
-                else:
-                    flat = flatten_calibrated_group(
-                        pid,
-                        profile,
-                        group_info,
-                        vtables,
-                        layer_count,
-                        writable_contains=writable_contains,
-                    )
-                    if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
-                        candidate = {
-                            "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
-                            "group_address": group_info["group_address"],
-                            "count_address": group_info["count_address"],
-                            "table_pointer_field": group_info["table_pointer_field"],
-                            "table_address": group_info["table_address"],
-                            "count_kind": "u16_rtti_calibrated_recursive",
-                            "current_u16": group_info.get("current_u16"),
-                            "current_u32": group_info.get("current_u32"),
-                            "samples": flat["samples"],
-                            "validated_entries": flat["shape_count"],
-                            "vector_count": group_info["vector_count"],
-                            "capacity_count": group_info["capacity_count"],
-                            "top_vector_count": group_info["vector_count"],
-                            "flattened_from_groups": True,
-                            "flattened_group_count": flat["group_count"],
-                            "flattened_max_depth": flat["max_depth"],
-                            "group_graph": {
-                                "has_parent": False,
-                                "has_children": True,
-                                "is_flat_orphan": False,
-                                "parent_count": 0,
-                                "child_count": max(1, flat["group_count"] - 1),
-                            },
-                            "vtable": group_info["vtable"],
-                            "rtti_source": rtti.get("source") or "pattern_scan",
-                            "rtti_update_code": rtti.get("update_code"),
-                            "rtti_descriptor_offset": rtti.get("descriptor_offset"),
-                        }
-                if candidate:
-                    candidate["export_access_verified"] = access is None or access.allowed
-                    print(
-                        f"Calibrated group candidate validated {candidate['validated_entries']}/{layer_count} layer(s).",
-                        flush=True,
-                    )
-                    return [candidate]
-            if stopped_by_time:
-                break
+                if flat["shape_count"] == layer_count and flat["invalid_count"] == 0:
+                    candidate = {
+                        "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
+                        "group_address": group_info["group_address"],
+                        "count_address": group_info["count_address"],
+                        "table_pointer_field": group_info["table_pointer_field"],
+                        "table_address": group_info["table_address"],
+                        "count_kind": "u16_rtti_calibrated_recursive",
+                        "current_u16": group_info.get("current_u16"),
+                        "current_u32": group_info.get("current_u32"),
+                        "samples": flat["samples"],
+                        "validated_entries": flat["shape_count"],
+                        "vector_count": group_info["vector_count"],
+                        "capacity_count": group_info["capacity_count"],
+                        "top_vector_count": group_info["vector_count"],
+                        "flattened_from_groups": True,
+                        "flattened_group_count": flat["group_count"],
+                        "flattened_max_depth": flat["max_depth"],
+                        "group_graph": {
+                            "has_parent": False,
+                            "has_children": True,
+                            "is_flat_orphan": False,
+                            "parent_count": 0,
+                            "child_count": max(1, flat["group_count"] - 1),
+                        },
+                        "vtable": group_info["vtable"],
+                        "rtti_source": rtti.get("source") or "pattern_scan",
+                        "rtti_update_code": rtti.get("update_code"),
+                        "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                    }
+            if candidate:
+                candidate["export_access_verified"] = access is None or access.allowed
+                record_locator_diagnostic(
+                    "calibrated_count",
+                    scanned_mb=scanned // (1024 * 1024),
+                    total_mb=total_bytes // (1024 * 1024),
+                    count_hits=hits,
+                    stopped_by="match",
+                )
+                print(
+                    f"Calibrated group candidate validated {candidate['validated_entries']}/{layer_count} layer(s).",
+                    flush=True,
+                )
+                return [candidate]
         if stopped_by_time:
             break
     print(
         f"Calibrated locator count scan checked {scanned // (1024 * 1024)} MB, "
         f"count hits={hits}, candidates=0.",
         flush=True,
+    )
+    record_locator_diagnostic(
+        "calibrated_count",
+        scanned_mb=scanned // (1024 * 1024),
+        total_mb=total_bytes // (1024 * 1024),
+        count_hits=hits,
+        stopped_by="time_limit" if stopped_by_time else "complete",
     )
     return []
 
@@ -1647,124 +1760,125 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
         return []
     started = time.monotonic()
     patterns = [(vtable, struct.pack("<Q", vtable)) for vtable in vtables]
-    regions = sorted(
-        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
-        key=lambda region: (region[1], region[0]),
-    )
+    regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
     writable_contains = build_region_contains(regions)
+    total_bytes = sum(int(region[1]) for region in regions)
     scanned = 0
     hits = 0
     best_miss = None
     seen_groups = set()
     stopped_by_time = False
-    for region_index, (base, size, _protect, _type) in enumerate(regions, start=1):
+    scheduled_chunks = iter_balanced_region_chunks(pid, regions, overlap=7)
+    for chunk_index, (_region, chunk_base, memory, unique_size) in enumerate(scheduled_chunks, start=1):
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
             stopped_by_time = True
             break
-        first_chunk = True
-        for chunk_base, memory in iter_region_chunks(pid, base, size, overlap=7):
-            scanned += len(memory) if first_chunk else max(0, len(memory) - 7)
-            first_chunk = False
-            for vtable, pattern in patterns:
-                start = 0
-                while True:
-                    pos = memory.find(pattern, start)
-                    if pos == -1:
-                        break
-                    start = pos + 8
-                    hits += 1
-                    group_address = chunk_base + pos
-                    if group_address % 8 or group_address in seen_groups:
-                        continue
-                    seen_groups.add(group_address)
-                    group_info = read_calibrated_group_vector(
-                        pid,
-                        profile,
-                        group_address,
-                        vtables,
-                        max_vector_count=max(3000, layer_count),
-                        writable_contains=writable_contains,
-                    )
-                    if not group_info or int(group_info.get("parent_group") or 0) != 0:
-                        continue
-                    # The count field stores the flattened shape total. A grouped
-                    # root can legitimately have a one-entry child vector.
-                    if int(group_info.get("current_u16") or -1) != int(layer_count):
-                        continue
-                    access = assess_calibrated_group_access(
-                        pid,
-                        profile,
-                        group_info,
-                        vtables,
-                        writable_contains=writable_contains,
-                    )
-                    if access is not None and not access.allowed:
-                        raise LocatorRefused(
-                            access.reason,
-                            {"matched_group_count": 1, "access_status": access.status},
-                        )
-                    flat = flatten_calibrated_group(
-                        pid,
-                        profile,
-                        group_info,
-                        vtables,
-                        layer_count,
-                        writable_contains=writable_contains,
-                    )
-                    miss = abs(int(flat["shape_count"]) - int(layer_count)) + int(flat["invalid_count"]) * 10
-                    if best_miss is None or miss < best_miss[0]:
-                        best_miss = (miss, group_info, flat)
-                    if flat["shape_count"] != layer_count or flat["invalid_count"]:
-                        continue
-                    is_recursive = int(flat["group_count"]) > 1
-                    print(
-                        f"Direct group candidate validated: top={group_info['vector_count']} flat={flat['shape_count']} "
-                        f"groups={flat['group_count']} depth={flat['max_depth']}",
-                        flush=True,
-                    )
-                    return [{
-                        "score": 420 + min(layer_count, 3000) + flat["group_count"] * 10,
-                        "group_address": group_info["group_address"],
-                        "count_address": group_info["count_address"],
-                        "table_pointer_field": group_info["table_pointer_field"],
-                        "table_address": group_info["table_address"],
-                        "count_kind": "rtti_direct_recursive" if is_recursive else "rtti_direct_flat",
-                        "current_u16": group_info.get("current_u16"),
-                        "current_u32": group_info.get("current_u32"),
-                        "samples": flat["samples"],
-                        "validated_entries": flat["shape_count"],
-                        "vector_count": group_info["vector_count"],
-                        "capacity_count": group_info["capacity_count"],
-                        "top_vector_count": group_info["vector_count"],
-                        "flattened_from_groups": is_recursive,
-                        "flattened_group_count": flat["group_count"],
-                        "flattened_max_depth": flat["max_depth"],
-                        "group_graph": {
-                            "has_parent": False,
-                            "has_children": is_recursive,
-                            "is_flat_orphan": not is_recursive,
-                            "parent_count": 0,
-                            "child_count": max(0, flat["group_count"] - 1),
-                        },
-                        "vtable": group_info["vtable"],
-                        "rtti_source": rtti.get("source") or "pattern_scan",
-                        "rtti_update_code": rtti.get("update_code"),
-                        "rtti_descriptor_offset": rtti.get("descriptor_offset"),
-                        "export_access_verified": access is None or access.allowed,
-                        "locator_scan_mb": scanned // (1024 * 1024),
-                        "locator_vtable_hits": hits,
-                        "locator_scan_complete": not stopped_by_time,
-                    }]
-                if max_seconds and time.monotonic() - started > max_seconds:
-                    print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
-                    stopped_by_time = True
+        scanned += unique_size
+        for vtable, pattern in patterns:
+            start = 0
+            while True:
+                pos = memory.find(pattern, start)
+                if pos == -1:
                     break
-            if stopped_by_time:
+                start = pos + 8
+                hits += 1
+                group_address = chunk_base + pos
+                if group_address % 8 or group_address in seen_groups:
+                    continue
+                seen_groups.add(group_address)
+                group_info = read_calibrated_group_vector(
+                    pid,
+                    profile,
+                    group_address,
+                    vtables,
+                    max_vector_count=max(3000, layer_count),
+                    writable_contains=writable_contains,
+                )
+                if not group_info or int(group_info.get("parent_group") or 0) != 0:
+                    continue
+                # The count field stores the flattened shape total. A grouped
+                # root can legitimately have a one-entry child vector.
+                if int(group_info.get("current_u16") or -1) != int(layer_count):
+                    continue
+                access = assess_calibrated_group_access(
+                    pid,
+                    profile,
+                    group_info,
+                    vtables,
+                    writable_contains=writable_contains,
+                )
+                if access is not None and not access.allowed:
+                    raise LocatorRefused(
+                        access.reason,
+                        {"matched_group_count": 1, "access_status": access.status},
+                    )
+                flat = flatten_calibrated_group(
+                    pid,
+                    profile,
+                    group_info,
+                    vtables,
+                    layer_count,
+                    writable_contains=writable_contains,
+                )
+                miss = abs(int(flat["shape_count"]) - int(layer_count)) + int(flat["invalid_count"]) * 10
+                if best_miss is None or miss < best_miss[0]:
+                    best_miss = (miss, group_info, flat)
+                if flat["shape_count"] != layer_count or flat["invalid_count"]:
+                    continue
+                is_recursive = int(flat["group_count"]) > 1
+                print(
+                    f"Direct group candidate validated: top={group_info['vector_count']} flat={flat['shape_count']} "
+                    f"groups={flat['group_count']} depth={flat['max_depth']}",
+                    flush=True,
+                )
+                record_locator_diagnostic(
+                    "calibrated_flattened",
+                    scanned_mb=scanned // (1024 * 1024),
+                    total_mb=total_bytes // (1024 * 1024),
+                    vtable_hits=hits,
+                    stopped_by="match",
+                )
+                return [{
+                    "score": 420 + min(layer_count, 3000) + flat["group_count"] * 10,
+                    "group_address": group_info["group_address"],
+                    "count_address": group_info["count_address"],
+                    "table_pointer_field": group_info["table_pointer_field"],
+                    "table_address": group_info["table_address"],
+                    "count_kind": "rtti_direct_recursive" if is_recursive else "rtti_direct_flat",
+                    "current_u16": group_info.get("current_u16"),
+                    "current_u32": group_info.get("current_u32"),
+                    "samples": flat["samples"],
+                    "validated_entries": flat["shape_count"],
+                    "vector_count": group_info["vector_count"],
+                    "capacity_count": group_info["capacity_count"],
+                    "top_vector_count": group_info["vector_count"],
+                    "flattened_from_groups": is_recursive,
+                    "flattened_group_count": flat["group_count"],
+                    "flattened_max_depth": flat["max_depth"],
+                    "group_graph": {
+                        "has_parent": False,
+                        "has_children": is_recursive,
+                        "is_flat_orphan": not is_recursive,
+                        "parent_count": 0,
+                        "child_count": max(0, flat["group_count"] - 1),
+                    },
+                    "vtable": group_info["vtable"],
+                    "rtti_source": rtti.get("source") or "pattern_scan",
+                    "rtti_update_code": rtti.get("update_code"),
+                    "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                    "export_access_verified": access is None or access.allowed,
+                    "locator_scan_mb": scanned // (1024 * 1024),
+                    "locator_vtable_hits": hits,
+                    "locator_scan_complete": not stopped_by_time,
+                }]
+            if max_seconds and time.monotonic() - started > max_seconds:
+                print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
+                stopped_by_time = True
                 break
         if stopped_by_time:
             break
-        if region_index % 500 == 0:
+        if chunk_index % 500 == 0:
             print(
                 f"Calibrated grouped scan checked {scanned // (1024 * 1024)} MB, "
                 f"type hits={hits}.",
@@ -1781,6 +1895,13 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
         f"Direct group scan checked {scanned // (1024 * 1024)} MB, "
         f"type hits={hits}, candidates=0.",
         flush=True,
+    )
+    record_locator_diagnostic(
+        "calibrated_flattened",
+        scanned_mb=scanned // (1024 * 1024),
+        total_mb=total_bytes // (1024 * 1024),
+        vtable_hits=hits,
+        stopped_by="time_limit" if stopped_by_time else "complete",
     )
     return []
 
@@ -1865,10 +1986,11 @@ def locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds
     candidates = 0
     scanned = 0
     stopped = False
-    regions = sorted(
-        iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True),
-        key=lambda region: (region[1], region[0]),
-    )
+    # Keep the independent layout fallback in virtual-address order. The RTTI
+    # passes use a balanced large/small schedule, so this pass intentionally
+    # provides a different coverage order instead of repeating the same blind
+    # spot under another validator.
+    regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
     for base, size, _protect, _type in regions:
         if max_seconds and time.monotonic() - started > max_seconds:
             print(f"Stopped {game_name} layout-count scan after {max_seconds} seconds.", flush=True)
@@ -1956,6 +2078,7 @@ def serialize_samples(samples):
 
 def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, progress_every, radius, output_path=None, max_seconds=None):
     game_name = str(getattr(profile, "key", "FH6")).upper()
+    LAST_LOCATOR_DIAGNOSTICS.clear()
     print(f"Process: {psutil.Process(pid).name()} detected.")
     print(f"Auto-locating {game_name} layer count/table for count {layer_count}...")
     started = time.monotonic()
@@ -2155,6 +2278,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "rejected_candidate_count": rejected,
             "best_rejected_layer_coverage": best_rejected_strict,
             "elapsed_seconds": round(time.monotonic() - started, 3),
+            "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
         }
         if output_path:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)

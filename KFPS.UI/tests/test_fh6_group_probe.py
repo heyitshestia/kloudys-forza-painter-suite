@@ -85,6 +85,60 @@ class Fh6GroupProbeTests(unittest.TestCase):
         self.assertEqual(chunks[0][1][-7:], chunks[1][1][:7])
         self.assertEqual(chunks[1][1][-7:], chunks[2][1][:7])
 
+    def test_research_scan_interleaves_large_chunks_and_small_regions(self):
+        regions = [
+            {"base": 0x10000, "size": 4},
+            {"base": 0x20000, "size": 4},
+            {"base": 0x30000, "size": 9000},
+            {"base": 0x40000, "size": 8000},
+        ]
+
+        with patch.object(
+            group_probe,
+            "read_memory",
+            side_effect=lambda _handle, _address, size: b"x" * size,
+        ):
+            chunks = list(
+                group_probe.iter_balanced_region_chunks(
+                    object(),
+                    regions,
+                    chunk_size=4096,
+                    small_regions_per_large=1,
+                )
+            )
+
+        self.assertEqual(
+            [0x30000, 0x10000, 0x40000, 0x20000, 0x31000, 0x41000, 0x32000],
+            [address for _region, address, _raw, _unique in chunks],
+        )
+
+    def test_fast_scan_interleaves_large_chunks_and_small_regions(self):
+        regions = [
+            (0x10000, 4, 0, 0),
+            (0x20000, 4, 0, 0),
+            (0x30000, 9000, 0, 0),
+            (0x40000, 8000, 0, 0),
+        ]
+
+        with patch.object(
+            fh6_probe,
+            "read_region",
+            side_effect=lambda _pid, _address, size, max_size=None: b"x" * size,
+        ):
+            chunks = list(
+                fh6_probe.iter_balanced_region_chunks(
+                    123,
+                    regions,
+                    chunk_size=4096,
+                    small_regions_per_large=1,
+                )
+            )
+
+        self.assertEqual(
+            [0x30000, 0x10000, 0x40000, 0x20000, 0x31000, 0x41000, 0x32000],
+            [address for _region, address, _raw, _unique in chunks],
+        )
+
     def test_malformed_count_candidate_does_not_skip_vector_scan(self):
         false_match = candidate(vector_ok=False, duplicate_ptr_count=87, layer_ok_count=98)
 
@@ -144,6 +198,7 @@ class Fh6GroupProbeTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertTrue(persisted["no_match"])
             self.assertFalse(persisted["refused"])
+            self.assertIn("locator_diagnostics", persisted)
 
 
 if __name__ == "__main__":

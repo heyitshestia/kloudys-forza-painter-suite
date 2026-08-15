@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.18
+- Fixed FH6 live exports timing out after scanning small memory allocations while leaving the largest active heap regions untouched.
+- Balanced large and small memory-region coverage across the fast and fallback locators without weakening strict layer validation or ownership protection.
+- Added the current FH6 3.420.696.0 RTTI profile to the packaged offline registry and expanded failed-session diagnostics with profile and scan-coverage details.
+
 ## 3.1.17
 - Fixed intermittent FH6 live exports failing to locate the currently open vinyl even when the current RTTI profile was available.
 - Improved live-group scan coverage and prioritization so valid editor data is found before stale memory lookalikes on different PC memory layouts.
