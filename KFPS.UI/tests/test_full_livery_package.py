@@ -1824,6 +1824,27 @@ class FullLiveryPackageTests(unittest.TestCase):
         self.assertNotIn("projection/vehicle-map.json", source)
         self.assertNotIn("sourceSilhouetteBounds", source)
 
+    def test_inspector_releases_webgl_resources_between_livery_sessions(self):
+        source = (ROOT / "tools" / "livery-inspector" / "viewer.js").read_text(encoding="utf-8")
+        page = (UI / "qml" / "pages" / "LiveryPage.qml").read_text(encoding="utf-8")
+        for contract in (
+            "cancelAnimationFrame(animationFrameId)",
+            "controls.dispose()",
+            "geometry.dispose()",
+            "material.dispose()",
+            "texture.dispose()",
+            "renderer.renderLists.dispose()",
+            "renderer.dispose()",
+            "renderer.forceContextLoss()",
+            "window.addEventListener('pagehide', disposeViewer)",
+            "document.addEventListener('visibilitychange', handleVisibilityChange)",
+            "window.__kfpsViewerDiagnostics = viewerDiagnostics",
+            "Promise.allSettled",
+        ):
+            self.assertIn(contract, source)
+        self.assertIn('fullLiveryService.viewerUrl.length > 0', page)
+        self.assertIn(': "about:blank"', page)
+
 
 if __name__ == "__main__":
     unittest.main()

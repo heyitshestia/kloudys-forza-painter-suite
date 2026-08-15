@@ -302,7 +302,9 @@ Item {
                     anchors.fill: parent
                     anchors.margins: Math.max(1, Theme.px(1))
                     visible: fullLiveryService.viewerUrl.length > 0
-                    url: fullLiveryService.viewerUrl
+                    url: fullLiveryService.viewerUrl.length > 0
+                         ? fullLiveryService.viewerUrl
+                         : "about:blank"
                     backgroundColor: "#090b0e"
                     settings.localContentCanAccessRemoteUrls: false
                     settings.localContentCanAccessFileUrls: false

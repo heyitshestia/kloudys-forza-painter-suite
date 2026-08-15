@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.22
+- Fixed GPU memory growth in the full-livery 3D viewer by releasing WebGL textures, materials, geometry, animation work, and rendering contexts when previews close or change.
+- Stopped hidden livery previews from rendering and eliminated unnecessary per-frame canvas resizing, with particular benefit for affected AMD GPUs.
+
 ## 3.1.21
 - Fixed the close button. Hope you're happy Lance.
 

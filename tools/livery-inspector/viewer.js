@@ -29,6 +29,58 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.075;
 controls.autoRotateSpeed = 0.65;
 
+const trackedGeometries = new Set();
+const trackedMaterials = new Set();
+const trackedTextures = new Set();
+const trackedSkeletons = new Set();
+let animationFrameId = 0;
+let viewerDisposed = false;
+let rendererContextReleased = false;
+let renderWidth = 0;
+let renderHeight = 0;
+let renderPixelRatio = 0;
+
+function trackTexture(texture) {
+  if (!texture?.isTexture) return texture;
+  if (viewerDisposed) {
+    texture.dispose();
+    if (typeof texture.image?.close === 'function') texture.image.close();
+  } else {
+    trackedTextures.add(texture);
+  }
+  return texture;
+}
+
+function trackMaterial(material) {
+  for (const item of Array.isArray(material) ? material : [material]) {
+    if (!item?.isMaterial) continue;
+    for (const value of Object.values(item)) trackTexture(value);
+    for (const uniform of Object.values(item.uniforms || {})) {
+      const value = uniform?.value;
+      if (Array.isArray(value)) value.forEach(trackTexture);
+      else trackTexture(value);
+    }
+    if (viewerDisposed) item.dispose();
+    else trackedMaterials.add(item);
+  }
+  return material;
+}
+
+function trackObjectResources(root) {
+  root?.traverse(child => {
+    if (child.geometry?.isBufferGeometry) {
+      if (viewerDisposed) child.geometry.dispose();
+      else trackedGeometries.add(child.geometry);
+    }
+    trackMaterial(child.material);
+    if (child.skeleton?.dispose) {
+      if (viewerDisposed) child.skeleton.dispose();
+      else trackedSkeletons.add(child.skeleton);
+    }
+  });
+  return root;
+}
+
 scene.add(new THREE.HemisphereLight(0xe9f7ff, 0x14191e, 2.35));
 const keyLight = new THREE.DirectionalLight(0xffffff, 3.1);
 keyLight.position.set(4.5, 8, 6);
@@ -37,10 +89,10 @@ const rimLight = new THREE.DirectionalLight(0x7cdfee, 2.0);
 rimLight.position.set(-6, 3, -5);
 scene.add(rimLight);
 
-const floor = new THREE.Mesh(
+const floor = trackObjectResources(new THREE.Mesh(
   new THREE.CircleGeometry(7, 96),
   new THREE.MeshStandardMaterial({ color: 0x11161a, roughness: 0.86, metalness: 0.05 })
-);
+));
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
@@ -105,7 +157,7 @@ function allowedSlotArray(mask) {
 }
 
 async function loadTexture(url, color = false) {
-  const texture = await new THREE.TextureLoader().loadAsync(url);
+  const texture = trackTexture(await new THREE.TextureLoader().loadAsync(url));
   texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   texture.flipY = false;
   texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -136,7 +188,7 @@ function sectionArrays(contract, kind) {
 
 function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allowedSides, transparent = false) {
   const arrays = sectionArrays(renderContract, kind);
-  return new THREE.ShaderMaterial({
+  return trackMaterial(new THREE.ShaderMaterial({
     uniforms: {
       paintMap: { value: paintTexture },
       maskMap0: { value: maskTextures[0] },
@@ -239,7 +291,7 @@ function sectionAwareMaterial(paintTexture, maskTextures, baseColor, kind, allow
     transparent,
     depthWrite: !transparent,
     side: THREE.DoubleSide,
-  });
+  }));
 }
 
 function frameModel(bounds) {
@@ -309,6 +361,8 @@ function addInspectionWheels(assembly) {
     tireWidth * 1.07,
     24
   );
+  [tireMaterial, rimMaterial, hubMaterial].forEach(trackMaterial);
+  [tireGeometry, rimGeometry, hubGeometry].forEach(geometry => trackedGeometries.add(geometry));
   const wheelGroup = new THREE.Group();
   wheelGroup.name = 'KFPS neutral locator-based inspection wheels';
   for (const name of required) {
@@ -388,13 +442,20 @@ async function loadPackage() {
     });
 
     setStatus('Loading the exact local car mesh, paint regions, and section masks...');
-    const [paintTexture, mask0, mask1, mask2, gltf] = await Promise.all([
+    const loadResults = await Promise.allSettled([
       loadTexture('./api/local-render/paint', true),
       loadTexture('./api/local-render/mask/0'),
       loadTexture('./api/local-render/mask/1'),
       loadTexture('./api/local-render/mask/2'),
-      new GLTFLoader().loadAsync('./api/local-mesh'),
+      new GLTFLoader().loadAsync('./api/local-mesh').then(item => {
+        trackObjectResources(item.scene);
+        return item;
+      }),
     ]);
+    const failedLoad = loadResults.find(result => result.status === 'rejected');
+    if (failedLoad) throw failedLoad.reason;
+    if (viewerDisposed) return;
+    const [paintTexture, mask0, mask1, mask2, gltf] = loadResults.map(result => result.value);
     model = gltf.scene;
     paintMaterials = [];
     glassMaterials = [];
@@ -432,11 +493,11 @@ async function loadPackage() {
       } else if (category === 'hidden') {
         child.visible = false;
       } else {
-        child.material = new THREE.MeshStandardMaterial({
+        child.material = trackMaterial(new THREE.MeshStandardMaterial({
           color: category === 'dark' ? 0x11161b : 0x4b555d,
           roughness: 0.68,
           metalness: 0.15,
-        });
+        }));
       }
     });
     if (!meshCount || !paintCount) {
@@ -458,42 +519,141 @@ async function loadPackage() {
   } catch (error) {
     console.error(error);
     setStatus(error?.message || String(error), true);
+    disposeViewer();
   }
 }
 
-resetButton.addEventListener('click', () => {
+function resetView() {
   camera.position.copy(homeCamera);
   controls.target.copy(homeTarget);
   controls.update();
-});
+}
 
-rotateButton.addEventListener('click', () => {
+function toggleAutoRotate() {
   controls.autoRotate = !controls.autoRotate;
   rotateButton.setAttribute('aria-pressed', String(controls.autoRotate));
-});
+}
 
-sectionButtons.forEach(button => button.addEventListener('click', () => {
+function selectSection(event) {
+  const button = event.currentTarget;
   if (!button.disabled) setSectionFilter(button.dataset.section);
-}));
+}
+
+function resetFromDoubleClick() {
+  resetView();
+}
+
+resetButton.addEventListener('click', resetView);
+rotateButton.addEventListener('click', toggleAutoRotate);
+sectionButtons.forEach(button => button.addEventListener('click', selectSection));
 
 function resize() {
   const width = Math.max(1, viewport.clientWidth);
   const height = Math.max(1, viewport.clientHeight);
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  if (width === renderWidth && height === renderHeight && pixelRatio === renderPixelRatio) return;
+  renderWidth = width;
+  renderHeight = height;
+  renderPixelRatio = pixelRatio;
+  renderer.setPixelRatio(pixelRatio);
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 }
 
 function animate() {
+  animationFrameId = 0;
+  if (viewerDisposed || document.hidden) return;
   resize();
   controls.update();
   renderer.render(scene, camera);
-  requestAnimationFrame(animate);
+  animationFrameId = requestAnimationFrame(animate);
 }
 
-window.addEventListener('dblclick', () => resetButton.click());
+function startAnimation() {
+  if (!viewerDisposed && !document.hidden && !animationFrameId) {
+    animationFrameId = requestAnimationFrame(animate);
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden && animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = 0;
+  } else {
+    resize();
+    startAnimation();
+  }
+}
+
+function releaseRendererContext() {
+  if (rendererContextReleased) return;
+  rendererContextReleased = true;
+  renderer.renderLists.dispose();
+  renderer.dispose();
+  renderer.forceContextLoss();
+}
+
+function disposeViewer(releaseContext = true) {
+  if (!viewerDisposed) {
+    viewerDisposed = true;
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animationFrameId = 0;
+    controls.dispose();
+    resetButton.removeEventListener('click', resetView);
+    rotateButton.removeEventListener('click', toggleAutoRotate);
+    sectionButtons.forEach(button => button.removeEventListener('click', selectSection));
+    window.removeEventListener('dblclick', resetFromDoubleClick);
+    window.removeEventListener('resize', resize);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    trackedSkeletons.forEach(skeleton => skeleton.dispose());
+    trackedGeometries.forEach(geometry => geometry.dispose());
+    trackedMaterials.forEach(material => material.dispose());
+    trackedTextures.forEach(texture => {
+      texture.dispose();
+      if (typeof texture.image?.close === 'function') texture.image.close();
+    });
+    trackedSkeletons.clear();
+    trackedGeometries.clear();
+    trackedMaterials.clear();
+    trackedTextures.clear();
+    scene.clear();
+    model = null;
+    paintMaterials = [];
+    glassMaterials = [];
+  }
+  if (releaseContext) releaseRendererContext();
+  return viewerDiagnostics();
+}
+
+function viewerDiagnostics() {
+  return {
+    disposed: viewerDisposed,
+    contextReleased: rendererContextReleased,
+    animationActive: Boolean(animationFrameId),
+    tracked: {
+      geometries: trackedGeometries.size,
+      materials: trackedMaterials.size,
+      textures: trackedTextures.size,
+      skeletons: trackedSkeletons.size,
+    },
+    renderer: {
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
+      programs: renderer.info.programs?.length || 0,
+    },
+  };
+}
+
+window.addEventListener('dblclick', resetFromDoubleClick);
 window.addEventListener('resize', resize);
+document.addEventListener('visibilitychange', handleVisibilityChange);
+window.addEventListener('pagehide', disposeViewer);
+window.addEventListener('beforeunload', disposeViewer);
+window.__kfpsDisposeViewer = disposeViewer;
+window.__kfpsViewerDiagnostics = viewerDiagnostics;
 window.__kfpsViewerBooted = true;
 window.clearTimeout(window.__kfpsViewerBootTimer);
 loadPackage();
-animate();
+resize();
+startAnimation();
