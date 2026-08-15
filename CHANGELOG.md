@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.21
+- Fixed the close button. Hope you're happy Lance.
+
 ## 3.1.20
 - Replaced broad FH6 layer-count searches with exact RTTI type matching inside the verified livery allocator, reducing normal grouped-vinyl location to a small, deterministic memory scan.
 - Added allocator-window discovery and persistent profile caching without reusing stale group pointers; every export still rediscovers and validates the complete currently open hierarchy and ownership state.

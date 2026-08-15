@@ -177,18 +177,25 @@ Rectangle {
                         }
                     }
 
-                    Text {
+                    Item {
                         visible: button.modelData === "close"
                         anchors.centerIn: parent
-                        text: "×"
-                        color: Theme.classicMode ? Theme.borderStrong : Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(Theme.classicMode ? 15 : 19)
-                        font.weight: Theme.classicMode ? Font.Bold : Font.Light
-                        renderType: Text.NativeRendering
-                        font.hintingPreference: Font.PreferFullHinting
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        width: Theme.px(14)
+                        height: Theme.px(14)
+
+                        Repeater {
+                            model: [-45, 45]
+
+                            delegate: Rectangle {
+                                required property real modelData
+                                anchors.centerIn: parent
+                                width: parent.width
+                                height: Math.max(1, Theme.px(1))
+                                color: Theme.classicMode ? Theme.borderStrong : Theme.text
+                                rotation: modelData
+                                antialiasing: true
+                            }
+                        }
                     }
                 }
 

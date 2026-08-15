@@ -145,6 +145,14 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("startSystemResize", frame)
         self.assertIn("startSystemMove", title_bar)
 
+    def test_title_bar_close_icon_uses_theme_independent_geometry(self):
+        title_bar = self.read("shell/AppTitleBar.qml")
+        self.assertIn('model: ["min", "max", "close"]', title_bar)
+        self.assertIn("model: [-45, 45]", title_bar)
+        self.assertIn("width: Theme.px(14)", title_bar)
+        self.assertIn("height: Theme.px(14)", title_bar)
+        self.assertNotIn('text: "×"', title_bar)
+
     def test_interactables_have_no_artificial_white_top_strip(self):
         files = [
             "components/PrimaryButton.qml",
