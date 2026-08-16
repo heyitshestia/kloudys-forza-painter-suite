@@ -67,6 +67,7 @@ ApplicationWindow {
                                  : consoleExpandedHeight
     property Item glassBackdropSource: backdropLayer
     property bool updateAutoOpened: false
+    property bool liveryWipNoticeAcknowledged: false
 
     Binding { target: Theme; property: "reducedMotion"; value: settings.reducedMotion }
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
@@ -378,6 +379,11 @@ ApplicationWindow {
                         }[appController.currentPage]) + ".qml"
                         opacity: 1
 
+                        onLoaded: {
+                            if (item && item.objectName === "LiveryPage")
+                                item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged
+                        }
+
                         onSourceChanged: {
                             if (!Theme.reducedMotion) {
                                 opacity = 0
@@ -397,6 +403,15 @@ ApplicationWindow {
                             to: 1
                             duration: Theme.reducedMotion ? 110 : Math.min(280, Theme.pageTransitionDuration)
                             easing.type: Easing.OutCubic
+                        }
+                    }
+
+                    Connections {
+                        target: pageLoader.item
+                        ignoreUnknownSignals: true
+
+                        function onWipNoticeAccepted() {
+                            window.liveryWipNoticeAcknowledged = true
                         }
                     }
 

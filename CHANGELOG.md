@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.26
+- Added a session-only WIP warning to the Full Livery Workshop so its unfinished preview status is clear before the page can be used.
+
 ## 3.1.25
 - Fixed FH6 livery transform records being misread as unsupported native vinyl shapes, which prevented affected cars from opening in the 3D preview.
 - Tightened livery shape validation and invalidated stale full-livery preview caches so corrected artwork is rebuilt automatically.

@@ -127,6 +127,21 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("onClicked: backupService.backupImgs()", outputs)
         self.assertIn("Existing backups are never deleted.", outputs)
 
+    def test_livery_wip_notice_is_modal_and_acknowledged_once_per_process(self):
+        main = self.read("Main.qml")
+        livery = self.read("pages/LiveryPage.qml")
+
+        self.assertIn("property bool liveryWipNoticeAcknowledged: false", main)
+        self.assertIn("item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged", main)
+        self.assertIn("function onWipNoticeAccepted()", main)
+        self.assertIn("window.liveryWipNoticeAcknowledged = true", main)
+        self.assertIn('objectName: "liveryWipPreviewOverlay"', livery)
+        self.assertIn("visible: !root.wipNoticeAcknowledged", livery)
+        self.assertIn("acceptedButtons: Qt.AllButtons", livery)
+        self.assertIn('text: "WIP"', livery)
+        self.assertIn("heavy work-in-progress preview", livery)
+        self.assertIn("onClicked: root.dismissWipNotice()", livery)
+
     def test_outputs_exposes_fh4_live_and_offline_transfer(self):
         outputs = self.read("pages/JsonPage.qml")
         self.assertIn('model: ["FH6", "FH5", "FH4", "FM8"]', outputs)

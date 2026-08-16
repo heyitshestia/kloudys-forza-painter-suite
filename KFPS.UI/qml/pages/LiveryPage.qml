@@ -14,6 +14,13 @@ Item {
 
     readonly property bool wide: Theme.logical(width) >= 1180
     readonly property bool compactHeight: Theme.logical(height) < 760
+    property bool wipNoticeAcknowledged: false
+    signal wipNoticeAccepted()
+
+    function dismissWipNotice() {
+        wipNoticeAcknowledged = true
+        wipNoticeAccepted()
+    }
 
     Component.onCompleted: {
         fullLiveryService.refreshPackages()
@@ -451,5 +458,80 @@ Item {
         text: "KFPS will verify the package against the exact car, create a recovery record, and add a new livery without replacing existing save entries. Different-car installation is blocked. FH6 may need to reload its save before the new livery appears."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: fullLiveryService.installSelectedPackage()
+    }
+
+    FocusScope {
+        id: wipPreviewOverlay
+        objectName: "liveryWipPreviewOverlay"
+        anchors.fill: parent
+        z: 1000
+        visible: !root.wipNoticeAcknowledged
+        focus: visible
+
+        onVisibleChanged: {
+            if (visible)
+                Qt.callLater(function () { wipAcknowledgeButton.forceActiveFocus() })
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0.01, 0.01, 0.018, 0.80)
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            preventStealing: true
+            onWheel: function(wheel) { wheel.accepted = true }
+        }
+
+        GlassPanel {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Theme.px(40), Theme.px(650))
+            height: wipNoticeContent.implicitHeight + Theme.px(56)
+            strong: true
+
+            ColumnLayout {
+                id: wipNoticeContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Theme.px(36)
+                anchors.rightMargin: Theme.px(36)
+                spacing: Theme.px(14)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "WIP"
+                    color: Theme.warning
+                    font.family: Theme.displayFamily
+                    font.pixelSize: Theme.px(root.compactHeight ? 54 : 72)
+                    font.weight: Font.Black
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "This page is a heavy work-in-progress preview, not a finished or dependable product. Expect incomplete behavior, rendering issues, and changes while it is being developed."
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(root.compactHeight ? 13 : 15)
+                    font.weight: Font.Medium
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+
+                PrimaryButton {
+                    id: wipAcknowledgeButton
+                    objectName: "liveryWipAcknowledgeButton"
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: Theme.px(180)
+                    text: "OK"
+                    iconName: "check"
+                    toolTipText: "Acknowledge the livery preview warning for this KFPS session."
+                    onClicked: root.dismissWipNotice()
+                }
+            }
+        }
     }
 }
