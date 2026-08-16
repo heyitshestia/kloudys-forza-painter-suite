@@ -2,8 +2,8 @@
 
 This helper converts the complete locally authored FH6 car scene from a user's
 own car archive into a neutral GLB cache used by the KFPS full-livery viewer. It
-preserves scene transforms, triangle geometry, normals, texture-coordinate
-channels 0 through 3, and complete selectable part options. It does not extract
+preserves scene transforms, triangle geometry, normals, and texture-coordinate
+channels 0 through 3 for the car's stock/default configuration. It does not extract
 paints, textures, material finishes, or other game assets into shareable livery
 packages.
 
@@ -32,10 +32,10 @@ The conversion contract keeps only the highest-detail model level, removes
 degenerate and duplicate faces, applies each mesh's FH6 UV scale and offset,
 normalizes coordinate handedness and triangle winding, and labels neutral paint,
 glass, trim, dark, and hidden geometry for KFPS's Three.js renderer. It follows
-the scene's explicit stock flags and includes a non-stock option only when every
-model needed by that option resolves from the archive. Missing optional damage
-or body-kit variants are skipped; missing required core geometry fails the
-conversion.
+the scene's explicit stock flags and selects one deterministic baseline for each
+upgradable part. Loading every mutually exclusive body-kit variant into one scene
+is intentionally prohibited because some car archives expand to unsafe memory
+sizes. Missing required baseline geometry fails the conversion.
 
 Livery meshes must preserve FH6's exact `TEXCOORD_3` coordinates. The validator
 rejects guessed world-space projection because it produces plausible but wrong

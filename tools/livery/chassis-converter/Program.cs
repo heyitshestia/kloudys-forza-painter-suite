@@ -67,6 +67,7 @@ internal static class Program
 {
     private const int MaxEntries = 256;
     private const long MaxModelBytes = 512L * 1024 * 1024;
+    private const long MaxOutputBinaryBytes = 256L * 1024 * 1024;
     private const int SideFront = 1 << 0;
     private const int SideBack = 1 << 1;
     private const int SideTop = 1 << 2;
@@ -204,6 +205,7 @@ internal static class Program
             : carbin.Scene.MediaName;
         var cache = new Dictionary<string, ImportedModel>(StringComparer.OrdinalIgnoreCase);
         var result = new List<ChassisMesh>();
+        long estimatedBinaryBytes = 0;
         var resolved = 0;
         var unresolvedRequired = new List<ModelInstance>();
         var skippedOptional = new List<ModelInstance>();
@@ -238,7 +240,7 @@ internal static class Program
             if (FindBoneWorld(model.Bundle, instance.BoneName, instance.BoneId) is Matrix4x4 boneWorld)
                 instanceTransform = instance.Transform * boneWorld;
             var before = result.Count;
-            AppendMeshes(result, model.Imported, entryName, instance, instanceTransform);
+            AppendMeshes(result, model.Imported, entryName, instance, instanceTransform, ref estimatedBinaryBytes);
             if (result.Count > before) resolved++;
             else RecordUnresolved(instance);
         }
@@ -300,6 +302,7 @@ internal static class Program
         using var archive = ZipFile.OpenRead(archivePath);
         var available = archive.Entries.ToDictionary(entry => entry.FullName, StringComparer.OrdinalIgnoreCase);
         var result = new List<ChassisMesh>();
+        long estimatedBinaryBytes = 0;
         foreach (var requestedName in requested)
         {
             if (!available.TryGetValue(requestedName, out var entry))
@@ -316,7 +319,13 @@ internal static class Program
                 true,
                 [],
                 1);
-            AppendMeshes(result, model.Imported, requestedName, instance, Matrix4x4.Identity);
+            AppendMeshes(
+                result,
+                model.Imported,
+                requestedName,
+                instance,
+                Matrix4x4.Identity,
+                ref estimatedBinaryBytes);
         }
         return new ChassisExtraction(result, requested.Count, requested.Count, [], [], []);
     }
@@ -339,7 +348,8 @@ internal static class Program
         ImporterResult imported,
         string sourceEntry,
         ModelInstance instance,
-        Matrix4x4 instanceTransform)
+        Matrix4x4 instanceTransform,
+        ref long estimatedBinaryBytes)
     {
         var primaryLod = imported.Meshes.Where(geometry => geometry.SourceMesh.LOD_LODS).ToList();
         var selected = primaryLod.Count > 0 ? primaryLod : imported.Meshes;
@@ -349,6 +359,19 @@ internal static class Program
                 continue;
             if (geometry.Indices.Length % 3 != 0 || geometry.SourceMesh.Topology != 4)
                 throw new InvalidDataException($"Mesh {geometry.Name} does not use a triangle-list topology.");
+
+            var vertexCount = geometry.RawPositions.Length;
+            var uvChannelCount = geometry.UvChannels.Count(item =>
+                item.Key is >= 0 and <= 3 && item.Value.Length == vertexCount);
+            var upperBound = checked(
+                (long)vertexCount * (24L + 8L * uvChannelCount)
+                + (long)geometry.Indices.Length * 4L);
+            if (upperBound > MaxOutputBinaryBytes
+                || estimatedBinaryBytes > MaxOutputBinaryBytes - upperBound)
+            {
+                throw new InvalidDataException(
+                    "The selected car's default chassis exceeds KFPS's safe 256 MiB geometry limit.");
+            }
 
             var positions = TransformPositions(geometry, instanceTransform);
             var normals = TransformNormals(geometry, instanceTransform);
@@ -365,6 +388,16 @@ internal static class Program
                 instance.WindowHint,
                 geometry.Name,
                 geometry.MaterialName ?? "");
+            var actualBytes = checked(
+                (long)positions.Length * 24L
+                + uvs.Values.Sum(values => (long)values.Length * 8L)
+                + (long)indices.Length * 4L);
+            if (estimatedBinaryBytes > MaxOutputBinaryBytes - actualBytes)
+            {
+                throw new InvalidDataException(
+                    "The selected car's default chassis exceeds KFPS's safe 256 MiB geometry limit.");
+            }
+            estimatedBinaryBytes += actualBytes;
             result.Add(new ChassisMesh(
                 $"{Path.GetFileNameWithoutExtension(sourceEntry)} :: {geometry.Name}",
                 sourceEntry,
@@ -426,25 +459,18 @@ internal static class Program
 
         foreach (var part in scene.UpgradableParts)
         {
-            var stock = part.Upgrades.Where(upgrade => upgrade.IsStock).ToList();
-            var stockIds = stock.Select(upgrade => upgrade.Id).ToHashSet();
-            foreach (var upgrade in part.Upgrades)
-            {
-                partOptions.Add(new PartOptionDescriptor(
-                    part.Type.ToString(),
-                    checked((int)part.Type),
-                    upgrade.Id,
-                    upgrade.Level,
-                    upgrade.CarBodyId,
-                    upgrade.ParentIsStock,
-                    stockIds.Contains(upgrade.Id)));
-                foreach (var model in upgrade.Models)
-                    Add(model, part.Type, stockIds.Contains(upgrade.Id), [upgrade.Id]);
-            }
+            var selected = part.Upgrades
+                .OrderBy(upgrade => upgrade.IsStock ? 0 : 1)
+                .ThenBy(upgrade => upgrade.Level)
+                .ThenBy(upgrade => upgrade.Id)
+                .FirstOrDefault();
+            if (selected is null) continue;
+            foreach (var model in selected.Models)
+                Add(model, part.Type, true);
             foreach (var shared in part.SharedModels)
             {
-                var selected = shared.UpgradeIds.Count == 0 || shared.UpgradeIds.Any(stockIds.Contains);
-                Add(shared.Model, part.Type, selected, shared.UpgradeIds);
+                if (shared.UpgradeIds.Count == 0 || shared.UpgradeIds.Contains(selected.Id))
+                    Add(shared.Model, part.Type, true);
             }
         }
         return output;

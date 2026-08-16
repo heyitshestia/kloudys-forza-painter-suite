@@ -297,18 +297,20 @@ Item {
                 strong: true
                 clip: true
 
-                WebEngineView {
-                    id: inspector
+                Loader {
+                    id: inspectorLoader
                     anchors.fill: parent
                     anchors.margins: Math.max(1, Theme.px(1))
-                    visible: fullLiveryService.viewerUrl.length > 0
-                    url: fullLiveryService.viewerUrl.length > 0
-                         ? fullLiveryService.viewerUrl
-                         : "about:blank"
-                    backgroundColor: "#090b0e"
-                    settings.localContentCanAccessRemoteUrls: false
-                    settings.localContentCanAccessFileUrls: false
-                    settings.javascriptCanOpenWindows: false
+                    active: fullLiveryService.viewerUrl.length > 0
+                    sourceComponent: Component {
+                        WebEngineView {
+                            url: fullLiveryService.viewerUrl
+                            backgroundColor: "#090b0e"
+                            settings.localContentCanAccessRemoteUrls: false
+                            settings.localContentCanAccessFileUrls: false
+                            settings.javascriptCanOpenWindows: false
+                        }
+                    }
                 }
 
                 EmptyState {

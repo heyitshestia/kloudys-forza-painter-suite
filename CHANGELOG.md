@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.24
+- Fixed runaway RAM usage on affected AMD systems by unloading stale full-livery viewers immediately, rendering only on interaction, and releasing the complete WebGL context between cars.
+- Prevented repeated car clicks from restarting active preview work and added hard cancellation, process-tree cleanup, and memory limits to local chassis conversion.
+- Reduced uncached chassis preparation to one deterministic stock configuration and streamed converter output to avoid loading mutually exclusive body-part variants or duplicate model data into memory.
+
 ## 3.1.23
 - Rebuilt FH6 full-livery model preparation around each car's complete authored scene, preserving transformed chassis and window geometry while exposing complete locally available body-part variants.
 - Reworked livery mapping to use exact FH6 livery coordinates and independent section masks only, eliminating inaccurate guessed projection on curved, asymmetric, and window geometry.

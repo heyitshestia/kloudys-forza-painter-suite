@@ -40,6 +40,8 @@ let rendererContextReleased = false;
 let renderWidth = 0;
 let renderHeight = 0;
 let renderPixelRatio = 0;
+let renderRequests = 0;
+let renderedFrames = 0;
 
 function trackTexture(texture) {
   if (!texture?.isTexture) return texture;
@@ -496,6 +498,7 @@ function setSectionFilter(filterName) {
   sectionButtons.forEach(button => {
     button.classList.toggle('active', button.dataset.section === filterName);
   });
+  requestRender();
 }
 
 async function loadPackage() {
@@ -606,6 +609,7 @@ async function loadPackage() {
         child.visible = child.userData.kfps_base_visible !== false && meshPartVisible(child);
       });
       model.updateMatrixWorld(true);
+      requestRender();
     };
     partControls.querySelectorAll('select').forEach(select => {
       select.addEventListener('change', () => {
@@ -630,6 +634,7 @@ async function loadPackage() {
       + `${meshCount} local meshes, ${wheelCount} neutral inspection wheels, `
       + `${(renderContract.sections || []).length} livery sections.`
     );
+    requestRender();
   } catch (error) {
     console.error(error);
     setStatus(error?.message || String(error), true);
@@ -641,11 +646,13 @@ function resetView() {
   camera.position.copy(homeCamera);
   controls.target.copy(homeTarget);
   controls.update();
+  requestRender();
 }
 
 function toggleAutoRotate() {
   controls.autoRotate = !controls.autoRotate;
   rotateButton.setAttribute('aria-pressed', String(controls.autoRotate));
+  requestRender();
 }
 
 function selectSection(event) {
@@ -660,6 +667,7 @@ function resetFromDoubleClick() {
 resetButton.addEventListener('click', resetView);
 rotateButton.addEventListener('click', toggleAutoRotate);
 sectionButtons.forEach(button => button.addEventListener('click', selectSection));
+controls.addEventListener('change', requestRender);
 
 function resize() {
   const width = Math.max(1, viewport.clientWidth);
@@ -675,19 +683,26 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
-function animate() {
+function renderFrame() {
   animationFrameId = 0;
   if (viewerDisposed || document.hidden) return;
   resize();
   controls.update();
   renderer.render(scene, camera);
-  animationFrameId = requestAnimationFrame(animate);
+  renderedFrames += 1;
+  if (controls.autoRotate) requestRender();
 }
 
-function startAnimation() {
+function requestRender() {
   if (!viewerDisposed && !document.hidden && !animationFrameId) {
-    animationFrameId = requestAnimationFrame(animate);
+    renderRequests += 1;
+    animationFrameId = requestAnimationFrame(renderFrame);
   }
+}
+
+function handleResize() {
+  resize();
+  requestRender();
 }
 
 function handleVisibilityChange() {
@@ -696,7 +711,7 @@ function handleVisibilityChange() {
     animationFrameId = 0;
   } else {
     resize();
-    startAnimation();
+    requestRender();
   }
 }
 
@@ -713,12 +728,13 @@ function disposeViewer(releaseContext = true) {
     viewerDisposed = true;
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     animationFrameId = 0;
+    controls.removeEventListener('change', requestRender);
     controls.dispose();
     resetButton.removeEventListener('click', resetView);
     rotateButton.removeEventListener('click', toggleAutoRotate);
     sectionButtons.forEach(button => button.removeEventListener('click', selectSection));
     window.removeEventListener('dblclick', resetFromDoubleClick);
-    window.removeEventListener('resize', resize);
+    window.removeEventListener('resize', handleResize);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     trackedSkeletons.forEach(skeleton => skeleton.dispose());
     trackedGeometries.forEach(geometry => geometry.dispose());
@@ -756,11 +772,15 @@ function viewerDiagnostics() {
       textures: renderer.info.memory.textures,
       programs: renderer.info.programs?.length || 0,
     },
+    rendering: {
+      requests: renderRequests,
+      frames: renderedFrames,
+    },
   };
 }
 
 window.addEventListener('dblclick', resetFromDoubleClick);
-window.addEventListener('resize', resize);
+window.addEventListener('resize', handleResize);
 document.addEventListener('visibilitychange', handleVisibilityChange);
 window.addEventListener('pagehide', disposeViewer);
 window.addEventListener('beforeunload', disposeViewer);
@@ -770,4 +790,4 @@ window.__kfpsViewerBooted = true;
 window.clearTimeout(window.__kfpsViewerBootTimer);
 loadPackage();
 resize();
-startAnimation();
+requestRender();

@@ -50,7 +50,7 @@ from .models import DictListModel
 from .qt_utils import safe_file_part
 
 
-INSPECTION_MESH_CACHE_REVISION = 6
+INSPECTION_MESH_CACHE_REVISION = 7
 
 
 class FullLiveryService(QObject):
@@ -105,6 +105,7 @@ class FullLiveryService(QObject):
         self._decisions = DictListModel(self.DECISION_ROLES, self)
         self._inspector = LiveryInspectorServer(self._inspector_root)
         self._selection_serial = 0
+        self._source_preview_serial = 0
         self._preview_future = None
         self._preview_cancel_event: threading.Event | None = None
         self._mesh_future = None
@@ -352,14 +353,24 @@ class FullLiveryService(QObject):
             return
         source = Path(str(path or ""))
         if source.is_file() and source.name.casefold() == "c_livery":
+            resolved_source = str(source.resolve())
+            same_source_is_active = resolved_source == self._selected_source and (
+                (self._preview_future is not None and not self._preview_future.done())
+                or (self._mesh_future is not None and not self._mesh_future.done())
+                or self._active_source_preview == resolved_source
+            )
+            if same_source_is_active:
+                return
             if self._running and not (self._preview_future and not self._preview_future.done()):
                 return
-            self._selected_source = str(source.resolve())
-            self._active_source_preview = ""
             self._cancel_mesh_preparation()
             self._cancel_source_preview()
+            self._reset_inspector_session()
+            self._selected_source = resolved_source
+            self._active_source_preview = ""
             cancel_event = threading.Event()
             self._preview_cancel_event = cancel_event
+            request_serial = self._source_preview_serial
             self._running = True
             self._status = "Preparing local livery preview"
             selected_privacy = self._source_privacy.get(self._selected_source) or {}
@@ -371,8 +382,12 @@ class FullLiveryService(QObject):
             selected = self._selected_source
             self._preview_future = self._executor.submit(self._preview_source_work, source, cancel_event)
             self._preview_future.add_done_callback(
-                lambda item, selected_path=selected: self._resultReady.emit(
-                    {**self._future_result("preview", item), "source_path": selected_path}
+                lambda item, selected_path=selected, serial=request_serial: self._resultReady.emit(
+                    {
+                        **self._future_result("preview", item),
+                        "source_path": selected_path,
+                        "request_serial": serial,
+                    }
                 )
             )
 
@@ -382,7 +397,10 @@ class FullLiveryService(QObject):
             self._selected_source = ""
             self._cancel_source_preview()
             self._running = False
+        self._cancel_mesh_preparation()
+        self._reset_inspector_session()
         self._active_source_preview = ""
+        self.changed.emit()
         try:
             selected = str(Path(path).resolve())
             if package_compiler_revision(selected) != PACKAGE_COMPILER_REVISION:
@@ -495,10 +513,19 @@ class FullLiveryService(QObject):
         return {"source_path": str(source), "path": str(target.resolve())}
 
     def _cancel_source_preview(self) -> None:
+        self._source_preview_serial += 1
         if self._preview_cancel_event is not None:
             self._preview_cancel_event.set()
         if self._preview_future is not None and not self._preview_future.done():
             self._preview_future.cancel()
+
+    def _reset_inspector_session(self) -> None:
+        self._viewer_url = ""
+        self._current_manifest = {}
+        self._selected_package = ""
+        self._decisions.replace([])
+        self._inspector.close()
+        self._inspector = LiveryInspectorServer(self._inspector_root)
 
     def _refresh_active_source_after_scan(self, rows: list[dict[str, Any]]) -> bool:
         active = self._active_source_preview
@@ -521,6 +548,7 @@ class FullLiveryService(QObject):
             return False
         if expected == self._selected_package:
             return False
+        self._selected_source = ""
         self.selectSource(active)
         return True
 
@@ -1065,8 +1093,13 @@ class FullLiveryService(QObject):
     @Slot(object)
     def _apply_result(self, result):
         kind = result.get("kind")
-        if kind == "preview" and str(result.get("source_path") or "") != self._selected_source:
-            return
+        if kind == "preview":
+            if int(result.get("request_serial") or -1) != self._source_preview_serial:
+                return
+            if str(result.get("source_path") or "") != self._selected_source:
+                return
+            self._preview_future = None
+            self._preview_cancel_event = None
         if kind == "install":
             self._install_future = None
             self._install_cancel_event = None

@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+import psutil
+
 from .vehicle_assets import VehicleAsset, inspection_carbin_entry, inspection_model_entries
 
 
@@ -24,7 +26,8 @@ class ChassisConversionCancelled(PortableMeshConverterError):
     pass
 
 
-MAX_LOCAL_CHASSIS_BYTES = 512 * 1024 * 1024
+MAX_LOCAL_CHASSIS_BYTES = 256 * 1024 * 1024
+MAX_CONVERTER_RESIDENT_BYTES = 2 * 1024 * 1024 * 1024
 GLB_JSON_CHUNK = 0x4E4F534A
 GLB_BINARY_CHUNK = 0x004E4942
 ROLE_NAMES = {"paint", "glass", "hidden", "dark", "trim"}
@@ -313,14 +316,56 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
 
 
 def _stop_process(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
+    descendants: list[psutil.Process] = []
+    try:
+        descendants = psutil.Process(process.pid).children(recursive=True)
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        pass
+    for child in reversed(descendants):
+        try:
+            child.terminate()
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            pass
+    if process.poll() is None:
+        process.terminate()
+    _, alive = psutil.wait_procs(descendants, timeout=2.0)
+    for child in alive:
+        try:
+            child.kill()
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            pass
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=2.0)
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+
+
+def _process_tree_resident_bytes(process_id: int) -> int:
+    try:
+        root = psutil.Process(process_id)
+        processes = [root, *root.children(recursive=True)]
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        return 0
+    total = 0
+    for process in processes:
+        try:
+            total += int(process.memory_info().rss)
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return total
+
+
+def _remove_converter_temporary_files(output_path: Path, process_id: int) -> None:
+    prefix = f"{output_path.name}.{process_id}.tmp"
+    for candidate in output_path.parent.glob(prefix + "*"):
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
 
 
 def convert_vehicle_model_to_glb(
@@ -330,6 +375,8 @@ def convert_vehicle_model_to_glb(
     converter_path: Path | str | None = None,
     timeout_seconds: float = 300.0,
     cancel_event: threading.Event | None = None,
+    max_process_bytes: int = MAX_CONVERTER_RESIDENT_BYTES,
+    diagnostics: dict[str, int] | None = None,
 ) -> Path:
     converter = Path(converter_path) if converter_path else bundled_converter_path()
     if not converter.is_file():
@@ -367,11 +414,19 @@ def convert_vehicle_model_to_glb(
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         deadline = time.monotonic() + timeout_seconds
+        peak_resident_bytes = 0
         try:
             while process.poll() is None:
                 if cancel_event and cancel_event.is_set():
                     _stop_process(process)
                     raise ChassisConversionCancelled("Local chassis preparation was superseded.")
+                resident_bytes = _process_tree_resident_bytes(process.pid)
+                peak_resident_bytes = max(peak_resident_bytes, resident_bytes)
+                if max_process_bytes > 0 and resident_bytes > max_process_bytes:
+                    _stop_process(process)
+                    raise PortableMeshConverterError(
+                        "This car's local chassis exceeded KFPS's safe conversion memory limit and was stopped."
+                    )
                 if time.monotonic() >= deadline:
                     _stop_process(process)
                     raise PortableMeshConverterError("Local chassis conversion timed out.")
@@ -380,6 +435,10 @@ def convert_vehicle_model_to_glb(
         finally:
             if process.poll() is None:
                 _stop_process(process)
+            if diagnostics is not None:
+                diagnostics["peak_resident_bytes"] = peak_resident_bytes
+            if process.returncode:
+                _remove_converter_temporary_files(output_path, process.pid)
         if process.returncode != 0:
             detail = (stderr or stdout or "unknown converter error").strip().splitlines()[-1]
             raise PortableMeshConverterError(f"Local chassis conversion failed: {detail}")

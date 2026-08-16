@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -216,6 +217,49 @@ class PortableChassisConverterTests(unittest.TestCase):
                     cancel_event=cancelled,
                 )
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows process-tree memory guard")
+    def test_converter_memory_guard_stops_a_runaway_child_and_removes_temporary_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "TEST.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr(
+                    "Manifest.xml",
+                    '<Car><NonUpgradeablePart><Model path="game:/media/cars/TEST/Scene/Exterior/body.modelbin"/></NonUpgradeablePart></Car>',
+                )
+                bundle.writestr("Scene/Exterior/body.modelbin", b"unused")
+                bundle.writestr("TEST.carbin", b"unused")
+            asset = VehicleAsset(
+                car_id=1,
+                model_code="TEST",
+                archive_path=str(archive),
+                archive_name=archive.name,
+                archive_size=archive.stat().st_size,
+                archive_mtime_ns=archive.stat().st_mtime_ns,
+                clip_entry="",
+            )
+            child = root / "runaway.py"
+            child.write_text(
+                "import time\npayload = bytearray(96 * 1024 * 1024)\ntime.sleep(30)\n",
+                encoding="utf-8",
+            )
+            launcher = root / "runaway.cmd"
+            launcher.write_text(f'@"{sys.executable}" "{child}" %*\n', encoding="utf-8")
+            output = root / "guarded.glb"
+            diagnostics: dict[str, int] = {}
+            with self.assertRaisesRegex(PortableMeshConverterError, "safe conversion memory limit"):
+                convert_vehicle_model_to_glb(
+                    asset,
+                    output,
+                    converter_path=launcher,
+                    timeout_seconds=10,
+                    max_process_bytes=64 * 1024 * 1024,
+                    diagnostics=diagnostics,
+                )
+            self.assertGreater(diagnostics.get("peak_resident_bytes", 0), 64 * 1024 * 1024)
+            self.assertFalse(output.exists())
+            self.assertEqual([], list(root.glob(output.name + ".*.tmp*")))
+
     @unittest.skipUnless(
         Path(r"C:\XboxGames\Forza Horizon 6\Content").is_dir(),
         "FH6 local asset integration test",
@@ -237,13 +281,13 @@ class PortableChassisConverterTests(unittest.TestCase):
                 "part_option_count": 0,
             },
             2738: {
-                "mesh_count": 812,
-                "paint_meshes": 44,
+                "mesh_count": 746,
+                "paint_meshes": 43,
                 "glass_meshes": 13,
-                "triangle_count": 463326,
-                "direct_uv3_meshes": 57,
+                "triangle_count": 432488,
+                "direct_uv3_meshes": 56,
                 "projected_livery_meshes": 0,
-                "part_option_count": 5,
+                "part_option_count": 0,
             },
         }
         with tempfile.TemporaryDirectory() as temp:

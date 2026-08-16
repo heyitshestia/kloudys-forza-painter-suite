@@ -15,97 +15,121 @@ internal static class GlbWriter
         IReadOnlyList<ChassisMesh> meshes,
         IReadOnlyList<PartOptionDescriptor> partOptions)
     {
-        using var binary = new MemoryStream();
-        var bufferViews = new List<object>();
-        var accessors = new List<object>();
-        var meshRecords = new List<object>();
-        var nodes = new List<object>();
-
-        foreach (var mesh in meshes)
+        var binaryPath = path + $".bin.{Environment.ProcessId}.tmp";
+        try
         {
-            var attributes = new Dictionary<string, int>
-            {
-                ["POSITION"] = AddVector3Accessor(binary, bufferViews, accessors, mesh.Positions, target: 34962, bounds: true),
-                ["NORMAL"] = AddVector3Accessor(binary, bufferViews, accessors, mesh.Normals, target: 34962, bounds: false),
-            };
-            foreach (var (channel, values) in mesh.UvChannels.OrderBy(item => item.Key))
-                attributes[$"TEXCOORD_{channel}"] = AddVector2Accessor(binary, bufferViews, accessors, values, 34962);
-            var indexAccessor = AddIndexAccessor(binary, bufferViews, accessors, mesh.Indices);
-            var extras = new Dictionary<string, object>
-            {
-                ["kfps_role"] = mesh.Role,
-                ["kfps_source_entry"] = mesh.SourceEntry,
-                ["kfps_material_name"] = mesh.MaterialName,
-                ["kfps_part_type"] = mesh.PartType,
-                ["kfps_instance_identity"] = mesh.InstanceIdentity,
-                ["kfps_stock_part"] = mesh.StockPart,
-                ["kfps_part_option_ids"] = mesh.PartOptionIds,
-                ["kfps_draw_groups"] = mesh.DrawGroups,
-                ["kfps_allowed_sides"] = mesh.AllowedSides,
-            };
-            meshRecords.Add(new
-            {
-                name = mesh.Name,
-                primitives = new[] { new { attributes, indices = indexAccessor, mode = 4 } },
-                extras,
-            });
-            nodes.Add(new { name = mesh.Name, mesh = meshRecords.Count - 1, extras });
-        }
+            using var binary = new FileStream(
+                binaryPath,
+                FileMode.Create,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                1024 * 1024,
+                FileOptions.SequentialScan);
+            var bufferViews = new List<object>();
+            var accessors = new List<object>();
+            var meshRecords = new List<object>();
+            var nodes = new List<object>();
 
-        var document = new
-        {
-            asset = new { version = "2.0", generator = "KFPS local chassis converter" },
-            scene = 0,
-            scenes = new[]
+            foreach (var mesh in meshes)
             {
-                new
+                var attributes = new Dictionary<string, int>
                 {
-                    nodes = Enumerable.Range(0, nodes.Count).ToArray(),
-                    extras = new
+                    ["POSITION"] = AddVector3Accessor(binary, bufferViews, accessors, mesh.Positions, target: 34962, bounds: true),
+                    ["NORMAL"] = AddVector3Accessor(binary, bufferViews, accessors, mesh.Normals, target: 34962, bounds: false),
+                };
+                foreach (var (channel, values) in mesh.UvChannels.OrderBy(item => item.Key))
+                    attributes[$"TEXCOORD_{channel}"] = AddVector2Accessor(binary, bufferViews, accessors, values, 34962);
+                var indexAccessor = AddIndexAccessor(binary, bufferViews, accessors, mesh.Indices);
+                var extras = new Dictionary<string, object>
+                {
+                    ["kfps_role"] = mesh.Role,
+                    ["kfps_source_entry"] = mesh.SourceEntry,
+                    ["kfps_material_name"] = mesh.MaterialName,
+                    ["kfps_part_type"] = mesh.PartType,
+                    ["kfps_instance_identity"] = mesh.InstanceIdentity,
+                    ["kfps_stock_part"] = mesh.StockPart,
+                    ["kfps_part_option_ids"] = mesh.PartOptionIds,
+                    ["kfps_draw_groups"] = mesh.DrawGroups,
+                    ["kfps_allowed_sides"] = mesh.AllowedSides,
+                };
+                meshRecords.Add(new
+                {
+                    name = mesh.Name,
+                    primitives = new[] { new { attributes, indices = indexAccessor, mode = 4 } },
+                    extras,
+                });
+                nodes.Add(new { name = mesh.Name, mesh = meshRecords.Count - 1, extras });
+            }
+
+            var document = new
+            {
+                asset = new { version = "2.0", generator = "KFPS local chassis converter" },
+                scene = 0,
+                scenes = new[]
+                {
+                    new
                     {
-                        kfps_format = "kfps_local_chassis_scene_v2",
-                        kfps_part_options = partOptions.Select(option => new
+                        nodes = Enumerable.Range(0, nodes.Count).ToArray(),
+                        extras = new
                         {
-                            part_type = option.PartType,
-                            part_type_value = option.PartTypeValue,
-                            id = option.Id,
-                            level = option.Level,
-                            car_body_id = option.CarBodyId,
-                            parent_is_stock = option.ParentIsStock,
-                            stock = option.Stock,
-                        }).ToArray(),
+                            kfps_format = "kfps_local_chassis_scene_v2",
+                            kfps_part_options = partOptions.Select(option => new
+                            {
+                                part_type = option.PartType,
+                                part_type_value = option.PartTypeValue,
+                                id = option.Id,
+                                level = option.Level,
+                                car_body_id = option.CarBodyId,
+                                parent_is_stock = option.ParentIsStock,
+                                stock = option.Stock,
+                            }).ToArray(),
+                        },
                     },
                 },
-            },
-            nodes,
-            meshes = meshRecords,
-            accessors,
-            bufferViews,
-            buffers = new[] { new { byteLength = checked((int)binary.Length) } },
-        };
-        var json = JsonSerializer.SerializeToUtf8Bytes(document, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
-        var paddedJson = Pad(json, 0x20);
-        var paddedBinary = Pad(binary.ToArray(), 0x00);
-        var totalLength = checked(12 + 8 + paddedJson.Length + 8 + paddedBinary.Length);
+                nodes,
+                meshes = meshRecords,
+                accessors,
+                bufferViews,
+                buffers = new[] { new { byteLength = checked((int)binary.Length) } },
+            };
+            var json = JsonSerializer.SerializeToUtf8Bytes(document, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            });
+            var paddedJsonLength = AlignLength(json.LongLength);
+            var paddedBinaryLength = AlignLength(binary.Length);
+            var totalLength = checked(12L + 8L + paddedJsonLength + 8L + paddedBinaryLength);
 
-        using var output = File.Create(path);
-        using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: false);
-        writer.Write(0x46546C67u);
-        writer.Write(2u);
-        writer.Write((uint)totalLength);
-        writer.Write((uint)paddedJson.Length);
-        writer.Write(JsonChunk);
-        writer.Write(paddedJson);
-        writer.Write((uint)paddedBinary.Length);
-        writer.Write(BinChunk);
-        writer.Write(paddedBinary);
+            binary.Flush();
+            binary.Position = 0;
+            using var output = new FileStream(
+                path,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                1024 * 1024,
+                FileOptions.SequentialScan);
+            using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
+            writer.Write(0x46546C67u);
+            writer.Write(2u);
+            writer.Write(checked((uint)totalLength));
+            writer.Write(checked((uint)paddedJsonLength));
+            writer.Write(JsonChunk);
+            writer.Write(json);
+            WritePadding(output, paddedJsonLength - json.LongLength, 0x20);
+            writer.Write(checked((uint)paddedBinaryLength));
+            writer.Write(BinChunk);
+            binary.CopyTo(output, 1024 * 1024);
+            WritePadding(output, paddedBinaryLength - binary.Length, 0x00);
+        }
+        finally
+        {
+            if (File.Exists(binaryPath)) File.Delete(binaryPath);
+        }
     }
 
     private static int AddVector3Accessor(
-        MemoryStream binary,
+        Stream binary,
         List<object> views,
         List<object> accessors,
         IReadOnlyList<Vector3> values,
@@ -138,7 +162,7 @@ internal static class GlbWriter
     }
 
     private static int AddVector2Accessor(
-        MemoryStream binary,
+        Stream binary,
         List<object> views,
         List<object> accessors,
         IReadOnlyList<Vector2> values,
@@ -158,7 +182,7 @@ internal static class GlbWriter
     }
 
     private static int AddIndexAccessor(
-        MemoryStream binary,
+        Stream binary,
         List<object> views,
         List<object> accessors,
         IReadOnlyList<int> values)
@@ -186,7 +210,7 @@ internal static class GlbWriter
         return accessors.Count - 1;
     }
 
-    private static void Align(MemoryStream stream)
+    private static void Align(Stream stream)
     {
         while (stream.Position % 4 != 0) stream.WriteByte(0);
     }
@@ -198,13 +222,13 @@ internal static class GlbWriter
         stream.Write(encoded);
     }
 
-    private static byte[] Pad(byte[] source, byte padding)
+    private static long AlignLength(long length)
     {
-        var length = (source.Length + 3) & ~3;
-        if (length == source.Length) return source;
-        var result = new byte[length];
-        source.CopyTo(result, 0);
-        result.AsSpan(source.Length).Fill(padding);
-        return result;
+        return checked((length + 3L) & ~3L);
+    }
+
+    private static void WritePadding(Stream stream, long count, byte value)
+    {
+        for (long index = 0; index < count; index++) stream.WriteByte(value);
     }
 }

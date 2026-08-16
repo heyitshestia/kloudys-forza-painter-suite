@@ -1472,7 +1472,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             )
             try:
                 self.assertEqual(
-                "TEST_CAR-1234.local-chassis-v6.glb",
+                "TEST_CAR-1234.local-chassis-v7.glb",
                     service._cached_mesh_path(asset).name,
                 )
             finally:
@@ -1503,6 +1503,36 @@ class FullLiveryPackageTests(unittest.TestCase):
                 service._apply_result({"ok": False, "kind": "scan", "cancelled": True})
                 self.assertFalse(service.running)
                 self.assertEqual(original_status, service.status)
+            finally:
+                service.close()
+
+    def test_selecting_a_source_immediately_unloads_the_previous_viewer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "save" / "C_livery"
+            build_livery_source(source, state=0, placement_count=1)
+            paths = AppPaths(
+                app_root=root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=root / "runtime",
+                bundled_python=root / "python" / "python.exe",
+            )
+            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
+            service._game_folder = "C:/FH6"
+            service._viewer_url = "http://127.0.0.1/previous"
+            service._selected_package = "previous.kfpslivery"
+            pending = concurrent.futures.Future()
+            try:
+                with patch.object(service._executor, "submit", return_value=pending) as submit:
+                    service.selectSource(str(source))
+                    service.selectSource(str(source))
+                self.assertEqual("", service.viewerUrl)
+                self.assertEqual("", service.selectedPackage)
+                self.assertEqual(str(source.resolve()), service.selectedSource)
+                submit.assert_called_once()
+                pending.cancel()
             finally:
                 service.close()
 
@@ -1886,8 +1916,12 @@ class FullLiveryPackageTests(unittest.TestCase):
             "Promise.allSettled",
         ):
             self.assertIn(contract, source)
-        self.assertIn('fullLiveryService.viewerUrl.length > 0', page)
-        self.assertIn(': "about:blank"', page)
+        self.assertIn("if (controls.autoRotate) requestRender()", source)
+        self.assertNotIn("function animate()", source)
+        self.assertNotIn("requestAnimationFrame(animate)", source)
+        self.assertIn('active: fullLiveryService.viewerUrl.length > 0', page)
+        self.assertIn('sourceComponent: Component', page)
+        self.assertNotIn(': "about:blank"', page)
 
 
 if __name__ == "__main__":
