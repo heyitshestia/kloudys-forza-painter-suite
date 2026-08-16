@@ -127,6 +127,14 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("onClicked: backupService.backupImgs()", outputs)
         self.assertIn("Existing backups are never deleted.", outputs)
 
+    def test_outputs_copy_action_also_targets_the_windows_clipboard(self):
+        outputs = self.read("pages/JsonPage.qml")
+        service = (UI / "src" / "kfps_ui" / "json_service.py").read_text(encoding="utf-8")
+        self.assertIn("to both KFPS and the Windows clipboard", outputs)
+        self.assertIn("def _publish_system_clipboard(self, paths):", service)
+        self.assertIn("clipboard.setMimeData(mime)", service)
+        self.assertIn("QUrl.fromLocalFile", service)
+
     def test_livery_wip_notice_is_modal_and_acknowledged_once_per_process(self):
         main = self.read("Main.qml")
         livery = self.read("pages/LiveryPage.qml")

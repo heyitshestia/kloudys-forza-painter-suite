@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.27
+- Made Outputs right-click Copy place selected JSON files on both the KFPS clipboard and the native Windows clipboard for direct pasting into File Explorer.
+
 ## 3.1.26
 - Added a session-only WIP warning to the Full Livery Workshop so its unfinished preview status is clear before the page can be used.
 

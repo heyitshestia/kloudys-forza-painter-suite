@@ -10,7 +10,8 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
+from PySide6.QtCore import QMimeData, QObject, Property, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QGuiApplication
 
 from .app_paths import AppPaths
 from .desktop_service import DesktopService
@@ -1756,10 +1757,45 @@ class JsonService(QObject):
             return
         self._clipboard_paths = paths
         self._clipboard_cut = bool(cut)
+        published_to_windows = not cut and self._publish_system_clipboard(paths)
         action = "Cut" if cut else "Copied"
         noun = "item" if len(paths) == 1 else "items"
-        self._management_status = f"{action} {len(paths)} {noun}. Choose a folder and paste when ready."
+        if published_to_windows:
+            self._management_status = (
+                f"{action} {len(paths)} {noun}. Paste in KFPS or Windows File Explorer when ready."
+            )
+        else:
+            self._management_status = f"{action} {len(paths)} {noun}. Choose a folder and paste when ready."
         self.changed.emit()
+
+    @staticmethod
+    def _system_clipboard_mime(paths):
+        resolved = []
+        for value in paths:
+            path = Path(value)
+            if path.exists():
+                resolved.append(path.resolve())
+        if not resolved:
+            return None
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(path)) for path in resolved])
+        mime.setText(os.linesep.join(str(path) for path in resolved))
+        return mime
+
+    def _publish_system_clipboard(self, paths):
+        try:
+            app = QGuiApplication.instance()
+            if not isinstance(app, QGuiApplication):
+                return False
+            mime = JsonService._system_clipboard_mime(paths)
+            clipboard = app.clipboard()
+            if mime is None or clipboard is None:
+                return False
+            clipboard.setMimeData(mime)
+            return True
+        except Exception as exc:
+            self.log.append(f"Could not copy output files to the Windows clipboard: {exc}", "warning")
+            return False
 
     @Slot()
     def copySelection(self):

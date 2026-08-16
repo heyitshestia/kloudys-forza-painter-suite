@@ -364,6 +364,28 @@ class ServiceTests(unittest.TestCase):
    finally:
     shutdown_json_service(svc)
 
+ def test_output_explorer_copy_publishes_native_file_urls_without_changing_kfps_paste(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)
+   target=exported/"Clipboard Test.json"
+   target.write_text(json.dumps({"shapes":[]}),encoding="utf-8")
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(target),DummyLog())
+   try:
+    self.assertTrue(wait_for(lambda:2 in svc._source_index_cache));svc.setSource(2)
+    index=next(index for index,row in enumerate(svc.explorerModel.rows) if row["path"]==str(target))
+    svc.selectExplorerEntry(index,False,False)
+    mime=svc._system_clipboard_mime([str(target)])
+    self.assertIsNotNone(mime);self.assertTrue(mime.hasUrls())
+    self.assertEqual([target.resolve()],[Path(url.toLocalFile()).resolve() for url in mime.urls()])
+    with patch.object(svc,"_publish_system_clipboard",return_value=True) as publish:
+     svc.copySelection()
+    publish.assert_called_once_with([str(target)])
+    self.assertEqual([str(target)],svc._clipboard_paths);self.assertFalse(svc.clipboardCut)
+    self.assertIn("Windows File Explorer",svc.managementStatus)
+   finally:
+    shutdown_json_service(svc)
+
  def test_output_explorer_sorts_jsons_and_moves_selection_to_managed_folder(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);exported=app_root/"imgs"/"exported";exported.mkdir(parents=True)

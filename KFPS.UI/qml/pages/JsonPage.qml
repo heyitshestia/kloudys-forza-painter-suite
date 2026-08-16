@@ -1142,7 +1142,7 @@ Item {
                       ? "Copy " + jsonService.fileOperationSelectionCount + " items"
                       : "Copy"
                 dense: true
-                toolTipText: "Copy the selected item or items so they can be pasted elsewhere."
+                toolTipText: "Copy the selected item or items to both KFPS and the Windows clipboard."
                 onClicked: {
                     outputContextMenu.close()
                     jsonService.copySelection()
