@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.25
+- Fixed FH6 livery transform records being misread as unsupported native vinyl shapes, which prevented affected cars from opening in the 3D preview.
+- Tightened livery shape validation and invalidated stale full-livery preview caches so corrected artwork is rebuilt automatically.
+
 ## 3.1.24
 - Fixed runaway RAM usage on affected AMD systems by unloading stale full-livery viewers immediately, rendering only on interaction, and releasing the complete WebGL context between cars.
 - Prevented repeated car clicks from restarting active preview work and added hard cancellation, process-tree cleanup, and memory limits to local chassis conversion.

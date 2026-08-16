@@ -312,26 +312,53 @@ def bytes_at(data: bytes, pos: int, pattern: bytes, end: int | None = None) -> b
     return data[pos:stop] == pattern
 
 
+def is_extended_livery_transform_at(data: bytes, pos: int, end: int) -> bool:
+    return (
+        pos >= 0
+        and pos + 8 <= end
+        and bytes_at(data, pos, b"\x00\x02\x00\x01\x00\x00\x00", end)
+        and data[pos + 7] in (0x01, 0x03)
+    )
+
+
 def is_valid_shape_at(data: bytes, pos: int, end: int) -> bool:
     if pos < 0 or pos >= end or pos >= len(data):
+        return False
+    if is_extended_livery_transform_at(data, pos, end):
         return False
     if bytes_at(data, pos, b"\x00\x02", end) or bytes_at(data, pos, b"\x01\x02", end):
         if pos + 32 > end:
             return False
         shape_id = read_u16(data, pos + 2)
-        x = read_f32(data, pos + 8)
-        y = read_f32(data, pos + 12)
-        sx = read_f32(data, pos + 16)
-        return 0 < shape_id < MAX_SHAPE_ID and abs(x) < 50000.0 and abs(y) < 50000.0 and 1e-6 < abs(sx) < 200.0
-    if data[pos] == 0x02:
+        offset = 0
+    elif data[pos] == 0x02:
         if pos + 31 > end:
             return False
         shape_id = read_u16(data, pos + 1)
-        x = read_f32(data, pos + 7)
-        y = read_f32(data, pos + 11)
-        sx = read_f32(data, pos + 15)
-        return 0 < shape_id < MAX_SHAPE_ID and abs(x) < 50000.0 and abs(y) < 50000.0 and 1e-6 < abs(sx) < 200.0
-    return False
+        offset = -1
+    else:
+        return False
+    rotation = read_f32(data, pos + 4 + offset)
+    x = read_f32(data, pos + 8 + offset)
+    y = read_f32(data, pos + 12 + offset)
+    sx = read_f32(data, pos + 16 + offset)
+    sy = read_f32(data, pos + 20 + offset)
+    skew = read_f32(data, pos + 24 + offset)
+    return (
+        0 < shape_id < MAX_SHAPE_ID
+        and math.isfinite(rotation)
+        and abs(rotation) <= 10000.0
+        and math.isfinite(x)
+        and math.isfinite(y)
+        and abs(x) < 50000.0
+        and abs(y) < 50000.0
+        and math.isfinite(sx)
+        and math.isfinite(sy)
+        and 1e-6 < abs(sx) < 200.0
+        and 1e-6 < abs(sy) < 200.0
+        and math.isfinite(skew)
+        and abs(skew) < 200.0
+    )
 
 
 def is_livery_logo_at(data: bytes, pos: int, end: int) -> bool:
@@ -494,7 +521,7 @@ def livery_transform_trailer(
 def livery_transform_marker_sizes(data: bytes, pos: int, end: int) -> list[int]:
     if pos < 0 or pos >= end:
         return []
-    sizes: list[int] = []
+    sizes: list[int] = [8] if is_extended_livery_transform_at(data, pos, end) else []
     if data[pos] == 0x00:
         cursor = pos + 1
         while cursor < end and data[cursor] == 0x01:

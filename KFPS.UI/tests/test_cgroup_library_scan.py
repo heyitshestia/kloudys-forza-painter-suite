@@ -25,6 +25,9 @@ from tools.cgroup.forza_source_decoder import (
     cgroup_to_layers,
     decode_forza_source,
     flatten_tree,
+    is_extended_livery_transform_at,
+    is_valid_shape_at,
+    livery_transform_marker_sizes,
     mark_previous_direct_shape_as_mask,
     mark_previous_terminal_shape_as_mask,
     probe_forza_source_kind,
@@ -40,6 +43,29 @@ class CGroupLibraryScanTests(unittest.TestCase):
     @staticmethod
     def _shape(color=(255, 255, 255, 255)) -> ShapeNode:
         return ShapeNode(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, color, 0)
+
+    @staticmethod
+    def _framed_shape(shape_id: int, *, sy: float = 1.0) -> bytes:
+        return (
+            b"\x00\x02"
+            + struct.pack("<Hffffff", shape_id, 0.0, 1.0, 2.0, 1.0, sy, 0.0)
+            + bytes((255, 255, 255, 255))
+        )
+
+    def test_livery_extended_transform_header_is_not_decoded_as_shape_word_0100(self):
+        record = (
+            b"\x00\x02\x00\x01\x00\x00\x00\x03"
+            + struct.pack("<ffff", 12.0, -34.0, 2.5, 180.0)
+            + b"\x20\x01\x00\x01\x00\x00\x00\x00"
+        )
+
+        self.assertTrue(is_extended_livery_transform_at(record, 0, len(record)))
+        self.assertFalse(is_valid_shape_at(record, 0, len(record)))
+        self.assertEqual(8, livery_transform_marker_sizes(record, 0, len(record))[0])
+
+    def test_shape_validation_rejects_control_payload_but_keeps_real_word_0200(self):
+        self.assertFalse(is_valid_shape_at(self._framed_shape(0x0200, sy=0.0), 0, 32))
+        self.assertTrue(is_valid_shape_at(self._framed_shape(0x0200), 0, 32))
 
     def test_library_visibility_does_not_unlock_offline_save_tools(self):
         class DummyLog:

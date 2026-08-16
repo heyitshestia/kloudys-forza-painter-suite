@@ -40,7 +40,7 @@ PACKAGE_EXTENSION = ".kfpslivery"
 PRIVATE_PREVIEW_FORMAT = "kfps_local_livery_preview_v1"
 PRIVATE_PREVIEW_EXTENSION = ".kfpspreview"
 # Bump whenever decoding, validation, or section rendering changes derived data.
-PACKAGE_COMPILER_REVISION = 7
+PACKAGE_COMPILER_REVISION = 8
 MAX_PACKAGE_FILES = 256
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_MEMBER_BYTES = 128 * 1024 * 1024
