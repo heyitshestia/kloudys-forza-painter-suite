@@ -865,9 +865,8 @@ class JsonService(QObject):
             if source == self._source:
                 new_rows = index.get("rows", [])
                 if not old_rows or self._row_path_signature(old_rows) != self._row_path_signature(new_rows):
-                    self._load_source(force=False)
-                else:
-                    self._refresh_explorer()
+                    self._refresh_folder_model(force=True)
+                self._load_source(force=False)
             self._refresh_recent_from_cache()
             self._schedule_index_cache_save()
         else:
@@ -1416,6 +1415,20 @@ class JsonService(QObject):
     def refresh(self):
         self._refresh_folder_model(force=True)
         self._load_source(force=True)
+
+    @Slot()
+    def refreshGeneratedOutputs(self):
+        """Refresh only generated results after a generation process exits."""
+        if self._closed:
+            return
+        self._request_source_scan(0, force=True)
+
+    @Slot()
+    def refreshEditorOutputs(self):
+        """Refresh editor exports after the browser editor saves a JSON."""
+        if self._closed:
+            return
+        self._request_source_scan(1, force=True)
 
     def _navigate_to_folder(self, value, record_history=True):
         requested = str(value or "")

@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
-from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from .app_paths import AppPaths
@@ -23,6 +23,7 @@ from .preview_service import PreviewService
 
 class EditorService(QObject):
     changed = Signal()
+    editorOutputsChanged = Signal()
     launchCompleted = Signal(bool, str, str)
     previewCompleted = Signal(str, str)
 
@@ -59,9 +60,36 @@ class EditorService(QObject):
         self._running = False
         self._last_error = ""
         self._preview_lock = threading.Lock()
+        self._output_change_marker = self.paths.runtime_root / "fabric-editor" / "editor-output-change.json"
+        self._project_change_marker = self.paths.runtime_root / "fabric-editor" / "project-change.json"
+        self._output_change_mtime = self._marker_mtime(self._output_change_marker)
+        self._project_change_mtime = self._marker_mtime(self._project_change_marker)
+        self._change_timer = QTimer(self)
+        self._change_timer.setInterval(500)
+        self._change_timer.timeout.connect(self._poll_editor_changes)
+        self._change_timer.start()
         self.launchCompleted.connect(self._finish_launch)
         self.previewCompleted.connect(self._finish_preview)
         self.refresh()
+
+    @staticmethod
+    def _marker_mtime(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    def _poll_editor_changes(self):
+        if self._closed:
+            return
+        output_mtime = self._marker_mtime(self._output_change_marker)
+        if output_mtime and output_mtime != self._output_change_mtime:
+            self._output_change_mtime = output_mtime
+            self.editorOutputsChanged.emit()
+        project_mtime = self._marker_mtime(self._project_change_marker)
+        if project_mtime and project_mtime != self._project_change_mtime:
+            self._project_change_mtime = project_mtime
+            self.refresh()
 
     @Property(QObject, constant=True)
     def projectModel(self):
@@ -490,6 +518,7 @@ class EditorService(QObject):
             return
         self._closed = True
         self._cancel_event.set()
+        self._change_timer.stop()
         process = self._server_process
         self._server_process = None
         if process is not None and process.poll() is None:

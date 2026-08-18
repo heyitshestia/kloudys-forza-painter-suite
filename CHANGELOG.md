@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.29
+- Fixed completed, checkpointed, and safely stopped generations not appearing in Outputs until a manual refresh or restart.
+- Kept editor exports, editor projects, and replaced JSON metadata synchronized with the desktop app immediately after saving.
+- Hardened generator log forwarding so Windows console encoding cannot interrupt output handling.
+
 ## 3.1.28
 - Reworked application startup and shutdown ownership so background workers, timers, subprocesses, and queued work stop cleanly without leaving KFPS processes behind.
 - Unified supported vinyl JSON detection, shape resources, foreign-schema conversion, preview rendering, editor loading, and Community validation behind one tested shape contract.

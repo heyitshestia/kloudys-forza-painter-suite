@@ -112,11 +112,17 @@ class FabricEditorServerTests(unittest.TestCase):
     def test_mutations_require_editor_header_and_save_as_cannot_overwrite(self):
         with tempfile.TemporaryDirectory() as temporary:
             project_root = Path(temporary) / "projects"
+            project_marker = Path(temporary) / "project-change.json"
             with (
                 patch.object(
                     fabric_server,
                     "EDITOR_PROJECT_ROOT",
                     project_root,
+                ),
+                patch.object(
+                    fabric_server,
+                    "EDITOR_PROJECT_CHANGE_MARKER",
+                    project_marker,
                 ),
                 RunningEditorServer() as base_url,
             ):
@@ -194,6 +200,29 @@ class FabricEditorServerTests(unittest.TestCase):
                         target.read_text(encoding="utf-8")
                     )["layer_count"],
                 )
+                marker = json.loads(project_marker.read_text(encoding="utf-8"))
+                self.assertEqual(str(target.resolve()), marker["path"])
+
+    def test_editor_export_records_a_desktop_output_event(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            editor_root = Path(temporary) / "editor"
+            output_marker = Path(temporary) / "editor-output-change.json"
+            with (
+                patch.object(fabric_server, "EDITOR_JSON_ROOT", editor_root),
+                patch.object(fabric_server, "EDITOR_OUTPUT_CHANGE_MARKER", output_marker),
+                patch.object(fabric_server, "_safe_relpath", side_effect=lambda path: Path(path).name),
+                RunningEditorServer() as base_url,
+            ):
+                status, saved = post_json(
+                    base_url,
+                    fabric_server.EDITOR_EXPORT_API,
+                    {"name": "Fresh Export", "payload": {"shapes": [{"type": 1}]}},
+                )
+                target = Path(saved["path"])
+                marker = json.loads(output_marker.read_text(encoding="utf-8"))
+                self.assertEqual(200, status)
+                self.assertTrue(target.is_file())
+                self.assertEqual(str(target.resolve()), marker["path"])
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from .qt_utils import file_url
 
 class GenerationService(QObject):
     changed = Signal()
+    generatedOutputsChanged = Signal()
 
     def __init__(self, paths: AppPaths, log: LogService, parent=None):
         super().__init__(parent); self.paths = paths; self.log = log
@@ -375,6 +376,7 @@ class GenerationService(QObject):
             self._buffer = b""
         self._close_full_generation_log()
         self._preview_timer.stop(); self.refreshPreview()
+        self.generatedOutputsChanged.emit()
         self.log.append("Generation finished." if code == 0 else f"Generation exited with code {code}.", "info" if code == 0 else "error")
         if self._queue:
             self._queue_index += 1

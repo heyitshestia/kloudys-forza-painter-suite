@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -17,6 +20,12 @@ import generator_backend
 
 
 class GenerationReliabilityTests(unittest.TestCase):
+    def test_forwarded_generator_output_is_always_utf8(self):
+        buffer = io.BytesIO()
+        with patch.object(forza_generator_v2.sys, "stdout", SimpleNamespace(buffer=buffer)):
+            forza_generator_v2.write_forwarded_output("Search timing: 25 \u00b5s")
+        self.assertEqual("Search timing: 25 \u00b5s\n", buffer.getvalue().decode("utf-8"))
+
     def test_final_json_and_preview_are_atomic_nonempty_files(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -103,6 +103,26 @@ def make_paths(root: Path) -> AppPaths:
 
 
 class EditorProjectManagerTests(unittest.TestCase):
+    def test_editor_change_markers_refresh_projects_and_emit_output_event(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = make_paths(root)
+            service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
+            self.addCleanup(service.close)
+            output_events = []
+            service.editorOutputsChanged.connect(lambda: output_events.append(True))
+
+            project = paths.project_root / "Marker Project.fabric-project.json"
+            project.parent.mkdir(parents=True, exist_ok=True)
+            project.write_text(json.dumps({"layer_count": 1, "shapes": [{"type": 1}]}), encoding="utf-8")
+            service._project_change_marker.write_text("{}", encoding="utf-8")
+            service._output_change_marker.write_text("{}", encoding="utf-8")
+            service._poll_editor_changes()
+
+            self.assertEqual([True], output_events)
+            self.assertEqual(1, service.projectCount)
+            self.assertEqual("Marker Project", service.projectModel.row(0)["name"])
+
     def test_discovers_filters_selects_and_opens_projects(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

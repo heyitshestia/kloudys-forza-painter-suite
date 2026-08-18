@@ -2172,6 +2172,16 @@ def stem_from_image(path: Path) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", path.stem).strip("_") or "image"
 
 
+def write_forwarded_output(line: str) -> None:
+    """Forward raw generator output as UTF-8 regardless of Windows console encoding."""
+    stream = getattr(sys.stdout, "buffer", None)
+    if stream is not None:
+        stream.write((str(line) + "\n").encode("utf-8", errors="replace"))
+        stream.flush()
+        return
+    print(str(line), flush=True)
+
+
 def run_generator(image: Path, settings_path: Path, checkpoint_dir: Path, preview_dir: Path, out_stem: str, stop_file: Path | None = None, seed: int = 0) -> bool:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -2241,7 +2251,7 @@ def run_generator(image: Path, settings_path: Path, checkpoint_dir: Path, previe
             for raw_line in proc.stdout:
                 line = raw_line.rstrip("\r\n")
                 if line:
-                    print(line, flush=True)
+                    write_forwarded_output(line)
                     if "Saved preview snapshot" in line:
                         _cleanup_live_preview_snapshots()
         finally:

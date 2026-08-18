@@ -36,6 +36,8 @@ STARTUP_HELP_MARKER = ROOT / "runtime" / "fabric-editor" / "startup-help-confirm
 EDITOR_PREFS_MARKER = ROOT / "runtime" / "fabric-editor" / "preferences.json"
 EDITOR_AUTOSAVE_MARKER = ROOT / "runtime" / "fabric-editor" / "autosave.json"
 EDITOR_SERVER_MARKER = ROOT / "runtime" / "fabric-editor" / "server.json"
+EDITOR_OUTPUT_CHANGE_MARKER = ROOT / "runtime" / "fabric-editor" / "editor-output-change.json"
+EDITOR_PROJECT_CHANGE_MARKER = ROOT / "runtime" / "fabric-editor" / "project-change.json"
 EDITOR_THEME_ROOT = ROOT / "runtime" / "fabric-editor" / "themes"
 EDITOR_HEALTH_API = "/api/fabric-editor/health"
 STARTUP_HELP_API = "/api/fabric-editor/startup-help-confirmed"
@@ -84,6 +86,17 @@ def _write_json_atomic(path: Path, payload: object) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _record_desktop_change(marker: Path, target: Path) -> None:
+    try:
+        _write_json_atomic(
+            marker,
+            {"path": str(target.resolve()), "changed_at_ns": time.time_ns()},
+        )
+    except OSError:
+        # The editor save remains valid even if the desktop notification fails.
+        pass
 
 
 def _is_allowed_static_path(raw_path: str) -> bool:
@@ -966,6 +979,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     raise ValueError("editor export payload must contain a shapes list")
                 target = _unique_editor_export_path(str(data.get("name") or "vinyl"))
                 _write_json_atomic(target, payload)
+                _record_desktop_change(EDITOR_OUTPUT_CHANGE_MARKER, target)
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return
@@ -1002,6 +1016,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     )
                     return
                 _write_json_atomic(target, payload)
+                _record_desktop_change(EDITOR_PROJECT_CHANGE_MARKER, target)
             except Exception as err:
                 self._send_json({"error": str(err)}, status=400)
                 return

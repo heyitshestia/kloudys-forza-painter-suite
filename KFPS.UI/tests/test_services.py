@@ -127,6 +127,43 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(first_revision+1,svc.previewRevision)
    svc.refreshPreview();self.assertEqual(first_revision+1,svc.previewRevision)
 
+ def test_generation_finish_refreshes_generated_outputs_and_persists_index(self):
+  with tempfile.TemporaryDirectory() as td:
+   root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe")
+   jsons=JsonService(paths,DummyPreview(),DummyDesktop(root),DummyLog())
+   generation=GenerationService(paths,DummyLog())
+   self.addCleanup(generation.close);self.addCleanup(jsons.close)
+   self.assertTrue(wait_for(lambda: len(jsons._source_index_cache)==4))
+   jsons.setSource(0)
+   generation.generatedOutputsChanged.connect(jsons.refreshGeneratedOutputs)
+   final_json=paths.generated_root/"New Run"/"finals"/"New Run.25v2.json"
+   final_json.parent.mkdir(parents=True)
+   final_json.write_text(json.dumps({"metadata":{"display_name":"New Run","layers":25},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   generation._finished(0,None)
+   self.assertTrue(wait_for(lambda: any(row["path"]==str(final_json) for row in jsons.fileModel.rows)))
+   self.assertTrue(any(row["path"]==str(final_json) for row in jsons.explorerModel.rows))
+   cache_file=paths.runtime_root/"json-browser-index.v1.json"
+   def cache_contains_output():
+    try: rows=json.loads(cache_file.read_text(encoding="utf-8"))["sources"]["0"]["rows"]
+    except (OSError,KeyError,TypeError,ValueError):return False
+    return any(row.get("path")==str(final_json) for row in rows)
+   self.assertTrue(wait_for(cache_contains_output))
+
+ def test_source_refresh_updates_metadata_when_the_json_path_is_unchanged(self):
+  with tempfile.TemporaryDirectory() as td:
+   root=Path(td);target=root/"imgs"/"exported"/"Updated.json";target.parent.mkdir(parents=True)
+   target.write_text(json.dumps({"metadata":{"display_name":"Before","layers":1},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
+   paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe")
+   svc=JsonService(paths,DummyPreview(),DummyDesktop(target),DummyLog())
+   self.addCleanup(svc.close)
+   self.assertTrue(wait_for(lambda: 2 in svc._source_index_cache))
+   svc.setSource(2)
+   self.assertEqual("Before",svc.fileModel.row(0)["displayName"])
+   target.write_text(json.dumps({"metadata":{"display_name":"After","layers":2},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]},{"type":1048677,"data":[1,1,1,1,0],"color":[0,0,0,255]}]}),encoding="utf-8")
+   svc.refresh()
+   self.assertTrue(wait_for(lambda: svc.fileModel.row(0).get("displayName")=="After"))
+   self.assertEqual(2,svc.fileModel.row(0)["layers"])
+
  def test_manual_generator_defaults_follow_the_selected_preset(self):
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog())
