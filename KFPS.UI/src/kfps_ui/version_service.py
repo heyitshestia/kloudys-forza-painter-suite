@@ -17,6 +17,7 @@ class VersionService(QObject):
 
     def __init__(self, version_file: Path, demo=False, parent=None):
         super().__init__(parent)
+        self._closed = False
         try:
             self._local = version_file.read_text(encoding="utf-8").strip() or "unknown"
         except Exception:
@@ -31,8 +32,9 @@ class VersionService(QObject):
         self._network.finished.connect(self._finished)
         self._poll = QTimer(self); self._poll.setInterval(300_000); self._poll.timeout.connect(self.checkNow); self._poll.start()
         self._blink_timer = QTimer(self); self._blink_timer.setInterval(650); self._blink_timer.timeout.connect(self._tick); self._blink_timer.start()
+        self._initial_timer = QTimer(self); self._initial_timer.setSingleShot(True); self._initial_timer.setInterval(500); self._initial_timer.timeout.connect(self.checkNow)
         if not demo:
-            QTimer.singleShot(500, self.checkNow)
+            self._initial_timer.start()
 
     @Property(str, notify=changed)
     def localVersion(self): return self._local
@@ -53,7 +55,7 @@ class VersionService(QObject):
 
     @Slot()
     def checkNow(self):
-        if self._checking:
+        if self._closed or self._checking:
             return
         self._checking = True
         self._check_status = "Checking GitHub for updates..."
@@ -66,6 +68,9 @@ class VersionService(QObject):
         self._network.get(request)
 
     def _finished(self, reply: QNetworkReply):
+        if self._closed:
+            reply.deleteLater()
+            return
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 self._check_succeeded = False
@@ -92,7 +97,18 @@ class VersionService(QObject):
             self.changed.emit()
 
     def _tick(self):
+        if self._closed:
+            return
         if self._available:
             self._blink = not self._blink; self.changed.emit()
         elif not self._blink:
             self._blink = True; self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._initial_timer.stop(); self._poll.stop(); self._blink_timer.stop()
+        for reply in self._network.findChildren(QNetworkReply):
+            reply.abort()

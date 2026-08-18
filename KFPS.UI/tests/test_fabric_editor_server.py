@@ -31,7 +31,11 @@ class RunningEditorServer:
 
     def __enter__(self):
         self.thread.start()
-        return f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        return self
+
+    def __str__(self):
+        return self.url
 
     def __exit__(self, exc_type, exc, traceback):
         self.httpd.shutdown()
@@ -43,7 +47,9 @@ class RunningEditorServer:
 def post_json(base_url: str, path: str, payload: dict, token=True):
     headers = {"Content-Type": "application/json"}
     if token:
-        headers[fabric_server.EDITOR_MUTATION_HEADER] = "1"
+        headers[fabric_server.EDITOR_MUTATION_HEADER] = str(
+            getattr(getattr(base_url, "httpd", None), "editor_session_token", token)
+        )
     request = urllib.request.Request(
         f"{base_url}{path}",
         data=json.dumps(payload).encode("utf-8"),
@@ -127,6 +133,20 @@ class FabricEditorServerTests(unittest.TestCase):
                         token=False,
                     )
                 self.assertEqual(403, unauthorized.exception.code)
+
+                with self.assertRaises(urllib.error.HTTPError) as foreign_origin:
+                    request = urllib.request.Request(
+                        f"{base_url}{fabric_server.PROJECT_SAVE_API}",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Origin": "https://untrusted.example",
+                            fabric_server.EDITOR_MUTATION_HEADER: base_url.httpd.editor_session_token,
+                        },
+                        method="POST",
+                    )
+                    urllib.request.urlopen(request, timeout=3)
+                self.assertEqual(403, foreign_origin.exception.code)
 
                 status, saved = post_json(
                     base_url,

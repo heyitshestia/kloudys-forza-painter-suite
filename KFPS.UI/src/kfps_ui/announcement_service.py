@@ -15,6 +15,7 @@ class AnnouncementService(QObject):
 
     def __init__(self, demo: bool = False, parent=None):
         super().__init__(parent)
+        self._closed = False
         self._url = os.environ.get("KFPS_ANNOUNCEMENT_URL", self.DEFAULT_URL).strip()
         self._enabled = False
         self._title = ""
@@ -28,9 +29,15 @@ class AnnouncementService(QObject):
         self._poll.setInterval(60_000)
         self._poll.timeout.connect(self.checkNow)
         self._poll.start()
+        self._initial_timers = []
         if not demo:
-            QTimer.singleShot(250, self.checkNow)
-            QTimer.singleShot(8_000, self.checkNow)
+            for delay in (250, 8_000):
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.setInterval(delay)
+                timer.timeout.connect(self.checkNow)
+                timer.start()
+                self._initial_timers.append(timer)
 
     @Property(bool, notify=changed)
     def enabled(self):
@@ -63,7 +70,7 @@ class AnnouncementService(QObject):
 
     @Slot()
     def checkNow(self):
-        if self._checking or not self._url:
+        if self._closed or self._checking or not self._url:
             return
         self._checking = True
         self.changed.emit()
@@ -74,6 +81,9 @@ class AnnouncementService(QObject):
         self._network.get(request)
 
     def _finished(self, reply: QNetworkReply):
+        if self._closed:
+            reply.deleteLater()
+            return
         changed = False
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
@@ -100,3 +110,14 @@ class AnnouncementService(QObject):
                 self.changed.emit()
             else:
                 self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._poll.stop()
+        for timer in self._initial_timers:
+            timer.stop()
+        for reply in self._network.findChildren(QNetworkReply):
+            reply.abort()

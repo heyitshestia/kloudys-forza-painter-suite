@@ -46,6 +46,7 @@ from tools.livery.vehicle_assets import (
 
 from .app_paths import AppPaths
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .qt_utils import safe_file_part
 
@@ -70,6 +71,7 @@ class FullLiveryService(QObject):
 
     def __init__(self, paths: AppPaths, log: LogService, supporter=None, demo: bool = False, parent=None):
         super().__init__(parent)
+        self._closed = False
         self.paths = paths
         self.log = log
         # Retained for compatibility with launchers from the supporter-gated prototype.
@@ -1092,6 +1094,8 @@ class FullLiveryService(QObject):
 
     @Slot(object)
     def _apply_result(self, result):
+        if self._closed:
+            return
         kind = result.get("kind")
         if kind == "preview":
             if int(result.get("request_serial") or -1) != self._source_preview_serial:
@@ -1208,6 +1212,8 @@ class FullLiveryService(QObject):
 
     @Slot(object)
     def _apply_mesh_result(self, result):
+        if self._closed:
+            return
         if int(result.get("request_serial") or -1) != self._mesh_serial:
             return
         if str(result.get("package_path") or "") != self._selected_package:
@@ -1272,6 +1278,9 @@ class FullLiveryService(QObject):
 
     @Slot()
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         self._cancel_source_preview()
         self._cancel_mesh_preparation()
         if self._install_cancel_event is not None:
@@ -1292,4 +1301,5 @@ class FullLiveryService(QObject):
             except Exception:
                 pass
         self._inspector.close()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)

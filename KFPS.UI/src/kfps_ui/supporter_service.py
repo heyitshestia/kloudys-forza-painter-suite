@@ -51,6 +51,8 @@ class SupporterService(QObject):
         clock=None,
     ):
         super().__init__(parent)
+        self._closed = False
+        self._deferred_timers: set[QTimer] = set()
         self._app_root = Path(app_root)
         self._root = self._app_root
         self._legacy_root = self._app_root / "runtime" / "supporter"
@@ -86,6 +88,23 @@ class SupporterService(QObject):
         self._retry_timer.setSingleShot(True)
         self._retry_timer.timeout.connect(self._maybe_activate)
         self.reload()
+
+    def _defer(self, callback):
+        if self._closed:
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        self._deferred_timers.add(timer)
+
+        def run():
+            self._deferred_timers.discard(timer)
+            timer.stop()
+            timer.setParent(None)
+            if not self._closed:
+                callback()
+
+        timer.timeout.connect(run)
+        timer.start(0)
 
     def _snapshot(self) -> tuple:
         return (
@@ -348,6 +367,8 @@ class SupporterService(QObject):
                 self._watcher.addPath(path)
 
     def _schedule_activation_check(self):
+        if self._closed:
+            return
         if not self._started or not self._enforce_activation or self._key is None or self._inflight_operation:
             return
         if self._key_state.get("manual_deactivated"):
@@ -357,7 +378,7 @@ class SupporterService(QObject):
         next_retry = self._number(self._key_state.get("next_retry_at")) or 0
         delay_seconds = max(0.0, next_retry - float(self._clock()))
         if delay_seconds <= 0:
-            QTimer.singleShot(0, self._maybe_activate)
+            self._defer(self._maybe_activate)
             return
         self._retry_timer.start(min(2_147_000_000, max(1, int(delay_seconds * 1000))))
 
@@ -488,13 +509,15 @@ class SupporterService(QObject):
 
     @Slot(object)
     def _handle_client_result(self, result: object):
+        if self._closed:
+            return
         if not isinstance(result, dict):
             return
         operation = str(result.get("operation") or "")
         if operation != self._inflight_operation:
             return
         self._inflight_operation = ""
-        QTimer.singleShot(0, self._drain_community_entitlement)
+        self._defer(self._drain_community_entitlement)
         previous = self._snapshot()
         nonce = str(result.get("nonce") or "")
         status = int(result.get("http_status") or 0)
@@ -913,4 +936,21 @@ class SupporterService(QObject):
 
     @Slot()
     def refresh(self):
-        QTimer.singleShot(0, self.reload)
+        self._defer(self.reload)
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._retry_timer.stop()
+        for timer in list(self._deferred_timers):
+            timer.stop()
+            timer.setParent(None)
+        self._deferred_timers.clear()
+        watched = self._watcher.files() + self._watcher.directories()
+        if watched:
+            self._watcher.removePaths(watched)
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()

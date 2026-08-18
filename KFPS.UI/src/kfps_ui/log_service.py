@@ -14,6 +14,7 @@ class LogService(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._closed = False
         self._model = DictListModel(["timestamp", "text", "level", "line"])
         self._pending: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._lines: list[str] = []
@@ -29,6 +30,8 @@ class LogService(QObject):
         return self._model
 
     def append(self, text: str, level: str = "info", update_status: bool = True):
+        if self._closed:
+            return
         text = str(text or "").rstrip()
         if not text:
             return
@@ -42,6 +45,8 @@ class LogService(QObject):
     def log(self, text: str): self.append(text)
 
     def _flush(self):
+        if self._closed:
+            return
         rows = []
         for _ in range(48):
             try:
@@ -67,3 +72,10 @@ class LogService(QObject):
     @Slot()
     def clear(self):
         self._lines.clear(); self._model.replace([]); self.textChanged.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._timer.stop()

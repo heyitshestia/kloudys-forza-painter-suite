@@ -91,6 +91,7 @@ class CGroupLibraryScanTests(unittest.TestCase):
                 supporter=SimpleNamespace(unlocked=False),
                 demo=True,
             )
+            self.addCleanup(service.close)
             try:
                 with patch.object(service._executor, "submit") as submit:
                     service.scanSaves("fh6")
@@ -103,7 +104,7 @@ class CGroupLibraryScanTests(unittest.TestCase):
                 self.assertEqual(service.status, "Supporter unlock required")
                 self.assertTrue(all("unlock" in message.lower() for message, _level in log.messages))
             finally:
-                service._executor.shutdown(wait=True, cancel_futures=True)
+                service.close()
 
     def test_final_root_close_preserves_last_flat_mask(self):
         payload = bytearray(

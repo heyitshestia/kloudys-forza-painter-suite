@@ -15,7 +15,13 @@ import psutil
 from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, MIN_HEADER_SIZE, assess_group_tree
 from game_profiles import PROFILES, get_profile
 from fh6_rtti_registry import load_runtime_profiles
-from native import dereference_pointer, get_base_address, read_int, read_process_memory
+from native import (
+    dereference_pointer,
+    get_base_address,
+    process_memory_session,
+    read_int,
+    read_process_memory,
+)
 
 
 MEM_COMMIT = 0x1000
@@ -198,10 +204,8 @@ def is_readable(protect):
 
 
 def iter_regions(pid, min_address=0x10000, max_address=0x7FFFFFFFFFFF, type_filter=None, writable_only=True):
-    handle = kernel32.OpenProcess(0x0410, False, pid)
-    if not handle:
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
+    with process_memory_session(pid) as session:
+        handle = session.handle
         address = min_address
         info = MEMORY_BASIC_INFORMATION()
         while address < max_address:
@@ -219,8 +223,6 @@ def iter_regions(pid, min_address=0x10000, max_address=0x7FFFFFFFFFFF, type_filt
             if next_address <= address:
                 break
             address = next_address
-    finally:
-        kernel32.CloseHandle(handle)
 
 
 def is_user_pointer(value):
@@ -230,17 +232,16 @@ def is_user_pointer(value):
 def is_private_writable_address(pid, address):
     if not is_user_pointer(address):
         return False
-    handle = kernel32.OpenProcess(0x0410, False, pid)
-    if not handle:
-        return False
     try:
-        info = MEMORY_BASIC_INFORMATION()
-        result = kernel32.VirtualQueryEx(handle, address, ctypes.byref(info), ctypes.sizeof(info))
-        if not result:
-            return False
-        return info.State == MEM_COMMIT and is_readable_writable(info.Protect)
-    finally:
-        kernel32.CloseHandle(handle)
+        with process_memory_session(pid) as session:
+            handle = session.handle
+            info = MEMORY_BASIC_INFORMATION()
+            result = kernel32.VirtualQueryEx(handle, address, ctypes.byref(info), ctypes.sizeof(info))
+            if not result:
+                return False
+            return info.State == MEM_COMMIT and is_readable_writable(info.Protect)
+    except OSError:
+        return False
 
 
 def read_pointer(pid, address):
@@ -3511,8 +3512,22 @@ def main():
     probe_count(args.pid, profile, args.layer_count, args.limit_mb, args.max_matches, args.max_seconds, args.progress_every)
 
 
+def command_pid(argv):
+    for index, value in enumerate(argv):
+        if value == "--pid" and index + 1 < len(argv):
+            return int(argv[index + 1])
+        if value.startswith("--pid="):
+            return int(value.split("=", 1)[1])
+    return None
+
+
 if __name__ == "__main__":
     if sys.maxsize <= 2**32:
         print("Use 64-bit Python.")
         sys.exit(1)
-    main()
+    requested_pid = command_pid(sys.argv[1:])
+    if requested_pid is None:
+        main()
+    else:
+        with process_memory_session(requested_pid):
+            main()

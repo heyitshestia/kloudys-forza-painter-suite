@@ -2,21 +2,12 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
-if not defined REPO_URL set "REPO_URL=https://github.com/heyitshestia/kloudys-forza-painter-suite.git"
-if not defined BRANCH set "BRANCH=main"
-
-if not defined KFPS_UPDATER_REMOTE_BOOTSTRAP (
-    set "KFPS_UPDATER_REMOTE_BOOTSTRAP=1"
-    if not defined KFPS_UPDATER_ROOT set "KFPS_UPDATER_ROOT=%CD%"
-    set "KFPS_UPDATER_TEMP=%TEMP%\kfps-latest-updater-%RANDOM%-%RANDOM%.bat"
-    set "KFPS_REMOTE_UPDATER_URL="
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$repo=$env:REPO_URL; $branch=$env:BRANCH; if($repo -match 'github\.com[:/](?<owner>[^/]+)/(?<repo>[^/.]+)(\.git)?$'){ $url='https://raw.githubusercontent.com/' + $Matches.owner + '/' + $Matches.repo + '/' + $branch + '/03_update_from_github.bat'; $content=(Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{'User-Agent'='KFPS-Updater'}).Content; $content=$content -replace '\r?\n', [Environment]::NewLine; [IO.File]::WriteAllText($env:KFPS_UPDATER_TEMP, $content, [Text.Encoding]::ASCII); exit 0 }; exit 1" >nul 2>nul
-    if exist "!KFPS_UPDATER_TEMP!" (
-        call "!KFPS_UPDATER_TEMP!"
-        set "KFPS_UPDATER_EXIT=!ERRORLEVEL!"
-        del /f /q "!KFPS_UPDATER_TEMP!" >nul 2>nul
-        exit /b !KFPS_UPDATER_EXIT!
-    )
+if /I not "%KFPS_ALLOW_CUSTOM_UPDATE_SOURCE%"=="1" (
+    set "REPO_URL=https://github.com/heyitshestia/kloudys-forza-painter-suite.git"
+    set "BRANCH=main"
+) else (
+    if not defined REPO_URL set "REPO_URL=https://github.com/heyitshestia/kloudys-forza-painter-suite.git"
+    if not defined BRANCH set "BRANCH=main"
 )
 
 if not defined KFPS_UPDATER_HANDOFF (
@@ -39,6 +30,13 @@ if defined KFPS_UPDATER_ROOT cd /d "%KFPS_UPDATER_ROOT%"
 call :resolve_update_root
 if errorlevel 1 exit /b 1
 
+set "UPDATE_MUTATED="
+set "UPDATE_BACKUP_READY="
+set "ORIGINAL_GIT_COMMIT="
+if exist ".git\" (
+    for /f "delims=" %%V in ('git rev-parse HEAD 2^>nul') do set "ORIGINAL_GIT_COMMIT=%%V"
+)
+
 call :init_update_log
 call :capture_current_version OLD_VERSION
 
@@ -53,16 +51,26 @@ call :log ""
 
 call :ensure_git
 if errorlevel 1 goto :fail
+call :resolve_target_commit
+if errorlevel 1 goto :fail
 call :check_update_locks
 if errorlevel 1 goto :fail_quiet
 
 if exist ".git\" (
-    call :log "Git checkout detected. Syncing tracked app files to latest %BRANCH%..."
-    git fetch origin %BRANCH%
+    call :log "Git checkout detected. Syncing tracked app files to commit !TARGET_COMMIT!..."
+    git remote get-url origin >nul 2>nul
+    if errorlevel 1 (
+        git remote add origin "%REPO_URL%"
+    ) else (
+        git remote set-url origin "%REPO_URL%"
+    )
+    if errorlevel 1 goto :fail
+    git fetch origin !TARGET_COMMIT!
     if errorlevel 1 goto :fail
     call :backup_existing_files
     if errorlevel 1 goto :fail
-    git reset --hard origin/%BRANCH%
+    set "UPDATE_MUTATED=1"
+    git reset --hard !TARGET_COMMIT!
     if errorlevel 1 (
         call :log ""
         call :log "Update failed because Git could not reset this folder to the latest version."
@@ -92,7 +100,13 @@ set "TMP_REPO=%TMP_PARENT%\repo"
 if exist "%TMP_PARENT%" rmdir /s /q "%TMP_PARENT%"
 mkdir "%TMP_PARENT%" >nul 2>nul
 
-git clone --depth 1 --branch %BRANCH% "%REPO_URL%" "%TMP_REPO%"
+git init "%TMP_REPO%" >nul
+if errorlevel 1 goto :fail
+git -C "%TMP_REPO%" remote add origin "%REPO_URL%"
+if errorlevel 1 goto :fail
+git -C "%TMP_REPO%" fetch --depth 1 origin !TARGET_COMMIT!
+if errorlevel 1 goto :fail
+git -C "%TMP_REPO%" checkout --detach !TARGET_COMMIT!
 if errorlevel 1 goto :fail
 
 call :backup_existing_files
@@ -100,6 +114,7 @@ if errorlevel 1 goto :fail
 call :check_update_locks
 if errorlevel 1 goto :fail_quiet
 
+set "UPDATE_MUTATED=1"
 call :sync_program_files_from_repo "%TMP_REPO%"
 if errorlevel 1 goto :fail
 call :verify_program_file_sync "%TMP_REPO%"
@@ -135,9 +150,14 @@ if not "%FORZA_PAINTER_NO_PAUSE%"=="1" pause
 exit /b 1
 
 :fail
+call :restore_failed_update
 call :log ""
-call :log "Update failed. No generated images or runtime output were intentionally removed."
-call :log "If program files were partially changed, check backup folder: !BACKUP_DIR!"
+call :log "Update failed. Generated images and runtime output were not intentionally removed."
+if defined UPDATE_ROLLBACK_OK (
+    call :log "The previous program files were restored automatically."
+) else if defined UPDATE_MUTATED (
+    call :log "Automatic rollback was incomplete. Check backup folder: !BACKUP_DIR!"
+)
 if not "%FORZA_PAINTER_NO_PAUSE%"=="1" pause
 exit /b 1
 
@@ -201,6 +221,24 @@ if exist ".git\" (
 :capture_current_version_done
 exit /b 0
 
+:resolve_target_commit
+set "TARGET_COMMIT="
+for /f "tokens=1" %%V in ('git ls-remote "%REPO_URL%" "refs/heads/%BRANCH%" 2^>nul') do (
+    if not defined TARGET_COMMIT set "TARGET_COMMIT=%%V"
+)
+if not defined TARGET_COMMIT (
+    call :log "Could not resolve the requested Git branch to an immutable commit."
+    exit /b 1
+)
+set "KFPS_TARGET_COMMIT=!TARGET_COMMIT!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if($env:KFPS_TARGET_COMMIT -notmatch '^[0-9a-fA-F]{40}$'){ exit 1 }; exit 0" >nul 2>nul
+if errorlevel 1 (
+    call :log "Git returned an invalid target commit identifier."
+    exit /b 1
+)
+call :log "Resolved %BRANCH% to immutable commit !TARGET_COMMIT!."
+exit /b 0
+
 :resolve_update_root
 set "KFPS_START_DIR=%CD%"
 call :is_kfps_app_root
@@ -235,19 +273,66 @@ exit /b 0
 :backup_existing_files
 call :log "Backing up current app files before overwrite..."
 if not exist "!BACKUP_DIR!" mkdir "!BACKUP_DIR!" >nul 2>nul
-robocopy "%CD%" "!BACKUP_DIR!" /E /R:1 /W:1 /XD ".git" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" /XF "*.pyc" >nul
+robocopy "%CD%" "!BACKUP_DIR!" /E /R:1 /W:1 /XD ".git" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" "node_modules" ".wrangler" /XF "*.pyc" >nul
 if errorlevel 8 (
-    call :log "Backup warning. Robocopy exit code: %ERRORLEVEL%"
-    call :log "Continuing update without blocking because generated/runtime data is preserved separately."
+    call :log "Backup failed. Robocopy exit code: !ERRORLEVEL!"
+    call :log "The update was stopped before changing program files."
+    exit /b 1
 )
+if exist "%CD%\..\KFPS.exe" (
+    if not exist "!BACKUP_DIR!\__parent_launcher" mkdir "!BACKUP_DIR!\__parent_launcher" >nul 2>nul
+    copy /y "%CD%\..\KFPS.exe" "!BACKUP_DIR!\__parent_launcher\KFPS.exe" >nul
+    if errorlevel 1 (
+        call :log "Backup failed while preserving the parent KFPS.exe launcher."
+        exit /b 1
+    )
+)
+set "UPDATE_BACKUP_READY=1"
 call :log "Backup folder: !BACKUP_DIR!"
+exit /b 0
+
+:restore_failed_update
+set "UPDATE_ROLLBACK_OK="
+if not defined UPDATE_MUTATED exit /b 0
+if not defined UPDATE_BACKUP_READY exit /b 0
+if not exist "!BACKUP_DIR!\" exit /b 0
+call :log "Rolling back changed program files..."
+if exist ".git\" (
+    if defined ORIGINAL_GIT_COMMIT (
+        git reset --hard !ORIGINAL_GIT_COMMIT! >nul 2>nul
+        git clean -fd -e runtime/ -e imgs/ -e webui-data/ -e python/ -e "*.kfpskey" -e node_modules/ -e .wrangler/ -e ".dev.vars" -e ".dev.vars.*" -e .venv/ >nul 2>nul
+        robocopy "!BACKUP_DIR!" "%CD%" /E /R:2 /W:1 /XD "__parent_launcher" /XF "*.pyc" >nul
+    ) else (
+        robocopy "!BACKUP_DIR!" "%CD%" /MIR /R:2 /W:1 /XD "__parent_launcher" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" "node_modules" ".wrangler" /XF "*.pyc" "*.kfpskey" >nul
+    )
+) else (
+    robocopy "!BACKUP_DIR!" "%CD%" /MIR /R:2 /W:1 /XD "__parent_launcher" "runtime" "imgs" "webui-data" "dist" "build" "__pycache__" "python" "node_modules" ".wrangler" /XF "*.pyc" "*.kfpskey" >nul
+)
+if errorlevel 8 (
+    call :log "Program-file rollback failed. Robocopy exit code: !ERRORLEVEL!"
+    exit /b 1
+)
+if exist "!BACKUP_DIR!\__parent_launcher\KFPS.exe" (
+    copy /y "!BACKUP_DIR!\__parent_launcher\KFPS.exe" "%CD%\..\KFPS.exe" >nul
+    if errorlevel 1 (
+        call :log "Program files were restored, but the parent launcher could not be restored."
+        exit /b 1
+    )
+)
+set "UPDATE_ROLLBACK_OK=1"
+call :log "Previous program files restored from !BACKUP_DIR!."
 exit /b 0
 
 :check_update_locks
 set "LOCK_REPORT=%TEMP%\kloudys-update-locks-%RANDOM%.txt"
 if exist "!LOCK_REPORT!" del /f /q "!LOCK_REPORT!" >nul 2>nul
 set "KFPS_LOCK_REPORT=!LOCK_REPORT!"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $root=(Resolve-Path '.').Path; $parent=(Resolve-Path '..').Path; $lockReport=$env:KFPS_LOCK_REPORT; function InTree($path,$base){ if(-not $path){ return $false }; try{ $full=[IO.Path]::GetFullPath($path); return $full.StartsWith($base,[StringComparison]::OrdinalIgnoreCase) } catch { return $false } }; $names=@('KFPS.exe','Kloudys Painter Launcher.exe','Kloudys Painter.exe','KloudysGalateaGenesis.exe','KloudysGeneratorV7.exe','KloudysGeneratorV6.exe','KloudysGeneratorV6-Go.exe','KloudysGeneratorV5.exe','KloudysGeneratorV5DetailLock.exe','KloudysGeneratorV4.exe','KloudysGeneratorV2.exe','KloudysGeneratorV2Fast.exe','KloudysGeneratorV2Speed.exe','ForzaVinylStudio.exe'); $procs=Get-CimInstance Win32_Process; $locks=$procs | Where-Object { $cmd=$_.CommandLine; $path=$_.ExecutablePath; ((($names -contains $_.Name) -and ((InTree $path $root) -or (InTree $path $parent) -or ($cmd -like ('*' + $root + '*')) -or ($cmd -like ('*' + $parent + '*')))) -or (($_.Name -match '^pythonw?\.exe$') -and ($cmd -like ('*' + $root + '*')) -and ($cmd -match 'app_qt.py|start_fabric_editor.py|forza_generator_v2.py|benchmark_generator_settings.py|KFPS\.UI'))) }; if($locks){ $locks | ForEach-Object { ('PID ' + $_.ProcessId + ' - ' + $_.Name) } | Set-Content -LiteralPath $lockReport -Encoding ASCII; $locks | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 1500; $remaining=Get-CimInstance Win32_Process | Where-Object { $cmd=$_.CommandLine; $path=$_.ExecutablePath; ((($names -contains $_.Name) -and ((InTree $path $root) -or (InTree $path $parent) -or ($cmd -like ('*' + $root + '*')) -or ($cmd -like ('*' + $parent + '*')))) -or (($_.Name -match '^pythonw?\.exe$') -and ($cmd -like ('*' + $root + '*')) -and ($cmd -match 'app_qt.py|start_fabric_editor.py|forza_generator_v2.py|benchmark_generator_settings.py|KFPS\.UI'))) }; if($remaining){ 'Still running after termination attempt:' | Add-Content -LiteralPath $lockReport -Encoding ASCII; $remaining | ForEach-Object { ('PID ' + $_.ProcessId + ' - ' + $_.Name) } | Add-Content -LiteralPath $lockReport -Encoding ASCII; exit 2 } }; exit 0"
+if exist "%CD%\tools\update\Stop-KfpsProcesses.ps1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\tools\update\Stop-KfpsProcesses.ps1" -Root "%CD%" -Parent "%CD%\.." -ReportPath "!LOCK_REPORT!"
+) else (
+    call :log "Using the self-contained process check for this first updater transition."
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $root=(Resolve-Path '.').Path.TrimEnd('\','/'); $parent=(Resolve-Path '..').Path.TrimEnd('\','/'); $report=$env:KFPS_LOCK_REPORT; function InTree($path,$base){ if(-not $path){ return $false }; try { $full=[IO.Path]::GetFullPath($path).TrimEnd('\','/'); return $full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) } catch { return $false } }; function IsParentLauncher($path){ if(-not $path){ return $false }; $full=[IO.Path]::GetFullPath($path); foreach($name in @('KFPS.exe','Kloudys Painter Launcher.exe','Kloudys Painter.exe')){ if($full.Equals((Join-Path $parent $name),[StringComparison]::OrdinalIgnoreCase)){ return $true } }; return $false }; $names=@('KFPS.exe','Kloudys Painter Launcher.exe','Kloudys Painter.exe','KloudysGalateaGenesis.exe','KloudysGeneratorV7.exe','KloudysGeneratorV6.exe','KloudysGeneratorV6-Go.exe','KloudysGeneratorV5.exe','KloudysGeneratorV5DetailLock.exe','KloudysGeneratorV4.exe','KloudysGeneratorV2.exe','KloudysGeneratorV2Fast.exe','KloudysGeneratorV2Speed.exe','ForzaVinylStudio.exe'); function Owned { @(Get-CimInstance Win32_Process | Where-Object { $cmd=[string]$_.CommandLine; $path=[string]$_.ExecutablePath; (($names -contains $_.Name) -and ((InTree $path $root) -or (IsParentLauncher $path))) -or (($_.Name -match '^pythonw?\.exe$') -and ($cmd -like ('*' + $root + '*')) -and ($cmd -match 'app_qt\.py|start_fabric_editor\.py|forza_generator_v2\.py|benchmark_generator_settings\.py|KFPS\.UI')) }) }; $locks=Owned; if($locks){ $locks | ForEach-Object { 'PID ' + $_.ProcessId + ' - ' + $_.Name } | Set-Content -LiteralPath $report -Encoding ASCII; $locks | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 1500; $remaining=Owned; if($remaining){ 'Still running after termination attempt:' | Add-Content -LiteralPath $report -Encoding ASCII; $remaining | ForEach-Object { 'PID ' + $_.ProcessId + ' - ' + $_.Name } | Add-Content -LiteralPath $report -Encoding ASCII; exit 2 } }; exit 0"
+)
 if errorlevel 1 (
     call :log ""
     call :log "Update tried to stop KFPS processes, but Windows reports that one is still running."
@@ -293,6 +378,12 @@ exit /b 0
 set "VERIFY_REPO=%~1"
 if not exist "%VERIFY_REPO%\.git\" (
     call :log "Verification failed: repository metadata is missing for hash verification."
+    exit /b 1
+)
+set "VERIFY_HEAD="
+for /f "delims=" %%V in ('git -C "%VERIFY_REPO%" rev-parse HEAD 2^>nul') do set "VERIFY_HEAD=%%V"
+if /I not "!VERIFY_HEAD!"=="!TARGET_COMMIT!" (
+    call :log "Verification failed: repository HEAD is not the pinned update commit."
     exit /b 1
 )
 call :log "Verifying updated program files against Git..."
@@ -557,7 +648,6 @@ call :ensure_qml_root_binary
 if errorlevel 1 exit /b 1
 call :verify_native_root_binary
 if errorlevel 1 exit /b 1
-call :cleanup_stale_release_git
 if exist "settings\_archive_legacy_2026-05-22" rmdir /s /q "settings\_archive_legacy_2026-05-22" >nul 2>nul
 if exist "settings\_default.ini" del /f /q "settings\_default.ini" >nul 2>nul
 call :cleanup_3x_retired_files
@@ -615,16 +705,6 @@ if exist "tools\" (
 call :seed_bundle_logo_json
 exit /b 0
 
-:cleanup_stale_release_git
-for %%I in ("%CD%") do set "CURRENT_FOLDER=%%~nxI"
-if /I not "%CURRENT_FOLDER%"=="KloudysFH6Painter" exit /b 0
-if not exist "..\KFPS.exe" exit /b 0
-if exist ".git\" (
-    rmdir /s /q ".git" >nul 2>nul
-    if not exist ".git\" call :log "Removed stale release Git metadata."
-)
-exit /b 0
-
 :seed_bundle_logo_json
 set "KFPS_LOGO_JSON=assets\app\KFPS Logo.json"
 if not exist "%KFPS_LOGO_JSON%" exit /b 0
@@ -678,7 +758,7 @@ if /I not "%CURRENT_FOLDER%"=="KloudysFH6Painter" exit /b 0
 set "KFPS_NATIVE_SOURCE=%CD%\KFPS.exe"
 set "KFPS_NATIVE_TARGET=%CD%\..\KFPS.exe"
 set "KFPS_NATIVE_LOG=%UPDATE_LOG%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $src=$env:KFPS_NATIVE_SOURCE; $target=$env:KFPS_NATIVE_TARGET; $log=$env:KFPS_NATIVE_LOG; $root=(Resolve-Path '.').Path; $parent=(Resolve-Path '..').Path; function InTree($path,$base){ if(-not $path){ return $false }; try{ $full=[IO.Path]::GetFullPath($path); return $full.StartsWith($base,[StringComparison]::OrdinalIgnoreCase) } catch { return $false } }; function WriteLog($message){ if($log){ Add-Content -LiteralPath $log -Value ('[' + (Get-Date -Format 'dd.MM.yyyy HH:mm:ss,ff') + '] ' + $message) -Encoding ASCII } }; $names=@('KFPS.exe','Kloudys Painter Launcher.exe','Kloudys Painter.exe'); $locks=Get-CimInstance Win32_Process | Where-Object { $cmd=$_.CommandLine; $path=$_.ExecutablePath; ($names -contains $_.Name) -and ((InTree $path $root) -or (InTree $path $parent) -or ($cmd -like ('*' + $root + '*')) -or ($cmd -like ('*' + $parent + '*'))) }; if($locks){ WriteLog 'Stopped native launcher process(es) before replacing KFPS.exe.'; $locks | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 1200 }; $copied=$false; $last=$null; for($i=0; $i -lt 60; $i++){ try{ Copy-Item -LiteralPath $src -Destination $target -Force; $copied=$true; break } catch { $last=$_.Exception.Message; Start-Sleep -Milliseconds 500 } }; if(-not $copied){ WriteLog ('Native launcher replacement failed after retries: ' + $last); exit 2 }; exit 0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\tools\update\Replace-NativeLauncher.ps1" -Source "!KFPS_NATIVE_SOURCE!" -Target "!KFPS_NATIVE_TARGET!" -AppRoot "%CD%" -ParentRoot "%CD%\.." -LogFile "!KFPS_NATIVE_LOG!"
 if errorlevel 1 (
     call :schedule_native_handoff
     exit /b 1

@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Property, QProcess, QProcessEnvironment, QTi
 from .app_paths import AppPaths
 from .json_service import JsonService
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 
 
 class TransferService(QObject):
@@ -16,6 +17,7 @@ class TransferService(QObject):
 
     def __init__(self, paths: AppPaths, log: LogService, jsons: JsonService, parent=None):
         super().__init__(parent)
+        self._closed = False
         self.paths = paths
         self.log = log
         self.jsons = jsons
@@ -31,9 +33,15 @@ class TransferService(QObject):
         self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read)
         self._process.finished.connect(self._finished)
+        self._process.started.connect(self._process_started)
+        self._process.errorOccurred.connect(self._process_error)
         self._live_timer = QTimer(self)
         self._live_timer.setInterval(160)
         self._live_timer.timeout.connect(self._flush_live_log)
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setSingleShot(True)
+        self._startup_timer.setInterval(5000)
+        self._startup_timer.timeout.connect(self._startup_timed_out)
 
     @Property(bool, notify=changed)
     def running(self):
@@ -67,6 +75,8 @@ class TransferService(QObject):
         return "fm" if value.startswith("fm") else value
 
     def _start(self, args, status):
+        if self._closed:
+            return
         if self._running:
             self.log.append("A transfer job is already running.")
             return
@@ -89,13 +99,31 @@ class TransferService(QObject):
         self._process.setProcessEnvironment(env)
         self._process.setWorkingDirectory(str(self.paths.app_root))
         self._process.start(self.paths.python_executable, ["-u", str(bridge), *args])
-        if not self._process.waitForStarted(5000):
-            self._running = False
-            self._status = "Failed to start"
-            self._close_full_transfer_log()
-            self._live_timer.stop()
-            self.changed.emit()
-            self.log.append("Import/export process did not start.", "error")
+        self._startup_timer.start()
+
+    def _process_started(self):
+        if not self._closed:
+            self._startup_timer.stop()
+
+    def _process_error(self, _error):
+        if self._closed or not self._running or self._process.state() != QProcess.NotRunning:
+            return
+        self._fail_start("Import/export process did not start.")
+
+    def _startup_timed_out(self):
+        if self._closed or not self._running or self._process.state() != QProcess.Starting:
+            return
+        self._process.kill()
+        self._fail_start("Import/export process did not start within five seconds.")
+
+    def _fail_start(self, message):
+        self._startup_timer.stop()
+        self._running = False
+        self._status = "Failed to start"
+        self._close_full_transfer_log()
+        self._live_timer.stop()
+        self.changed.emit()
+        self.log.append(message, "error")
 
     def _open_full_transfer_log(self):
         self._close_full_transfer_log()
@@ -191,6 +219,8 @@ class TransferService(QObject):
             self._queue_live_log([line])
 
     def _read(self):
+        if self._closed:
+            return
         self._buffer += bytes(self._process.readAllStandardOutput())
         parts = self._buffer.split(b"\n")
         self._buffer = parts.pop() if parts else b""
@@ -200,6 +230,9 @@ class TransferService(QObject):
                 self._handle_line(line)
 
     def _finished(self, code, _status):
+        if self._closed:
+            return
+        self._startup_timer.stop()
         if self._buffer:
             buffered = self._buffer.decode("utf-8", "replace")
             for line in buffered.splitlines():
@@ -229,3 +262,36 @@ class TransferService(QObject):
             p.kill()
         except Exception:
             self._process.kill()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._startup_timer.stop()
+        self._live_timer.stop()
+        self._pending_live_lines.clear()
+        self._close_full_transfer_log()
+        try:
+            process_id = int(self._process.processId())
+        except Exception:
+            process_id = 0
+        if process_id:
+            try:
+                process = psutil.Process(process_id)
+                for child in reversed(process.children(recursive=True)):
+                    try:
+                        child.kill()
+                    except psutil.Error:
+                        pass
+                process.kill()
+            except psutil.Error:
+                pass
+        try:
+            if self._process.state() != QProcess.NotRunning:
+                self._process.kill()
+                self._process.waitForFinished(1500)
+        except Exception:
+            pass
+        self._running = False
+        discard_queued_events(self)

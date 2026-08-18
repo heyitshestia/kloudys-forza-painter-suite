@@ -7,6 +7,8 @@ import sys
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
+from .lifecycle import discard_queued_events
+
 
 class RuntimeService(QObject):
     changed = Signal()
@@ -16,6 +18,8 @@ class RuntimeService(QObject):
 
     def __init__(self, demo=False, parent=None):
         super().__init__(parent)
+        self._closed = False
+        self._future = None
         self._checking = False
         self._python = "Checking"
         self._deps = "Checking"
@@ -41,10 +45,20 @@ class RuntimeService(QObject):
 
     @Slot()
     def check(self):
-        if self._checking: return
+        if self._closed or self._checking: return
         self._checking = True; self.changed.emit()
-        future = self._executor.submit(self._work)
-        future.add_done_callback(lambda f: self._resultReady.emit(f.result()))
+        self._future = self._executor.submit(self._work)
+        self._future.add_done_callback(self._emit_result)
+
+    def _emit_result(self, future):
+        if self._closed:
+            return
+        try:
+            result = future.result()
+        except Exception:
+            return
+        if not self._closed:
+            self._resultReady.emit(result)
 
     @classmethod
     def _work(cls):
@@ -61,5 +75,17 @@ class RuntimeService(QObject):
 
     @Slot(object)
     def _apply(self, result):
+        if self._closed:
+            return
         self._python = result["python"]; self._deps = result["deps"]; self._runtime = result["runtime"]; self._ready = result["ready"]
         self._checking = False; self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        if self._future is not None:
+            self._future.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)

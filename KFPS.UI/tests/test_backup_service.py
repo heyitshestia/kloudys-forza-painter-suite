@@ -48,6 +48,7 @@ class BackupServiceTests(unittest.TestCase):
             settings = SettingsService(runtime / "settings.json")
             settings.backupFolder = str(destination)
             service = BackupService(paths, settings, DummyLog())
+            self.addCleanup(service.close)
             try:
                 service.backupImgs()
                 deadline = time.monotonic() + 5
@@ -133,6 +134,7 @@ class BackupServiceTests(unittest.TestCase):
             paths = AppPaths(app_root, UI, UI / "qml", UI / "assets", runtime, app_root / "python" / "python.exe")
             settings = SettingsService(runtime / "settings.json")
             service = BackupService(paths, settings, DummyLog())
+            self.addCleanup(service.close)
             try:
                 settings.backupFolder = str(root / "missing")
                 with patch(

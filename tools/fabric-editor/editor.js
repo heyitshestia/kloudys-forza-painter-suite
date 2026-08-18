@@ -1,4 +1,4 @@
-/* global fabric */
+/* global fabric, KfpsFabricAdapter */
 "use strict";
 
 const FH6_BOUNDS = { left: -1000, top: -1000, width: 2000, height: 2000 };
@@ -21,7 +21,26 @@ const PROJECT_BROWSER_API = "/api/fabric-editor/project-browser";
 const PROJECT_FILE_API = "/api/fabric-editor/project-file";
 const PROJECT_SAVE_API = "/api/fabric-editor/save-project";
 const PROJECT_OPEN_FOLDER_API = "/api/fabric-editor/open-project-folder";
-const EDITOR_MUTATION_HEADERS = Object.freeze({ "X-KFPS-Editor": "1" });
+const EDITOR_SESSION_STORAGE_KEY = "kfpsFabricEditorSession";
+
+function editorSessionToken() {
+  try {
+    const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+    const supplied = hash.get("session") || "";
+    if (supplied) {
+      window.sessionStorage.setItem(EDITOR_SESSION_STORAGE_KEY, supplied);
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      return supplied;
+    }
+    return window.sessionStorage.getItem(EDITOR_SESSION_STORAGE_KEY) || "";
+  } catch (_err) {
+    return "";
+  }
+}
+
+const EDITOR_MUTATION_HEADERS = Object.freeze({
+  "X-KFPS-Editor-Session": editorSessionToken(),
+});
 const SHORTCUTS_KEY = "kloudyFabricShortcuts";
 const OVERLAY_LAYER_MODE_KEY = "kloudyFabricOverlayLayerMode";
 const AUTOSAVE_KEY = "kloudyFabricAutosave";
@@ -1299,7 +1318,7 @@ function syncSelectionOutlineHelpers(selectedSet) {
     }
     syncSelectionOutlineHelper(object, helper);
     const objectIndex = canvas.getObjects().indexOf(object);
-    if (objectIndex >= 0) helper.moveTo(objectIndex + 1);
+    if (objectIndex >= 0) KfpsFabricAdapter.moveObjectTo(canvas, helper, objectIndex + 1);
   });
 }
 
@@ -3644,7 +3663,7 @@ function vinylObjectAtCanvasPoint(x, y) {
 }
 
 function pickShapeColorFromEvent(opt) {
-  const pointer = canvas.getPointer(opt.e);
+  const pointer = KfpsFabricAdapter.scenePoint(canvas, opt.e);
   if (overlayLayerMode === "above") {
     const overlayColor = overlayColorAtCanvasPoint(pointer.x, pointer.y);
     if (overlayColor) {
@@ -4640,7 +4659,7 @@ function initCanvas() {
     styleActiveTransformControls();
     syncSelectedShapeOutlines();
     scheduleVisualGridLayerUpdate();
-    updateHud(canvas.getPointer(opt.e));
+    updateHud(KfpsFabricAdapter.scenePoint(canvas, opt.e));
     if (hybridRenderActive) {
       requestHybridRender();
       settleHybridRender();
@@ -4732,7 +4751,7 @@ function initCanvas() {
       scheduleVisualGridLayerUpdate();
       requestCanvasRender();
       lastPan = { x: opt.e.clientX, y: opt.e.clientY };
-      schedulePointerHud(canvas.getPointer(opt.e), null, "panning");
+      schedulePointerHud(KfpsFabricAdapter.scenePoint(canvas, opt.e), null, "panning");
       return;
     }
     if (guideDraft && activeToolMode === "guides") {
@@ -4741,13 +4760,13 @@ function initCanvas() {
       canvas.selection = false;
       canvas._groupSelector = null;
       updateGuideDraft(opt);
-      schedulePointerHud(canvas.getPointer(opt.e));
+      schedulePointerHud(KfpsFabricAdapter.scenePoint(canvas, opt.e));
       return;
     }
   });
   canvas.on("mouse:move", (opt) => {
     if (!isPanning && opt?.e) {
-      schedulePointerHud(canvas.getPointer(opt.e), opt.target);
+      schedulePointerHud(KfpsFabricAdapter.scenePoint(canvas, opt.e), opt.target);
     }
   });
   canvas.on("mouse:up", () => {
@@ -4823,13 +4842,13 @@ function drawBounds() {
   group.forEach((item) => {
     item.kloudyGuide = true;
     canvas.add(item);
-    item.sendToBack();
+    KfpsFabricAdapter.sendObjectToBack(canvas, item);
   });
 }
 
 function editorGuideObjects() {
   if (!canvas) return [];
-  return guideObjectRegistry.read(canvas._objects || canvas.getObjects());
+  return guideObjectRegistry.read(canvas.getObjects());
 }
 
 function clampGuideSize(value) {
@@ -5043,11 +5062,11 @@ function queueGuideRender() {
 
 function layerEditorHelpers() {
   if (overlayImage && canvas.getObjects().includes(overlayImage)) {
-    if (overlayLayerMode === "above") overlayImage.bringToFront();
-    else overlayImage.sendToBack();
+    if (overlayLayerMode === "above") KfpsFabricAdapter.bringObjectToFront(canvas, overlayImage);
+    else KfpsFabricAdapter.sendObjectToBack(canvas, overlayImage);
   }
   syncMaskPreviewOutlines();
-  editorGuideObjects().forEach((obj) => obj.bringToFront());
+  editorGuideObjects().forEach((obj) => KfpsFabricAdapter.bringObjectToFront(canvas, obj));
 }
 
 function bringGuidesToBack() {
@@ -5265,7 +5284,7 @@ function constrainedGuideEnd(anchor, pointer, event = null) {
 }
 
 function beginGuideDraft(opt) {
-  const pointer = canvas.getPointer(opt.e);
+  const pointer = KfpsFabricAdapter.scenePoint(canvas, opt.e);
   const anchor = guideState.snapGuideAnchor ? snapPointToGrid(pointer) : pointer;
   guideDraft = {
     id: "__draft__",
@@ -5281,7 +5300,7 @@ function beginGuideDraft(opt) {
 
 function updateGuideDraft(opt) {
   if (!guideDraft) return;
-  const pointer = canvas.getPointer(opt.e);
+  const pointer = KfpsFabricAdapter.scenePoint(canvas, opt.e);
   const end = constrainedGuideEnd({ x: guideDraft.x1, y: guideDraft.y1 }, pointer, opt.e);
   guideDraft.x2 = end.x;
   guideDraft.y2 = end.y;
@@ -5480,7 +5499,7 @@ function canvasPointFromEvent(event = null) {
   const hasPointerCoordinates = ["clientX", "pageX", "offsetX", "x"].some((key) => Number.isFinite(Number(domEvent[key])));
   if (!hasPointerCoordinates) return null;
   try {
-    return canvas.getPointer(domEvent);
+    return KfpsFabricAdapter.scenePoint(canvas, domEvent);
   } catch (_err) {
     return null;
   }
@@ -6952,7 +6971,7 @@ function clearVinylObjects(options = {}) {
 
 function vinylObjects() {
   if (!canvas) return [];
-  return vinylObjectRegistry.read(canvas._objects || canvas.getObjects());
+  return vinylObjectRegistry.read(canvas.getObjects());
 }
 
 function invalidateVinylObjectRegistry() {
@@ -8258,8 +8277,8 @@ function syncMaskPreviewOutlines() {
   if (!orderedHelpers.length) return;
   const helperSet = new Set(orderedHelpers);
   const nextObjects = canvas.getObjects().filter((object) => !helperSet.has(object)).concat(orderedHelpers);
-  if (!nextObjects.every((object, index) => canvas._objects[index] === object)) {
-    canvas._objects = nextObjects;
+  if (!nextObjects.every((object, index) => canvas.getObjects()[index] === object)) {
+    KfpsFabricAdapter.replaceObjectStack(canvas, nextObjects);
     nextObjects.forEach((object) => { object.canvas = canvas; });
     invalidateVinylObjectRegistry();
   }
@@ -8741,7 +8760,7 @@ function insertNewVinylObject(object, mode) {
   }
   const referenceIndex = canvas.getObjects().indexOf(reference);
   canvas.add(object);
-  object.moveTo(mode === "below" ? referenceIndex : referenceIndex + 1);
+  KfpsFabricAdapter.moveObjectTo(canvas, object, mode === "below" ? referenceIndex : referenceIndex + 1);
   return true;
 }
 
@@ -8764,7 +8783,7 @@ function insertDuplicateVinylObjects(clones, originals, mode) {
   const referenceIndex = canvas.getObjects().indexOf(reference);
   clones.forEach((clone, offset) => {
     canvas.add(clone);
-    clone.moveTo(mode === "below" ? referenceIndex + offset : referenceIndex + 1 + offset);
+    KfpsFabricAdapter.moveObjectTo(canvas, clone, mode === "below" ? referenceIndex + offset : referenceIndex + 1 + offset);
   });
   return mode;
 }
@@ -11055,7 +11074,7 @@ function setVinylStackOrder(order) {
   const restoreSelection = selectedVinylObjects().filter((obj) => currentVinylSet.has(obj));
   const nonVinyl = currentObjects.filter((obj) => !currentVinylSet.has(obj));
   if (restoreSelection.length) canvas.discardActiveObject();
-  canvas._objects = nonVinyl.concat(nextVinyl);
+  KfpsFabricAdapter.replaceObjectStack(canvas, nonVinyl.concat(nextVinyl));
   invalidateVinylObjectRegistry();
   nextVinyl.forEach((obj) => {
     obj.canvas = canvas;

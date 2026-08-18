@@ -52,18 +52,13 @@ def wait_for(predicate, timeout=8.0):
 
 
 def shutdown(service):
-    if hasattr(service, "_thumbnail_poll_timer"):
-        service._thumbnail_poll_timer.stop()
-    process = getattr(service, "_thumbnail_process", None)
-    if process and process.poll() is None:
-        process.kill()
-        process.communicate(timeout=2)
-    wait_for(lambda: not service.indexing)
-    service._preview_executor.shutdown(wait=True, cancel_futures=True)
-    service._index_executor.shutdown(wait=True, cancel_futures=True)
+    service.close()
 
 
 class OutputExplorerPerformanceTests(unittest.TestCase):
+    def setUp(self):
+        QCoreApplication.removePostedEvents(None)
+
     def test_refresh_does_not_probe_every_indexed_json(self):
         with tempfile.TemporaryDirectory() as td:
             app_root = Path(td)

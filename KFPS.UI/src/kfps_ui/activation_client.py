@@ -14,6 +14,7 @@ class ActivationClient(QObject):
 
     def __init__(self, endpoint: str, parent=None):
         super().__init__(parent)
+        self._closed = False
         self._endpoint = endpoint.rstrip("/")
         self._manager = QNetworkAccessManager(self)
         self._manager.setTransferTimeout(NETWORK_TIMEOUT_MS)
@@ -62,6 +63,8 @@ class ActivationClient(QObject):
         self, operation: str, *, key_id: str, key_proof: str, device_id: str, nonce: str,
         community_subject: str = "",
     ):
+        if self._closed:
+            return
         if not self.configured:
             self.completed.emit({
                 "operation": operation,
@@ -93,6 +96,9 @@ class ActivationClient(QObject):
 
     def _finished(self, reply: QNetworkReply):
         context = self._contexts.pop(reply, {"operation": "", "nonce": ""})
+        if self._closed:
+            reply.deleteLater()
+            return
         status_value = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
         try:
             status = int(status_value or 0)
@@ -119,3 +125,13 @@ class ActivationClient(QObject):
             "body": body,
         })
         reply.deleteLater()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        replies = list(self._contexts)
+        self._contexts.clear()
+        for reply in replies:
+            reply.abort()
+            reply.deleteLater()

@@ -105,18 +105,7 @@ class DummyPreview:
 
 
 def close_json_service(service):
-    APP.processEvents()
-    service._thumbnail_poll_timer.stop()
-    process = service._thumbnail_process
-    if process and process.poll() is None:
-        process.kill()
-        process.communicate(timeout=2)
-    wait_for(lambda: not service.indexing, timeout=5.0)
-    service._cache_save_pending = False
-    service._save_index_cache_async()
-    APP.processEvents()
-    service._preview_executor.shutdown(wait=True, cancel_futures=True)
-    service._index_executor.shutdown(wait=True, cancel_futures=True)
+    service.close()
 
 
 class CommunityBoundaryTests(unittest.TestCase):

@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.28
+- Reworked application startup and shutdown ownership so background workers, timers, subprocesses, and queued work stop cleanly without leaving KFPS processes behind.
+- Unified supported vinyl JSON detection, shape resources, foreign-schema conversion, preview rendering, editor loading, and Community validation behind one tested shape contract.
+- Hardened the local editor and game-memory boundaries with per-session editor authentication, safer Fabric operations, read-only probes by default, and deterministic process-handle cleanup.
+- Split Outputs indexing, metadata, Community catalog parsing, development tooling, and right-click menus into focused components while preserving the existing user workflows.
+- Rebuilt update and release safeguards around exact Git commits, complete backups, rollback verification, tracked-file-only archives, manifests, hashes, and automated Windows quality checks.
+- Added an explicit graphics-backend policy and expanded compatibility, lifecycle, updater, release, schema, editor, and Outputs regression coverage.
+
 ## 3.1.27
 - Made Outputs right-click Copy place selected JSON files on both the KFPS clipboard and the native Windows clipboard for direct pasting into File Explorer.
 

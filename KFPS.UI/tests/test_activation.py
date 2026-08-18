@@ -147,6 +147,7 @@ class ActivationTests(unittest.TestCase):
             enforce_activation=True,
             clock=clock,
         )
+        self.addCleanup(service.close)
         service._payload = key.payload
         service._key = key
         service._evaluate_local_activation()
@@ -347,6 +348,7 @@ class ActivationTests(unittest.TestCase):
             client = FakeClient()
             store = ActivationStore(root / "private-state", PlaintextTestProtector())
             service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
             service._evaluate_local_activation()
@@ -381,6 +383,7 @@ class ActivationTests(unittest.TestCase):
             client = FakeClient()
             store = ActivationStore(root / "private-state", PlaintextTestProtector())
             service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
             service._evaluate_local_activation()
@@ -499,6 +502,7 @@ class ActivationTests(unittest.TestCase):
             })
             store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt), "grace_started_at": 1})
             service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
             with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
@@ -550,6 +554,7 @@ class ActivationTests(unittest.TestCase):
             })
             store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt)})
             service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
             with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
@@ -582,6 +587,7 @@ class ActivationTests(unittest.TestCase):
                 self.assertIn("revocation", saved)
 
                 restarted = SupporterService(root, store=store, client=FakeClient(), endpoint="http://127.0.0.1:8787", enforce_activation=True)
+                self.addCleanup(restarted.close)
                 restarted._payload = key.payload
                 restarted._key = key
                 restarted._evaluate_local_activation()
@@ -648,6 +654,7 @@ class ActivationTests(unittest.TestCase):
                 enforce_activation=True,
                 clock=lambda: 1000.0,
             )
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
 
@@ -729,6 +736,7 @@ class ActivationTests(unittest.TestCase):
                     endpoint="http://127.0.0.1:8787",
                     enforce_activation=True,
                 )
+                self.addCleanup(service.close)
                 service._payload = key.payload
                 service._key = key
 
@@ -777,6 +785,7 @@ class ActivationTests(unittest.TestCase):
                 })
                 store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt)})
                 service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+                self.addCleanup(service.close)
                 service._payload = key.payload
                 service._key = key
                 with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):
@@ -821,6 +830,7 @@ class ActivationTests(unittest.TestCase):
             })
             store.save_key_state(key.key_id, {"receipt": encode_receipt(receipt)})
             service = SupporterService(root, store=store, client=client, endpoint="http://127.0.0.1:8787", enforce_activation=True)
+            self.addCleanup(service.close)
             service._payload = key.payload
             service._key = key
             with patch.object(activation_crypto, "ACTIVATION_PUBLIC_KEY", TEST_PUBLIC_KEY):

@@ -132,6 +132,7 @@ class EditorProjectManagerTests(unittest.TestCase):
             preview = DummyPreview()
             desktop = DummyDesktop()
             service = EditorService(paths, preview, desktop, DummyLog())
+            self.addCleanup(service.close)
 
             self.assertEqual(3, service.projectCount)
             by_name = {row["name"]: row for row in service.projectModel.rows}
@@ -171,6 +172,7 @@ class EditorProjectManagerTests(unittest.TestCase):
                 DummyDesktop(),
                 DummyLog(),
             )
+            self.addCleanup(service.close)
 
             service.resetTutorial()
 
@@ -188,6 +190,7 @@ class EditorProjectManagerTests(unittest.TestCase):
                 DummyDesktop(),
                 DummyLog(),
             )
+            self.addCleanup(service.close)
             first = str(paths.project_root / "First.fabric-project.json")
             second = str(paths.project_root / "Second.fabric-project.json")
             service._selected = first
@@ -222,6 +225,7 @@ class EditorServerReuseTests(unittest.TestCase):
                     "pid": 1234,
                     "port": port,
                     "root": str(root),
+                    "session_token": "test_editor_session_token_1234567890",
                 }
             ),
             encoding="utf-8",
@@ -238,6 +242,7 @@ class EditorServerReuseTests(unittest.TestCase):
                 DummyDesktop(),
                 DummyLog(),
             )
+            self.addCleanup(service.close)
             health = FakeResponse({"ok": True, "root": str(root)})
 
             with patch(
@@ -247,7 +252,7 @@ class EditorServerReuseTests(unittest.TestCase):
                 url = service._active_server_url()
 
             self.assertEqual(
-                "http://127.0.0.1:48123/tools/fabric-editor/index.html",
+                "http://127.0.0.1:48123/tools/fabric-editor/index.html#session=test_editor_session_token_1234567890",
                 url,
             )
             request.assert_called_once_with(
@@ -272,6 +277,7 @@ class EditorServerReuseTests(unittest.TestCase):
                 DummyDesktop(),
                 DummyLog(),
             )
+            self.addCleanup(service.close)
             completed = []
             service.launchCompleted.connect(
                 lambda ok, url, message: completed.append((ok, url, message))
@@ -284,6 +290,7 @@ class EditorServerReuseTests(unittest.TestCase):
                     return_value=(
                         "http://127.0.0.1:48123/"
                         "tools/fabric-editor/index.html"
+                        "#session=test_editor_session_token_1234567890"
                     ),
                 ),
                 patch("kfps_ui.editor_service.subprocess.Popen") as popen,
@@ -301,10 +308,11 @@ class EditorServerReuseTests(unittest.TestCase):
             popen.assert_not_called()
             self.assertEqual(1, len(completed))
             self.assertTrue(completed[0][0])
-            self.assertTrue(
-                completed[0][1].endswith(
-                    "?project=Folder%2FMy%20Project.fabric-project.json"
-                )
+            self.assertEqual(
+                completed[0][1],
+                "http://127.0.0.1:48123/tools/fabric-editor/index.html"
+                "?project=Folder%2FMy%20Project.fabric-project.json"
+                "#session=test_editor_session_token_1234567890",
             )
             self.assertEqual("Editor opened in your browser.", service.status)
             self.assertTrue(service.running)

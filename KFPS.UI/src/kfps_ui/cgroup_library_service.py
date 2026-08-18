@@ -9,6 +9,7 @@ import secrets
 import shutil
 import struct
 import string
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import QFileDialog
 from .app_paths import AppPaths
 from .json_service import JsonService
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .preview_service import PreviewService
 from .qt_utils import safe_file_part
@@ -48,6 +50,9 @@ class CGroupLibraryService(QObject):
         self.log = log
         self.supporter = supporter
         self.demo = demo
+        self._closed = False
+        self._cancel_event = threading.Event()
+        self._future = None
         self._running = False
         self._status = "Ready"
         self._summary = "Scan Forza saves into the offline Library, or create a save-folder vinyl from the selected JSON."
@@ -108,7 +113,7 @@ class CGroupLibraryService(QObject):
     @Slot()
     @Slot(str)
     def scanSaves(self, game: str = "fh6"):
-        if self._running:
+        if self._closed or self._running:
             self.log.append("C_group library scan is already running.")
             return
         if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
@@ -144,8 +149,10 @@ class CGroupLibraryService(QObject):
                 "It reads saved files only; it does not touch the live editor or FH offline export flow."
             )
 
+        self._cancel_event.clear()
         future = self._executor.submit(self._scan_work, game_key)
-        future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
+        self._future = future
+        future.add_done_callback(self._emit_future_result)
 
     @Slot(str, result=bool)
     def confirmFm8Creator(self, creator: str) -> bool:
@@ -204,7 +211,7 @@ class CGroupLibraryService(QObject):
 
     @Slot(str, str)
     def createLayerGroupFromSelectedJson(self, json_path: str, game: str = "fh6"):
-        if self._running:
+        if self._closed or self._running:
             self.log.append("C_group folder install is already running.")
             return
         if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
@@ -244,12 +251,14 @@ class CGroupLibraryService(QObject):
             self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
         self.changed.emit()
         self.log.append(f"Offline import: creating a new {game_label} vinyl group in supported local save data...")
+        self._cancel_event.clear()
         future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
-        future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
+        self._future = future
+        future.add_done_callback(self._emit_future_result)
 
     @Slot(str, str)
     def installJsonToFH6LayerGroup(self, json_path: str, target_folder: str):
-        if self._running:
+        if self._closed or self._running:
             self.log.append("C_group folder install is already running.")
             return
         if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
@@ -264,8 +273,14 @@ class CGroupLibraryService(QObject):
         self._summary = "Backing up the selected FH6 LayerGroup folder, then writing a flat C_group."
         self.changed.emit()
         self.log.append("Installing selected JSON into an FH6 LayerGroup folder...")
+        self._cancel_event.clear()
         future = self._executor.submit(self._install_work, Path(json_path), Path(target_folder))
-        future.add_done_callback(lambda item: self._resultReady.emit(self._future_result(item)))
+        self._future = future
+        future.add_done_callback(self._emit_future_result)
+
+    def _emit_future_result(self, future):
+        if not self._closed:
+            self._resultReady.emit(self._future_result(future))
 
     def _future_result(self, future):
         try:
@@ -275,6 +290,8 @@ class CGroupLibraryService(QObject):
 
     @Slot(object)
     def _apply_result(self, result):
+        if self._closed:
+            return
         self._running = False
         ok = bool(result.get("ok"))
         self._candidate_count = int(result.get("candidates") or 0)
@@ -300,6 +317,17 @@ class CGroupLibraryService(QObject):
             self._summary = result.get("error") or "C_group library scan failed."
             self.log.append(self._summary, "error")
         self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._cancel_event.set()
+        if self._future is not None:
+            self._future.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)
 
     @staticmethod
     def _game_key(game: str | None) -> str:
@@ -490,6 +518,8 @@ class CGroupLibraryService(QObject):
         from tools.cgroup.find_forza_sources import describe_source
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError()
         game_key = self._game_key(game_key)
         game_label = self._game_label(game_key)
         creator_profile = self._load_creator_profile() if game_key == "fm8" else None
@@ -520,10 +550,13 @@ class CGroupLibraryService(QObject):
         ignored_designs = self._count_ignored_designs(roots, game_key)
         if source_paths:
             self._save_cached_roots(self._roots_for_sources(source_paths), game_key)
-        candidates = [
-            describe_source(path, expected_layers=None, inspect=True, inspect_locked=False, game=game_key)
-            for path in source_paths
-        ]
+        candidates = []
+        for path in source_paths:
+            if self._cancel_event.is_set():
+                raise concurrent.futures.CancelledError()
+            candidates.append(
+                describe_source(path, expected_layers=None, inspect=True, inspect_locked=False, game=game_key)
+            )
         candidates.sort(key=lambda item: (item.get("_sort_mtime") or 0.0, item.get("file") or ""), reverse=True)
 
         library_root = self._library_root(game_key)
@@ -539,6 +572,8 @@ class CGroupLibraryService(QObject):
         fm8_pre_group_records = 0
 
         for source in candidates:
+            if self._cancel_event.is_set():
+                raise concurrent.futures.CancelledError()
             decode = source.get("decode") or {}
             if not decode.get("ok"):
                 skipped += 1
@@ -673,6 +708,8 @@ class CGroupLibraryService(QObject):
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError()
         json_path = json_path.resolve()
         target_folder = target_folder.resolve()
         self._validate_fh6_layer_group_target(target_folder)
@@ -724,6 +761,8 @@ class CGroupLibraryService(QObject):
     def _create_folder_install_work(self, json_path: Path, game_key: str = "fh6") -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
 
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError()
         game_key = self._game_key(game_key)
         if game_key == "fm8":
             return self._create_fm8_layer_group_install_work(json_path)

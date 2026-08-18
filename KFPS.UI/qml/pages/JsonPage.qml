@@ -21,10 +21,6 @@ Item {
     property string infoCardFolder: ""
     property string infoCardPath: ""
     property string infoCardPreview: ""
-    property string outputContextPath: ""
-    property string outputContextName: ""
-    property bool outputContextIsFolder: false
-    property bool outputContextIsSource: false
     property string outputNameDialogMode: ""
     property string outputNameDialogTarget: ""
     property string outputNameDialogParent: ""
@@ -37,13 +33,7 @@ Item {
     readonly property real headerBannerRightX: browseOutputsCard.x + browseOutputsCard.width
 
     function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY) {
-        root.outputContextPath = String(path || "")
-        root.outputContextName = String(name || "")
-        root.outputContextIsFolder = Boolean(isFolder)
-        root.outputContextIsSource = String(entryKind || "") === "source"
-        outputContextMenu.x = Math.max(Theme.px(8), Math.min(sceneX, root.width - outputContextMenu.width - Theme.px(8)))
-        outputContextMenu.y = Math.max(Theme.px(8), Math.min(sceneY, root.height - outputContextMenu.height - Theme.px(8)))
-        outputContextMenu.open()
+        outputContextMenus.openFor(path, name, isFolder, entryKind, sceneX, sceneY)
     }
 
     function openOutputNameDialog(mode, target, parentPath, currentName) {
@@ -995,7 +985,7 @@ Item {
                                         acceptedButtons: Qt.RightButton
                                         gesturePolicy: TapHandler.ReleaseWithinBounds
                                         onTapped: eventPoint => {
-                                            if (outputContextMenu.opened)
+                                            if (outputContextMenus.opened)
                                                 return
                                             if (jsonService.currentFolder.length === 0)
                                                 return
@@ -1085,238 +1075,16 @@ Item {
         }
     }
 
-    Popup {
-        id: outputContextMenu
-        modal: false
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: Theme.px(220)
-        height: outputContextColumn.implicitHeight + topPadding + bottomPadding
-        padding: Theme.px(8)
-        z: 80
-
-        background: KfpsPopupSurface {
-            surfaceColor: Theme.surfaceRaised
-            outlineColor: Theme.borderStrong
-            cornerRadius: Theme.px(6)
+    OutputExplorerContextMenus {
+        id: outputContextMenus
+        anchors.fill: parent
+        jsonService: jsonService
+        onFolderOpened: files.positionViewAtBeginning()
+        onNameActionRequested: function(mode, target, parentPath, currentName) {
+            root.openOutputNameDialog(mode, target, parentPath, currentName)
         }
-
-        contentItem: ColumnLayout {
-            id: outputContextColumn
-            spacing: Theme.px(4)
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextIsFolder
-                text: "Open folder"
-                iconName: "folder"
-                dense: true
-                toolTipText: "Open this folder in the Outputs browser."
-                onClicked: {
-                    outputContextMenu.close()
-                    jsonService.openExplorerFolder(root.outputContextPath)
-                    files.positionViewAtBeginning()
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
-                         && jsonService.fileOperationSelectionCount > 0
-                text: jsonService.fileOperationSelectionCount > 1
-                      ? "Cut " + jsonService.fileOperationSelectionCount + " items"
-                      : "Cut"
-                dense: true
-                toolTipText: "Prepare the selected item or items to be moved when you paste them."
-                onClicked: {
-                    outputContextMenu.close()
-                    jsonService.cutSelection()
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
-                         && jsonService.fileOperationSelectionCount > 0
-                text: jsonService.fileOperationSelectionCount > 1
-                      ? "Copy " + jsonService.fileOperationSelectionCount + " items"
-                      : "Copy"
-                dense: true
-                toolTipText: "Copy the selected item or items to both KFPS and the Windows clipboard."
-                onClicked: {
-                    outputContextMenu.close()
-                    jsonService.copySelection()
-                }
-            }
-
-            GhostButton {
-                id: moveToFolderButton
-                Layout.fillWidth: true
-                visible: root.outputContextPath.length > 0 && !root.outputContextIsFolder
-                         && jsonService.canMoveJsonSelection
-                text: jsonService.fileOperationSelectionCount > 1
-                      ? "Move " + jsonService.fileOperationSelectionCount + " JSONs to folder"
-                      : "Move to folder"
-                showArrow: true
-                dense: true
-                toolTipText: "Move the selected JSON or JSONs directly into another KFPS Outputs folder."
-                onClicked: {
-                    var preferredX = outputContextMenu.x + outputContextMenu.width - Theme.px(4)
-                    outputMoveFolderMenu.x = preferredX + outputMoveFolderMenu.width <= root.width - Theme.px(8)
-                                             ? preferredX
-                                             : Math.max(Theme.px(8), outputContextMenu.x - outputMoveFolderMenu.width + Theme.px(4))
-                    outputMoveFolderMenu.y = Math.max(
-                                Theme.px(8),
-                                Math.min(outputContextMenu.y + moveToFolderButton.y,
-                                         root.height - outputMoveFolderMenu.height - Theme.px(8)))
-                    outputContextMenu.close()
-                    outputMoveFolderMenu.open()
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextIsFolder || jsonService.currentFolder.length > 0
-                text: jsonService.clipboardCount > 0 ? "Paste " + jsonService.clipboardCount + " item(s)" : "Paste"
-                dense: true
-                enabled: jsonService.canPaste
-                toolTipText: root.outputContextIsFolder
-                             ? "Paste into the folder you right-clicked."
-                             : "Paste into the folder currently shown."
-                onClicked: {
-                    var destination = root.outputContextIsFolder ? root.outputContextPath : jsonService.currentFolder
-                    outputContextMenu.close()
-                    jsonService.pasteIntoFolder(destination)
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextIsFolder || jsonService.currentFolder.length > 0
-                text: root.outputContextIsFolder ? "New folder inside" : "New folder"
-                iconName: "folder"
-                dense: true
-                toolTipText: root.outputContextIsFolder
-                             ? "Create a new folder inside the folder you right-clicked."
-                             : "Create a new folder in the location currently shown."
-                onClicked: {
-                    var destination = root.outputContextIsFolder ? root.outputContextPath : jsonService.currentFolder
-                    outputContextMenu.close()
-                    root.openOutputNameDialog("new-folder", "", destination, "")
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextIsFolder && !root.outputContextIsSource
-                         && jsonService.fileOperationSelectionCount === 1
-                text: "Rename folder"
-                dense: true
-                toolTipText: "Rename this folder without changing its contents."
-                onClicked: {
-                    outputContextMenu.close()
-                    root.openOutputNameDialog("rename-folder", root.outputContextPath, "", root.outputContextName)
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextPath.length > 0 && !root.outputContextIsFolder
-                         && jsonService.fileOperationSelectionCount === 1
-                text: "Rename JSON"
-                dense: true
-                toolTipText: "Rename this JSON file without changing its contents."
-                onClicked: {
-                    outputContextMenu.close()
-                    root.openOutputNameDialog("rename-json", root.outputContextPath, "", root.outputContextName)
-                }
-            }
-
-            GhostButton {
-                Layout.fillWidth: true
-                visible: root.outputContextPath.length > 0 && !root.outputContextIsSource
-                         && jsonService.fileOperationSelectionCount > 0
-                text: jsonService.fileOperationSelectionCount > 1
-                      ? "Delete " + jsonService.fileOperationSelectionCount + " items"
-                      : "Delete"
-                labelColor: Theme.danger
-                dense: true
-                toolTipText: "Permanently delete the selected item or items from their output folders."
-                onClicked: {
-                    outputContextMenu.close()
-                    deleteSelectedEntriesDialog.open()
-                }
-            }
-        }
+        onDeleteRequested: deleteSelectedEntriesDialog.open()
     }
-
-    Popup {
-        id: outputMoveFolderMenu
-        modal: false
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: Theme.px(330)
-        height: Math.min(
-                    root.height - Theme.px(16),
-                    Theme.px(58) + Math.max(1, moveFolderList.count) * Theme.px(36))
-        padding: Theme.px(8)
-        z: 82
-
-        background: KfpsPopupSurface {
-            surfaceColor: Theme.surfaceRaised
-            outlineColor: Theme.borderStrong
-            cornerRadius: Theme.px(6)
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.px(5)
-
-            Text {
-                Layout.fillWidth: true
-                text: jsonService.fileOperationSelectionCount > 1
-                      ? "Move selected JSONs to"
-                      : "Move selected JSON to"
-                color: Theme.primaryBright
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.px(10.4)
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(1, Theme.px(1))
-                color: Theme.borderSoft
-            }
-
-            FastListView {
-                id: moveFolderList
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                spacing: Theme.px(2)
-                model: jsonService.moveFolderModel
-
-                delegate: GhostButton {
-                    required property string displayName
-                    required property string path
-                    required property int depth
-                    width: moveFolderList.width
-                    height: Theme.px(34)
-                    dense: true
-                    text: displayName
-                    toolTipText: path
-                    onClicked: {
-                        outputMoveFolderMenu.close()
-                        jsonService.moveSelectedJsonsToFolder(path)
-                    }
-                }
-
-                ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
-            }
-        }
-    }
-
     Popup {
         id: outputNameDialog
         modal: true

@@ -84,7 +84,7 @@ Item {
                         id: reportDetails
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        placeholderText: "What did you click? What happened? What should have happened? Include the last relevant log line."
+                        placeholderText: "Describe what happened and what you expected."
                         toolTipText: "Describe what you did, what happened, what you expected, and the last step that worked."
                     }
 

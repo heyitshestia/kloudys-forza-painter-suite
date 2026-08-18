@@ -7,30 +7,41 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 from PySide6.QtCore import QMimeData, QObject, Property, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 
+from kfps_shapes import convert_fd6_payload, is_fd6_payload
+
 from .app_paths import AppPaths
 from .desktop_service import DesktopService
+from .json_index import (
+    JSON_INDEX_CACHE_VERSION,
+    OUTPUT_FOLDER_MARKER,
+    build_startup_json_index_cache as _build_startup_json_index_cache,
+    write_index_cache_payload,
+)
+from .json_metadata import (
+    age_label,
+    count_detail_text,
+    display_name_for_json,
+    json_count,
+    json_summary,
+    metadata_count,
+    metadata_count_value,
+    metadata_for_json,
+)
 from .json_thumbnail_worker import worker_command, worker_environment
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .preview_service import PreviewService
 from .qt_utils import safe_file_part
 
 
-FD6_FORMAT = "fd6.shapes"
-KFPS_RECTANGLE_TYPE = 1048677
-KFPS_ELLIPSE_TYPE = 1048678
-KFPS_RECTANGLE_WORD = 0x0065
-KFPS_ELLIPSE_WORD = 0x0066
-FD6_RECTANGLE_DIVISOR = 127.0
-FD6_ELLIPSE_DIVISOR = 63.0
-JSON_INDEX_CACHE_VERSION = 1
-OUTPUT_FOLDER_MARKER = ".kfps-output-folder"
 OUTPUT_FOLDER_MARKER_FORMAT = "kfps-output-folder-v1"
 WINDOWS_RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
@@ -40,229 +51,18 @@ WINDOWS_RESERVED_NAMES = {
 OUTPUT_SORT_MODES = {"date-desc", "name-asc", "shapes-asc", "shapes-desc"}
 
 
-class _StartupJsonIndexBuilder:
-    def __init__(
-        self,
-        paths: AppPaths,
-        preview: PreviewService | None = None,
-        progress=None,
-        include_existing_previews: bool = True,
-    ):
-        self.paths = paths
-        self.preview = preview
-        self.progress = progress
-        self.include_existing_previews = bool(include_existing_previews)
-
-    def source_roots(self):
-        return [self.paths.generated_root, self.paths.editor_json_root, self.paths.exported_root, self.paths.library_root]
-
-    def source_names(self):
-        return ["generated", "editor", "exported", "library"]
-
-    @staticmethod
-    def source_label(source):
-        labels = ["Generated finals", "Editor exports", "Game exports", "Library"]
-        return labels[source] if 0 <= source < len(labels) else "Outputs"
-
-    def cache_key(self, source):
-        root = self.source_roots()[source]
-        try:
-            return str(root.resolve()).casefold()
-        except Exception:
-            return str(root).casefold()
-
-    def report(self, message, done, total):
-        if callable(self.progress):
-            self.progress(message, done, total)
-
-    def build_payload(self):
-        sources = {}
-        total_rows = 0
-        roots = self.source_roots()
-        for source, root in enumerate(roots):
-            self.report(f"Politely interrogating {self.source_label(source)}...", source, len(roots))
-            index = self.build_source(source, root)
-            rows = index.get("rows", [])
-            total_rows += len(rows)
-            sources[str(source)] = self.source_payload(source, index)
-            self.report(f"{self.source_label(source)} filed {len(rows)} JSONs without eating the clipboard.", source + 1, len(roots))
-        return {"version": JSON_INDEX_CACHE_VERSION, "createdAt": time.time(), "sources": sources}, total_rows
-
-    def build_source(self, source, root):
-        root.mkdir(parents=True, exist_ok=True)
-        groups = []
-        if source == 0:
-            root_files = [
-                path for path in root.glob("*.json")
-                if not any(token in path.name.casefold() for token in (".report.", "settings", "metadata", "backup", "session", "probe", "manifest"))
-            ]
-            if root_files:
-                groups.append(self.group(root.name, root, root_files))
-            for folder in root.iterdir():
-                if folder.is_dir():
-                    files = self.files(folder, generated=True)
-                    if files:
-                        groups.append(self.group(folder.name, folder, files))
-                    if len(groups) % 25 == 0:
-                        time.sleep(0)
-        else:
-            grouped = {}
-            for path in self.files(root, generated=False):
-                grouped.setdefault(path.parent, []).append(path)
-            for index, (folder, files) in enumerate(grouped.items()):
-                name = str(folder.relative_to(root)) if folder != root else root.name
-                groups.append(self.group(name, folder, files))
-                if index % 25 == 0:
-                    time.sleep(0)
-        groups.sort(key=lambda item: item["modified"], reverse=True)
-        rows = [self.row_for_json(source, path) for path in self.sorted_visible_files(source, groups)]
-        return {
-            "root": self.cache_key(source),
-            "groups": groups,
-            "rows": rows,
-            "source": source,
-            "scannedAt": time.time(),
-        }
-
-    @staticmethod
-    def files(root: Path, generated: bool):
-        out = []
-        for path in root.rglob("*.json"):
-            low = path.name.lower()
-            if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")):
-                continue
-            managed = any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
-            if generated and not (path.parent.name.lower() == "finals" or managed):
-                continue
-            out.append(path)
-        return out
-
-    def group(self, name, folder, files):
-        modified = max(path.stat().st_mtime for path in files)
-        display_name = name
-        detail_text = f"{len(files)} JSON" if len(files) == 1 else f"{len(files)} JSONs"
-        if files:
-            meta, layers, title = JsonService._json_summary(files[0])
-            title = meta.get("display_name") or meta.get("title")
-            if title:
-                display_name = str(title)
-            if isinstance(layers, int):
-                detail_text = JsonService._count_detail_text(layers, meta)
-        return {
-            "name": name,
-            "displayName": display_name,
-            "detailText": detail_text,
-            "path": str(folder),
-            "files": sorted(files, key=lambda path: path.stat().st_mtime, reverse=True),
-            "count": len(files),
-            "modified": modified,
-            "modifiedLabel": JsonService._age(modified),
-        }
-
-    def sorted_visible_files(self, source, groups):
-        if source == 0:
-            files = []
-            root = self.source_roots()[source]
-            for group in sorted(groups, key=lambda item: item["modified"], reverse=True):
-                managed = [
-                    path for path in group["files"]
-                    if path.parent == root or any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
-                ]
-                generated = [path for path in group["files"] if path not in managed]
-                files.extend(sorted(self.dedupe_generated_files(generated), key=lambda path: (JsonService._count(path), path.name.casefold())))
-                files.extend(sorted(managed, key=lambda path: (JsonService._count(path), path.name.casefold())))
-            return files
-        files = [path for group in groups for path in group["files"]]
-        return sorted(files, key=lambda path: (path.stat().st_mtime * -1, path.name.casefold()))
-
-    @staticmethod
-    def dedupe_generated_files(files):
-        selected = {}
-        for path in files:
-            key = JsonService._count(path)
-            previous = selected.get(key)
-            if previous is None or path.stat().st_mtime >= previous.stat().st_mtime:
-                selected[key] = path
-        return list(selected.values())
-
-    def row_for_json(self, source, path):
-        stat = path.stat()
-        modified_label = JsonService._age(stat.st_mtime)
-        meta, layers, display_name = JsonService._json_summary(path)
-        detail = JsonService._count_detail_text(layers, meta)
-        return {
-            "name": path.name,
-            "displayName": display_name,
-            "path": str(path),
-            "layers": layers,
-            "modifiedLabel": modified_label,
-            "previewUrl": self.existing_preview(path, self.source_names()[source]),
-            "countDetail": detail,
-            "detailText": f"{detail}  •  {modified_label}",
-            "folder": str(path.parent),
-            "mtime": stat.st_mtime,
-            "mtimeNs": stat.st_mtime_ns,
-            "size": stat.st_size,
-            "source": source,
-        }
-
-    def existing_preview(self, path, source_name):
-        if not self.include_existing_previews:
-            return ""
-        existing = getattr(self.preview, "existing_preview_for_json", None)
-        if callable(existing):
-            try:
-                return str(existing(path, source_name) or "")
-            except Exception:
-                return ""
-        return ""
-
-    def source_payload(self, source, index):
-        return {
-            "root": index.get("root") or self.cache_key(source),
-            "scannedAt": index.get("scannedAt") or time.time(),
-            "rows": [
-                {
-                    "name": row.get("name", ""),
-                    "displayName": row.get("displayName", ""),
-                    "path": row.get("path", ""),
-                    "layers": int(row.get("layers") or 0),
-                    "previewUrl": row.get("previewUrl", ""),
-                    "countDetail": row.get("countDetail", ""),
-                    "folder": row.get("folder", ""),
-                    "mtimeNs": int(row.get("mtimeNs") or 0),
-                    "size": int(row.get("size") or 0),
-                }
-                for row in index.get("rows", [])
-            ],
-            "groups": [
-                {
-                    "name": group.get("name", ""),
-                    "displayName": group.get("displayName", ""),
-                    "detailText": group.get("detailText", ""),
-                    "path": group.get("path", ""),
-                    "files": [str(path) for path in group.get("files", [])],
-                }
-                for group in index.get("groups", [])
-            ],
-        }
-
-
 def build_startup_json_index_cache(
     paths: AppPaths,
     preview: PreviewService | None = None,
     progress=None,
     include_existing_previews: bool = True,
 ):
-    builder = _StartupJsonIndexBuilder(
+    return _build_startup_json_index_cache(
         paths,
         preview=preview,
         progress=progress,
         include_existing_previews=include_existing_previews,
     )
-    payload, total_rows = builder.build_payload()
-    JsonService._write_index_cache_payload(paths.runtime_root / "json-browser-index.v1.json", payload)
-    return total_rows
 
 
 class JsonService(QObject):
@@ -272,6 +72,12 @@ class JsonService(QObject):
 
     def __init__(self, paths: AppPaths, preview: PreviewService, desktop: DesktopService, log: LogService, demo=False, parent=None):
         super().__init__(parent); self.paths = paths; self.preview = preview; self.desktop = desktop; self.log = log; self.demo = demo
+        self._closed = False
+        self._cancel_event = threading.Event()
+        self._future_lock = threading.Lock()
+        self._index_futures: set[concurrent.futures.Future] = set()
+        self._preview_futures: set[concurrent.futures.Future] = set()
+        self._deferred_timers: set[QTimer] = set()
         self._group_model = DictListModel(["name","displayName","detailText","path","count","modifiedLabel"])
         self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
         self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","modifiedLabel","previewUrl","detailText","folder","selected"])
@@ -322,7 +128,37 @@ class JsonService(QObject):
         self._preview_running = False
         self._previewReady.connect(self._apply_preview_result)
         self._indexReady.connect(self._apply_source_index_result)
-        self._ensure_logo(); self._load_index_cache(); self._load_source(force=False); self.refreshRecent(); QTimer.singleShot(150, self.warmIndex); QTimer.singleShot(1800, self._schedule_thumbnail_warm)
+        self._ensure_logo(); self._load_index_cache(); self._load_source(force=False); self.refreshRecent(); self._call_later(150, self.warmIndex); self._call_later(1800, self._schedule_thumbnail_warm)
+
+    def _call_later(self, delay_ms, callback):
+        if self._closed:
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        self._deferred_timers.add(timer)
+
+        def run_callback():
+            self._deferred_timers.discard(timer)
+            timer.stop()
+            timer.setParent(None)
+            if not self._closed:
+                callback()
+
+        timer.timeout.connect(run_callback)
+        timer.start(max(0, int(delay_ms or 0)))
+
+    def _track_future(self, future, bucket, callback=None):
+        with self._future_lock:
+            bucket.add(future)
+
+        def finished(done):
+            with self._future_lock:
+                bucket.discard(done)
+            if callback is not None and not self._closed:
+                callback(done)
+
+        future.add_done_callback(finished)
+        return future
 
 
     @Property(QObject, constant=True)
@@ -493,6 +329,8 @@ class JsonService(QObject):
         return self._source_index_cache.get(self._source) or self._empty_source_index(self._source)
 
     def _build_source_index(self, source, root, cache_key):
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError()
         root.mkdir(parents=True, exist_ok=True)
         retained_previews = self._retained_preview_urls(source)
         groups = []
@@ -501,6 +339,8 @@ class JsonService(QObject):
             if root_files:
                 groups.append(self._group(root.name, root, root_files))
             for folder in root.iterdir():
+                if self._cancel_event.is_set():
+                    raise concurrent.futures.CancelledError()
                 if folder.is_dir():
                     files = self._files(folder, generated=True)
                     if files: groups.append(self._group(folder.name, folder, files))
@@ -508,8 +348,13 @@ class JsonService(QObject):
                         time.sleep(0)
         else:
             grouped = {}
-            for path in self._files(root, generated=False): grouped.setdefault(path.parent, []).append(path)
+            for path in self._files(root, generated=False):
+                if self._cancel_event.is_set():
+                    raise concurrent.futures.CancelledError()
+                grouped.setdefault(path.parent, []).append(path)
             for index, (folder, files) in enumerate(grouped.items()):
+                if self._cancel_event.is_set():
+                    raise concurrent.futures.CancelledError()
                 groups.append(self._group(str(folder.relative_to(root)) if folder != root else root.name, folder, files))
                 if index % 25 == 0:
                     time.sleep(0)
@@ -951,10 +796,14 @@ class JsonService(QObject):
 
     @Slot()
     def warmIndex(self):
+        if self._closed:
+            return
         for source in range(len(self._source_roots())):
             self._request_source_scan(source, force=False)
 
     def _request_source_scan(self, source, force=False):
+        if self._closed or self._cancel_event.is_set():
+            return
         if not 0 <= source < len(self._source_roots()):
             return
         if not force and source in self._indexing_sources:
@@ -968,10 +817,31 @@ class JsonService(QObject):
         self.changed.emit()
         root = self._source_roots()[source]
         cache_key = self._source_cache_key(source)
+        if os.environ.get("QT_QPA_PLATFORM", "").strip().casefold() == "offscreen":
+            def build_headless_index():
+                if self._closed or generation != self._source_scan_generation.get(source):
+                    return
+                try:
+                    index = self._build_source_index(source, root, cache_key)
+                    error = ""
+                except Exception as exc:
+                    index = None
+                    error = str(exc)
+                if not self._closed:
+                    self._indexReady.emit(source, generation, index, error)
+
+            self._call_later(0, build_headless_index)
+            return
         future = self._index_executor.submit(self._build_source_index, source, root, cache_key)
-        future.add_done_callback(lambda done, item=source, gen=generation: self._emit_source_index_result(item, gen, done))
+        self._track_future(
+            future,
+            self._index_futures,
+            lambda done, item=source, gen=generation: self._emit_source_index_result(item, gen, done),
+        )
 
     def _emit_source_index_result(self, source, generation, future):
+        if self._closed:
+            return
         try:
             index = future.result()
             error = ""
@@ -982,6 +852,8 @@ class JsonService(QObject):
 
     @Slot(int, int, object, str)
     def _apply_source_index_result(self, source, generation, index, error):
+        if self._closed:
+            return
         if generation != self._source_scan_generation.get(source):
             return
         self._indexing_sources.discard(source)
@@ -1152,17 +1024,23 @@ class JsonService(QObject):
         return {"version": JSON_INDEX_CACHE_VERSION, "createdAt": time.time(), "sources": sources}
 
     def _schedule_index_cache_save(self):
-        if self._cache_save_pending:
+        if self._closed or self._cache_save_pending:
             return
         self._cache_save_pending = True
-        QTimer.singleShot(700, self._save_index_cache_async)
+        self._call_later(700, self._save_index_cache_async)
 
     def _save_index_cache_async(self):
+        if self._closed:
+            return
         self._cache_save_pending = False
         payload = self._index_cache_payload()
         target = self._index_cache_file()
+        if os.environ.get("QT_QPA_PLATFORM", "").strip().casefold() == "offscreen":
+            self._write_index_cache_payload(target, payload)
+            return
         try:
-            self._index_executor.submit(self._write_index_cache_payload, target, payload)
+            future = self._index_executor.submit(self._write_index_cache_payload, target, payload)
+            self._track_future(future, self._index_futures)
         except RuntimeError:
             # A delayed Qt callback can arrive while the app is shutting down.
             return
@@ -1170,10 +1048,7 @@ class JsonService(QObject):
     @staticmethod
     def _write_index_cache_payload(target, payload):
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(target.suffix + ".tmp")
-            tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-            tmp.replace(target)
+            write_index_cache_payload(target, payload)
         except Exception:
             pass
 
@@ -1246,13 +1121,15 @@ class JsonService(QObject):
 
     @Slot()
     def _schedule_thumbnail_warm(self, delay_ms=0):
-        if not self._thumbnail_worker_enabled() or self._thumbnail_warm_pending:
+        if self._closed or not self._thumbnail_worker_enabled() or self._thumbnail_warm_pending:
             return
         self._thumbnail_warm_pending = True
-        QTimer.singleShot(max(0, int(delay_ms or 0)), self._start_thumbnail_worker)
+        self._call_later(delay_ms, self._start_thumbnail_worker)
 
     def _start_thumbnail_worker(self, regenerate=False):
         self._thumbnail_warm_pending = False
+        if self._closed:
+            return
         if not self._thumbnail_worker_enabled():
             if regenerate:
                 self._thumbnail_regenerating = False
@@ -2531,13 +2408,34 @@ class JsonService(QObject):
         return all(term in haystack for term in terms)
 
     def _files(self, root: Path, generated: bool):
-        out=[]
-        for path in root.rglob("*.json"):
-            low=path.name.lower()
-            if any(token in low for token in (".report.","settings","metadata","backup","session","probe","manifest")): continue
-            managed = any((parent / OUTPUT_FOLDER_MARKER).is_file() for parent in path.parents)
-            if generated and not (path.parent.name.lower()=="finals" or managed): continue
-            out.append(path)
+        out = []
+        root = Path(root)
+        for current_root, directory_names, file_names in os.walk(root, followlinks=False):
+            if self._cancel_event.is_set():
+                raise concurrent.futures.CancelledError()
+            directory_names.sort()
+            file_names.sort()
+            current = Path(current_root)
+            managed = False
+            marker_parent = current
+            while True:
+                if (marker_parent / OUTPUT_FOLDER_MARKER).is_file():
+                    managed = True
+                    break
+                if marker_parent == root or marker_parent.parent == marker_parent:
+                    break
+                marker_parent = marker_parent.parent
+            for name in file_names:
+                if self._cancel_event.is_set():
+                    raise concurrent.futures.CancelledError()
+                if not name.casefold().endswith(".json"):
+                    continue
+                low = name.casefold()
+                if any(token in low for token in (".report.", "settings", "metadata", "backup", "session", "probe", "manifest")):
+                    continue
+                if generated and not (current.name.casefold() == "finals" or managed):
+                    continue
+                out.append(current / name)
         return out
 
     def _group(self,name,folder,files):
@@ -2606,11 +2504,7 @@ class JsonService(QObject):
 
     @staticmethod
     def _age(ts):
-        seconds=max(0,int(time.time()-ts))
-        if seconds<60:return "just now"
-        if seconds<3600:return f"{seconds//60}m ago"
-        if seconds<86400:return f"{seconds//3600}h ago"
-        return f"{seconds//86400}d ago"
+        return age_label(ts)
 
     @Slot(int)
     def selectGroup(self,index):
@@ -2630,88 +2524,31 @@ class JsonService(QObject):
 
     @staticmethod
     def _count(path):
-        match=re.search(r"\.(\d+)v2\.json$",path.name.lower())
-        if match:return int(match.group(1))
-        try:
-            data=json.loads(path.read_text(encoding="utf-8"));
-            if isinstance(data,list):return len(data)
-            for key in ("shapes","layers","items"):
-                if isinstance(data.get(key),list):return len(data[key])
-        except Exception: pass
-        return 0
+        return json_count(path)
 
     @classmethod
     def _metadata_count_value(cls, meta):
-        for key in ("shape_count", "layer_count", "layers"):
-            value = meta.get(key)
-            if isinstance(value, int):
-                return value
-            try:
-                if value is not None and str(value).strip():
-                    return int(value)
-            except (TypeError, ValueError):
-                pass
-        return None
+        return metadata_count_value(meta)
 
     @classmethod
     def _json_summary(cls, path):
-        meta = {}
-        layers = None
-        manifest = path.with_suffix(".manifest.json")
-        try:
-            if manifest.is_file():
-                data = json.loads(manifest.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    meta = dict(data)
-                    layers = cls._metadata_count_value(meta)
-        except Exception:
-            pass
-        if layers is None:
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    layers = len(data)
-                elif isinstance(data, dict):
-                    if isinstance(data.get("metadata"), dict):
-                        meta = dict(data["metadata"])
-                        layers = cls._metadata_count_value(meta)
-                    if layers is None:
-                        for key in ("shapes","layers","items"):
-                            if isinstance(data.get(key),list):
-                                layers = len(data[key])
-                                break
-            except Exception:
-                pass
-        if layers is None:
-            match = re.search(r"\.(\d+)v2\.json$",path.name.lower())
-            layers = int(match.group(1)) if match else 0
-        meta.setdefault("layers", layers)
-        meta.setdefault("layer_count", layers)
-        meta.setdefault("shape_count", layers)
-        name = meta.get("display_name") or meta.get("title")
-        return meta, int(layers), (str(name) if name else path.name)
+        return json_summary(path)
 
     @classmethod
     def _metadata_for_json(cls, path):
-        return cls._json_summary(path)[0]
+        return metadata_for_json(path)
 
     @classmethod
     def _metadata_count(cls, meta, path):
-        value = cls._metadata_count_value(meta)
-        return value if value is not None else cls._count(path)
+        return metadata_count(meta, path)
 
     @staticmethod
     def _count_detail_text(layers, meta):
-        game = str(meta.get("target_game") or meta.get("game") or "").strip().lower()
-        if game in {"fm", "fm8"}:
-            return f"FM8  •  {int(layers)} shapes"
-        return f"{int(layers)} layers"
+        return count_detail_text(layers, meta)
 
     @classmethod
     def _display_name_for_json(cls, path, meta=None):
-        meta = meta or cls._metadata_for_json(path)
-        name = meta.get("display_name") or meta.get("title")
-        return str(name) if name else path.name
+        return display_name_for_json(path, meta)
 
     @Slot(int)
     def selectFile(self,index):
@@ -2800,12 +2637,31 @@ class JsonService(QObject):
             self._pump_preview_queue()
 
     def _pump_preview_queue(self):
-        if self._preview_running or not self._preview_queue:
+        if self._closed or self._preview_running or not self._preview_queue:
             return
         path, source_name = self._preview_queue.pop(0)
         self._preview_running = True
+        if os.environ.get("QT_QPA_PLATFORM", "").strip().casefold() == "offscreen":
+            def render_headless_preview():
+                if self._closed:
+                    return
+                try:
+                    preview_url = str(self.preview.preview_for_json(path, source_name) or "")
+                except Exception:
+                    preview_url = ""
+                if not self._closed:
+                    self._previewReady.emit(path, source_name, preview_url)
+
+            self._call_later(0, render_headless_preview)
+            return
         future = self._preview_executor.submit(self.preview.preview_for_json, path, source_name)
-        future.add_done_callback(lambda done, item=path, source=source_name: self._previewReady.emit(item, source, self._preview_result(done)))
+        self._track_future(
+            future,
+            self._preview_futures,
+            lambda done, item=path, source=source_name: self._previewReady.emit(
+                item, source, self._preview_result(done)
+            ),
+        )
 
     @staticmethod
     def _preview_result(future):
@@ -2816,13 +2672,39 @@ class JsonService(QObject):
 
     @Slot(str, str, str)
     def _apply_preview_result(self, path, source_name, preview_url):
+        if self._closed:
+            return
         self._preview_running = False
         self._preview_queued.discard(self._preview_key(path))
         if preview_url:
             self._update_preview_url(path, preview_url)
         else:
             self._preview_empty.add(self._preview_key(path))
-        QTimer.singleShot(180, self._pump_preview_queue)
+        self._call_later(180, self._pump_preview_queue)
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._cancel_event.set()
+        self._thumbnail_poll_timer.stop()
+        for timer in list(self._deferred_timers):
+            timer.stop()
+            timer.setParent(None)
+        self._deferred_timers.clear()
+        self._thumbnail_warm_pending = False
+        self._stop_thumbnail_worker()
+        self._preview_queue.clear()
+        self._preview_queued.clear()
+        self._indexing_sources.clear()
+        with self._future_lock:
+            futures = list(self._preview_futures | self._index_futures)
+        for future in futures:
+            future.cancel()
+        self._preview_executor.shutdown(wait=True, cancel_futures=True)
+        self._index_executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)
 
     def _update_preview_url(self, path, preview_url):
         if not preview_url:
@@ -2871,170 +2753,12 @@ class JsonService(QObject):
         self._clear_selection(emit=True)
 
     @staticmethod
-    def _safe_float(value, default=0.0):
-        try:
-            if value is None or isinstance(value, bool):
-                return default
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
     def _is_fd6_payload(payload):
-        return isinstance(payload, dict) and str(payload.get("format") or "").strip().lower() == FD6_FORMAT
-
-    @staticmethod
-    def _fd6_color(value):
-        if isinstance(value, dict):
-            raw = [value.get("r"), value.get("g"), value.get("b"), value.get("a", 255)]
-        elif isinstance(value, (list, tuple)):
-            raw = list(value[:4])
-            if len(raw) == 3:
-                raw.append(255)
-        else:
-            return None
-        if len(raw) != 4:
-            return None
-        try:
-            nums = [float(item) for item in raw]
-        except (TypeError, ValueError):
-            return None
-        if all(0.0 <= item <= 1.0 for item in nums):
-            nums = [item * 255.0 for item in nums]
-        return [max(0, min(255, int(round(item)))) for item in nums]
-
-    @classmethod
-    def _fd6_shape_bounds(cls, shape):
-        if not isinstance(shape, dict):
-            return None
-        kind = str(shape.get("type") or "").strip().lower()
-        x = cls._safe_float(shape.get("x"), None)
-        y = cls._safe_float(shape.get("y"), None)
-        if x is None or y is None:
-            return None
-        if kind == "circle":
-            r = abs(cls._safe_float(shape.get("r"), 0.0))
-            return x - r, y - r, x + r, y + r
-        if kind in {"ellipse", "rotated_ellipse"}:
-            rx = abs(cls._safe_float(shape.get("rx"), 0.0))
-            ry = abs(cls._safe_float(shape.get("ry"), 0.0))
-            radius = max(rx, ry) if kind == "rotated_ellipse" else None
-            return (x - radius, y - radius, x + radius, y + radius) if radius else (x - rx, y - ry, x + rx, y + ry)
-        if kind in {"rectangle", "rotated_rectangle"}:
-            hw = abs(cls._safe_float(shape.get("hw"), 0.0))
-            hh = abs(cls._safe_float(shape.get("hh"), 0.0))
-            radius = (hw * hw + hh * hh) ** 0.5 if kind == "rotated_rectangle" else None
-            return (x - radius, y - radius, x + radius, y + radius) if radius else (x - hw, y - hh, x + hw, y + hh)
-        return None
-
-    @classmethod
-    def _fd6_conversion_center(cls, payload, shapes):
-        size = payload.get("image_size") if isinstance(payload, dict) else None
-        if isinstance(size, (list, tuple)) and len(size) >= 2:
-            width = cls._safe_float(size[0], 0.0)
-            height = cls._safe_float(size[1], 0.0)
-            if width > 0 and height > 0:
-                return width / 2.0, height / 2.0, "image_center"
-        bounds = [item for item in (cls._fd6_shape_bounds(shape) for shape in shapes) if item]
-        if bounds:
-            min_x = min(item[0] for item in bounds); min_y = min(item[1] for item in bounds)
-            max_x = max(item[2] for item in bounds); max_y = max(item[3] for item in bounds)
-            return (min_x + max_x) / 2.0, (min_y + max_y) / 2.0, "bounds_center"
-        return 0.0, 0.0, "zero"
-
-    @staticmethod
-    def _round_fd6(value):
-        rounded = round(float(value), 6)
-        return 0.0 if rounded == -0.0 else rounded
+        return is_fd6_payload(payload)
 
     @classmethod
     def _convert_fd6_payload(cls, payload, source):
-        shapes = payload.get("shapes") if isinstance(payload, dict) else None
-        if not isinstance(shapes, list) or not shapes:
-            raise ValueError("FD6 JSON must contain a non-empty shapes list.")
-        center_x, center_y, origin = cls._fd6_conversion_center(payload, shapes)
-        converted = []
-        skipped = 0
-        for index, shape in enumerate(shapes):
-            if not isinstance(shape, dict):
-                skipped += 1
-                continue
-            kind = str(shape.get("type") or "").strip().lower()
-            color = cls._fd6_color(shape.get("color"))
-            if not color or color[3] <= 0:
-                skipped += 1
-                continue
-            x = cls._safe_float(shape.get("x"), None)
-            y = cls._safe_float(shape.get("y"), None)
-            angle = cls._safe_float(shape.get("angle"), 0.0)
-            type_code = None
-            type_word = None
-            scale_x = None
-            scale_y = None
-            resource_index = None
-            if kind == "circle":
-                radius = abs(cls._safe_float(shape.get("r"), 0.0))
-                scale_x = radius / FD6_ELLIPSE_DIVISOR
-                scale_y = radius / FD6_ELLIPSE_DIVISOR
-                type_code = KFPS_ELLIPSE_TYPE
-                type_word = KFPS_ELLIPSE_WORD
-                resource_index = 2
-            elif kind in {"ellipse", "rotated_ellipse"}:
-                scale_x = abs(cls._safe_float(shape.get("rx"), 0.0)) / FD6_ELLIPSE_DIVISOR
-                scale_y = abs(cls._safe_float(shape.get("ry"), 0.0)) / FD6_ELLIPSE_DIVISOR
-                type_code = KFPS_ELLIPSE_TYPE
-                type_word = KFPS_ELLIPSE_WORD
-                resource_index = 2
-            elif kind in {"rectangle", "rotated_rectangle"}:
-                scale_x = abs(cls._safe_float(shape.get("hw"), 0.0)) * 2.0 / FD6_RECTANGLE_DIVISOR
-                scale_y = abs(cls._safe_float(shape.get("hh"), 0.0)) * 2.0 / FD6_RECTANGLE_DIVISOR
-                type_code = KFPS_RECTANGLE_TYPE
-                type_word = KFPS_RECTANGLE_WORD
-                resource_index = 1
-            if x is None or y is None or type_code is None or not scale_x or not scale_y:
-                skipped += 1
-                continue
-            converted.append({
-                "type": type_code,
-                "type_word": type_word,
-                "data": [
-                    cls._round_fd6(x - center_x),
-                    cls._round_fd6(-(y - center_y)),
-                    cls._round_fd6(scale_x),
-                    cls._round_fd6(scale_y),
-                    cls._round_fd6((360.0 - angle) % 360.0),
-                    0,
-                    0,
-                ],
-                "color": color,
-                "resource_family": "Primitives",
-                "resource_index": resource_index,
-                "source_format": FD6_FORMAT,
-                "fd6_type": kind,
-                "fd6_source_index": index,
-            })
-        if not converted:
-            raise ValueError("FD6 JSON did not contain any supported visible shapes.")
-        display_name = f"{Path(source).stem} (FD6 converted)"
-        metadata = {
-            "title": display_name,
-            "display_name": display_name,
-            "source_format": FD6_FORMAT,
-            "source_file": Path(source).name,
-            "fd6_source_image": payload.get("source_image") or "",
-            "fd6_profile": payload.get("profile") or "",
-            "fd6_generated_at": payload.get("generated_at") or "",
-            "fd6_sticker_mode": bool(payload.get("sticker_mode", False)),
-            "fd6_origin": origin,
-            "fd6_offset": [cls._round_fd6(center_x), cls._round_fd6(center_y)],
-            "conversion": "fd6.shapes->kfps.typecode.v1",
-            "target_game": "fh6",
-            "layers": len(converted),
-            "layer_count": len(converted),
-            "shape_count": len(converted),
-            "skipped_shapes": skipped,
-        }
-        return {"format": "kfps.fd6.converted.v1", "metadata": metadata, "shapes": converted}, len(converted), skipped
+        return convert_fd6_payload(payload, source)
 
     @staticmethod
     def _unique_json_target(root, name):

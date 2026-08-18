@@ -17,6 +17,7 @@ class ChangelogService(QObject):
 
     def __init__(self, path: Path, auto_refresh=False, parent=None):
         super().__init__(parent)
+        self._closed = False
         self._path = Path(path)
         self._model = DictListModel(["version", "date", "summary", "details"])
         self._refreshing = False
@@ -24,8 +25,12 @@ class ChangelogService(QObject):
         self._network = QNetworkAccessManager(self)
         self._network.finished.connect(self._finished)
         self._load_local()
+        self._initial_timer = QTimer(self)
+        self._initial_timer.setSingleShot(True)
+        self._initial_timer.setInterval(900)
+        self._initial_timer.timeout.connect(self.refresh)
         if auto_refresh:
-            QTimer.singleShot(900, self.refresh)
+            self._initial_timer.start()
 
 
     @Property(QObject, constant=True)
@@ -42,7 +47,7 @@ class ChangelogService(QObject):
 
     @Slot()
     def refresh(self):
-        if self._refreshing:
+        if self._closed or self._refreshing:
             return
         self._refreshing = True
         self._status = "Refreshing patch notes from GitHub..."
@@ -86,6 +91,9 @@ class ChangelogService(QObject):
         return rows
 
     def _finished(self, reply: QNetworkReply):
+        if self._closed:
+            reply.deleteLater()
+            return
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 self._status = f"Patch-note refresh failed: {reply.errorString()}"
@@ -102,3 +110,12 @@ class ChangelogService(QObject):
             self._refreshing = False
             reply.deleteLater()
             self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._initial_timer.stop()
+        for reply in self._network.findChildren(QNetworkReply):
+            reply.abort()

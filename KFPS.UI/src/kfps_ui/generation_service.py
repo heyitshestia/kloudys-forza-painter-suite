@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Property, QProcess, QProcessEnvironment, QTi
 
 from .app_paths import AppPaths
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .qt_utils import file_url
 
 
@@ -18,14 +19,17 @@ class GenerationService(QObject):
 
     def __init__(self, paths: AppPaths, log: LogService, parent=None):
         super().__init__(parent); self.paths = paths; self.log = log
+        self._closed = False
         self._process = QProcess(self); self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read); self._process.finished.connect(self._finished)
+        self._process.started.connect(self._process_started); self._process.errorOccurred.connect(self._process_error)
         self._running = False; self._status = "Ready"; self._run_dir = ""; self._preview = ""; self._preview_revision = 0; self._preview_signature = None; self._buffer = b""
         self._live_log_lines = []; self._live_log = "Live generation log appears here."
         self._full_log_path = ""; self._full_log_handle = None
         self._queue = []; self._queue_total = 0; self._queue_index = 0
         self._force_stop_armed = False
         self._preview_timer = QTimer(self); self._preview_timer.setInterval(1000); self._preview_timer.timeout.connect(self.refreshPreview)
+        self._startup_timer = QTimer(self); self._startup_timer.setSingleShot(True); self._startup_timer.setInterval(5000); self._startup_timer.timeout.connect(self._startup_timed_out)
         self._preset_values = []
         self._presets = self._load_presets()
         self._selected_preset_index = 0 if self._presets else -1
@@ -94,6 +98,7 @@ class GenerationService(QObject):
 
     @Slot("QStringList", int, str, str, bool, bool, bool, bool, bool, str, str, str, int)
     def startQueue(self, images, preset, layers, save_at, luma, detail, repair, boost, manual, max_res, random_samples, mutated_samples, seed):
+        if self._closed: return
         if self._running: self.log.append("Generation is already running."); return
         valid_images = []
         for image in images or []:
@@ -131,10 +136,33 @@ class GenerationService(QObject):
             self.log.append(f"Full generation log: {self._full_log_path}")
         env = QProcessEnvironment.systemEnvironment(); env.insert("PYTHONUTF8", "1"); env.insert("KFPS_APP_ROOT", str(self.paths.app_root)); self._process.setProcessEnvironment(env)
         self._process.setWorkingDirectory(str(self.paths.app_root)); self._process.start(self.paths.python_executable, args)
-        if not self._process.waitForStarted(5000):
-            self._close_full_generation_log()
-            self._running = False; self._status = "Failed to start"; self.changed.emit(); self.log.append("Generation process did not start.", "error")
-        else: self._preview_timer.start()
+        self._startup_timer.start()
+
+    def _process_started(self):
+        if self._closed:
+            return
+        self._startup_timer.stop()
+        self._preview_timer.start()
+
+    def _process_error(self, _error):
+        if self._closed or not self._running or self._process.state() != QProcess.NotRunning:
+            return
+        self._fail_start("Generation process did not start.")
+
+    def _startup_timed_out(self):
+        if self._closed or not self._running or self._process.state() != QProcess.Starting:
+            return
+        self._process.kill()
+        self._fail_start("Generation process did not start within five seconds.")
+
+    def _fail_start(self, message):
+        self._startup_timer.stop()
+        self._preview_timer.stop()
+        self._close_full_generation_log()
+        self._running = False
+        self._status = "Failed to start"
+        self.changed.emit()
+        self.log.append(message, "error")
 
     def _open_full_generation_log(self):
         self._close_full_generation_log()
@@ -194,6 +222,8 @@ class GenerationService(QObject):
         if not text:
             return
         self._live_log_lines.append(text)
+        if len(self._live_log_lines) > 240:
+            del self._live_log_lines[: len(self._live_log_lines) - 240]
         self._live_log = "\n".join(self._live_log_lines)
 
     @staticmethod
@@ -314,6 +344,8 @@ class GenerationService(QObject):
         return "shaded"
 
     def _read(self):
+        if self._closed:
+            return
         self._buffer += bytes(self._process.readAllStandardOutput())
         parts = self._buffer.split(b"\n"); self._buffer = parts.pop() if parts else b""
         for raw in parts:
@@ -330,6 +362,9 @@ class GenerationService(QObject):
                 self.changed.emit()
 
     def _finished(self, code, _status):
+        if self._closed:
+            return
+        self._startup_timer.stop()
         if self._buffer:
             buffered = self._buffer.decode("utf-8", "replace")
             for line in buffered.splitlines():
@@ -353,6 +388,8 @@ class GenerationService(QObject):
 
     @Slot()
     def refreshPreview(self):
+        if self._closed:
+            return
         root = Path(self._run_dir) if self._run_dir else None
         if not root or not root.is_dir(): return
         candidates = []
@@ -410,3 +447,38 @@ class GenerationService(QObject):
             parent.kill(); self.log.append("Generation process tree was force-stopped before a recoverable checkpoint was available.", "warning")
         except Exception:
             self._process.kill()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._startup_timer.stop()
+        self._preview_timer.stop()
+        self._queue.clear()
+        self._queue_total = 0
+        self._queue_index = 0
+        self._close_full_generation_log()
+        try:
+            process_id = int(self._process.processId())
+        except Exception:
+            process_id = 0
+        if process_id:
+            try:
+                process = psutil.Process(process_id)
+                for child in reversed(process.children(recursive=True)):
+                    try:
+                        child.kill()
+                    except psutil.Error:
+                        pass
+                process.kill()
+            except psutil.Error:
+                pass
+        try:
+            if self._process.state() != QProcess.NotRunning:
+                self._process.kill()
+                self._process.waitForFinished(1500)
+        except Exception:
+            pass
+        self._running = False
+        discard_queued_events(self)

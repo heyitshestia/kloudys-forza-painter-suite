@@ -7,6 +7,7 @@ const path = require("node:path");
 const editorRoot = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(editorRoot, "index.html"), "utf8");
 const script = fs.readFileSync(path.join(editorRoot, "editor.js"), "utf8");
+const fabricAdapter = fs.readFileSync(path.join(editorRoot, "editor-fabric-adapter.js"), "utf8");
 const styles = fs.readFileSync(path.join(editorRoot, "style.css"), "utf8");
 
 const idMatches = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
@@ -105,6 +106,13 @@ assert.match(script, /establishLoadedHistoryBoundary\("open project"/);
 assert.match(script, /establishLoadedHistoryBoundary\("recovered work"/);
 assert.doesNotMatch(script, /window\.(?:prompt|alert)\s*\(/);
 assert.match(script, /const EDITOR_MUTATION_HEADERS/);
+assert.match(html, /editor-fabric-adapter\.js/);
+assert.match(fabricAdapter, /function scenePoint\(/);
+assert.match(fabricAdapter, /function replaceObjectStack\(/);
+assert.match(fabricAdapter, /Fabric SVG import and serialization are disabled/);
+assert.doesNotMatch(script, /\.getPointer\(/);
+assert.doesNotMatch(script, /\.toSVG\(/);
+assert.doesNotMatch(script, /loadSVGFrom(?:String|URL)/);
 const postBlocks = [...script.matchAll(/fetch\([^;]+?method:\s*"POST"[^;]+?\);?/gs)]
   .map((match) => match[0]);
 assert.ok(postBlocks.length >= 8, "all editor mutation requests should be visible");

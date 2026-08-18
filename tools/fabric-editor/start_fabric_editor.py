@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import http.server
 import argparse
+import hmac
 import io
 import json
 import math
 import os
 import re
+import secrets
 import socket
 import socketserver
 import subprocess
@@ -27,6 +29,7 @@ if str(ROOT) not in sys.path:
 
 from geometry_json import ELLIPSE, RECTANGLE, ROTATED_ELLIPSE, ROTATED_RECTANGLE, load_normalized_geometry
 from json_preview_renderer import render_json_preview as shared_render_json_preview
+from kfps_shapes import resolve_full_type_resource, resolve_vinyl_resource, shape_word_resource_map
 
 EDITOR = ROOT / "tools" / "fabric-editor" / "index.html"
 STARTUP_HELP_MARKER = ROOT / "runtime" / "fabric-editor" / "startup-help-confirmed.json"
@@ -47,7 +50,7 @@ PROJECT_BROWSER_API = "/api/fabric-editor/project-browser"
 PROJECT_FILE_API = "/api/fabric-editor/project-file"
 PROJECT_SAVE_API = "/api/fabric-editor/save-project"
 PROJECT_OPEN_FOLDER_API = "/api/fabric-editor/open-project-folder"
-EDITOR_MUTATION_HEADER = "X-KFPS-Editor"
+EDITOR_MUTATION_HEADER = "X-KFPS-Editor-Session"
 EDITOR_MUTATION_APIS = {
     STARTUP_HELP_API,
     EDITOR_PREFS_API,
@@ -64,45 +67,7 @@ EDITOR_PROJECT_ROOT = ROOT / "runtime" / "fabric-editor" / "projects"
 VINYL_RESOURCE_ROOT = ROOT / "tools" / "fabric-editor" / "Resources" / "Vinyls"
 SHAPE_WORDS_PATH = ROOT / "tools" / "fabric-editor" / "shape-words.json"
 PREVIEW_MAX = 420
-VINYL_TYPE_BASES = {
-    "Primitives": 1048677,
-    "Community_Vinyls_1": 1050677,
-    "Community_Vinyls_2": 1050777,
-    "Community_Vinyls_3": 1050877,
-    "Community_Vinyls_4": 1050977,
-    "Gradient_Shapes": 1048777,
-    "Stripes": 1048877,
-    "Tears": 1048977,
-    "Racing_Icons": 1049077,
-    "Flames": 1049177,
-    "Paint_Splats": 1049277,
-    "Tribal": 1049377,
-    "Nature": 1049477,
-    "Upper_Letters_1": 1050477,
-    "Lower_Letters_1": 1050577,
-    "Upper_Letters_2": 1049877,
-    "Lower_Letters_2": 1049977,
-    "Upper_Letters_3": 1050077,
-    "Lower_Letters_3": 1050177,
-    "Upper_Letters_4": 1050277,
-    "Lower_Letters_4": 1050377,
-    "Upper_Letters_5": 1051077,
-    "Lower_Letters_5": 1051177,
-    "Upper_Letters_6": 1051277,
-    "Lower_Letters_6": 1051377,
-    "Upper_Letters_7": 1051477,
-    "Lower_Letters_7": 1051577,
-    "Upper_Letters_8": 1051677,
-    "Lower_Letters_8": 1051777,
-    "Upper_Letters_9": 1051877,
-    "Lower_Letters_9": 1051977,
-    "Upper_Letters_10": 1052077,
-    "Lower_Letters_10": 1052177,
-    "Upper_Letters_11": 1052277,
-    "Lower_Letters_11": 1052377,
-}
 VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {}
-SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
 
 
 def _write_json_atomic(path: Path, payload: object) -> None:
@@ -130,18 +95,8 @@ def _is_allowed_static_path(raw_path: str) -> bool:
     return candidate == (ROOT / "assets" / "kfps-logo.ico").resolve()
 
 
-def _resource_count_for_family(family: str) -> int:
-    return 40
-
-
 def _resolve_full_type_resource(type_code: int) -> tuple[str, int] | None:
-    if int(type_code) <= 1000000:
-        return None
-    for family, base in VINYL_TYPE_BASES.items():
-        delta = int(type_code) - int(base)
-        if 0 <= delta < _resource_count_for_family(family):
-            return family, delta + 1
-    return None
+    return resolve_full_type_resource(type_code)
 
 
 def _safe_relpath(path: Path) -> str:
@@ -579,45 +534,11 @@ def _rect_points(cx: float, cy: float, width: float, height: float, rot_deg: flo
 
 
 def _shape_word_resource_map() -> dict[int, tuple[str, int] | None]:
-    global SHAPE_WORD_RESOURCE_CACHE
-    if SHAPE_WORD_RESOURCE_CACHE is not None:
-        return SHAPE_WORD_RESOURCE_CACHE
-    mapping: dict[int, tuple[str, int] | None] = {}
-    for family, base in VINYL_TYPE_BASES.items():
-        base_word = int(base) & 0xFFFF
-        for index in range(1, _resource_count_for_family(family) + 1):
-            mapping.setdefault((base_word + index - 1) & 0xFFFF, (family, index))
-    if SHAPE_WORDS_PATH.exists():
-        try:
-            payload = json.loads(SHAPE_WORDS_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
-        for family, values in (payload.get("families") or {}).items():
-            if not isinstance(values, dict):
-                continue
-            for index, word in values.items():
-                try:
-                    mapping.setdefault(int(word) & 0xFFFF, (family, int(index)))
-                except (TypeError, ValueError):
-                    continue
-    SHAPE_WORD_RESOURCE_CACHE = mapping
-    return mapping
+    return shape_word_resource_map(SHAPE_WORDS_PATH)
 
 
 def _resolve_vinyl_resource(type_code: int, shape: dict | None = None) -> tuple[str, int] | None:
-    shape = shape or {}
-    full_resource = _resolve_full_type_resource(type_code)
-    if full_resource:
-        return full_resource
-    family = shape.get("resource_family")
-    index = shape.get("resource_index")
-    if family and index:
-        try:
-            return str(family), int(index)
-        except (TypeError, ValueError):
-            pass
-    word = int(shape.get("type_word", int(type_code) & 0xFFFF)) & 0xFFFF
-    return _shape_word_resource_map().get(word)
+    return resolve_vinyl_resource(type_code, shape, SHAPE_WORDS_PATH)
 
 
 def _resource_triangles(family: str, index: int) -> list[list[tuple[float, float]]] | None:
@@ -817,6 +738,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _mutation_authorized(self) -> bool:
+        expected = str(getattr(self.server, "editor_session_token", ""))
+        supplied = str(self.headers.get(EDITOR_MUTATION_HEADER) or "")
+        if not expected or not hmac.compare_digest(supplied, expected):
+            return False
+        port = int(self.server.server_address[1])
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if str(self.headers.get("Host") or "").casefold() not in allowed_hosts:
+            return False
+        origin = str(self.headers.get("Origin") or "").rstrip("/").casefold()
+        if origin and origin not in {f"http://{host}" for host in allowed_hosts}:
+            return False
+        return str(self.headers.get("Sec-Fetch-Site") or "").casefold() not in {"cross-site"}
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == EDITOR_HEALTH_API:
@@ -943,12 +878,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if (
-            parsed.path in EDITOR_MUTATION_APIS
-            and self.headers.get(EDITOR_MUTATION_HEADER) != "1"
-        ):
+        if parsed.path in EDITOR_MUTATION_APIS and not self._mutation_authorized():
             self._send_json(
-                {"error": "editor request token missing"},
+                {"error": "editor session authorization failed"},
                 status=403,
             )
             return
@@ -1108,13 +1040,18 @@ class EditorServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def __init__(self, *args, **kwargs):
+        self.editor_session_token = secrets.token_urlsafe(32)
+        super().__init__(*args, **kwargs)
 
-def _write_server_marker(port: int) -> None:
+
+def _write_server_marker(port: int, session_token: str) -> None:
     payload = {
         "service": "kfps-fabric-editor",
         "pid": os.getpid(),
         "port": int(port),
         "root": str(ROOT.resolve()),
+        "session_token": str(session_token),
         "url": f"http://127.0.0.1:{port}/tools/fabric-editor/index.html",
         "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -1197,7 +1134,8 @@ def main() -> int:
         url = f"http://127.0.0.1:{port}/tools/fabric-editor/index.html"
         if args.project_id:
             url += f"?project={quote(args.project_id, safe='')}"
-        _write_server_marker(port)
+        url += f"#session={quote(httpd.editor_session_token, safe='')}"
+        _write_server_marker(port, httpd.editor_session_token)
         print("KFPS Fabric editor")
         print(f"Serving: {ROOT}")
         print(f"Open:    {url}")

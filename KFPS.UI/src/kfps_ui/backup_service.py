@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import QFileDialog
 
 from .app_paths import AppPaths
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .settings_service import SettingsService
 
 
@@ -29,10 +31,12 @@ def _path_is_within(path: Path, parent: Path) -> bool:
         return False
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, cancel_event: threading.Event | None = None) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            if cancel_event is not None and cancel_event.is_set():
+                raise concurrent.futures.CancelledError()
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -70,6 +74,7 @@ def create_imgs_snapshot(
     *,
     now: datetime | None = None,
     progress=None,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     created_at = now or datetime.now()
     source = Path(imgs_root).resolve()
@@ -104,6 +109,8 @@ def create_imgs_snapshot(
     skipped = 0
     try:
         for current_root, directory_names, file_names in os.walk(source, followlinks=False):
+            if cancel_event is not None and cancel_event.is_set():
+                raise concurrent.futures.CancelledError()
             directory_names[:] = sorted(
                 name for name in directory_names
                 if not (Path(current_root) / name).is_symlink()
@@ -114,6 +121,8 @@ def create_imgs_snapshot(
             (snapshot_imgs / relative_folder).mkdir(parents=True, exist_ok=True)
 
             for name in file_names:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise concurrent.futures.CancelledError()
                 source_file = current / name
                 if source_file.is_symlink() or not source_file.is_file():
                     skipped += 1
@@ -122,7 +131,7 @@ def create_imgs_snapshot(
                 relative_key = relative.as_posix()
                 target = snapshot_imgs / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                source_hash = _sha256(source_file)
+                source_hash = _sha256(source_file, cancel_event)
                 source_stat = source_file.stat()
                 previous_meta = previous_files.get(relative_key, {})
                 previous_file = previous / "imgs" / relative if previous else None
@@ -131,7 +140,7 @@ def create_imgs_snapshot(
                     and previous_file.is_file()
                     and isinstance(previous_meta, dict)
                     and previous_meta.get("sha256") == source_hash
-                    and _sha256(previous_file) == source_hash
+                    and _sha256(previous_file, cancel_event) == source_hash
                 )
                 if can_reuse:
                     try:
@@ -205,6 +214,9 @@ class BackupService(QObject):
         self.paths = paths
         self.settings = settings
         self.log = log
+        self._closed = False
+        self._cancel_event = threading.Event()
+        self._future = None
         self._running = False
         self._status = "Choose a folder to create the first imgs backup."
         self._last_snapshot = ""
@@ -253,7 +265,7 @@ class BackupService(QObject):
 
     @Slot()
     def backupImgs(self):
-        if self._running:
+        if self._closed or self._running:
             return
         destination = self._choose_destination()
         if destination is None:
@@ -261,14 +273,19 @@ class BackupService(QObject):
         self._running = True
         self._status = "Backing up imgs..."
         self.changed.emit()
+        self._cancel_event.clear()
         future = self._executor.submit(
             create_imgs_snapshot,
             self.paths.app_root / "imgs",
             destination,
             progress=self._progressed.emit,
+            cancel_event=self._cancel_event,
         )
+        self._future = future
 
         def finished(task):
+            if self._closed:
+                return
             try:
                 self._completed.emit({"ok": True, "result": task.result()})
             except Exception as exc:
@@ -278,13 +295,15 @@ class BackupService(QObject):
 
     @Slot(int)
     def _apply_progress(self, checked):
-        if not self._running:
+        if self._closed or not self._running:
             return
         self._status = f"Backing up imgs... {int(checked)} files checked"
         self.changed.emit()
 
     @Slot(object)
     def _apply_result(self, payload):
+        if self._closed:
+            return
         self._running = False
         if not payload.get("ok"):
             self._status = f"Backup failed: {payload.get('error') or 'unknown error'}"
@@ -299,3 +318,14 @@ class BackupService(QObject):
         self._status = f"Backup complete: {count} files ({copied} copied, {reused} reused)."
         self.log.append(f"{self._status} Snapshot: {self._last_snapshot}")
         self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._cancel_event.set()
+        if self._future is not None:
+            self._future.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)

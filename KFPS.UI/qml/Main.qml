@@ -49,13 +49,6 @@ ApplicationWindow {
         }
     }
 
-    Timer {
-        interval: 2500
-        repeat: true
-        running: true
-        onTriggered: supporterService.refresh()
-    }
-
     property bool compactSidebar: Theme.logical(width) < 1240
     property bool shortWindow: Theme.logical(height) < 760
     property bool compactHeader: Theme.logical(width) < 1280

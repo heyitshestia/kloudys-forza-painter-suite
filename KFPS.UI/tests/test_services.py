@@ -91,18 +91,7 @@ def wait_for(predicate,timeout=3.0):
  return bool(predicate())
 
 def shutdown_json_service(svc):
- APP.processEvents()
- if hasattr(svc,"_thumbnail_poll_timer"):
-  svc._thumbnail_poll_timer.stop()
- proc=getattr(svc,"_thumbnail_process",None)
- if proc and proc.poll() is None:
-  proc.kill();proc.communicate(timeout=2)
- wait_for(lambda:not svc.indexing,timeout=5.0)
- svc._cache_save_pending=False
- svc._save_index_cache_async()
- APP.processEvents()
- svc._preview_executor.shutdown(wait=True, cancel_futures=True)
- svc._index_executor.shutdown(wait=True, cancel_futures=True)
+ svc.close()
 
 class ServiceTests(unittest.TestCase):
  def test_force_stop_preserves_finalizer_and_kills_only_genesis(self):
@@ -115,9 +104,11 @@ class ServiceTests(unittest.TestCase):
    def children(self,recursive=True):return self._children
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");log=DummyLog();svc=GenerationService(paths,log)
+   self.addCleanup(svc.close)
    wrapper=FakeProcess("python.exe");genesis=FakeProcess("KloudysGalateaGenesis.exe");parent=FakeParent([wrapper,genesis])
-   svc._process=SimpleNamespace(processId=lambda:42);svc._running=True
+   qt_process=svc._process;svc._process=SimpleNamespace(processId=lambda:42);svc._running=True
    with patch("kfps_ui.generation_service.psutil.Process",return_value=parent):svc.forceStop()
+   svc._process=qt_process;svc._running=False
    self.assertTrue(genesis.killed)
    self.assertFalse(wrapper.killed)
    self.assertFalse(parent.killed)
@@ -128,6 +119,7 @@ class ServiceTests(unittest.TestCase):
    root=Path(td);run=root/"imgs"/"generated"/"run";previews=run/"previews";previews.mkdir(parents=True)
    preview=previews/"sample.raw.preview.png";preview.write_bytes(b"first")
    paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog());svc._run_dir=str(run)
+   self.addCleanup(svc.close)
    svc.refreshPreview();first_revision=svc.previewRevision;first_url=svc.previewUrl
    first_mtime=preview.stat().st_mtime_ns;preview.write_bytes(b"second-preview");os.utime(preview,ns=(first_mtime+1_000_000,first_mtime+1_000_000))
    svc.refreshPreview()
@@ -138,6 +130,7 @@ class ServiceTests(unittest.TestCase):
  def test_manual_generator_defaults_follow_the_selected_preset(self):
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);paths=AppPaths(root,UI,UI/"qml",UI/"assets",root/"runtime",root/"python/python.exe");svc=GenerationService(paths,DummyLog())
+   self.addCleanup(svc.close)
    expected=[
     {"maxResolution":"1250","randomSamples":"200000","mutatedSamples":"15000","seed":"0"},
     {"maxResolution":"1000","randomSamples":"220000","mutatedSamples":"15000","seed":"0"},
@@ -156,6 +149,7 @@ class ServiceTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"runtime"/"supporter"/"supporter.tmp";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
    svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Test","entitlements":["supporter_theme"]}
+   self.addCleanup(svc.close)
    self.assertTrue(svc._install_key(source,payload,"Local unlock verified.",remove_source=True))
    self.assertTrue((app_root/"supporter.kfpskey").exists())
    self.assertFalse(source.exists())
@@ -164,6 +158,7 @@ class ServiceTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"downloads"/"Alice Custom.kfpskey";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
    svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Alice","entitlements":["supporter_theme"]}
+   self.addCleanup(svc.close)
    self.assertTrue(svc._install_key(source,payload,"Local unlock verified."))
    self.assertTrue((app_root/"Alice Custom.kfpskey").exists())
    self.assertTrue(svc.unlocked)
@@ -171,6 +166,7 @@ class ServiceTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);key=app_root/"Manual Drop.kfpskey";key.write_text("validated key bytes",encoding="utf-8")
    svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Manual","entitlements":["supporter_theme"]}
+   self.addCleanup(svc.close)
    svc._validate_file=lambda path:(True,payload,"Local unlock verified.") if path==key else (False,None,"wrong key")
    svc.reload()
    self.assertTrue(svc.unlocked)

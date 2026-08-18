@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
@@ -53,7 +54,14 @@ class SettingsService(QObject):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
-        os.replace(tmp, self._path)
+        for attempt in range(6):
+            try:
+                os.replace(tmp, self._path)
+                return
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.025 * (attempt + 1))
 
     def _get(self, key): return self._data[key]
     def _set(self, key, value):

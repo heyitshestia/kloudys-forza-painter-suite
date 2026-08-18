@@ -16,6 +16,13 @@ from pathlib import Path
 from typing import Callable
 
 from geometry_json import ELLIPSE, RECTANGLE, ROTATED_ELLIPSE, ROTATED_RECTANGLE, load_normalized_geometry
+from kfps_shapes import (
+    payload_uses_typecodes,
+    resolve_full_type_resource,
+    resolve_vinyl_resource,
+    shape_word_from_shape,
+    shape_word_resource_map,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -23,64 +30,13 @@ VINYL_RESOURCE_ROOT = ROOT / "tools" / "fabric-editor" / "Resources" / "Vinyls"
 SHAPE_WORDS_PATH = ROOT / "tools" / "fabric-editor" / "shape-words.json"
 PREVIEW_MAX = 420
 
-VINYL_TYPE_BASES = {
-    "Primitives": 1048677,
-    "Community_Vinyls_1": 1050677,
-    "Community_Vinyls_2": 1050777,
-    "Community_Vinyls_3": 1050877,
-    "Community_Vinyls_4": 1050977,
-    "Gradient_Shapes": 1048777,
-    "Stripes": 1048877,
-    "Tears": 1048977,
-    "Racing_Icons": 1049077,
-    "Flames": 1049177,
-    "Paint_Splats": 1049277,
-    "Tribal": 1049377,
-    "Nature": 1049477,
-    "Upper_Letters_1": 1050477,
-    "Lower_Letters_1": 1050577,
-    "Upper_Letters_2": 1049877,
-    "Lower_Letters_2": 1049977,
-    "Upper_Letters_3": 1050077,
-    "Lower_Letters_3": 1050177,
-    "Upper_Letters_4": 1050277,
-    "Lower_Letters_4": 1050377,
-    "Upper_Letters_5": 1051077,
-    "Lower_Letters_5": 1051177,
-    "Upper_Letters_6": 1051277,
-    "Lower_Letters_6": 1051377,
-    "Upper_Letters_7": 1051477,
-    "Lower_Letters_7": 1051577,
-    "Upper_Letters_8": 1051677,
-    "Lower_Letters_8": 1051777,
-    "Upper_Letters_9": 1051877,
-    "Lower_Letters_9": 1051977,
-    "Upper_Letters_10": 1052077,
-    "Lower_Letters_10": 1052177,
-    "Upper_Letters_11": 1052277,
-    "Lower_Letters_11": 1052377,
-}
-
 VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {}
 VINYL_RESOURCE_ALPHA_CACHE: dict[
     tuple[str, int],
     list[tuple[list[tuple[float, float]], tuple[int, int, int]]],
 ] = {}
-SHAPE_WORD_RESOURCE_CACHE: dict[int, tuple[str, int] | None] | None = None
-
-
-def _resource_count_for_family(family: str) -> int:
-    return 40
-
-
 def _resolve_full_type_resource(type_code: int) -> tuple[str, int] | None:
-    if int(type_code) <= 1000000:
-        return None
-    for family, base in VINYL_TYPE_BASES.items():
-        delta = int(type_code) - int(base)
-        if 0 <= delta < _resource_count_for_family(family):
-            return family, delta + 1
-    return None
+    return resolve_full_type_resource(type_code)
 
 
 def render_json_preview(path: Path | str, max_size: int = PREVIEW_MAX, transparent_background: bool = False) -> bytes | None:
@@ -91,13 +47,7 @@ def render_json_preview(path: Path | str, max_size: int = PREVIEW_MAX, transpare
 
 
 def _shape_word_from_shape(shape: dict, type_code: int) -> int:
-    for key in ("type_word", "typeWord", "shape_word", "shapeWord"):
-        if key in shape:
-            try:
-                return int(shape.get(key)) & 0xFFFF
-            except (TypeError, ValueError):
-                pass
-    return int(type_code) & 0xFFFF
+    return shape_word_from_shape(shape, type_code)
 
 
 def _looks_like_typecode_preview(path: Path) -> bool:
@@ -105,22 +55,7 @@ def _looks_like_typecode_preview(path: Path) -> bool:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return False
-    shapes = payload.get("shapes") if isinstance(payload, dict) else None
-    if not isinstance(shapes, list):
-        return False
-    for shape in shapes:
-        if not isinstance(shape, dict):
-            continue
-        if shape.get("source_format") == "fh6_typecode":
-            return True
-        if any(key in shape for key in ("type_word", "typeWord", "shape_word", "shapeWord", "resource_family", "resource_index")):
-            return True
-        try:
-            if int(shape.get("type", 0)) > 1000000:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
+    return payload_uses_typecodes(payload)
 
 
 def _checkerboard(size: tuple[int, int]):
@@ -216,45 +151,11 @@ def _rect_points(cx: float, cy: float, width: float, height: float, rot_deg: flo
 
 
 def _shape_word_resource_map() -> dict[int, tuple[str, int] | None]:
-    global SHAPE_WORD_RESOURCE_CACHE
-    if SHAPE_WORD_RESOURCE_CACHE is not None:
-        return SHAPE_WORD_RESOURCE_CACHE
-    mapping: dict[int, tuple[str, int] | None] = {}
-    for family, base in VINYL_TYPE_BASES.items():
-        base_word = int(base) & 0xFFFF
-        for index in range(1, _resource_count_for_family(family) + 1):
-            mapping.setdefault((base_word + index - 1) & 0xFFFF, (family, index))
-    if SHAPE_WORDS_PATH.exists():
-        try:
-            payload = json.loads(SHAPE_WORDS_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
-        for family, values in (payload.get("families") or {}).items():
-            if not isinstance(values, dict):
-                continue
-            for index, word in values.items():
-                try:
-                    mapping.setdefault(int(word) & 0xFFFF, (family, int(index)))
-                except (TypeError, ValueError):
-                    continue
-    SHAPE_WORD_RESOURCE_CACHE = mapping
-    return mapping
+    return shape_word_resource_map(SHAPE_WORDS_PATH)
 
 
 def _resolve_vinyl_resource(type_code: int, shape: dict | None = None) -> tuple[str, int] | None:
-    shape = shape or {}
-    full_resource = _resolve_full_type_resource(type_code)
-    if full_resource:
-        return full_resource
-    family = shape.get("resource_family")
-    index = shape.get("resource_index")
-    if family and index:
-        try:
-            return str(family), int(index)
-        except (TypeError, ValueError):
-            pass
-    word = _shape_word_from_shape(shape, type_code)
-    return _shape_word_resource_map().get(word)
+    return resolve_vinyl_resource(type_code, shape, SHAPE_WORDS_PATH)
 
 
 def _resource_triangles(family: str, index: int) -> list[list[tuple[float, float]]] | None:

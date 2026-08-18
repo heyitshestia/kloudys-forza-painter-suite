@@ -16,6 +16,7 @@ from PySide6.QtGui import QDesktopServices
 from .app_paths import AppPaths
 from .desktop_service import DesktopService
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .preview_service import PreviewService
 
@@ -38,6 +39,11 @@ class EditorService(QObject):
         self.preview = preview
         self.desktop = desktop
         self.log = log
+        self._closed = False
+        self._cancel_event = threading.Event()
+        self._threads: set[threading.Thread] = set()
+        self._threads_lock = threading.Lock()
+        self._server_process: subprocess.Popen | None = None
         self._project_model = DictListModel(
             ["name", "path", "modifiedLabel", "shapeLabel", "shapeCount"]
         )
@@ -122,6 +128,8 @@ class EditorService(QObject):
 
     @Slot()
     def refresh(self):
+        if self._closed:
+            return
         root = self.paths.project_root
         root.mkdir(parents=True, exist_ok=True)
         rows = []
@@ -169,6 +177,8 @@ class EditorService(QObject):
 
     @Slot(int)
     def select(self, index: int):
+        if self._closed:
+            return
         row = self._project_model.row(index)
         if not row:
             return
@@ -181,12 +191,11 @@ class EditorService(QObject):
         self._status = f"Selected {row['name']}."
         self.changed.emit()
         self.log.append(f"Selected editor project: {self._selected}")
-        threading.Thread(
+        self._start_thread(
             target=self._preview_worker,
             args=(self._selected,),
-            daemon=True,
             name="kfps-editor-preview",
-        ).start()
+        )
 
     @Slot()
     def clearSelection(self):
@@ -284,7 +293,7 @@ class EditorService(QObject):
 
     def _preview_worker(self, path: str):
         with self._preview_lock:
-            if path != self._selected:
+            if self._cancel_event.is_set() or path != self._selected:
                 return
             try:
                 preview_url = str(self.preview.preview_for_json(path) or "")
@@ -294,11 +303,12 @@ class EditorService(QObject):
                     "error",
                 )
                 preview_url = ""
-        self.previewCompleted.emit(path, preview_url)
+        if not self._closed:
+            self.previewCompleted.emit(path, preview_url)
 
     @Slot(str, str)
     def _finish_preview(self, path: str, preview_url: str):
-        if path != self._selected:
+        if self._closed or path != self._selected:
             return
         self._preview_loading = False
         self._preview = preview_url
@@ -311,6 +321,8 @@ class EditorService(QObject):
         self.changed.emit()
 
     def _launch(self, project: str, mode: str):
+        if self._closed:
+            return
         if self._launching:
             self._status = "The editor is already starting."
             self.changed.emit()
@@ -343,16 +355,30 @@ class EditorService(QObject):
         self._last_error = ""
         self._status = "Connecting to the local editor..."
         self.changed.emit()
-        worker = threading.Thread(
+        self._start_thread(
             target=self._launch_worker,
             args=(launcher, project_id, mode),
-            daemon=True,
             name="kfps-editor-launch",
         )
+
+    def _start_thread(self, *, target, args, name):
+        def run():
+            try:
+                target(*args)
+            finally:
+                with self._threads_lock:
+                    self._threads.discard(threading.current_thread())
+
+        worker = threading.Thread(target=run, daemon=True, name=name)
+        with self._threads_lock:
+            self._threads.add(worker)
         worker.start()
+        return worker
 
     def _launch_worker(self, launcher: Path, project_id: str, mode: str):
         try:
+            if self._cancel_event.is_set():
+                return
             base_url = self._active_server_url()
             started = False
             if not base_url:
@@ -365,7 +391,7 @@ class EditorService(QObject):
                         if hasattr(subprocess, "CREATE_NO_WINDOW")
                         else 0
                     )
-                    subprocess.Popen(
+                    self._server_process = subprocess.Popen(
                         [
                             self.paths.python_executable,
                             str(launcher),
@@ -377,12 +403,14 @@ class EditorService(QObject):
                         stderr=stream,
                     )
                 deadline = time.monotonic() + 10.0
-                while time.monotonic() < deadline:
+                while time.monotonic() < deadline and not self._cancel_event.is_set():
                     time.sleep(0.12)
                     base_url = self._active_server_url()
                     if base_url:
                         break
                 if not base_url:
+                    if self._cancel_event.is_set():
+                        return
                     raise RuntimeError(
                         f"The local editor service did not respond. See {log_path}"
                     )
@@ -392,14 +420,20 @@ class EditorService(QObject):
                 query = f"?project={quote(project_id, safe='')}"
             elif mode == "json":
                 query = "?browse=json"
+            document_url, separator, fragment = base_url.partition("#")
+            launch_url = f"{document_url}{query}"
+            if separator:
+                launch_url += f"#{fragment}"
             message = (
                 "Editor service started."
                 if started
                 else "Connected to the existing editor service."
             )
-            self.launchCompleted.emit(True, f"{base_url}{query}", message)
+            if not self._closed:
+                self.launchCompleted.emit(True, launch_url, message)
         except Exception as exc:
-            self.launchCompleted.emit(False, "", str(exc))
+            if not self._closed:
+                self.launchCompleted.emit(False, "", str(exc))
 
     def _active_server_url(self) -> str:
         marker = self.paths.runtime_root / "fabric-editor" / "server.json"
@@ -412,17 +446,25 @@ class EditorService(QObject):
             port = int(payload.get("port") or 0)
             if not 0 < port < 65536:
                 return ""
+            session_token = str(payload.get("session_token") or "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", session_token):
+                return ""
             health_url = f"http://127.0.0.1:{port}/api/fabric-editor/health"
             with urllib.request.urlopen(health_url, timeout=0.65) as response:
                 health = json.loads(response.read().decode("utf-8"))
             if not health.get("ok") or Path(str(health.get("root") or "")).resolve() != self.paths.app_root.resolve():
                 return ""
-            return f"http://127.0.0.1:{port}/tools/fabric-editor/index.html"
+            return (
+                f"http://127.0.0.1:{port}/tools/fabric-editor/index.html"
+                f"#session={quote(session_token, safe='')}"
+            )
         except (OSError, ValueError, TypeError, urllib.error.URLError, json.JSONDecodeError):
             return ""
 
     @Slot(bool, str, str)
     def _finish_launch(self, ok: bool, url: str, message: str):
+        if self._closed:
+            return
         self._launching = False
         self._running = ok
         if ok:
@@ -441,3 +483,28 @@ class EditorService(QObject):
             self._last_error = message
             self.log.append(f"Could not open vinyl editor: {message}", "error")
         self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._cancel_event.set()
+        process = self._server_process
+        self._server_process = None
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=1.5)
+            except Exception:
+                try:
+                    process.kill()
+                    process.wait(timeout=1.5)
+                except Exception:
+                    pass
+        with self._threads_lock:
+            threads = list(self._threads)
+        for thread in threads:
+            if thread is not threading.current_thread():
+                thread.join(timeout=2.0)
+        discard_queued_events(self)

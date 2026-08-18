@@ -19,11 +19,13 @@ from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 
 from .app_paths import AppPaths
+from .community_catalog import normalize_artwork, versioned_asset_url
 from .community_client import CommunityApiClient, CommunityApiError, build_query
 from .community_credentials import CommunityCredentialStore
 from .community_validation import CommunityUploadInspection, inspect_upload, validate_download
 from .desktop_service import DesktopService
 from .log_service import LogService
+from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .qt_utils import file_url, safe_file_part
 
@@ -101,12 +103,7 @@ def community_file_part(value, fallback):
 
 
 def _versioned_asset_url(url, digest):
-    value = str(url or "")
-    checksum = str(digest or "").strip().lower()
-    if not value or not re.fullmatch(r"[0-9a-f]{64}", checksum):
-        return value
-    separator = "&" if "?" in value else "?"
-    return f"{value}{separator}v={checksum[:16]}"
+    return versioned_asset_url(url, digest)
 
 
 def configured_community_api_url(app_root):
@@ -149,6 +146,8 @@ class CommunityService(QObject):
         self._github_client_id_override = os.environ.get("KFPS_COMMUNITY_GITHUB_CLIENT_ID", "").strip()[:128]
         self._client = CommunityApiClient(self._base_url, self._token)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="community")
+        self._futures: set[concurrent.futures.Future] = set()
+        self._futures_lock = threading.Lock()
         self._resultReady.connect(self._apply_result)
         self._githubDeviceReady.connect(self._apply_github_device)
         self._filter_timer = QTimer(self)
@@ -216,10 +215,14 @@ class CommunityService(QObject):
         self._authentication_timer.setInterval(1000)
         self._authentication_timer.timeout.connect(self.changed.emit)
         self._request_generation = 0
+        self._activation_timer = QTimer(self)
+        self._activation_timer.setSingleShot(True)
+        self._activation_timer.setInterval(300)
+        self._activation_timer.timeout.connect(self.activate)
         self._load_cache()
         if self.demo:
             self._load_demo_rows()
-        QTimer.singleShot(300, self.activate)
+        self._activation_timer.start()
 
     @Property(QObject, constant=True)
     def artworkModel(self):
@@ -506,6 +509,7 @@ class CommunityService(QObject):
         self._error = ""
         self.changed.emit()
         future = self._executor.submit(function)
+        self._track_future(future)
 
         def completed(result_future):
             if self._closed:
@@ -524,6 +528,7 @@ class CommunityService(QObject):
         if self._closed:
             return
         future = self._executor.submit(function)
+        self._track_future(future)
 
         def completed(result_future):
             if self._closed:
@@ -537,6 +542,17 @@ class CommunityService(QObject):
             self._resultReady.emit(operation, envelope)
 
         future.add_done_callback(completed)
+
+    def _track_future(self, future):
+        with self._futures_lock:
+            self._futures.add(future)
+
+        def remove(done):
+            with self._futures_lock:
+                self._futures.discard(done)
+
+        future.add_done_callback(remove)
+        return future
 
     @Slot()
     def activate(self):
@@ -1039,9 +1055,10 @@ class CommunityService(QObject):
         self._status = "Signed out. Browsing remains available."
         self.changed.emit()
         if token and not self.demo:
-            self._executor.submit(lambda: CommunityApiClient(self._base_url, token).json(
+            future = self._executor.submit(lambda: CommunityApiClient(self._base_url, token).json(
                 "session", "DELETE", authenticated=True
             ))
+            self._track_future(future)
         self.refresh()
 
     @Slot()
@@ -1424,11 +1441,17 @@ class CommunityService(QObject):
         if self._closed:
             return
         self._closed = True
+        self._activation_timer.stop()
         self._filter_timer.stop()
         self._supporter_timer.stop()
         self._authentication_timer.stop()
         self._github_cancel.set()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        with self._futures_lock:
+            futures = list(self._futures)
+        for future in futures:
+            future.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        discard_queued_events(self)
 
     def _finish_authentication(self):
         self._authentication_in_progress = False
@@ -1441,6 +1464,8 @@ class CommunityService(QObject):
 
     @Slot(str, object)
     def _apply_result(self, operation, envelope):
+        if self._closed:
+            return
         background_asset = operation.startswith(("private_preview:", "supporter_thumbnail:", "supporter_preview:"))
         if not background_asset:
             self._busy_count = max(0, self._busy_count - 1)
@@ -1647,9 +1672,9 @@ class CommunityService(QObject):
             if self.supporterAccess else "Connect an active supporter registration to unlock this catalog."
         )
         if self._hard_inactive_supporter_state(self._local_supporter_state):
-            QTimer.singleShot(0, self._clear_supporter_access)
+            self._clear_supporter_access()
         else:
-            QTimer.singleShot(0, self.ensureSupporterEntitlement)
+            self.ensureSupporterEntitlement()
 
     def _apply_catalog(self, payload):
         rows = [self._normalize_artwork(item) for item in payload.get("items", []) if isinstance(item, dict)]
@@ -1674,61 +1699,7 @@ class CommunityService(QObject):
         self._write_cache(payload)
 
     def _normalize_artwork(self, item):
-        creator = dict(item.get("creator") or {})
-        supporter_only = bool(item.get("supporter_only"))
-        featured = bool(item.get("featured"))
-        preview_digest = str(item.get("preview_sha256") or "")
-        thumbnail_digest = str(item.get("thumbnail_sha256") or preview_digest)
-        preview_asset_url = _versioned_asset_url(
-            self._client.url(str(item.get("preview_url") or "")), preview_digest,
-        )
-        thumbnail_asset_url = _versioned_asset_url(
-            self._client.url(str(item.get("thumbnail_url") or item.get("preview_url") or "")), thumbnail_digest,
-        )
-        return {
-            "id": str(item.get("id") or ""),
-            "title": str(item.get("title") or "Untitled"),
-            "description": str(item.get("description") or ""),
-            "category": str(item.get("category") or "Other"),
-            "classification": str(item.get("classification") or "toolmade"),
-            "classificationLabel": "Handmade" if str(item.get("classification") or "toolmade") == "handmade" else "Toolmade",
-            "tagsText": ", ".join(str(value) for value in item.get("tags", [])),
-            "gamesText": ", ".join(str(value) for value in item.get("games", [])),
-            "license": str(item.get("license") or "kfps-community-share-v1"),
-            "schemaId": str(item.get("source_schema") or "legacy-kfps"),
-            "schemaLabel": str(item.get("schema_label") or "KFPS-compatible JSON"),
-            "schemaKnown": bool(item.get("schema_known", True)),
-            "schemaWarning": str(item.get("schema_warning") or ""),
-            "shapeCount": int(item.get("shape_count") or 0),
-            "groupCount": int(item.get("group_count") or 0),
-            "usesMasks": bool(item.get("uses_masks")),
-            "status": str(item.get("status") or "published"),
-            "statusLabel": str(item.get("status") or "published").replace("_", " ").title(),
-            "rejectionReason": str(item.get("rejection_reason") or ""),
-            "featured": featured,
-            "supporterOnly": supporter_only,
-            "supporterLabel": "Supporters" if supporter_only else "Everyone",
-            "revision": int(item.get("current_revision") or 1),
-            "downloads": int(item.get("downloads") or 0),
-            "favorites": int(item.get("favorites") or 0),
-            "favorited": bool(item.get("favorited")),
-            "createdAt": str(item.get("created_at") or ""),
-            "updatedAt": str(item.get("updated_at") or ""),
-            "publishedAt": str(item.get("published_at") or ""),
-            "previewUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else preview_asset_url),
-            "thumbnailUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else thumbnail_asset_url),
-            "downloadUrl": self._client.url(str(item.get("download_url") or "")),
-            "contentSha256": str(item.get("content_sha256") or ""),
-            "previewSha256": preview_digest,
-            "thumbnailSha256": thumbnail_digest,
-            "creatorName": str(creator.get("username") or "Unknown"),
-            "creatorAvatar": str(creator.get("avatar_url") or ""),
-            "creatorBio": str(creator.get("bio") or ""),
-            "creatorFollowers": int(creator.get("follower_count") or 0),
-            "creatorFollowed": bool(creator.get("followed")),
-            "_previewAssetUrl": preview_asset_url,
-            "_thumbnailAssetUrl": thumbnail_asset_url,
-        }
+        return normalize_artwork(item, self._client.url)
 
     def _update_selected(self, key, value):
         self._selected[key] = value
