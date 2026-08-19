@@ -46,6 +46,7 @@ from tools.livery.package import (
     PRIVATE_PREVIEW_FORMAT,
     FullLiveryPackageError,
     _png_pixels_match,
+    _render_livery_sections,
     compatibility_decision,
     create_full_livery_package,
     create_local_livery_preview,
@@ -474,6 +475,29 @@ class FullLiveryPackageTests(unittest.TestCase):
         self.assertEqual((0, 0, 255, 255), rendered.getpixel((29, 32)))
         self.assertEqual((255, 255, 0, 255), rendered.getpixel((34, 32)))
 
+    def test_canvas_renderer_keeps_raster_rgb_and_applies_placement_alpha_only(self):
+        raster = Image.new("RGBA", (8, 4), (240, 80, 20, 255))
+        data = render_typecode_layers_canvas(
+            [{
+                "type": 1000000 + 0xAAFA,
+                "type_word": 0xAAFA,
+                "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                "color": [0, 0, 0, 128],
+                "is_raster_logo": True,
+                "raster_id": 11002,
+            }],
+            width=64,
+            height=64,
+            world_bounds=(-32.0, -32.0, 32.0, 32.0),
+            raster_resolver=lambda raster_id: raster if raster_id == 11002 else None,
+        )
+
+        self.assertIsNotNone(data)
+        rendered = Image.open(io.BytesIO(data)).convert("RGBA")
+        pixel = rendered.getpixel((32, 32))
+        self.assertTrue(all(abs(actual - expected) <= 1 for actual, expected in zip(pixel[:3], (240, 80, 20))))
+        self.assertEqual(128, pixel[3])
+
     def test_canvas_renderer_honors_preview_cancellation(self):
         cancelled = threading.Event()
         cancelled.set()
@@ -508,6 +532,23 @@ class FullLiveryPackageTests(unittest.TestCase):
         alpha_values = set(rendered.getchannel("A").getdata())
         self.assertTrue(any(0 < value < 255 for value in alpha_values))
 
+    def test_canvas_renderer_clips_valid_off_canvas_gradient_in_strict_mode(self):
+        data = render_typecode_layers_canvas(
+            [{
+                "type": 1050977,
+                "resource_family": "Community_Vinyls_4",
+                "resource_index": 1,
+                "data": [5000.0, 5000.0, 1.0, 1.0, 0.0, 0.0, 0],
+                "color": [255, 255, 255, 255],
+            }],
+            width=256,
+            height=256,
+            world_bounds=(-128.0, -128.0, 128.0, 128.0),
+            strict_assets=True,
+        )
+
+        self.assertIsNone(data)
+
     def test_canvas_renderer_strict_mode_rejects_missing_native_and_raster_assets(self):
         with self.assertRaisesRegex(ValueError, "no exact native resource"):
             render_typecode_layers_canvas(
@@ -519,6 +560,39 @@ class FullLiveryPackageTests(unittest.TestCase):
                 }],
                 strict_assets=True,
             )
+
+    def test_livery_renderer_omits_one_unavailable_raster_without_losing_the_section(self):
+        layers = [
+            {
+                "type": 1050977,
+                "resource_family": "Community_Vinyls_4",
+                "resource_index": 1,
+                "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                "color": [255, 255, 255, 255],
+                "source_section": "Left",
+            },
+            {
+                "type": 1000000 + 0x87EE,
+                "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0],
+                "color": [255, 255, 255, 255],
+                "source_section": "Left",
+                "is_raster_logo": True,
+                "raster_id": 2030,
+            },
+        ]
+        warnings = []
+
+        with patch("tools.livery.package.FH6RasterDecalResolver", return_value=lambda _raster_id: None):
+            rendered, raster_verified = _render_livery_sections(
+                layers,
+                game_folder=Path("C:/FH6"),
+                warnings=warnings,
+                strict_assets=True,
+            )
+
+        self.assertIn("Left", rendered)
+        self.assertFalse(raster_verified)
+        self.assertTrue(any("2030" in warning for warning in warnings))
         with self.assertRaisesRegex(ValueError, "raster decal resolver"):
             render_typecode_layers_canvas(
                 [{
@@ -814,7 +888,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertNotIn("source/fh6/header", names)
             self.assertNotIn("livery/layers.json", names)
 
-    def test_unowned_test_preview_remains_private_and_non_exportable(self):
+    def test_unowned_private_preview_remains_source_free_and_non_exportable(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "Livery_unowned" / "C_livery"
@@ -830,14 +904,14 @@ class FullLiveryPackageTests(unittest.TestCase):
             manifest = create_local_livery_preview(
                 source,
                 output,
-                _allow_unowned_test_preview=True,
+                _allow_unowned_private_preview=True,
             )
             self.assertEqual(PRIVATE_PREVIEW_FORMAT, manifest["format"])
             self.assertFalse(manifest["source"]["owned"])
-            self.assertEqual("test-only-unowned-preview", manifest["source"]["kind"])
+            self.assertEqual("local-unowned-preview", manifest["source"]["kind"])
             self.assertFalse(manifest["sharing"]["exportable"])
             self.assertTrue(manifest["sharing"]["preview_only"])
-            self.assertTrue(manifest["sharing"]["test_only_unowned_preview"])
+            self.assertTrue(manifest["sharing"]["local_unowned_preview"])
             validate_livery_inspection_artifact(output)
             with self.assertRaises(FullLiveryPackageError):
                 validate_full_livery_package(output)
@@ -922,7 +996,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             finally:
                 service.close()
 
-    def test_save_scan_lists_owned_liveries_and_marks_foreign_groups_preview_only(self):
+    def test_save_scan_hides_unowned_liveries_and_marks_foreign_groups_preview_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             save_root = root / "saves"
@@ -957,7 +1031,10 @@ class FullLiveryPackageTests(unittest.TestCase):
                 self.assertEqual(1, result["empty"])
                 self.assertFalse(result["game_assets_ready"])
                 rows = {row["path"]: row for row in result["rows"]}
-                self.assertEqual({str(shareable.resolve()), str(protected.resolve())}, set(rows))
+                self.assertEqual(
+                    {str(shareable.resolve()), str(protected.resolve())},
+                    set(rows),
+                )
                 self.assertTrue(rows[str(shareable.resolve())]["exportable"])
                 self.assertFalse(rows[str(protected.resolve())]["exportable"])
                 self.assertIn("Link the local FH6 folder", rows[str(shareable.resolve())]["detail"])
@@ -1000,6 +1077,8 @@ class FullLiveryPackageTests(unittest.TestCase):
 
                 with self.assertRaises(FullLiveryPackageError):
                     create_local_livery_preview(comparison, root / "unowned.kfpspreview")
+                with self.assertRaises(FullLiveryPackageError):
+                    service._preview_source_work(comparison)
             finally:
                 service.close()
 

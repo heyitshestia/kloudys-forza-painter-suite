@@ -591,8 +591,13 @@ def render_typecode_layers_canvas(
             try:
                 raster_id = int(shape.get("raster_id") or 0)
                 source = raster_resolver(raster_id) if raster_id > 0 else None
+                # Built-in Forza decals retain their authored RGB. Placement
+                # color contributes opacity, but it is not an RGB tint.
+                raster_color = (255, 255, 255, color[3])
                 layer = (
-                    _render_raster_layer_canvas(source, data, color, (width, height), world_bounds)
+                    _render_raster_layer_canvas(
+                        source, data, raster_color, (width, height), world_bounds
+                    )
                     if source is not None
                     else None
                 )
@@ -643,8 +648,9 @@ def render_typecode_layers_canvas(
         if has_vertex_alpha:
             bounds = layer_bounds(polygons)
             if bounds is None:
-                if strict_assets:
-                    raise ValueError(f"layer {shape_index + 1} is outside the renderable canvas")
+                # Section textures are clipped views. A valid placement can
+                # sit completely outside one view and should be clipped, not
+                # reported as a missing or invalid native asset.
                 continue
             gradient_layer = _rasterize_vertex_alpha_triangles(canvas_alpha, bounds, color)
             gradient_alpha = gradient_layer.getchannel("A")

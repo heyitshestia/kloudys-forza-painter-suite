@@ -22,15 +22,22 @@ from tools.cgroup.forza_source_decoder import (
     GroupNode,
     ShapeNode,
     WalkState,
+    build_livery_sections,
     cgroup_to_layers,
     decode_forza_source,
     flatten_tree,
     is_extended_livery_transform_at,
+    is_unsupported_shape_record_at,
     is_valid_shape_at,
     livery_transform_marker_sizes,
     mark_previous_direct_shape_as_mask,
     mark_previous_terminal_shape_as_mask,
     probe_forza_source_kind,
+    read_livery_transform,
+    Transform,
+    valid_counted_group_at,
+    valid_markerless_group_at,
+    walk_step,
 )
 
 
@@ -62,6 +69,105 @@ class CGroupLibraryScanTests(unittest.TestCase):
         self.assertTrue(is_extended_livery_transform_at(record, 0, len(record)))
         self.assertFalse(is_valid_shape_at(record, 0, len(record)))
         self.assertEqual(8, livery_transform_marker_sizes(record, 0, len(record))[0])
+
+    def test_livery_parent_bitmap_wins_over_ambiguous_extended_transform(self):
+        child_group = (
+            struct.pack("<HH", 2, 1)
+            + b"\x00\x00\x00"
+            + self._framed_shape(0x0066)
+            + self._framed_shape(0x0067)
+        )
+        ambiguous_group = (
+            b"\x00"
+            + struct.pack("<HH", 2, 1)
+            + b"\x00\x00\x03"
+            + struct.pack("<ffff", 12.0, -34.0, 2.5, 180.0)
+            + child_group
+        )
+        parent = GroupNode(expected_children=1, child_bitmap=b"\x01")
+        pending = Transform(x=4.0, y=5.0, sx=1.0, sy=1.0, rotation=0.0)
+        state = WalkState(stack=[parent], pending_transform=pending)
+
+        pos = walk_step(ambiguous_group, 0, len(ambiguous_group), state, livery=True)
+        self.assertEqual(1, pos)
+        self.assertIs(state.pending_transform, pending)
+
+        pos = walk_step(ambiguous_group, pos, len(ambiguous_group), state, livery=True)
+        self.assertGreater(pos, 1)
+        self.assertEqual(1, len(parent.items))
+        self.assertIsInstance(parent.items[0], GroupNode)
+        self.assertEqual(2, parent.items[0].expected_children)
+
+    def test_livery_protected_wrapper_is_not_consumed_as_section_group_transform(self):
+        child_group = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x00"
+            + self._framed_shape(0x0066)
+        )
+        protected_wrapper = (
+            b"\x31"
+            + bytes(6)
+            + b"\x09\x00"
+            + struct.pack("<f", 0.47)
+        )
+        section_lead = (
+            struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x01"
+            + struct.pack("<ffff", 120.0, -39.5, -0.47, 0.0)
+            + protected_wrapper
+            + child_group
+        )
+
+        self.assertIsNone(
+            valid_markerless_group_at(
+                section_lead, 0, len(section_lead), allow_count_one=True, livery=True
+            )
+        )
+
+    def test_counted_group_does_not_capture_zero_led_child_transform(self):
+        leaf_group = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x00"
+            + self._framed_shape(0x0066)
+        )
+        child_transform = b"\x00" + struct.pack("<ffff", 0.16, -0.05, 0.03, 266.9)
+        group = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x01"
+            + child_transform
+            + leaf_group
+        )
+
+        info = valid_counted_group_at(group, 0, len(group), livery=True)
+
+        self.assertIsNotNone(info)
+        self.assertIsNone(info.inline_transform)
+        self.assertEqual(8, info.size)
+
+    def test_separate_livery_rotation_keeps_sign_when_child_frame_is_unmarked(self):
+        leaf_group = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x00"
+            + self._framed_shape(0x0066)
+        )
+        successor = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00\x01"
+            + b"\x00"
+            + struct.pack("<ffff", 0.16, -0.05, 0.03, 266.9)
+            + leaf_group
+        )
+        record = b"\x01" + struct.pack("<ffff", 27.0, -73.5, 1.0, 91.9) + successor
+
+        decoded = read_livery_transform(record, 0, len(record), invert_odd_rotation=True)
+
+        self.assertIsNotNone(decoded)
+        self.assertAlmostEqual(91.9, decoded[1].rotation, places=4)
 
     def test_shape_validation_rejects_control_payload_but_keeps_real_word_0200(self):
         self.assertFalse(is_valid_shape_at(self._framed_shape(0x0200, sy=0.0), 0, 32))
@@ -159,6 +265,104 @@ class CGroupLibraryScanTests(unittest.TestCase):
         layers = flatten_tree(root)
 
         self.assertFalse(layers[0]["mask"])
+
+    def test_livery_section_terminal_mask_marks_its_final_shape(self):
+        shape = self._framed_shape(0x0066)
+        body = shape + b"\x01" + bytes(17 + 23 * 10)
+
+        layers, warnings = build_livery_sections(body, [1] + [0] * 10)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(layers), 1)
+        self.assertTrue(layers[0]["mask"])
+
+    def test_spoiler_section_uses_its_section_canvas_orientation(self):
+        shape = (
+            b"\x00\x02"
+            + struct.pack("<Hffffff", 0x0066, 15.0, 12.0, -34.0, 1.5, 2.0, 0.25)
+            + bytes((255, 255, 255, 255))
+        )
+        body = bytes(23 * 5) + shape + bytes(18 + 23 * 5)
+
+        layers, warnings = build_livery_sections(body, [0] * 5 + [1] + [0] * 5)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(layers), 1)
+        self.assertEqual(layers[0]["section"], "Spoiler")
+        self.assertAlmostEqual(layers[0]["data"][0], -12.0)
+        self.assertAlmostEqual(layers[0]["data"][1], 34.0)
+        self.assertAlmostEqual(layers[0]["data"][4], 195.0)
+
+    def test_livery_markerless_group_uses_control_then_child_bitmap(self):
+        nested_shape = self._framed_shape(0x0066)
+        direct_shape = self._framed_shape(0x0067)
+        counted_child = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00"
+            + b"\x00"
+            + nested_shape
+        )
+        markerless_root = (
+            struct.pack("<HH", 2, 1)
+            + b"\x00\x00"
+            + b"\x01"
+            + counted_child
+            + direct_shape
+        )
+        body = markerless_root + bytes(18 + 23 * 10)
+
+        layers, warnings = build_livery_sections(body, [2] + [0] * 10)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual([layer["shape_id"] for layer in layers], [0x0066, 0x0067])
+
+    def test_livery_mask_control_does_not_hide_colored_terminal_shape(self):
+        colored_shape = self._framed_shape(0x0066)[:-4] + bytes((10, 20, 30, 255))
+        control_shape = b"\x01" + self._framed_shape(0x0067)[1:]
+        counted_child = (
+            b"\x20"
+            + struct.pack("<HH", 1, 1)
+            + b"\x00\x00"
+            + b"\x00"
+            + colored_shape
+        )
+        markerless_root = (
+            struct.pack("<HH", 2, 1)
+            + b"\x00\x00"
+            + b"\x01"
+            + counted_child
+            + control_shape
+        )
+        body = markerless_root + bytes(18 + 23 * 10)
+
+        layers, warnings = build_livery_sections(body, [2] + [0] * 10)
+
+        self.assertEqual(warnings, [])
+        self.assertFalse(layers[0]["mask"])
+        self.assertFalse(layers[1]["mask"])
+
+    def test_unsupported_livery_record_occupies_child_without_shifting_next_section(self):
+        unsupported = self._framed_shape(0x0BB8)
+        front_shape = self._framed_shape(0x0066)
+        back_shape = self._framed_shape(0x0067)
+        front = (
+            struct.pack("<HH", 2, 1)
+            + b"\x00\x00"
+            + b"\x00"
+            + unsupported
+            + front_shape
+        )
+        body = front + bytes(18) + back_shape + bytes(18 + 23 * 9)
+
+        self.assertTrue(is_unsupported_shape_record_at(unsupported, 0, len(unsupported)))
+        layers, warnings = build_livery_sections(body, [2, 1] + [0] * 9)
+
+        self.assertEqual(
+            [(layer["section"], layer["shape_id"]) for layer in layers],
+            [("Front", 0x0066), ("Back", 0x0067)],
+        )
+        self.assertEqual(warnings, ["Front: decoded 1 layer(s), stats target is 2"])
 
     def test_fh5_wgs_discovers_opaque_direct_and_wrapped_groups(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -40,7 +40,7 @@ PACKAGE_EXTENSION = ".kfpslivery"
 PRIVATE_PREVIEW_FORMAT = "kfps_local_livery_preview_v1"
 PRIVATE_PREVIEW_EXTENSION = ".kfpspreview"
 # Bump whenever decoding, validation, or section rendering changes derived data.
-PACKAGE_COMPILER_REVISION = 8
+PACKAGE_COMPILER_REVISION = 9
 MAX_PACKAGE_FILES = 256
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_MEMBER_BYTES = 128 * 1024 * 1024
@@ -135,20 +135,21 @@ def _render_livery_sections(
     has_raster_logos = any(layer.get("is_raster_logo") for layer in layers)
     raster_resolver = None
     raster_verified = not has_raster_logos
+    missing_raster_ids: set[int] = set()
     if has_raster_logos and game_folder:
         try:
             raster_resolver = FH6RasterDecalResolver(game_folder)
-            missing_raster_ids = sorted({
+            missing_raster_ids = {
                 int(layer.get("raster_id") or 0)
                 for layer in layers
                 if layer.get("is_raster_logo") and int(layer.get("raster_id") or 0) > 0
                 and raster_resolver(int(layer.get("raster_id") or 0)) is None
-            })
+            }
             raster_verified = not missing_raster_ids
             if missing_raster_ids and warnings is not None:
                 warnings.append(
                     "built-in or referenced decal artwork unavailable and omitted from preview: "
-                    + ", ".join(str(value) for value in missing_raster_ids)
+                    + ", ".join(str(value) for value in sorted(missing_raster_ids))
                 )
         except RasterDecalError as exc:
             if warnings is not None:
@@ -161,6 +162,15 @@ def _render_livery_sections(
         if cancel_event is not None and cancel_event.is_set():
             raise concurrent.futures.CancelledError()
         current = section_map[section]
+        if missing_raster_ids:
+            current = [
+                layer
+                for layer in current
+                if not (
+                    layer.get("is_raster_logo")
+                    and int(layer.get("raster_id") or 0) in missing_raster_ids
+                )
+            ]
         if not current:
             continue
         try:
@@ -327,13 +337,13 @@ def _create_livery_artifact(
     vehicle_index_cache: Path | str | None = None,
     model_code_override: str = "",
     private_preview: bool = False,
-    _allow_unowned_test_preview: bool = False,
+    _allow_unowned_private_preview: bool = False,
     _cancel_event=None,
     extra_members: dict[str, bytes] | None = None,
     title_override: str = "",
 ) -> dict[str, Any]:
-    if _allow_unowned_test_preview and not private_preview:
-        raise FullLiveryPackageError("The unowned-source override is restricted to private test previews.")
+    if _allow_unowned_private_preview and not private_preview:
+        raise FullLiveryPackageError("Unowned sources are restricted to source-free private previews.")
     source_path = Path(source)
     if source_path.is_dir():
         source_path = source_path / "C_livery"
@@ -348,7 +358,7 @@ def _create_livery_artifact(
         raise FullLiveryPackageError("The selected file is not an FH6 C_livery container.")
     source_state = struct.unpack_from("<I", payload, 0x08)[0]
     privacy = inspect_clivery_privacy(payload)
-    if not privacy["source_owned"] and not _allow_unowned_test_preview:
+    if not privacy["source_owned"] and not _allow_unowned_private_preview:
         raise FullLiveryPackageError("This full livery belongs to another player and cannot be opened or exported by KFPS.")
     if privacy["contains_foreign_groups"] and not private_preview:
         raise FullLiveryPackageError(
@@ -462,8 +472,8 @@ def _create_livery_artifact(
     source_manifest = {
         "game": "fh6",
         "kind": (
-            "test-only-unowned-preview"
-            if _allow_unowned_test_preview
+            "local-unowned-preview"
+            if not privacy["source_owned"]
             else ("local-preview" if private_preview else "C_livery")
         ),
         "source_folder_name": source_path.parent.name,
@@ -505,7 +515,7 @@ def _create_livery_artifact(
         "sharing": {
             "exportable": not private_preview,
             "preview_only": private_preview,
-            "test_only_unowned_preview": bool(_allow_unowned_test_preview),
+            "local_unowned_preview": bool(private_preview and not privacy["source_owned"]),
             "contains_foreign_vinyl_groups": bool(privacy["contains_foreign_groups"]),
             "foreign_vinyl_group_count": int(privacy["foreign_group_count"]),
             "external_game_assets_embedded": False,
@@ -577,7 +587,7 @@ def create_local_livery_preview(
     game_folder: Path | str | None = None,
     vehicle_index_cache: Path | str | None = None,
     model_code_override: str = "",
-    _allow_unowned_test_preview: bool = False,
+    _allow_unowned_private_preview: bool = False,
     _cancel_event=None,
 ) -> dict[str, Any]:
     return _create_livery_artifact(
@@ -587,7 +597,7 @@ def create_local_livery_preview(
         vehicle_index_cache=vehicle_index_cache,
         model_code_override=model_code_override,
         private_preview=True,
-        _allow_unowned_test_preview=_allow_unowned_test_preview,
+        _allow_unowned_private_preview=_allow_unowned_private_preview,
         _cancel_event=_cancel_event,
     )
 
@@ -697,12 +707,12 @@ def _validate_livery_artifact(
                 sharing = manifest.get("sharing") or {}
                 if sharing.get("exportable") is not False or sharing.get("preview_only") is not True:
                     raise FullLiveryPackageError("The private livery preview policy is invalid.")
-                test_only_unowned = sharing.get("test_only_unowned_preview") is True
+                local_unowned = sharing.get("local_unowned_preview") is True
                 if source.get("owned") is not True:
-                    if not test_only_unowned or source.get("kind") != "test-only-unowned-preview":
+                    if not local_unowned or source.get("kind") != "local-unowned-preview":
                         raise FullLiveryPackageError("The private livery preview is not an owned source.")
-                elif test_only_unowned:
-                    raise FullLiveryPackageError("The private livery preview has an inconsistent test-only policy.")
+                elif local_unowned:
+                    raise FullLiveryPackageError("The private livery preview has an inconsistent ownership policy.")
             else:
                 raw_container = bundle.read("source/fh6/C_livery")
                 payload = raw_container if raw_container.startswith(b"vlrc") else unwrap_forza_container_bytes(raw_container, package)

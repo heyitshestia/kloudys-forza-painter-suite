@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.31
+- Reworked FH6 livery stream decoding to preserve nested group transforms, child order, masks, native gradients, built-in decals, and section placement across complex liveries.
+- Fixed missing, reordered, incorrectly tinted, and falsely masked artwork in full-livery previews, including valid off-canvas gradient clipping and unavailable built-in decal handling.
+- Invalidated stale livery preview caches and expanded corpus-based regression coverage while keeping unowned liveries hidden and export ownership checks fail-closed.
+
 ## 3.1.30
 - Reworked FH6 full-livery mesh classification and section routing to recover missing doors, fenders, hoods, trunks, bumpers, wings, mirrors, side skirts, and exterior-window artwork across more car models.
 - Added a constrained section-aware projection path for verified livery surfaces without exact UV3 coordinates, while improving left/right isolation, stable framing, and wheel-based vehicle grounding.
