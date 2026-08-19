@@ -27,6 +27,8 @@ internal sealed record ChassisMesh(
     int[] PartOptionIds,
     int DrawGroups,
     int AllowedSides,
+    int ProjectionSides,
+    ulong MaterialBindingHash,
     Vector3[] Positions,
     Vector3[] Normals,
     Dictionary<int, Vector2[]> UvChannels,
@@ -42,7 +44,8 @@ internal sealed record ModelInstance(
     string Identity,
     bool StockPart,
     int[] PartOptionIds,
-    int DrawGroups);
+    int DrawGroups,
+    IReadOnlyDictionary<string, ulong> MaterialBindings);
 
 internal sealed record PartOptionDescriptor(
     string PartType,
@@ -81,6 +84,51 @@ internal static class Program
     private const int SideGlassRight = 1 << 10;
     private const int AllBodySides = 0x1F;
     private const int AllGlassSides = 0x7C0;
+    private const ulong WindowGlassBinding = 0x9582FD1BA2FFF9A4UL;
+    private static readonly HashSet<ulong> LiveryPanelBindings =
+    [
+        0x4FF3746D9B055F1DUL,
+        0xE00E033E6A20B977UL,
+        0xE00E023E6A20B7C4UL,
+        0xE00E053E6A20BCDDUL,
+        0xE00E043E6A20BB2AUL,
+        0xE00DFF3E6A20B2ABUL,
+        0xE00DFE3E6A20B0F8UL,
+        0xE00E013E6A20B611UL,
+        0xE00E003E6A20B45EUL,
+        0xE00DFB3E6A20ABDFUL,
+        0xE00DFA3E6A20AA2CUL,
+    ];
+    private static readonly HashSet<ulong> CarPaintBindings =
+    [
+        0xF7DBE8A7C839A675UL,
+        0x48E5B27611922B17UL,
+        0x496F92FA5A6AAA57UL,
+        0xE3AEF60D5E234B88UL,
+        0xE3AEF90D5E2350A1UL,
+        0xBF98CB3AA93337A4UL,
+        0xBF98CE3AA9333CBDUL,
+        0xBF98CD3AA9333B0AUL,
+        0xBF98C83AA933328BUL,
+        0xBF98C73AA93330D8UL,
+        0xBF98CA3AA93335F1UL,
+        0xBF98C93AA933343EUL,
+        0xBF98C43AA9332BBFUL,
+        0xBF98C33AA9332A0CUL,
+        0x471A5FA481625396UL,
+        0x6AC1E9D87FE5D953UL,
+        0x4FD95FB5F29A1C11UL,
+        0x78D434B9676BAFE1UL,
+        0x1E5FF0F50C741122UL,
+        0x115F3B8D0531FAE2UL,
+        0x23E6ED8FEF16F8E0UL,
+        0xCD48110253EE319AUL,
+        0x06506BFF10D8BBBAUL,
+        0x9A883D636B6F3798UL,
+        0xBCEA13C28AA26965UL,
+        0x6E3810972EA4DBF4UL,
+        0xB0C163FF8ADE48FDUL,
+    ];
 
     private static int Main(string[] args)
     {
@@ -136,7 +184,7 @@ internal static class Program
 
             Console.WriteLine(JsonSerializer.Serialize(new
             {
-                format = "kfps_local_chassis_conversion_v4",
+                format = "kfps_local_chassis_conversion_v5",
                 output = outputPath,
                 mesh_count = meshes.Count,
                 paint_meshes = meshes.Count(mesh => mesh.Role == "paint"),
@@ -318,7 +366,8 @@ internal static class Program
                 $"legacy:{requestedName}",
                 true,
                 [],
-                1);
+                1,
+                new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase));
             AppendMeshes(
                 result,
                 model.Imported,
@@ -382,12 +431,16 @@ internal static class Program
             var uvs = TransformUvChannels(geometry, positions.Length);
             var identity = $"{sourceEntry} {geometry.Name} {geometry.MaterialName}";
             var hasUv3 = uvs.ContainsKey(3);
+            var materialBindingHash = ResolveMaterialBindingHash(
+                geometry.MaterialName ?? "",
+                instance.MaterialBindings);
             var role = ClassifyRole(
                 identity,
                 hasUv3,
                 instance.WindowHint,
                 geometry.Name,
-                geometry.MaterialName ?? "");
+                geometry.MaterialName ?? "",
+                materialBindingHash);
             var actualBytes = checked(
                 (long)positions.Length * 24L
                 + uvs.Values.Sum(values => (long)values.Length * 8L)
@@ -409,6 +462,8 @@ internal static class Program
                 instance.PartOptionIds,
                 instance.DrawGroups,
                 RenderedLiverySides(role, geometry.Name, instance.PartType),
+                ProjectionLiverySides(role, geometry.Name, instance.PartType),
+                materialBindingHash,
                 positions,
                 normals,
                 uvs,
@@ -450,7 +505,12 @@ internal static class Program
                 key,
                 stock,
                 ids,
-                model.RawDrawGroupsValue));
+                model.RawDrawGroupsValue,
+                model.MaterialIndexes
+                    .Where(item => !string.IsNullOrWhiteSpace(item.Key))
+                    .GroupBy(item => MaterialToken(item.Key), StringComparer.OrdinalIgnoreCase)
+                    .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                    .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase)));
         }
 
         foreach (var entry in scene.NonUpgradableParts)
@@ -671,18 +731,27 @@ internal static class Program
         bool hasUv3,
         bool windowHint = false,
         string meshName = "",
-        string materialName = "")
+        string materialName = "",
+        ulong materialBindingHash = 0)
     {
         var value = identity.ToLowerInvariant();
         var sourceName = string.IsNullOrWhiteSpace(meshName) ? identity : meshName;
         var windowSide = AllowedWindowSide(sourceName);
         if (IsInteriorWindowShell(sourceName)) return "hidden";
-        if (hasUv3
-            && windowSide != 0
+        if (windowSide != 0
             && !IsRejectedWindowMaterial(materialName)
-            && (windowHint || IsWindowGlassMaterial(materialName) || value.Contains("/windows/") || value.Contains("\\windows\\")))
+            && (materialBindingHash == WindowGlassBinding
+                || windowHint
+                || IsWindowGlassMaterial(materialName)
+                || value.Contains("/windows/")
+                || value.Contains("\\windows\\")))
             return "glass";
-        if (hasUv3 && IsBodyPaintMaterial(materialName)) return "paint";
+        if (IsBodyPaintMaterial(materialName)
+            || LiveryPanelBindings.Contains(materialBindingHash)
+            || (hasUv3
+                && value.Contains("livery", StringComparison.Ordinal)
+                && CarPaintBindings.Contains(materialBindingHash)))
+            return "paint";
         if (value.Contains("shadow")) return "hidden";
         if (value.Contains("blackglass") || value.Contains("gls_clear") || value.Contains("undercarriage") || value.Contains("tire"))
             return "dark";
@@ -735,14 +804,22 @@ internal static class Program
         var separator = name.IndexOf('|');
         if (separator >= 0) name = name[..separator];
         if (name.Contains("int")) return 0;
-        if (name.StartsWith("glassf_", StringComparison.Ordinal)) return SideGlassFront;
-        if (name.StartsWith("glassr_", StringComparison.Ordinal)) return SideGlassBack;
+        if (name.StartsWith("glassrf", StringComparison.Ordinal)
+            || name.StartsWith("glassrr", StringComparison.Ordinal)
+            || name.StartsWith("glassrm", StringComparison.Ordinal)) return SideGlassRight;
+        if (name.StartsWith("glasslf", StringComparison.Ordinal)
+            || name.StartsWith("glasslr", StringComparison.Ordinal)
+            || name.StartsWith("glasslm", StringComparison.Ordinal)) return SideGlassLeft;
+        if (name.StartsWith("glassf_", StringComparison.Ordinal)
+            || name.StartsWith("glassflivery", StringComparison.Ordinal)
+            || name.Contains("windshield", StringComparison.Ordinal)
+            || name.Contains("windsheild", StringComparison.Ordinal)) return SideGlassFront;
+        if (name.StartsWith("glassr_", StringComparison.Ordinal)
+            || name.StartsWith("glassrlivery", StringComparison.Ordinal)
+            || name.Contains("backglass", StringComparison.Ordinal)
+            || name.Contains("rearglass", StringComparison.Ordinal)) return SideGlassBack;
         if (name.StartsWith("glasstop_", StringComparison.Ordinal)
             || name.StartsWith("glassroof_", StringComparison.Ordinal)) return SideGlassTop;
-        if (name.StartsWith("glasslf_", StringComparison.Ordinal)
-            || name.StartsWith("glasslr_", StringComparison.Ordinal)) return SideGlassLeft;
-        if (name.StartsWith("glassrf_", StringComparison.Ordinal)
-            || name.StartsWith("glassrr_", StringComparison.Ordinal)) return SideGlassRight;
         return 0;
     }
 
@@ -761,12 +838,50 @@ internal static class Program
         if (role != "paint") return 0;
         if (IsSpoilerMesh(meshName)) return SideSpoiler;
         if (IsTrunkPanelMesh(meshName)) return SideBack | SideTop;
+        return AllBodySides;
+    }
+
+    private static int ProjectionLiverySides(string role, string meshName, CCarParts partType)
+    {
+        if (role == "glass") return AllowedWindowSide(meshName);
+        if (role != "paint") return 0;
+        if (IsSpoilerMesh(meshName)) return SideSpoiler;
+        if (IsTrunkPanelMesh(meshName)) return SideBack | SideTop;
         if (partType == CCarParts.FrontBumper) return SideFront | SideLeft | SideRight;
         if (partType == CCarParts.RearBumper) return SideBack | SideLeft | SideRight;
         if (partType == CCarParts.Hood) return SideTop;
         if (partType == CCarParts.SideSkirts) return SideLeft | SideRight;
         if (partType == CCarParts.RearWing) return SideSpoiler;
         return AllBodySides;
+    }
+
+    private static string MaterialToken(string value)
+    {
+        var normalized = value.Replace('\\', '/');
+        var separator = normalized.LastIndexOf('/');
+        if (separator >= 0) normalized = normalized[(separator + 1)..];
+        var pipe = normalized.IndexOf('|');
+        if (pipe >= 0) normalized = normalized[..pipe];
+        if (normalized.EndsWith(".materialbin", StringComparison.OrdinalIgnoreCase))
+            normalized = normalized[..^12];
+        return normalized.Trim().ToLowerInvariant();
+    }
+
+    private static ulong ResolveMaterialBindingHash(
+        string materialName,
+        IReadOnlyDictionary<string, ulong> bindings)
+    {
+        var candidate = MaterialToken(materialName);
+        if (string.IsNullOrWhiteSpace(candidate)) return 0;
+        if (bindings.TryGetValue(candidate, out var exact)) return exact;
+        foreach (var (name, value) in bindings)
+        {
+            if (name.Length >= 6 && candidate.Length >= 6
+                && (name.Contains(candidate, StringComparison.OrdinalIgnoreCase)
+                    || candidate.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                return value;
+        }
+        return 0;
     }
 
     private static JsonSerializerOptions JsonOptions() => new()

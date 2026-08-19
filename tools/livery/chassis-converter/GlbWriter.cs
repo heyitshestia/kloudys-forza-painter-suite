@@ -51,6 +51,8 @@ internal static class GlbWriter
                     ["kfps_part_option_ids"] = mesh.PartOptionIds,
                     ["kfps_draw_groups"] = mesh.DrawGroups,
                     ["kfps_allowed_sides"] = mesh.AllowedSides,
+                    ["kfps_projection_sides"] = mesh.ProjectionSides,
+                    ["kfps_material_binding_hash"] = mesh.MaterialBindingHash.ToString("X16"),
                 };
                 meshRecords.Add(new
                 {
@@ -72,7 +74,7 @@ internal static class GlbWriter
                         nodes = Enumerable.Range(0, nodes.Count).ToArray(),
                         extras = new
                         {
-                            kfps_format = "kfps_local_chassis_scene_v2",
+                            kfps_format = "kfps_local_chassis_scene_v3",
                             kfps_part_options = partOptions.Select(option => new
                             {
                                 part_type = option.PartType,

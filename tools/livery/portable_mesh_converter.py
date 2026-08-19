@@ -201,6 +201,7 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
             part_options.append(option)
     roles: dict[int, str] = {}
     allowed_sides: dict[int, object] = {}
+    projection_sides: dict[int, object] = {}
     for node in nodes:
         if not isinstance(node, dict) or "mesh" not in node:
             continue
@@ -210,6 +211,8 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
         roles[mesh_index] = role
         if "kfps_allowed_sides" in extras:
             allowed_sides[mesh_index] = extras["kfps_allowed_sides"]
+        if "kfps_projection_sides" in extras:
+            projection_sides[mesh_index] = extras["kfps_projection_sides"]
     paint = 0
     glass = 0
     direct_uv3 = 0
@@ -223,6 +226,7 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
         if role not in ROLE_NAMES:
             raise PortableMeshConverterError("The converted chassis has an invalid material role.")
         raw_allowed = extras.get("kfps_allowed_sides", allowed_sides.get(index))
+        raw_projection = extras.get("kfps_projection_sides", projection_sides.get(index))
         raw_option_ids = extras.get("kfps_part_option_ids") or []
         part_type = str(extras.get("kfps_part_type") or "").strip()
         if not isinstance(raw_option_ids, list) or any(
@@ -242,6 +246,17 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
             declared_allowed = int(raw_allowed)
             if declared_allowed < 0 or declared_allowed > 0x7FF:
                 raise PortableMeshConverterError("The converted chassis has an invalid livery-side declaration.")
+        declared_projection: int | None = None
+        if raw_projection is not None:
+            if isinstance(raw_projection, bool) or not isinstance(raw_projection, (int, float)):
+                raise PortableMeshConverterError("The converted chassis has an invalid projection-side declaration.")
+            if isinstance(raw_projection, float) and (
+                not math.isfinite(raw_projection) or not raw_projection.is_integer()
+            ):
+                raise PortableMeshConverterError("The converted chassis has an invalid projection-side declaration.")
+            declared_projection = int(raw_projection)
+            if declared_projection < 0 or declared_projection > 0x7FF:
+                raise PortableMeshConverterError("The converted chassis has an invalid projection-side declaration.")
         primitives = mesh.get("primitives") or []
         if not primitives:
             raise PortableMeshConverterError("The converted chassis contains a mesh with no geometry.")
@@ -286,20 +301,26 @@ def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:
                 ):
                     raise PortableMeshConverterError("The converted chassis livery UV contract is invalid.")
                 has_uv3 = True
-        if role in {"paint", "glass"} and not has_uv3:
-            raise PortableMeshConverterError(
-                "The converted chassis did not preserve exact FH6 livery coordinates."
-            )
+        valid_mask = 0x3F if role == "paint" else 0x7C0 if role == "glass" else 0
         if declared_allowed is not None:
-            valid_mask = 0x3F if role == "paint" else 0x7C0 if role == "glass" else 0
-            if declared_allowed & ~valid_mask or (has_uv3 and role in {"paint", "glass"} and declared_allowed == 0):
+            if declared_allowed & ~valid_mask or (
+                role in {"paint", "glass"} and declared_allowed == 0
+            ):
                 raise PortableMeshConverterError("The converted chassis has an invalid livery-side declaration.")
+        if declared_projection is not None and declared_projection & ~valid_mask:
+            raise PortableMeshConverterError("The converted chassis has an invalid projection-side declaration.")
+        if role in {"paint", "glass"} and not has_uv3 and not declared_projection:
+            raise PortableMeshConverterError(
+                "The converted chassis has no exact UV3 or safe world-projection path."
+            )
         if role == "paint":
             paint += 1
-            direct_uv3 += 1
+            direct_uv3 += int(has_uv3)
+            projected += int(not has_uv3)
         elif role == "glass":
             glass += 1
-            direct_uv3 += 1
+            direct_uv3 += int(has_uv3)
+            projected += int(not has_uv3)
     if not meshes or paint == 0:
         raise PortableMeshConverterError(
             "The converted chassis did not preserve livery-bearing paint geometry."

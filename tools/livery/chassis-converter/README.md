@@ -37,10 +37,11 @@ upgradable part. Loading every mutually exclusive body-kit variant into one scen
 is intentionally prohibited because some car archives expand to unsafe memory
 sizes. Missing required baseline geometry fails the conversion.
 
-Livery meshes must preserve FH6's exact `TEXCOORD_3` coordinates. The validator
-rejects guessed world-space projection because it produces plausible but wrong
-artwork on curved and asymmetric panels. Each accepted livery mesh also carries
-an allowed-section bitset: ordinary body paint accepts the five body
+Livery meshes preserve FH6's exact `TEXCOORD_3` coordinates whenever present.
+A verified paint or glass surface without UV3 is accepted only with a nonzero,
+role-appropriate projection-side bitset; unclassified geometry is rejected.
+Each accepted livery mesh carries separate final-render and projection-fitting
+bitsets: ordinary body paint accepts the five body
 projections, spoilers accept only the spoiler projection, trunk panels accept
 back and top, and verified exterior windows accept only glass projections.
 Interior window shells and lamp glass are excluded from livery routing. The

@@ -6,6 +6,7 @@ const SECTION_COUNT = 11;
 const RENDER_CONTRACT_FORMAT = 'kfps_fh6_section_render_contract_v3';
 const ALL_BODY_SIDES = 0x1f;
 const ALL_GLASS_SIDES = 0x7c0;
+const SLOT_GEOMETRY_SIDES = [0, 1, 2, 4, 3, 5, 6, 7, 8, 10, 9];
 const canvas = document.querySelector('#canvas');
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
@@ -153,6 +154,13 @@ function meshAllowedSides(mesh, category) {
   return category === 'glass' ? ALL_GLASS_SIDES : ALL_BODY_SIDES;
 }
 
+function meshProjectionSides(mesh) {
+  const declared = Number(mesh.userData?.kfps_projection_sides);
+  return Number.isInteger(declared) && declared >= 0 && declared < (1 << SECTION_COUNT)
+    ? declared
+    : 0;
+}
+
 function allowedSlotArray(mask) {
   const allowed = new Float32Array(SECTION_COUNT);
   for (let slot = 0; slot < SECTION_COUNT; slot += 1) {
@@ -235,23 +243,45 @@ async function loadTexture(url, color = false) {
   return texture;
 }
 
-function sectionArrays(contract, kind) {
+function sectionArrays(contract, kind, projectionBounds) {
   const sourceRegions = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector4());
   const paintRegions = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector4());
   const facings = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector3());
   const present = new Float32Array(SECTION_COUNT);
+  const projectionAxes = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector4());
+  const projectionMinimum = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector2(-1, -1));
+  const projectionMaximum = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector2(1, 1));
+  const projectionMaskRegions = Array.from({ length: SECTION_COUNT }, () => new THREE.Vector4());
   for (const section of contract.sections || []) {
     const slot = Number(section.slot_index);
     if (!Number.isInteger(slot) || slot < 0 || slot >= SECTION_COUNT) continue;
     const source = section.source_region || [];
     const paint = section.paint_region || [];
     const facing = section.facing || [];
+    const projectionAxis = section.projection_axis || [];
+    const projectionMask = section.projection_mask_region || [];
     sourceRegions[slot].set(...source.map(Number));
     paintRegions[slot].set(...paint.map(Number));
     facings[slot].set(...facing.map(Number));
+    projectionAxes[slot].set(...projectionAxis.map(Number));
+    projectionMaskRegions[slot].set(...projectionMask.map(Number));
+    const bounds = projectionBounds?.[slot];
+    if (bounds?.valid) {
+      projectionMinimum[slot].copy(bounds.minimum);
+      projectionMaximum[slot].copy(bounds.maximum);
+    }
     if (section.kind === kind) present[slot] = 1;
   }
-  return { sourceRegions, paintRegions, facings, present };
+  return {
+    sourceRegions,
+    paintRegions,
+    facings,
+    present,
+    projectionAxes,
+    projectionMinimum,
+    projectionMaximum,
+    projectionMaskRegions,
+  };
 }
 
 function sectionAwareMaterial(
@@ -260,9 +290,12 @@ function sectionAwareMaterial(
   baseColor,
   kind,
   allowedSides,
+  projectionSides,
+  projectionBounds,
+  directUv,
   transparent = false
 ) {
-  const arrays = sectionArrays(renderContract, kind);
+  const arrays = sectionArrays(renderContract, kind, projectionBounds);
   const material = trackMaterial(new THREE.ShaderMaterial({
     uniforms: {
       paintMap: { value: paintTexture },
@@ -274,16 +307,22 @@ function sectionAwareMaterial(
       sideFacing: { value: arrays.facings },
       enabledSlots: { value: arrays.present },
       meshAllowedSlots: { value: allowedSlotArray(allowedSides) },
+      meshProjectionSlots: { value: allowedSlotArray(projectionSides) },
+      projectionAxis: { value: arrays.projectionAxes },
+      projectionMinimum: { value: arrays.projectionMinimum },
+      projectionMaximum: { value: arrays.projectionMaximum },
+      projectionMaskRegion: { value: arrays.projectionMaskRegions },
+      useDirectUv: { value: directUv ? 1.0 : 0.0 },
       baseColor: { value: new THREE.Color(baseColor) },
       keyDirection: { value: new THREE.Vector3(0.45, 0.9, 0.55).normalize() },
     },
     vertexShader: `
-      attribute vec2 uv3;
+      ${directUv ? 'attribute vec2 uv3;' : ''}
       varying vec2 atlasUv;
       varying vec3 worldNormalValue;
       varying vec3 worldPositionValue;
       void main() {
-        atlasUv = vec2(uv3.x * 0.5, uv3.y);
+        atlasUv = ${directUv ? 'vec2(uv3.x * 0.5, uv3.y)' : 'vec2(0.0)'};
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         worldPositionValue = worldPosition.xyz;
         worldNormalValue = normalize(mat3(modelMatrix) * normal);
@@ -300,6 +339,12 @@ function sectionAwareMaterial(
       uniform vec3 sideFacing[${SECTION_COUNT}];
       uniform float enabledSlots[${SECTION_COUNT}];
       uniform float meshAllowedSlots[${SECTION_COUNT}];
+      uniform float meshProjectionSlots[${SECTION_COUNT}];
+      uniform vec4 projectionAxis[${SECTION_COUNT}];
+      uniform vec2 projectionMinimum[${SECTION_COUNT}];
+      uniform vec2 projectionMaximum[${SECTION_COUNT}];
+      uniform vec4 projectionMaskRegion[${SECTION_COUNT}];
+      uniform float useDirectUv;
       uniform vec3 baseColor;
       uniform vec3 keyDirection;
       varying vec2 atlasUv;
@@ -320,6 +365,12 @@ function sectionAwareMaterial(
         return page2.b;
       }
 
+      float axisComponent(vec3 value, float axis) {
+        if (axis < 0.5) return value.x;
+        if (axis < 1.5) return value.y;
+        return value.z;
+      }
+
       void main() {
         vec3 normalValue = normalize(worldNormalValue);
         float bestCoverage = 0.0;
@@ -332,6 +383,23 @@ function sectionAwareMaterial(
             || dot(sideFacing[slot], normalValue) <= 0.0
           ) continue;
           vec2 candidateUv = atlasUv;
+          if (useDirectUv < 0.5) {
+            if (meshProjectionSlots[slot] < 0.5) continue;
+            vec4 axis = projectionAxis[slot];
+            vec2 minimum = projectionMinimum[slot];
+            vec2 range = projectionMaximum[slot] - minimum;
+            if (range.x <= 0.000001 || range.y <= 0.000001) continue;
+            vec2 axisValue = vec2(
+              axisComponent(worldPositionValue, axis.x) * axis.z,
+              axisComponent(worldPositionValue, axis.y) * axis.w
+            );
+            vec2 normalized = (axisValue - minimum) / range;
+            vec4 maskRegion = projectionMaskRegion[slot];
+            candidateUv = vec2(
+              mix(maskRegion.x, maskRegion.y, normalized.x),
+              mix(maskRegion.z, maskRegion.w, normalized.y)
+            );
+          }
           if (
             candidateUv.x < 0.0 || candidateUv.x > 1.0
             || candidateUv.y < 0.0 || candidateUv.y > 1.0
@@ -375,6 +443,96 @@ function sectionAwareMaterial(
     side: THREE.DoubleSide,
   }));
   return material;
+}
+
+function calculateProjectionBounds(model, contract) {
+  const sections = contract?.sections || [];
+  const sectionBySlot = new Map(
+    sections.map(section => [Number(section.slot_index), section])
+  );
+  const bounds = Array.from({ length: SECTION_COUNT }, () => ({
+    valid: false,
+    minimum: new THREE.Vector2(Infinity, Infinity),
+    maximum: new THREE.Vector2(-Infinity, -Infinity),
+  }));
+  model.updateMatrixWorld(true);
+  model.traverse(mesh => {
+    if (!mesh.isMesh || mesh.geometry?.getAttribute('uv3')) return;
+    const projectionSides = meshProjectionSides(mesh);
+    if (!projectionSides) return;
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    if (!mesh.geometry.boundingBox) return;
+    const worldBounds = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+    for (let slot = 0; slot < SECTION_COUNT; slot += 1) {
+      const geometrySide = SLOT_GEOMETRY_SIDES[slot];
+      if ((projectionSides & (1 << geometrySide)) === 0) continue;
+      const axis = sectionBySlot.get(slot)?.projection_axis || [];
+      if (axis.length !== 4) continue;
+      const axisX = Number(axis[0]);
+      const axisY = Number(axis[1]);
+      const scaleX = Number(axis[2]);
+      const scaleY = Number(axis[3]);
+      if (![axisX, axisY, scaleX, scaleY].every(Number.isFinite)) continue;
+      const target = bounds[slot];
+      const axisMinimumX = axisX === 0 ? worldBounds.min.x : axisX === 1 ? worldBounds.min.y : worldBounds.min.z;
+      const axisMaximumX = axisX === 0 ? worldBounds.max.x : axisX === 1 ? worldBounds.max.y : worldBounds.max.z;
+      const axisMinimumY = axisY === 0 ? worldBounds.min.x : axisY === 1 ? worldBounds.min.y : worldBounds.min.z;
+      const axisMaximumY = axisY === 0 ? worldBounds.max.x : axisY === 1 ? worldBounds.max.y : worldBounds.max.z;
+      const x0 = axisMinimumX * scaleX;
+      const x1 = axisMaximumX * scaleX;
+      const y0 = axisMinimumY * scaleY;
+      const y1 = axisMaximumY * scaleY;
+      target.minimum.x = Math.min(target.minimum.x, x0, x1);
+      target.minimum.y = Math.min(target.minimum.y, y0, y1);
+      target.maximum.x = Math.max(target.maximum.x, x0, x1);
+      target.maximum.y = Math.max(target.maximum.y, y0, y1);
+      target.valid = target.maximum.x > target.minimum.x && target.maximum.y > target.minimum.y;
+    }
+  });
+
+  const locators = contract?.assembly?.locators || {};
+  const front = locators.bumper_front;
+  const rear = locators.bumper_rear;
+  if (Array.isArray(front) && Array.isArray(rear)) {
+    for (const slot of [2, 3, 4]) {
+      const axis = sectionBySlot.get(slot)?.projection_axis || [];
+      if (Number(axis[0]) !== 2 || !bounds[slot].valid) continue;
+      const first = Number(front[2]) * Number(axis[2]);
+      const second = Number(rear[2]) * Number(axis[2]);
+      if (Number.isFinite(first) && Number.isFinite(second) && Math.abs(first - second) >= 0.5) {
+        bounds[slot].minimum.x = Math.min(first, second);
+        bounds[slot].maximum.x = Math.max(first, second);
+      }
+    }
+  }
+  return bounds;
+}
+
+function stableInspectionBounds(model) {
+  const bounds = new THREE.Box3();
+  let found = false;
+  model.traverse(mesh => {
+    if (!mesh.isMesh || mesh.visible === false || mesh.userData?.kfps_stock_part === false) return;
+    const category = meshCategory(mesh);
+    if (category !== 'paint' && category !== 'glass') return;
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    if (!mesh.geometry.boundingBox) return;
+    bounds.union(mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
+    found = true;
+  });
+  return found ? bounds : new THREE.Box3().setFromObject(model);
+}
+
+function inspectionFloorY(assembly, fallback) {
+  const centers = Object.values(assembly?.wheel_centers || {});
+  const radius = Number(assembly?.tire_radius);
+  const yValues = centers
+    .filter(value => Array.isArray(value) && value.length === 3)
+    .map(value => Number(value[1]))
+    .filter(Number.isFinite);
+  return yValues.length === 4 && Number.isFinite(radius) && radius > 0
+    ? Math.min(...yValues) - radius
+    : fallback;
 }
 
 function frameModel(bounds) {
@@ -550,9 +708,10 @@ async function loadPackage() {
     model.updateMatrixWorld(true);
     paintMaterials = [];
     glassMaterials = [];
+    const projectionBounds = calculateProjectionBounds(model, renderContract);
     const materialCache = new Map();
-    const liveryMaterial = (kind, allowedSides) => {
-      const key = `${kind}:${allowedSides}`;
+    const liveryMaterial = (kind, allowedSides, projectionSides, directUv) => {
+      const key = `${kind}:${allowedSides}:${projectionSides}:${directUv ? 1 : 0}`;
       if (!materialCache.has(key)) {
         const material = sectionAwareMaterial(
           paintTexture,
@@ -560,6 +719,9 @@ async function loadPackage() {
           kind === 'glass' ? 0x202a31 : 0xc7cbd0,
           kind,
           allowedSides,
+          projectionSides,
+          projectionBounds,
+          directUv,
           kind === 'glass'
         );
         materialCache.set(key, material);
@@ -575,21 +737,21 @@ async function loadPackage() {
       meshCount += 1;
       const category = meshCategory(child);
       if (category === 'paint') {
-        if (!child.geometry.getAttribute('uv3')) {
-          throw new Error('The local car mesh does not contain exact FH6 livery coordinates.');
-        }
+        const directUv = Boolean(child.geometry.getAttribute('uv3'));
         child.material = liveryMaterial(
           'body',
-          meshAllowedSides(child, category)
+          meshAllowedSides(child, category),
+          meshProjectionSides(child),
+          directUv
         );
         paintCount += 1;
       } else if (category === 'glass') {
-        if (!child.geometry.getAttribute('uv3')) {
-          throw new Error('The local car glass does not contain exact FH6 livery coordinates.');
-        }
+        const directUv = Boolean(child.geometry.getAttribute('uv3'));
         child.material = liveryMaterial(
           'glass',
-          meshAllowedSides(child, category)
+          meshAllowedSides(child, category),
+          meshProjectionSides(child),
+          directUv
         );
         child.renderOrder = 2;
         glassCount += 1;
@@ -624,8 +786,8 @@ async function loadPackage() {
     const wheelCount = addInspectionWheels(renderContract.assembly);
     scene.add(model);
     model.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(model);
-    floor.position.y = bounds.min.y - 0.018;
+    const bounds = stableInspectionBounds(model);
+    floor.position.y = inspectionFloorY(renderContract.assembly, bounds.min.y) - 0.018;
     frameModel(bounds);
     setSectionFilter('all');
     setStatus('');

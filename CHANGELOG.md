@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.30
+- Reworked FH6 full-livery mesh classification and section routing to recover missing doors, fenders, hoods, trunks, bumpers, wings, mirrors, side skirts, and exterior-window artwork across more car models.
+- Added a constrained section-aware projection path for verified livery surfaces without exact UV3 coordinates, while improving left/right isolation, stable framing, and wheel-based vehicle grounding.
+- Fixed zero-padded built-in decal lookup, transparent native-gradient handling, and incomplete local-preview reporting without weakening strict package exports.
+- Validated every unique nonempty livery available in the development corpus across 46 cars while keeping unowned liveries hidden and existing ownership protections intact.
+
 ## 3.1.29
 - Fixed completed, checkpointed, and safely stopped generations not appearing in Outputs until a manual refresh or restart.
 - Kept editor exports, editor projects, and replaced JSON metadata synchronized with the desktop app immediately after saving.

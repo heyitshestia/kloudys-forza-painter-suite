@@ -36,6 +36,7 @@ def _write_minimal_chassis(
     position_accessor: int = 0,
     node_mesh: int = 0,
     allowed_sides: int | float | None = None,
+    projection_sides: int | float | None = None,
     include_uv3: bool = True,
 ) -> None:
     positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
@@ -76,6 +77,8 @@ def _write_minimal_chassis(
     extras = {"kfps_role": role}
     if allowed_sides is not None:
         extras["kfps_allowed_sides"] = allowed_sides
+    if projection_sides is not None:
+        extras["kfps_projection_sides"] = projection_sides
     attributes = {"POSITION": position_accessor, "NORMAL": 1}
     if include_uv3:
         attributes["TEXCOORD_3"] = 2
@@ -164,12 +167,20 @@ class PortableChassisConverterTests(unittest.TestCase):
             with self.assertRaisesRegex(PortableMeshConverterError, "material role"):
                 validate_local_chassis_glb(path)
 
-    def test_validator_rejects_livery_geometry_without_exact_uv3_coordinates(self):
+    def test_validator_rejects_livery_geometry_without_uv3_or_safe_projection(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "projected-paint.glb"
             _write_minimal_chassis(path, include_uv3=False)
-            with self.assertRaisesRegex(PortableMeshConverterError, "exact FH6 livery coordinates"):
+            with self.assertRaisesRegex(PortableMeshConverterError, "exact UV3 or safe world-projection"):
                 validate_local_chassis_glb(path)
+
+    def test_validator_accepts_livery_geometry_with_a_safe_projection_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "projected-paint.glb"
+            _write_minimal_chassis(path, include_uv3=False, projection_sides=0x1F)
+            report = validate_local_chassis_glb(path)
+            self.assertEqual(0, report["direct_uv3_meshes"])
+            self.assertEqual(1, report["projected_livery_meshes"])
 
     def test_validator_accepts_role_appropriate_livery_sides_and_rejects_invalid_masks(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -271,6 +282,33 @@ class PortableChassisConverterTests(unittest.TestCase):
             ROOT / "runtime" / "full-livery" / "cache" / "vehicle-index.json",
         )
         expected = {
+            1478: {
+                "mesh_count": 604,
+                "paint_meshes": 15,
+                "glass_meshes": 17,
+                "triangle_count": 491188,
+                "direct_uv3_meshes": 32,
+                "projected_livery_meshes": 0,
+                "part_option_count": 0,
+            },
+            3606: {
+                "mesh_count": 557,
+                "paint_meshes": 28,
+                "glass_meshes": 16,
+                "triangle_count": 535161,
+                "direct_uv3_meshes": 44,
+                "projected_livery_meshes": 0,
+                "part_option_count": 0,
+            },
+            4147: {
+                "mesh_count": 791,
+                "paint_meshes": 44,
+                "glass_meshes": 11,
+                "triangle_count": 701082,
+                "direct_uv3_meshes": 54,
+                "projected_livery_meshes": 1,
+                "part_option_count": 0,
+            },
             3304: {
                 "mesh_count": 683,
                 "paint_meshes": 14,

@@ -126,6 +126,7 @@ def _render_livery_sections(
     *,
     game_folder: Path | str | None,
     warnings: list[str] | None = None,
+    strict_assets: bool = True,
     cancel_event=None,
 ) -> tuple[dict[str, bytes], bool]:
     from json_preview_renderer import render_typecode_layers_canvas
@@ -137,7 +138,18 @@ def _render_livery_sections(
     if has_raster_logos and game_folder:
         try:
             raster_resolver = FH6RasterDecalResolver(game_folder)
-            raster_verified = True
+            missing_raster_ids = sorted({
+                int(layer.get("raster_id") or 0)
+                for layer in layers
+                if layer.get("is_raster_logo") and int(layer.get("raster_id") or 0) > 0
+                and raster_resolver(int(layer.get("raster_id") or 0)) is None
+            })
+            raster_verified = not missing_raster_ids
+            if missing_raster_ids and warnings is not None:
+                warnings.append(
+                    "built-in or referenced decal artwork unavailable and omitted from preview: "
+                    + ", ".join(str(value) for value in missing_raster_ids)
+                )
         except RasterDecalError as exc:
             if warnings is not None:
                 warnings.append(f"built-in decal rendering unavailable: {exc}")
@@ -156,7 +168,7 @@ def _render_livery_sections(
                 current,
                 raster_resolver=raster_resolver,
                 cancel_event=cancel_event,
-                strict_assets=True,
+                strict_assets=strict_assets,
             )
         except concurrent.futures.CancelledError:
             raise
@@ -347,10 +359,24 @@ def _create_livery_artifact(
     category_state = struct.unpack_from("<I", payload, 0x14)[0]
     layers, decode_report, counts, payload_meta = _decode_livery_contract(payload)
     layers_by_section = _section_layers(layers["layers"])
+    section_count_mismatches: list[dict[str, int | str]] = []
     for section, declared_count in zip(LIVERY_SECTION_NAMES, counts):
-        if len(layers_by_section[section]) != int(declared_count):
+        decoded_count = len(layers_by_section[section])
+        if decoded_count != int(declared_count):
+            mismatch = {
+                "section": section,
+                "declared": int(declared_count),
+                "decoded": decoded_count,
+            }
+            section_count_mismatches.append(mismatch)
+            if private_preview:
+                decode_report.setdefault("warnings", []).append(
+                    f"{section}: rendered {decoded_count} physically embedded placement(s); "
+                    f"the save declares {int(declared_count)} logical placement(s)"
+                )
+                continue
             raise FullLiveryPackageError(
-                f"The {section} livery section decoded {len(layers_by_section[section])} of "
+                f"The {section} livery section decoded {decoded_count} of "
                 f"{int(declared_count)} declared placements."
             )
     header_path = source_path.parent / "header"
@@ -392,6 +418,7 @@ def _create_livery_artifact(
         layers["layers"],
         game_folder=game_folder,
         warnings=decode_report.setdefault("warnings", []),
+        strict_assets=not private_preview,
         cancel_event=_cancel_event,
     )
     projection_index = {
@@ -421,7 +448,8 @@ def _create_livery_artifact(
         for section in section_textures
     ]
     projection_index["decoded_for_viewer"] = bool(section_textures)
-    projection_index["source_exact"] = True
+    projection_index["source_exact"] = not section_count_mismatches and raster_verified
+    projection_index["incomplete_preview"] = bool(section_count_mismatches or not raster_verified)
     projection_index["native_raster_verified"] = raster_verified
     members["mesh/vehicle.json"] = _json_bytes(vehicle_meta)
     members["projection/index.json"] = _json_bytes(projection_index)
@@ -452,6 +480,7 @@ def _create_livery_artifact(
             "category_state": category_state,
         })
 
+    decode_warnings = list(dict.fromkeys(str(value) for value in decode_report.get("warnings", []) if value))
     manifest = {
         "format": PRIVATE_PREVIEW_FORMAT if private_preview else PACKAGE_FORMAT,
         "format_version": 1,
@@ -465,7 +494,11 @@ def _create_livery_artifact(
             "logical_placement_count": sum(counts),
             "decoded_layer_count": len(layers["layers"]),
             "section_counts": dict(zip(LIVERY_SECTION_NAMES, counts)),
-            "decode_warnings": decode_report.get("warnings", []),
+            "decoded_section_counts": {
+                section: len(layers_by_section[section]) for section in LIVERY_SECTION_NAMES
+            },
+            "section_count_mismatches": section_count_mismatches,
+            "decode_warnings": decode_warnings,
             "payload_offsets": payload_meta,
         },
         "vehicle": vehicle_meta,

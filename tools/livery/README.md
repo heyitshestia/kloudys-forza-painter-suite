@@ -126,7 +126,7 @@ The embedded inspector is local-only:
   retained, explicit stock parts are shown by default, and complete locally
   available upgrade choices can be selected in the inspector. Incomplete
   optional variants are omitted rather than leaving partial geometry visible.
-- Paint and glass use FH6's dedicated `TEXCOORD_3` livery coordinates. Top,
+- Paint and glass prefer FH6's dedicated `TEXCOORD_3` livery coordinates. Top,
   left, right, front, back, and glass masks remain independent because their UV
   rectangles overlap. A surface-facing test chooses the applicable section,
   then remaps that section's exact `Masks.xml` rectangle into its independently
@@ -145,9 +145,10 @@ The embedded inspector is local-only:
   channels, and writes a private local GLB cache. End users do not need Blender,
   .NET, or a separate extraction-tool installation.
 - Livery-bearing paint and glass without exact `TEXCOORD_3` coordinates are
-  rejected. KFPS does not substitute a visually approximate world-space
-  projection, because the approximation breaks scale and alignment on curved,
-  asymmetric, and window geometry.
+  accepted only when the converter supplies a nonzero, role-appropriate side
+  contract. KFPS then uses section masks, per-side axes, local projection bounds,
+  and wheel/bumper anchors for a constrained world-space fallback. Unclassified
+  geometry is rejected rather than guessed into the livery route.
 - A new package selection cancels an obsolete conversion. Corrupt cached GLBs
   are rejected and rebuilt from the local game archive.
 
@@ -155,16 +156,20 @@ The embedded inspector is local-only:
 
 - This milestone exports, receives, validates, catalogs, inspects, and installs
   packages for the exact same FH6 car only.
-- The section-aware contract has been visually validated on the user-verified
-  803-placement `ALF_00_SE048SP_90` and 10,368-placement `nis_gtrlm_95`
-  liveries. The same untuned mapping handles body sides, top, front windshield,
-  rear windshield, and a selectable Nissan wing without cross-section bleed.
+- The section-aware contract has been structurally exercised on all 56 unique
+  nonempty local liveries across 46 cars. Representative visual comparisons
+  cover recovered livery-panel geometry, asymmetric body sides, top/front/back,
+  front/rear/side windows, mask-heavy artwork, and high-suspension grounding.
 - A structural conversion audit covered all 660 car archives in the tested FH6
-  installation. All 652 livery-capable archives produced validated exact-UV
-  scenes; eight traffic-only archives had no usable livery-bearing paint and are
-  intentionally unsupported. This proves catalog-wide structural compatibility,
-  not pixel-perfect visual validation of every car. More user-verified cars with
-  unusual wings, mirrors, windows, and all-eleven-section coverage remain useful.
+  installation. All 652 livery-capable archives produced validated scenes;
+  eight traffic-only archives had no usable livery-bearing paint and are
+  intentionally unsupported. The complete local save corpus then converted 46
+  distinct cars and rendered all 56 unique nonempty liveries successfully,
+  exercising both direct UV3 and constrained projected surfaces. This proves
+  catalog-wide structural compatibility and the observed local workflows, not
+  pixel-perfect visual validation of every possible car and option combination.
+  More user-verified cars with unusual wings, mirrors, windows, and
+  all-eleven-section coverage remain useful.
 - The neutral wheels make the current inspector coherent but are not a faithful
   reconstruction of each car's installed wheel, tire, brake, or suspension
   configuration. Selectable scene-authored body options are supported, but the

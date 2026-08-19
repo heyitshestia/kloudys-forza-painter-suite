@@ -116,13 +116,24 @@ class FH6RasterDecalResolver:
     def __init__(self, game_folder: Path | str):
         self.archive = resolve_fh6_decals_archive(game_folder)
         self._cache: dict[int, object | None] = {}
+        try:
+            with zipfile.ZipFile(self.archive) as bundle:
+                self._members = {name.casefold(): name for name in bundle.namelist()}
+        except (OSError, zipfile.BadZipFile) as exc:
+            raise RasterDecalError("The FH6 built-in decal archive is unreadable.") from exc
 
     def __call__(self, raster_id: int):
         raster_id = int(raster_id)
         if raster_id in self._cache:
             return self._cache[raster_id]
-        member = f"Textures/decal{raster_id}.swatchbin"
+        candidates = [
+            f"textures/decal{raster_id}.swatchbin",
+            f"textures/decal{raster_id:03d}.swatchbin",
+        ]
+        member = next((self._members[name] for name in candidates if name in self._members), "")
         try:
+            if not member:
+                raise KeyError(raster_id)
             with zipfile.ZipFile(self.archive) as bundle:
                 data = bundle.read(member)
             image = decode_fh6_decal_swatch(data)

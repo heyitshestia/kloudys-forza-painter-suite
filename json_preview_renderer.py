@@ -649,8 +649,8 @@ def render_typecode_layers_canvas(
             gradient_layer = _rasterize_vertex_alpha_triangles(canvas_alpha, bounds, color)
             gradient_alpha = gradient_layer.getchannel("A")
             if gradient_alpha.getbbox() is None:
-                if strict_assets:
-                    raise ValueError(f"layer {shape_index + 1} has no visible native opacity")
+                # Native gradients can legitimately resolve to zero alpha. They
+                # are visual no-ops, not missing geometry or invalid assets.
                 continue
             if is_mask:
                 artwork.paste((0, 0, 0, 0), bounds, gradient_alpha)

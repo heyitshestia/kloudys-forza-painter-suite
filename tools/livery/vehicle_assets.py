@@ -385,18 +385,24 @@ def read_vehicle_assembly_metadata(asset: VehicleAsset) -> dict[str, Any]:
     except (OSError, KeyError, ET.ParseError, zipfile.BadZipFile):
         return {}
 
-    wanted = {
+    wanted_wheels = {
         "carlocator_wheellf": "front_left",
         "carlocator_wheelrf": "front_right",
         "carlocator_wheellr": "rear_left",
         "carlocator_wheelrr": "rear_right",
     }
+    wanted_locators = {
+        **wanted_wheels,
+        "carlocator_bumperf": "bumper_front",
+        "carlocator_bumperr": "bumper_rear",
+    }
     centers: dict[str, list[float]] = {}
+    locators: dict[str, list[float]] = {}
     for locator in root.findall(".//Locator"):
         name_element = locator.find("Name")
         transform = locator.find("SceneTransform")
         identity = str(name_element.attrib.get("value") if name_element is not None else "").casefold()
-        label = wanted.get(identity)
+        label = wanted_locators.get(identity)
         if not label or transform is None:
             continue
         try:
@@ -407,8 +413,10 @@ def read_vehicle_assembly_metadata(asset: VehicleAsset) -> dict[str, Any]:
         except (KeyError, TypeError, ValueError):
             continue
         if all(math.isfinite(value) for value in position):
-            centers[label] = position
-    if len(centers) != len(wanted):
+            locators[label] = position
+            if identity in wanted_wheels:
+                centers[label] = position
+    if len(centers) != len(wanted_wheels):
         return {}
 
     front_z = (centers["front_left"][2] + centers["front_right"][2]) * 0.5
@@ -425,6 +433,7 @@ def read_vehicle_assembly_metadata(asset: VehicleAsset) -> dict[str, Any]:
     return {
         "format": "kfps_fh6_local_vehicle_assembly_v1",
         "wheel_centers": centers,
+        "locators": locators,
         "wheelbase": wheelbase,
         "tire_radius": tire_radius,
         "tire_width": tire_width,

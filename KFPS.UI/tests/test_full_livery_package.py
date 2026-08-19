@@ -847,7 +847,29 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertNotIn("source/fh6/header", names)
             self.assertNotIn("livery/layers.json", names)
 
-    def test_source_preview_cache_changes_with_package_compiler_revision(self):
+    def test_private_preview_records_partial_decode_but_shareable_export_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "Livery_partial" / "C_livery"
+            build_livery_source(source, state=0, placement_count=1)
+            preview = root / "partial.kfpspreview"
+
+            manifest = create_local_livery_preview(source, preview)
+            with zipfile.ZipFile(preview) as bundle:
+                projection = json.loads(bundle.read("projection/index.json"))
+            self.assertFalse(projection["source_exact"])
+            self.assertTrue(projection["incomplete_preview"])
+            self.assertEqual(
+                [{"section": "Front", "declared": 1, "decoded": 0}],
+                manifest["livery"]["section_count_mismatches"],
+            )
+            self.assertFalse(manifest["sharing"]["exportable"])
+            validate_livery_inspection_artifact(preview)
+
+            with self.assertRaisesRegex(FullLiveryPackageError, "decoded 0 of 1 declared placements"):
+                create_full_livery_package(source, root / "partial.kfpslivery")
+
+    def test_source_preview_cache_changes_with_renderer_and_package_revisions(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "Livery_test" / "C_livery"
@@ -886,10 +908,17 @@ class FullLiveryPackageTests(unittest.TestCase):
                         "kfps_ui.full_livery_service.PACKAGE_COMPILER_REVISION",
                         PACKAGE_COMPILER_REVISION + 1,
                     ):
-                        revised = service._preview_source_work(source)["path"]
+                        package_revised = service._preview_source_work(source)["path"]
+                    with patch(
+                        "kfps_ui.full_livery_service.SOURCE_PREVIEW_CACHE_REVISION",
+                        3,
+                    ):
+                        renderer_revised = service._preview_source_work(source)["path"]
                 self.assertEqual(first, repeated)
-                self.assertNotEqual(first, revised)
-                self.assertEqual(2, len(created))
+                self.assertNotEqual(first, package_revised)
+                self.assertNotEqual(first, renderer_revised)
+                self.assertNotEqual(package_revised, renderer_revised)
+                self.assertEqual(3, len(created))
             finally:
                 service.close()
 
@@ -1472,7 +1501,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             )
             try:
                 self.assertEqual(
-                "TEST_CAR-1234.local-chassis-v7.glb",
+                "TEST_CAR-1234.local-chassis-v10.glb",
                     service._cached_mesh_path(asset).name,
                 )
             finally:
@@ -1611,6 +1640,10 @@ class FullLiveryPackageTests(unittest.TestCase):
                 "bottom": "-4",
                 "xorigin": "0",
                 "yorigin": "0",
+                "xAxis": "+x",
+                "yAxis": "+y",
+                "xScale": "1",
+                "yScale": "1",
             }
             mask = Image.new("L", (2048, 1024), 0)
             mask.paste(255, (1020, 508, 1028, 516))

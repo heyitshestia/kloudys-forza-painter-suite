@@ -51,7 +51,8 @@ from .models import DictListModel
 from .qt_utils import safe_file_part
 
 
-INSPECTION_MESH_CACHE_REVISION = 7
+INSPECTION_MESH_CACHE_REVISION = 10
+SOURCE_PREVIEW_CACHE_REVISION = 2
 
 
 class FullLiveryService(QObject):
@@ -483,6 +484,7 @@ class FullLiveryService(QObject):
         if self._vehicle_index_cache.is_file():
             digest.update(str(self._vehicle_index_cache.stat().st_mtime_ns).encode("ascii"))
         digest.update(f"package-compiler:{PACKAGE_COMPILER_REVISION}".encode("ascii"))
+        digest.update(f"source-preview:{SOURCE_PREVIEW_CACHE_REVISION}".encode("ascii"))
         self._source_preview_cache.mkdir(parents=True, exist_ok=True)
         return self._source_preview_cache / f"{digest.hexdigest()[:24]}.kfpspreview"
 

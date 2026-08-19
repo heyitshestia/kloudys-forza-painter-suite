@@ -21,7 +21,7 @@ TXCH_TAG = 0x54584348
 UNSIGNED_BC4 = 3
 ATLAS_SIZE = (2048, 1024)
 RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v3"
-RENDER_CONTRACT_REVISION = 7
+RENDER_CONTRACT_REVISION = 8
 MASK_PAGE_COUNT = 3
 MASK_CHANNELS = 4
 PAINT_ATLAS_WIDTH = 2048
@@ -72,6 +72,7 @@ SECTION_SLOT_INDEX = {section: index for index, section in enumerate(SECTION_TO_
 TRANSPOSED_SLOTS = {"wing", "glass_front", "glass_back"}
 FLIP_X_SLOTS = {"wing", "right", "glass_front", "glass_right"}
 FLIP_Y_SLOTS = {"right", "glass_back", "glass_right"}
+AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
 
 class LiveryRenderContractError(RuntimeError):
@@ -259,6 +260,40 @@ def _projection_pixel_bounds(projection: dict[str, Any]) -> tuple[int, int, int,
     return left, top, right, bottom
 
 
+def _projection_axis(projection: dict[str, Any], key: str, scale_key: str) -> tuple[int, float]:
+    value = str(projection.get(key) or "").strip().casefold()
+    axis_name = value[-1:] if value else ""
+    if axis_name not in AXIS_INDEX:
+        raise LiveryRenderContractError(f"The livery projection axis {key} is invalid.")
+    try:
+        scale = float(projection.get(scale_key, 1.0))
+    except (TypeError, ValueError) as exc:
+        raise LiveryRenderContractError(f"The livery projection scale {scale_key} is invalid.") from exc
+    if not np.isfinite(scale) or abs(scale) < 0.000001:
+        raise LiveryRenderContractError(f"The livery projection scale {scale_key} is invalid.")
+    sign = -1.0 if value.startswith("-") else 1.0
+    return AXIS_INDEX[axis_name], sign * scale
+
+
+def _projection_mask_region(projection: dict[str, Any]) -> list[float]:
+    try:
+        left = float(projection["left"])
+        right = float(projection["right"])
+        top = float(projection["top"])
+        bottom = float(projection["bottom"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise LiveryRenderContractError("The livery projection rectangle is incomplete.") from exc
+    values = [
+        (left + ATLAS_SIZE[0] / 2.0) / ATLAS_SIZE[0],
+        (right + ATLAS_SIZE[0] / 2.0) / ATLAS_SIZE[0],
+        (ATLAS_SIZE[1] / 2.0 - top) / ATLAS_SIZE[1],
+        (ATLAS_SIZE[1] / 2.0 - bottom) / ATLAS_SIZE[1],
+    ]
+    if any(not np.isfinite(value) for value in values):
+        raise LiveryRenderContractError("The livery projection rectangle is invalid.")
+    return values
+
+
 def _masked_atlas_layer(
     artwork: Image.Image,
     mask: Image.Image,
@@ -425,6 +460,8 @@ def build_local_livery_atlases(
             if mask.getbbox() is None:
                 continue
             source_bounds = _projection_pixel_bounds(projection)
+            axis_x, axis_x_scale = _projection_axis(projection, "xAxis", "xScale")
+            axis_y, axis_y_scale = _projection_axis(projection, "yAxis", "yScale")
             with bundle.open(member) as source, Image.open(source) as artwork:
                 warped = _warped_uv_layer(artwork, slot, projection)
                 tile = warped.crop(source_bounds)
@@ -450,6 +487,8 @@ def build_local_livery_atlases(
                     "mask_channel": mask_channel,
                     "mask_sha256": mask_hash,
                     "source_bounds": list(source_bounds),
+                    "projection_axis": [axis_x, axis_y, axis_x_scale, axis_y_scale],
+                    "projection_mask_region": _projection_mask_region(projection),
                     "visible_pixels": visible,
                 }
             )
@@ -492,7 +531,7 @@ def build_local_livery_atlases(
             "u_scale": 0.5,
             "flip_u": False,
             "flip_v": False,
-            "world_projection_fallback": False,
+            "world_projection_fallback": True,
         },
         "assembly": read_vehicle_assembly_metadata(asset),
         "paint_size": list(paint_atlas.size),
