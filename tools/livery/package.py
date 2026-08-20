@@ -40,7 +40,7 @@ PACKAGE_EXTENSION = ".kfpslivery"
 PRIVATE_PREVIEW_FORMAT = "kfps_local_livery_preview_v1"
 PRIVATE_PREVIEW_EXTENSION = ".kfpspreview"
 # Bump whenever decoding, validation, or section rendering changes derived data.
-PACKAGE_COMPILER_REVISION = 9
+PACKAGE_COMPILER_REVISION = 10
 MAX_PACKAGE_FILES = 256
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_MEMBER_BYTES = 128 * 1024 * 1024
@@ -128,11 +128,16 @@ def _render_livery_sections(
     warnings: list[str] | None = None,
     strict_assets: bool = True,
     cancel_event=None,
-) -> tuple[dict[str, bytes], bool]:
+) -> tuple[dict[str, bytes], bool, list[int]]:
     from json_preview_renderer import render_typecode_layers_canvas
 
     section_map = _section_layers(layers)
-    has_raster_logos = any(layer.get("is_raster_logo") for layer in layers)
+    raster_ids = {
+        int(layer.get("raster_id") or 0)
+        for layer in layers
+        if layer.get("is_raster_logo") and int(layer.get("raster_id") or 0) > 0
+    }
+    has_raster_logos = bool(raster_ids)
     raster_resolver = None
     raster_verified = not has_raster_logos
     missing_raster_ids: set[int] = set()
@@ -140,28 +145,29 @@ def _render_livery_sections(
         try:
             raster_resolver = FH6RasterDecalResolver(game_folder)
             missing_raster_ids = {
-                int(layer.get("raster_id") or 0)
-                for layer in layers
-                if layer.get("is_raster_logo") and int(layer.get("raster_id") or 0) > 0
-                and raster_resolver(int(layer.get("raster_id") or 0)) is None
+                raster_id for raster_id in raster_ids if raster_resolver(raster_id) is None
             }
             raster_verified = not missing_raster_ids
-            if missing_raster_ids and warnings is not None:
-                warnings.append(
-                    "built-in or referenced decal artwork unavailable and omitted from preview: "
-                    + ", ".join(str(value) for value in sorted(missing_raster_ids))
-                )
         except RasterDecalError as exc:
+            missing_raster_ids = set(raster_ids)
+            raster_verified = False
             if warnings is not None:
-                warnings.append(f"built-in decal rendering unavailable: {exc}")
-    elif has_raster_logos and warnings is not None:
-        warnings.append("built-in decal rendering unavailable: choose the local FH6 game or Content folder")
+                warnings.append(f"referenced decal preview lookup unavailable: {exc}")
+    elif has_raster_logos:
+        missing_raster_ids = set(raster_ids)
+        raster_verified = False
+    if missing_raster_ids and warnings is not None:
+        warnings.append(
+            "referenced artwork unresolved and omitted from the preview; original FH6 source preserved: "
+            + ", ".join(str(value) for value in sorted(missing_raster_ids))
+        )
 
     rendered_sections: dict[str, bytes] = {}
     for section in LIVERY_SECTION_NAMES:
         if cancel_event is not None and cancel_event.is_set():
             raise concurrent.futures.CancelledError()
         current = section_map[section]
+        populated = bool(current)
         if missing_raster_ids:
             current = [
                 layer
@@ -171,19 +177,24 @@ def _render_livery_sections(
                     and int(layer.get("raster_id") or 0) in missing_raster_ids
                 )
             ]
-        if not current:
+        if not populated:
             continue
-        try:
-            rendered = render_typecode_layers_canvas(
-                current,
-                raster_resolver=raster_resolver,
-                cancel_event=cancel_event,
-                strict_assets=strict_assets,
-            )
-        except concurrent.futures.CancelledError:
-            raise
-        except Exception as exc:
-            raise FullLiveryPackageError(f"Could not render the {section} livery section: {exc}") from exc
+        if current:
+            try:
+                rendered = render_typecode_layers_canvas(
+                    current,
+                    raster_resolver=raster_resolver,
+                    cancel_event=cancel_event,
+                    strict_assets=strict_assets,
+                )
+            except concurrent.futures.CancelledError:
+                raise
+            except Exception as exc:
+                raise FullLiveryPackageError(f"Could not render the {section} livery section: {exc}") from exc
+        else:
+            buffer = io.BytesIO()
+            Image.new("RGBA", (2048, 1024), (0, 0, 0, 0)).save(buffer, format="PNG")
+            rendered = buffer.getvalue()
         if not rendered:
             raise FullLiveryPackageError(f"The {section} livery section produced no preview.")
         try:
@@ -198,7 +209,7 @@ def _render_livery_sections(
         except Exception as exc:
             raise FullLiveryPackageError(f"The {section} livery section preview is unreadable.") from exc
         rendered_sections[section] = rendered
-    return rendered_sections, raster_verified
+    return rendered_sections, raster_verified, sorted(missing_raster_ids)
 
 
 def _read_header_title(header: bytes) -> str:
@@ -257,6 +268,19 @@ def compatibility_decision(
     presents preserved canonical artwork as an installable cross-game livery.
     """
     game = str(target_game or "").strip().casefold()
+    sharing = manifest.get("sharing") or {}
+    if sharing.get("preview_only") is True:
+        return {
+            "target_game": game,
+            "target_car_id": int((manifest.get("livery") or {}).get("target_car_id") or 0),
+            "status": "local-preview",
+            "installable": False,
+            "installation_eligible": False,
+            "keep_roles": ["local-preview"],
+            "translate": [],
+            "discard_roles": [],
+            "reason": "This is a private local preview. Export eligibility is checked from the original saved livery.",
+        }
     policies = manifest.get("compatibility") or {}
     policy = dict(policies.get(game) or {})
     source_car_id = int((manifest.get("livery") or {}).get("target_car_id") or 0)
@@ -424,7 +448,7 @@ def _create_livery_artifact(
         elif not model_code_override:
             vehicle_meta["resolution_detail"] = "No local car archive advertised the livery target ID."
 
-    section_textures, raster_verified = _render_livery_sections(
+    section_textures, raster_verified, unresolved_raster_ids = _render_livery_sections(
         layers["layers"],
         game_folder=game_folder,
         warnings=decode_report.setdefault("warnings", []),
@@ -458,9 +482,14 @@ def _create_livery_artifact(
         for section in section_textures
     ]
     projection_index["decoded_for_viewer"] = bool(section_textures)
-    projection_index["source_exact"] = not section_count_mismatches and raster_verified
-    projection_index["incomplete_preview"] = bool(section_count_mismatches or not raster_verified)
+    preview_complete = not section_count_mismatches and raster_verified
+    projection_index["source_container_preserved"] = not private_preview
+    projection_index["canonical_decode_complete"] = not section_count_mismatches
+    projection_index["preview_complete"] = preview_complete
+    projection_index["source_exact"] = preview_complete
+    projection_index["incomplete_preview"] = not preview_complete
     projection_index["native_raster_verified"] = raster_verified
+    projection_index["unresolved_raster_ids"] = unresolved_raster_ids
     members["mesh/vehicle.json"] = _json_bytes(vehicle_meta)
     members["projection/index.json"] = _json_bytes(projection_index)
     for name, data in (extra_members or {}).items():
@@ -509,6 +538,8 @@ def _create_livery_artifact(
             },
             "section_count_mismatches": section_count_mismatches,
             "decode_warnings": decode_warnings,
+            "preview_complete": preview_complete,
+            "unresolved_raster_ids": unresolved_raster_ids,
             "payload_offsets": payload_meta,
         },
         "vehicle": vehicle_meta,
@@ -521,6 +552,9 @@ def _create_livery_artifact(
             "external_game_assets_embedded": False,
             "mesh_policy": "resolve matching car mesh from the recipient's own local game installation",
             "opaque_source_record": not private_preview,
+            "source_container_preserved": not private_preview,
+            "preview_complete": preview_complete,
+            "unresolved_raster_references": bool(unresolved_raster_ids),
             "source_identity_policy": (
                 "private rendered inspection only"
                 if private_preview
@@ -769,6 +803,52 @@ def _validate_livery_artifact(
                         raise FullLiveryPackageError("Manifest decoded layer count does not match the preserved source record.")
                     if livery.get("payload_offsets") != payload_meta:
                         raise FullLiveryPackageError("Manifest source offsets do not match the preserved source record.")
+                    unresolved_raw = projection.get("unresolved_raster_ids")
+                    if not isinstance(unresolved_raw, list) or any(
+                        isinstance(value, bool) or not isinstance(value, int) for value in unresolved_raw
+                    ):
+                        raise FullLiveryPackageError("The unresolved raster-reference inventory is invalid.")
+                    unresolved_raster_ids = [int(value) for value in unresolved_raw]
+                    if (
+                        unresolved_raster_ids != sorted(set(unresolved_raster_ids))
+                        or any(value <= 0 for value in unresolved_raster_ids)
+                    ):
+                        raise FullLiveryPackageError("The unresolved raster-reference inventory is invalid.")
+                    canonical_raster_ids = {
+                        int(layer.get("raster_id") or 0)
+                        for layer in canonical_layers["layers"]
+                        if layer.get("is_raster_logo") and int(layer.get("raster_id") or 0) > 0
+                    }
+                    if not set(unresolved_raster_ids).issubset(canonical_raster_ids):
+                        raise FullLiveryPackageError(
+                            "The package declares an unresolved raster reference that is absent from its source."
+                        )
+                    if livery.get("unresolved_raster_ids") != unresolved_raster_ids:
+                        raise FullLiveryPackageError("Manifest unresolved raster references do not match the preview contract.")
+                    if livery.get("section_count_mismatches") not in (None, []):
+                        raise FullLiveryPackageError("A shareable package contains an incomplete canonical decode.")
+                    preview_complete = not unresolved_raster_ids
+                    if projection.get("source_container_preserved") is not True:
+                        raise FullLiveryPackageError("The package does not declare preservation of its FH6 source container.")
+                    if projection.get("canonical_decode_complete") is not True:
+                        raise FullLiveryPackageError("The package does not declare a complete canonical decode.")
+                    if projection.get("preview_complete") is not preview_complete:
+                        raise FullLiveryPackageError("The package preview-completeness declaration is inconsistent.")
+                    if projection.get("source_exact") is not preview_complete:
+                        raise FullLiveryPackageError("The package source-exact preview declaration is inconsistent.")
+                    if projection.get("incomplete_preview") is not (not preview_complete):
+                        raise FullLiveryPackageError("The package incomplete-preview declaration is inconsistent.")
+                    if projection.get("native_raster_verified") is not preview_complete:
+                        raise FullLiveryPackageError("The package raster-verification declaration is inconsistent.")
+                    if livery.get("preview_complete") is not preview_complete:
+                        raise FullLiveryPackageError("Manifest preview completeness does not match the preview contract.")
+                    sharing = manifest.get("sharing") or {}
+                    if sharing.get("source_container_preserved") is not True:
+                        raise FullLiveryPackageError("The package sharing policy does not preserve the source container.")
+                    if sharing.get("preview_complete") is not preview_complete:
+                        raise FullLiveryPackageError("The package sharing preview policy is inconsistent.")
+                    if sharing.get("unresolved_raster_references") is not bool(unresolved_raster_ids):
+                        raise FullLiveryPackageError("The package unresolved-raster sharing policy is inconsistent.")
                     expected_sections = [
                         section for section, count in zip(LIVERY_SECTION_NAMES, counts) if int(count) > 0
                     ]
@@ -808,17 +888,17 @@ def _validate_livery_artifact(
                         raise FullLiveryPackageError(
                             "The package does not contain one complete render for every populated livery section."
                         )
-                    if projection.get("source_exact") is not True:
-                        raise FullLiveryPackageError("The package does not declare source-exact rendered sections.")
                     if verify_previews:
-                        regenerated, raster_verified = _render_livery_sections(
+                        regenerated, raster_verified, regenerated_unresolved = _render_livery_sections(
                             canonical_layers["layers"],
                             game_folder=game_folder,
                         )
-                        if not raster_verified:
+                        if regenerated_unresolved != unresolved_raster_ids:
                             raise FullLiveryPackageError(
-                                "Choose the local FH6 game folder to verify built-in logo rendering in this package."
+                                "The local FH6 artwork lookup does not match the package's unresolved references."
                             )
+                        if raster_verified is not preview_complete:
+                            raise FullLiveryPackageError("The regenerated raster-verification state is inconsistent.")
                         for section, expected in regenerated.items():
                             actual = bundle.read(f"projection/rendered/{section}.png")
                             try:

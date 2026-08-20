@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.32
+- Allowed owned, foreign-free FH6 liveries to export even when referenced raster artwork cannot be resolved for the local preview.
+- Preserved unresolved references and the exact FH6 source inside packages while clearly tracking preview completeness.
+- Replaced the misleading unsupported-target state on private local livery previews without weakening ownership checks.
+
 ## 3.1.31
 - Reworked FH6 livery stream decoding to preserve nested group transforms, child order, masks, native gradients, built-in decals, and section placement across complex liveries.
 - Fixed missing, reordered, incorrectly tinted, and falsely masked artwork in full-livery previews, including valid off-canvas gradient clipping and unavailable built-in decal handling.

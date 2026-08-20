@@ -461,7 +461,13 @@ class FullLiveryService(QObject):
                 self._settings["last_package"] = self._selected_package
                 self._save_settings()
             self._status = "Package open"
-            self._summary = "The package passed its integrity checks. Preparing its exact local FH6 preview."
+            unresolved = list((manifest.get("livery") or {}).get("unresolved_raster_ids") or [])
+            self._summary = (
+                "The package passed its integrity checks. Preparing its local FH6 preview; "
+                "unresolved referenced artwork remains preserved in the original livery data."
+                if unresolved
+                else "The package passed its integrity checks. Preparing its exact local FH6 preview."
+            )
             self._refresh_decisions()
             self.changed.emit()
             self._prepare_local_mesh(manifest, selected)
@@ -1246,10 +1252,15 @@ class FullLiveryService(QObject):
                 f"&package={payload.get('package_id', '')}"
                 f"&mesh={Path(payload.get('mesh_path')).stat().st_mtime_ns}"
             )
-            self._status = "Exact local livery preview ready"
+            unresolved = list((self._current_manifest.get("livery") or {}).get("unresolved_raster_ids") or [])
+            self._status = "Local livery preview ready" if unresolved else "Exact local livery preview ready"
             self._summary = (
                 f"Resolved {payload.get('model_code')} and its direct FH6 livery mapping from this PC's installation."
             )
+            if unresolved:
+                self._summary += (
+                    " Some referenced artwork is unavailable in the preview; the original FH6 livery data remains preserved."
+                )
             if payload.get("revision_warning"):
                 self._summary += f" Viewer note: {payload['revision_warning']}."
         except Exception as exc:

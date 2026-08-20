@@ -127,6 +127,26 @@ def livery_payload(
     return bytes(payload)
 
 
+def raster_livery_payload(*, raster_id: int, car_id: int = 3304) -> bytes:
+    shape = bytearray(32)
+    shape[:2] = b"\x00\x02"
+    struct.pack_into("<H", shape, 2, 0x8000 | int(raster_id))
+    struct.pack_into("<f", shape, 16, 1.0)
+    struct.pack_into("<f", shape, 20, 1.0)
+    shape[28:32] = b"\xff\xff\xff\xff"
+    body = bytes(shape) + bytes(18) + bytes(23 * 10)
+    counts = [1] + [0] * 10
+
+    payload = bytearray(0x40)
+    payload[:4] = b"vlrc"
+    struct.pack_into("<I", payload, 4, 1)
+    struct.pack_into("<I", payload, 8, 0)
+    struct.pack_into("<I", payload, 0x10, car_id)
+    payload.extend(b"gyvl" + bytes(0x11) + body + b"yrvl")
+    payload.extend(b"".join(struct.pack("<I", value) for value in counts))
+    return bytes(payload)
+
+
 def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | None = None) -> dict:
     payload = payload_override or livery_payload(car_id=car_id)
     _, counts, payload_meta = extract_livery_payload(payload)
@@ -147,8 +167,13 @@ def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | N
         "format": "kfps_fh6_projection_source_v1",
         "decoded_for_viewer": False,
         "rendered_sections": [],
+        "source_container_preserved": True,
+        "canonical_decode_complete": True,
+        "preview_complete": True,
         "source_exact": True,
+        "incomplete_preview": False,
         "native_raster_verified": True,
+        "unresolved_raster_ids": [],
     })
     members = {
         "source/fh6/C_livery": container,
@@ -177,6 +202,8 @@ def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | N
             "logical_placement_count": sum(counts),
             "decoded_layer_count": 0,
             "section_counts": dict(zip(LIVERY_SECTION_NAMES, counts)),
+            "preview_complete": True,
+            "unresolved_raster_ids": [],
             "payload_offsets": payload_meta,
         },
         "vehicle": {"car_id": source_car_id, "model_code": "TEST_CAR", "portable_mesh": False},
@@ -184,6 +211,9 @@ def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | N
             "exportable": True,
             "preview_only": False,
             "external_game_assets_embedded": False,
+            "source_container_preserved": True,
+            "preview_complete": True,
+            "unresolved_raster_references": False,
         },
         "compatibility": {
             "fh6": {
@@ -583,7 +613,7 @@ class FullLiveryPackageTests(unittest.TestCase):
         warnings = []
 
         with patch("tools.livery.package.FH6RasterDecalResolver", return_value=lambda _raster_id: None):
-            rendered, raster_verified = _render_livery_sections(
+            rendered, raster_verified, unresolved_raster_ids = _render_livery_sections(
                 layers,
                 game_folder=Path("C:/FH6"),
                 warnings=warnings,
@@ -592,6 +622,7 @@ class FullLiveryPackageTests(unittest.TestCase):
 
         self.assertIn("Left", rendered)
         self.assertFalse(raster_verified)
+        self.assertEqual([2030], unresolved_raster_ids)
         self.assertTrue(any("2030" in warning for warning in warnings))
         with self.assertRaisesRegex(ValueError, "raster decal resolver"):
             render_typecode_layers_canvas(
@@ -605,6 +636,43 @@ class FullLiveryPackageTests(unittest.TestCase):
                 }],
                 strict_assets=True,
             )
+
+    def test_owned_livery_with_unresolved_raster_exports_and_remains_installable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "Livery_unresolved" / "C_livery"
+            payload = raster_livery_payload(raster_id=20314)
+            compressed = zlib.compress(payload)
+            source.parent.mkdir(parents=True)
+            source.write_bytes(struct.pack("<II", len(compressed), len(payload)) + compressed)
+            output = root / "unresolved.kfpslivery"
+
+            with (
+                patch("tools.livery.package.load_or_build_vehicle_asset_index", return_value={}),
+                patch("tools.livery.package.FH6RasterDecalResolver", return_value=lambda _raster_id: None),
+            ):
+                manifest = create_full_livery_package(source, output, game_folder=Path("C:/FH6"))
+                validated = validate_full_livery_package(
+                    output,
+                    game_folder=Path("C:/FH6"),
+                    verify_previews=True,
+                )
+
+            self.assertTrue(manifest["sharing"]["exportable"])
+            self.assertTrue(manifest["sharing"]["source_container_preserved"])
+            self.assertTrue(manifest["sharing"]["unresolved_raster_references"])
+            self.assertFalse(manifest["sharing"]["preview_complete"])
+            self.assertEqual([20314], manifest["livery"]["unresolved_raster_ids"])
+            self.assertTrue(compatibility_decision(validated, "fh6")["installable"])
+            with zipfile.ZipFile(output) as bundle:
+                projection = json.loads(bundle.read("projection/index.json"))
+                self.assertTrue(projection["source_container_preserved"])
+                self.assertTrue(projection["canonical_decode_complete"])
+                self.assertFalse(projection["preview_complete"])
+                self.assertTrue(projection["incomplete_preview"])
+                self.assertEqual([20314], projection["unresolved_raster_ids"])
+                with Image.open(io.BytesIO(bundle.read("projection/rendered/Front.png"))) as preview:
+                    self.assertIsNone(preview.convert("RGBA").getbbox())
 
     def test_saved_package_list_hides_zero_placement_liveries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -912,6 +980,9 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertFalse(manifest["sharing"]["exportable"])
             self.assertTrue(manifest["sharing"]["preview_only"])
             self.assertTrue(manifest["sharing"]["local_unowned_preview"])
+            decision = compatibility_decision(manifest, "fh6")
+            self.assertEqual("local-preview", decision["status"])
+            self.assertFalse(decision["installable"])
             validate_livery_inspection_artifact(output)
             with self.assertRaises(FullLiveryPackageError):
                 validate_full_livery_package(output)
