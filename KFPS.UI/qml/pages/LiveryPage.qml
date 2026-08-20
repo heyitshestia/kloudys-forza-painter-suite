@@ -14,6 +14,7 @@ Item {
 
     readonly property bool wide: Theme.logical(width) >= 1180
     readonly property bool compactHeight: Theme.logical(height) < 760
+    property bool pageActive: true
     property bool wipNoticeAcknowledged: false
     signal wipNoticeAccepted()
 
@@ -308,7 +309,7 @@ Item {
                     id: inspectorLoader
                     anchors.fill: parent
                     anchors.margins: Math.max(1, Theme.px(1))
-                    active: fullLiveryService.viewerUrl.length > 0
+                    active: root.pageActive && fullLiveryService.viewerUrl.length > 0
                     sourceComponent: Component {
                         WebEngineView {
                             url: fullLiveryService.viewerUrl

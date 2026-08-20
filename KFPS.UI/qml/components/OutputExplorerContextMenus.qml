@@ -7,26 +7,53 @@ import Kfps.Theme 1.0
 
 Item {
     id: root
+    objectName: "OutputExplorerContextMenus"
 
-    required property var jsonService
+    required property var moveFolderModel
+    required property string currentFolderPath
     property string contextPath: ""
     property string contextName: ""
     property bool contextIsFolder: false
     property bool contextIsSource: false
+    property int contextSelectionCount: 0
+    property bool contextSelectionCanMove: false
+    property int contextClipboardCount: 0
+    property bool contextCanPaste: false
     readonly property bool opened: contextMenu.opened || moveFolderMenu.opened
+    readonly property int selectionCount: contextSelectionCount
+    readonly property bool selectionCanMove: contextSelectionCanMove
 
-    signal folderOpened(string path)
+    signal openFolderRequested(string path)
+    signal cutRequested()
+    signal copyRequested()
+    signal pasteRequested(string destination)
+    signal moveRequested(string destination)
     signal nameActionRequested(string mode, string target, string parentPath, string currentName)
     signal deleteRequested()
 
-    function openFor(path, name, isFolder, entryKind, sceneX, sceneY) {
+    function positionContextMenu(sceneX, sceneY) {
+        var overlayPoint = contextMenu.parent.mapFromItem(root, sceneX, sceneY)
+        contextMenu.x = Math.max(
+                    Theme.px(8),
+                    Math.min(overlayPoint.x, contextMenu.parent.width - contextMenu.width - Theme.px(8)))
+        contextMenu.y = Math.max(
+                    Theme.px(8),
+                    Math.min(overlayPoint.y, contextMenu.parent.height - contextMenu.height - Theme.px(8)))
+    }
+
+    function openFor(path, name, isFolder, entryKind, sceneX, sceneY,
+                     selectionCount, selectionCanMove, clipboardCount, canPaste) {
         contextPath = String(path || "")
         contextName = String(name || "")
         contextIsFolder = Boolean(isFolder)
         contextIsSource = String(entryKind || "") === "source"
-        contextMenu.x = Math.max(Theme.px(8), Math.min(sceneX, width - contextMenu.width - Theme.px(8)))
-        contextMenu.y = Math.max(Theme.px(8), Math.min(sceneY, height - contextMenu.height - Theme.px(8)))
+        contextSelectionCount = Number(selectionCount || 0)
+        contextSelectionCanMove = Boolean(selectionCanMove)
+        contextClipboardCount = Number(clipboardCount || 0)
+        contextCanPaste = Boolean(canPaste)
         contextMenu.open()
+        positionContextMenu(sceneX, sceneY)
+        Qt.callLater(function() { root.positionContextMenu(sceneX, sceneY) })
     }
 
     function closeMoveFolderMenu() {
@@ -35,6 +62,8 @@ Item {
 
     Popup {
         id: contextMenu
+        objectName: "OutputExplorerContextMenu"
+        parent: Overlay.overlay
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -62,36 +91,35 @@ Item {
                 toolTipText: "Open this folder in the Outputs browser."
                 onClicked: {
                     contextMenu.close()
-                    root.jsonService.openExplorerFolder(root.contextPath)
-                    root.folderOpened(root.contextPath)
+                    root.openFolderRequested(root.contextPath)
                 }
             }
 
             GhostButton {
                 Layout.fillWidth: true
                 visible: root.contextPath.length > 0 && !root.contextIsSource
-                         && root.jsonService.fileOperationSelectionCount > 0
-                text: root.jsonService.fileOperationSelectionCount > 1
-                      ? "Cut " + root.jsonService.fileOperationSelectionCount + " items" : "Cut"
+                         && root.contextSelectionCount > 0
+                text: root.contextSelectionCount > 1
+                      ? "Cut " + root.contextSelectionCount + " items" : "Cut"
                 dense: true
                 toolTipText: "Prepare the selected item or items to be moved when you paste them."
                 onClicked: {
                     contextMenu.close()
-                    root.jsonService.cutSelection()
+                    root.cutRequested()
                 }
             }
 
             GhostButton {
                 Layout.fillWidth: true
                 visible: root.contextPath.length > 0 && !root.contextIsSource
-                         && root.jsonService.fileOperationSelectionCount > 0
-                text: root.jsonService.fileOperationSelectionCount > 1
-                      ? "Copy " + root.jsonService.fileOperationSelectionCount + " items" : "Copy"
+                         && root.contextSelectionCount > 0
+                text: root.contextSelectionCount > 1
+                      ? "Copy " + root.contextSelectionCount + " items" : "Copy"
                 dense: true
                 toolTipText: "Copy the selected item or items to both KFPS and the Windows clipboard."
                 onClicked: {
                     contextMenu.close()
-                    root.jsonService.copySelection()
+                    root.copyRequested()
                 }
             }
 
@@ -99,22 +127,24 @@ Item {
                 id: moveToFolderButton
                 Layout.fillWidth: true
                 visible: root.contextPath.length > 0 && !root.contextIsFolder
-                         && root.jsonService.canMoveJsonSelection
-                text: root.jsonService.fileOperationSelectionCount > 1
-                      ? "Move " + root.jsonService.fileOperationSelectionCount + " JSONs to folder"
+                         && root.contextSelectionCanMove
+                text: root.contextSelectionCount > 1
+                      ? "Move " + root.contextSelectionCount + " JSONs to folder"
                       : "Move to folder"
                 showArrow: true
                 dense: true
                 toolTipText: "Move the selected JSON or JSONs directly into another KFPS Outputs folder."
                 onClicked: {
-                    var preferredX = contextMenu.x + contextMenu.width - Theme.px(4)
-                    moveFolderMenu.x = preferredX + moveFolderMenu.width <= root.width - Theme.px(8)
+                    var anchorPoint = moveFolderMenu.parent.mapFromItem(
+                                moveToFolderButton, moveToFolderButton.width - Theme.px(4), 0)
+                    var preferredX = anchorPoint.x
+                    moveFolderMenu.x = preferredX + moveFolderMenu.width <= moveFolderMenu.parent.width - Theme.px(8)
                                        ? preferredX
                                        : Math.max(Theme.px(8), contextMenu.x - moveFolderMenu.width + Theme.px(4))
                     moveFolderMenu.y = Math.max(
                                 Theme.px(8),
-                                Math.min(contextMenu.y + moveToFolderButton.y,
-                                         root.height - moveFolderMenu.height - Theme.px(8)))
+                                Math.min(anchorPoint.y,
+                                         moveFolderMenu.parent.height - moveFolderMenu.height - Theme.px(8)))
                     contextMenu.close()
                     moveFolderMenu.open()
                 }
@@ -122,25 +152,25 @@ Item {
 
             GhostButton {
                 Layout.fillWidth: true
-                visible: root.contextIsFolder || root.jsonService.currentFolder.length > 0
-                text: root.jsonService.clipboardCount > 0
-                      ? "Paste " + root.jsonService.clipboardCount + " item(s)" : "Paste"
+                visible: root.contextIsFolder || root.currentFolderPath.length > 0
+                text: root.contextClipboardCount > 0
+                      ? "Paste " + root.contextClipboardCount + " item(s)" : "Paste"
                 dense: true
-                enabled: root.jsonService.canPaste
+                enabled: root.contextCanPaste
                 toolTipText: root.contextIsFolder
                              ? "Paste into the folder you right-clicked."
                              : "Paste into the folder currently shown."
                 onClicked: {
                     var destination = root.contextIsFolder
-                                      ? root.contextPath : root.jsonService.currentFolder
+                                      ? root.contextPath : root.currentFolderPath
                     contextMenu.close()
-                    root.jsonService.pasteIntoFolder(destination)
+                    root.pasteRequested(destination)
                 }
             }
 
             GhostButton {
                 Layout.fillWidth: true
-                visible: root.contextIsFolder || root.jsonService.currentFolder.length > 0
+                visible: root.contextIsFolder || root.currentFolderPath.length > 0
                 text: root.contextIsFolder ? "New folder inside" : "New folder"
                 iconName: "folder"
                 dense: true
@@ -149,7 +179,7 @@ Item {
                              : "Create a new folder in the location currently shown."
                 onClicked: {
                     var destination = root.contextIsFolder
-                                      ? root.contextPath : root.jsonService.currentFolder
+                                      ? root.contextPath : root.currentFolderPath
                     contextMenu.close()
                     root.nameActionRequested("new-folder", "", destination, "")
                 }
@@ -158,7 +188,7 @@ Item {
             GhostButton {
                 Layout.fillWidth: true
                 visible: root.contextIsFolder && !root.contextIsSource
-                         && root.jsonService.fileOperationSelectionCount === 1
+                         && root.contextSelectionCount === 1
                 text: "Rename folder"
                 dense: true
                 toolTipText: "Rename this folder without changing its contents."
@@ -171,7 +201,7 @@ Item {
             GhostButton {
                 Layout.fillWidth: true
                 visible: root.contextPath.length > 0 && !root.contextIsFolder
-                         && root.jsonService.fileOperationSelectionCount === 1
+                         && root.contextSelectionCount === 1
                 text: "Rename JSON"
                 dense: true
                 toolTipText: "Rename this JSON file without changing its contents."
@@ -184,9 +214,9 @@ Item {
             GhostButton {
                 Layout.fillWidth: true
                 visible: root.contextPath.length > 0 && !root.contextIsSource
-                         && root.jsonService.fileOperationSelectionCount > 0
-                text: root.jsonService.fileOperationSelectionCount > 1
-                      ? "Delete " + root.jsonService.fileOperationSelectionCount + " items" : "Delete"
+                         && root.contextSelectionCount > 0
+                text: root.contextSelectionCount > 1
+                      ? "Delete " + root.contextSelectionCount + " items" : "Delete"
                 labelColor: Theme.danger
                 dense: true
                 toolTipText: "Permanently delete the selected item or items from their output folders."
@@ -200,6 +230,8 @@ Item {
 
     Popup {
         id: moveFolderMenu
+        objectName: "OutputExplorerMoveFolderMenu"
+        parent: Overlay.overlay
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -221,7 +253,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: root.jsonService.fileOperationSelectionCount > 1
+                text: root.contextSelectionCount > 1
                       ? "Move selected JSONs to" : "Move selected JSON to"
                 color: Theme.primaryBright
                 font.family: Theme.fontFamily
@@ -242,7 +274,7 @@ Item {
                 Layout.fillHeight: true
                 clip: true
                 spacing: Theme.px(2)
-                model: root.jsonService.moveFolderModel
+                model: root.moveFolderModel
 
                 delegate: GhostButton {
                     id: destinationRow
@@ -256,7 +288,7 @@ Item {
                     toolTipText: path
                     onClicked: {
                         root.closeMoveFolderMenu()
-                        root.jsonService.moveSelectedJsonsToFolder(destinationRow.path)
+                        root.moveRequested(destinationRow.path)
                     }
                 }
 

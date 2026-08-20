@@ -2102,7 +2102,7 @@ class FullLiveryPackageTests(unittest.TestCase):
         self.assertIn("if (controls.autoRotate) requestRender()", source)
         self.assertNotIn("function animate()", source)
         self.assertNotIn("requestAnimationFrame(animate)", source)
-        self.assertIn('active: fullLiveryService.viewerUrl.length > 0', page)
+        self.assertIn('active: root.pageActive && fullLiveryService.viewerUrl.length > 0', page)
         self.assertIn('sourceComponent: Component', page)
         self.assertNotIn(': "about:blank"', page)
 

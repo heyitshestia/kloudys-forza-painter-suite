@@ -32,8 +32,11 @@ Item {
     readonly property real headerBannerLeftX: importSetupCard.x
     readonly property real headerBannerRightX: browseOutputsCard.x + browseOutputsCard.width
 
-    function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY) {
-        outputContextMenus.openFor(path, name, isFolder, entryKind, sceneX, sceneY)
+    function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY, contextState) {
+        outputContextMenus.openFor(
+                    path, name, isFolder, entryKind, sceneX, sceneY,
+                    contextState.selectionCount, contextState.canMove,
+                    contextState.clipboardCount, contextState.canPaste)
     }
 
     function openOutputNameDialog(mode, target, parentPath, currentName) {
@@ -67,16 +70,6 @@ Item {
             root.fm8PendingCreatorDisplay = ""
             root.fm8PendingCreatorDetail = ""
             fm8CreatorDialog.open()
-        }
-    }
-
-    TapHandler {
-        acceptedButtons: Qt.LeftButton
-        gesturePolicy: TapHandler.ReleaseWithinBounds
-        grabPermissions: PointerHandler.ApprovesTakeOverByAnything
-        onTapped: {
-            jsonService.clearExplorerSelection()
-            jsonService.clearSelection()
         }
     }
 
@@ -950,10 +943,23 @@ Item {
                                                 mouse.accepted = true
                                                 files.forceActiveFocus()
                                                 if (mouse.button === Qt.RightButton) {
-                                                    if (!jsonService.isExplorerEntrySelected(fileCard.path))
-                                                        jsonService.selectExplorerEntry(fileCard.index, false, false)
                                                     var contextPoint = fileCard.mapToItem(root, mouse.x, mouse.y)
-                                                    root.openOutputContextMenu(fileCard.path, fileCard.displayName, fileCard.isFolder, fileCard.entryKind, contextPoint.x, contextPoint.y)
+                                                    var contextPath = fileCard.path
+                                                    var contextName = fileCard.displayName
+                                                    var contextIsFolder = fileCard.isFolder
+                                                    var contextEntryKind = fileCard.entryKind
+                                                    var contextIndex = fileCard.index
+                                                    Qt.callLater(function() {
+                                                        var contextSelection = jsonService.prepareExplorerContextSelection(contextIndex)
+                                                        root.openOutputContextMenu(
+                                                                    contextPath,
+                                                                    contextName,
+                                                                    contextIsFolder,
+                                                                    contextEntryKind,
+                                                                    contextPoint.x,
+                                                                    contextPoint.y,
+                                                                    contextSelection)
+                                                    })
                                                 } else {
                                                     jsonService.selectExplorerEntry(
                                                         fileCard.index,
@@ -981,18 +987,23 @@ Item {
                                         }
                                     }
 
-                                    TapHandler {
-                                        acceptedButtons: Qt.RightButton
-                                        gesturePolicy: TapHandler.ReleaseWithinBounds
-                                        onTapped: eventPoint => {
+                                    MouseArea {
+                                        id: outputBackgroundMouse
+                                        anchors.fill: parent
+                                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                        z: -1
+                                        onClicked: mouse => {
                                             if (outputContextMenus.opened)
                                                 return
                                             if (jsonService.currentFolder.length === 0)
                                                 return
                                             jsonService.clearExplorerSelection()
                                             jsonService.clearSelection()
-                                            var contextPoint = files.mapToItem(root, eventPoint.position.x, eventPoint.position.y)
-                                            root.openOutputContextMenu("", "", false, "", contextPoint.x, contextPoint.y)
+                                            if (mouse.button === Qt.RightButton) {
+                                                var contextPoint = outputBackgroundMouse.mapToItem(root, mouse.x, mouse.y)
+                                                var contextState = jsonService.prepareExplorerContextSelection(-1)
+                                                root.openOutputContextMenu("", "", false, "", contextPoint.x, contextPoint.y, contextState)
+                                            }
                                         }
                                     }
 
@@ -1078,8 +1089,20 @@ Item {
     OutputExplorerContextMenus {
         id: outputContextMenus
         anchors.fill: parent
-        jsonService: jsonService
-        onFolderOpened: files.positionViewAtBeginning()
+        moveFolderModel: jsonService.moveFolderModel
+        currentFolderPath: jsonService.currentFolder
+        onOpenFolderRequested: function(path) {
+            jsonService.openExplorerFolder(path)
+            files.positionViewAtBeginning()
+        }
+        onCutRequested: jsonService.cutSelection()
+        onCopyRequested: jsonService.copySelection()
+        onPasteRequested: function(destination) {
+            jsonService.pasteIntoFolder(destination)
+        }
+        onMoveRequested: function(destination) {
+            jsonService.moveSelectedJsonsToFolder(destination)
+        }
         onNameActionRequested: function(mode, target, parentPath, currentName) {
             root.openOutputNameDialog(mode, target, parentPath, currentName)
         }
@@ -1087,6 +1110,7 @@ Item {
     }
     Popup {
         id: outputNameDialog
+        objectName: "OutputNameDialog"
         modal: true
         focus: true
         dim: true
@@ -1168,6 +1192,7 @@ Item {
 
     MessageDialog {
         id: deleteSelectedEntriesDialog
+        objectName: "OutputDeleteDialog"
         title: jsonService.fileOperationSelectionCount === 1 ? "Delete selected item?" : "Delete selected items?"
         text: "Permanently delete " + jsonService.fileOperationSelectionCount
               + (jsonService.fileOperationSelectionCount === 1 ? " selected item" : " selected items")

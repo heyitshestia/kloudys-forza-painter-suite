@@ -66,6 +66,9 @@ def parse_args():
     parser.add_argument("--layout-report-dir")
     parser.add_argument("--screenshot-dir")
     parser.add_argument("--interaction-capture-dir", help=argparse.SUPPRESS)
+    parser.add_argument("--output-menu-capture", help=argparse.SUPPRESS)
+    parser.add_argument("--output-actions-report", help=argparse.SUPPRESS)
+    parser.add_argument("--navigation-timing-report", help=argparse.SUPPRESS)
     parser.add_argument("--motion-capture-dir", help=argparse.SUPPRESS)
     parser.add_argument("--motion-preview", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--page", default="create")
@@ -267,7 +270,9 @@ def run_source_download_blocker(
     ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
     ctx.setContextProperty(
         "screenshotMode",
-        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir),
+        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir
+             or args.output_menu_capture or args.output_actions_report
+             or args.navigation_timing_report),
     )
     ctx.setContextProperty("sourceDownloadUrl", status.latest_release_url)
     ctx.setContextProperty("sourceDownloadReason", status.reason)
@@ -460,7 +465,9 @@ def main():
     ctx.setContextProperty("assetRoot", QUrl.fromLocalFile(str(paths.asset_root.resolve())).toString())
     ctx.setContextProperty(
         "screenshotMode",
-        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir),
+        bool(args.screenshot or args.screenshot_dir or args.interaction_capture_dir
+             or args.output_menu_capture or args.output_actions_report
+             or args.navigation_timing_report),
     )
     ctx.setContextProperty("demoMode", args.demo)
     ctx.setContextProperty("themePreviewUnlocked", bool(theme_preview))
@@ -549,7 +556,7 @@ def main():
     else:
         window.show()
     development_harness = install_development_harness(
-        app, window, controller, community, settings, args,
+        app, window, controller, community, settings, jsons, args,
     )
     shutdown_order = [
         editor,

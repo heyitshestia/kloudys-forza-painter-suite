@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.33
+- Fixed every Outputs right-click file action, including copy, cut, paste, move, rename, folder creation, and confirmed deletion.
+- Kept initialized app tabs loaded for faster return navigation while suspending the hidden 3D livery viewer.
+- Stabilized right-click selection state and added full interface-level file-operation regression coverage.
+
 ## 3.1.32
 - Allowed owned, foreign-free FH6 liveries to export even when referenced raster artwork cannot be resolved for the local preview.
 - Preserved unresolved references and the exact FH6 source inside packages while clearly tracking preview completeness.

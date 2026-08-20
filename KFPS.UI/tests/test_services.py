@@ -372,8 +372,16 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual(1,svc.explorerSelectionCount)
     svc.selectExplorerEntry(indices["Charlie.json"],True,False)
     self.assertEqual(2,svc.explorerSelectionCount)
+    context_state=svc.prepareExplorerContextSelection(indices["Charlie.json"])
+    self.assertEqual({"selectionCount":2,"canMove":True,"clipboardCount":0,"canPaste":False},context_state)
+    self.assertEqual(2,svc.explorerSelectionCount)
     self.assertTrue(svc.isExplorerEntrySelected(str(paths_by_name["Alpha.json"])))
     self.assertTrue(svc.isExplorerEntrySelected(str(paths_by_name["Charlie.json"])))
+
+    svc._operation_selection_count=0;svc._operation_selection_json_count=0
+    repaired_state=svc.prepareExplorerContextSelection(indices["Charlie.json"])
+    self.assertEqual({"selectionCount":1,"canMove":True,"clipboardCount":0,"canPaste":False},repaired_state)
+    self.assertEqual([str(paths_by_name["Charlie.json"])],svc._explorer_selection)
 
     anchor_index=indices["Charlie.json"];range_end=indices["Delta.json"]
     svc.selectExplorerEntry(range_end,False,True)

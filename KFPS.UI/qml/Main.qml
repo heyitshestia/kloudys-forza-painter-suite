@@ -344,40 +344,21 @@ ApplicationWindow {
                     anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(11)
                     spacing: Theme.terminalMode ? 0 : Theme.px(10)
 
-                    Loader {
+                    CachedPageHost {
                         id: pageLoader
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: Theme.px(100)
                         clip: true
-                        source: "pages/" + ({
-                            create: "CreatePage",
-                            dashboard: "CreatePage",
-                            outputs: "JsonPage",
-                            liveries: "LiveryPage",
-                            community: "CommunityPage",
-                            library: "JsonPage",
-                            json: "JsonPage",
-                            generate: "GeneratePage",
-                            editor: "EditorPage",
-                            images: "ImagesPage",
-                            tools: "ToolsPage",
-                            support: "SupportPage",
-                            help: "HelpPage",
-                            learn: "HelpPage",
-                            reports: "ReportsPage",
-                            update: "UpdatePage",
-                            settings: "SettingsPage",
-                            credits: "CreditsPage"
-                        }[appController.currentPage]) + ".qml"
+                        currentPage: appController.currentPage
                         opacity: 1
 
-                        onLoaded: {
-                            if (item && item.objectName === "LiveryPage")
+                        onPageLoaded: function(page, item) {
+                            if (page === "liveries" && item)
                                 item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged
                         }
 
-                        onSourceChanged: {
+                        onCurrentPageChanged: {
                             if (!Theme.reducedMotion) {
                                 opacity = 0
                                 pageFade.restart()

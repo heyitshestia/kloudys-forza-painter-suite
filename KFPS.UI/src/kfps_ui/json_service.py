@@ -1571,6 +1571,48 @@ class JsonService(QObject):
     def isExplorerEntrySelected(self, value):
         return self._preview_key(value) in self._explorer_selection_keys
 
+    @Slot(int, result="QVariant")
+    def prepareExplorerContextSelection(self, index):
+        """Return a stable operation snapshot for a right-clicked explorer row."""
+        def snapshot():
+            return {
+                "selectionCount": self._operation_selection_count,
+                "canMove": (
+                    self._operation_selection_count > 0
+                    and self._operation_selection_json_count == self._operation_selection_count
+                ),
+                "clipboardCount": len(self._clipboard_paths),
+                "canPaste": bool(self._clipboard_paths),
+            }
+
+        if not 0 <= index < len(self._explorer_rows):
+            return snapshot()
+        row = self._explorer_rows[index]
+        path = str(row.get("path") or "")
+        if not path:
+            return snapshot()
+        key = self._preview_key(path)
+        operation_state_valid = (
+            key in self._explorer_selection_keys
+            and bool(self._explorer_selection)
+            and self._operation_selection_count > 0
+        )
+        if not operation_state_valid:
+            previous_keys = set(self._explorer_selection_keys)
+            self._explorer_selection = [path]
+            self._explorer_selection_keys = {key}
+            self._selection_anchor_path = path
+            if row.get("entryKind") != "source":
+                self._explorer_operable_keys.add(key)
+            if row.get("entryKind") == "json":
+                self._explorer_json_keys.add(key)
+            if not row.get("isFolder"):
+                self._select_path(path, queue_preview=False, emit=False)
+            self._sync_explorer_selection_model(previous_keys)
+            self._selection_revision += 1
+            self.changed.emit()
+        return snapshot()
+
     def _managed_source_for_path(self, value):
         path_key = self._fast_path_key(value)
         for source, root in enumerate(self._source_roots()):
