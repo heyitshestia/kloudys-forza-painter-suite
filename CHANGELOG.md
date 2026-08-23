@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.37
+- Isolated full-livery scanning, indexing, rendering preparation, package handling, and save installation from the main KFPS process.
+- Added dedicated full-livery cache, catalog, recovery, diagnostics, cancellation, timeout, and memory-safety boundaries.
+- Added lifecycle and release-qualification safeguards so the experimental livery workspace can be tested across more hardware and installation layouts without being treated as stable prematurely.
+
 ## 3.1.36
 - Added ownership-aware FM8 offline save scans and live grouped-vinyl transfers, blocking foreign content while preserving owned nested groups.
 - Removed FM8 creator-name setup; offline scans and import templates now rely directly on verified local ownership state.
