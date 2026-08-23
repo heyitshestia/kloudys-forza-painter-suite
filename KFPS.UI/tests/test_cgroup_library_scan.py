@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from kfps_ui.cgroup_library_service import CGroupLibraryService
 from kfps_ui.app_paths import AppPaths
-from tools.cgroup.cgroup_codec import CGroupLayer, build_flat_payload, parse_flat_payload, wrap_payload
+from tools.cgroup.cgroup_codec import CGroupLayer, build_flat_payload, normalize_rgba, parse_flat_payload, wrap_payload
 from tools.cgroup.forza_source_decoder import (
     GroupNode,
     ShapeNode,
@@ -211,6 +211,10 @@ class CGroupLibraryScanTests(unittest.TestCase):
                 self.assertTrue(all("unlock" in message.lower() for message, _level in log.messages))
             finally:
                 service.close()
+
+    def test_offline_color_encoding_distinguishes_byte_ones_from_normalized_floats(self):
+        self.assertEqual((1, 0, 1, 255), normalize_rgba([1, 0, 1, 255]))
+        self.assertEqual((255, 0, 128, 255), normalize_rgba([1.0, 0.0, 0.5, 1.0]))
 
     def test_final_root_close_preserves_last_flat_mask(self):
         payload = bytearray(

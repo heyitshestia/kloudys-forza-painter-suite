@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.35
+- Fixed offline imports turning color channel value `1` into `255`, which caused isolated shapes to appear bright red, green, blue, cyan, magenta, or white.
+- Preserved byte-based RGBA colors exactly while retaining support for explicitly normalized floating-point colors.
+- Added regression coverage for the shared offline vinyl encoder used by supported local-save targets.
+
 ## 3.1.34
 - Fixed FH6 live imports into grouped 3000-layer templates by locating the actual writable leaf table instead of the parent group table.
 - Added complete template validation, pre-write backups, write verification, and automatic rollback so failed imports stop without leaving partial edits.

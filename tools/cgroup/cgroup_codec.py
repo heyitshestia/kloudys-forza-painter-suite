@@ -70,12 +70,12 @@ def normalized_rotation(value: float) -> float:
     return value % 360.0
 
 
-def clamp_byte(value: Any) -> int:
+def clamp_byte(value: Any, *, normalized: bool = False) -> int:
     try:
         value = float(value)
     except (TypeError, ValueError):
         value = 0.0
-    if 0.0 <= value <= 1.0:
+    if normalized:
         value *= 255.0
     return max(0, min(255, int(round(value))))
 
@@ -83,12 +83,23 @@ def clamp_byte(value: Any) -> int:
 def normalize_rgba(value: Any) -> tuple[int, int, int, int]:
     if not isinstance(value, (list, tuple)):
         return 255, 255, 255, 255
-    items = list(value[:4])
+    source_items = list(value[:4])
+    numeric_items = []
+    for item in source_items:
+        try:
+            numeric_items.append(float(item))
+        except (TypeError, ValueError):
+            numeric_items = []
+            break
+    normalized = bool(source_items) and bool(numeric_items) and all(
+        math.isfinite(item) and 0.0 <= item <= 1.0 for item in numeric_items
+    ) and any(isinstance(item, float) for item in source_items)
+    items = list(source_items)
     if len(items) == 3:
         items.append(255)
     while len(items) < 4:
         items.append(255)
-    return tuple(clamp_byte(item) for item in items[:4])  # type: ignore[return-value]
+    return tuple(clamp_byte(item, normalized=normalized) for item in items[:4])  # type: ignore[return-value]
 
 
 def parse_numeric_int(value: Any) -> int | None:
