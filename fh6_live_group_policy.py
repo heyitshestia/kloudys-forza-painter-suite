@@ -9,16 +9,22 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 
-_STATE_OFFSET = 0x134
+_DEFAULT_STATE_OFFSET = 0x134
+_STATE_OFFSETS = {
+    "fh4": _DEFAULT_STATE_OFFSET,
+    "fh5": _DEFAULT_STATE_OFFSET,
+    "fh6": _DEFAULT_STATE_OFFSET,
+    "fm": 0x154,
+}
 _STATE_SIZE = 4
 _TRANSFORM_STATE_FLAG = 0x10
 _CLEAR_STATES = frozenset((0x00, 0x20))
 _RESTRICTED_STATE = 0x21
 _TRANSFORMABLE_CHILD_STATES = frozenset((0x20, _RESTRICTED_STATE))
-MIN_HEADER_SIZE = _STATE_OFFSET + _STATE_SIZE
+MIN_HEADER_SIZE = _DEFAULT_STATE_OFFSET + _STATE_SIZE
 DEFAULT_MAX_DEPTH = 32
 DEFAULT_MAX_GROUPS = 4096
-LIVE_OWNERSHIP_GAMES = frozenset(("fh4", "fh5", "fh6"))
+LIVE_OWNERSHIP_GAMES = frozenset(("fh4", "fh5", "fh6", "fm"))
 
 
 @dataclass(frozen=True)
@@ -40,10 +46,29 @@ class LiveGroupPolicyResult:
         }
 
 
-def classify_group_header(raw: bytes, *, allow_transformed_child_state: bool = False) -> str:
-    if len(raw) < MIN_HEADER_SIZE:
+def _normalize_game(game: str | None) -> str:
+    key = str(game or "fh6").strip().lower()
+    return "fm" if key in {"fm8", "motorsport", "forza motorsport"} else key
+
+
+def ownership_state_offset(game: str | None = "fh6") -> int:
+    return int(_STATE_OFFSETS.get(_normalize_game(game), _DEFAULT_STATE_OFFSET))
+
+
+def minimum_header_size(game: str | None = "fh6") -> int:
+    return ownership_state_offset(game) + _STATE_SIZE
+
+
+def classify_group_header(
+    raw: bytes,
+    *,
+    game: str | None = "fh6",
+    allow_transformed_child_state: bool = False,
+) -> str:
+    state_offset = ownership_state_offset(game)
+    if len(raw) < state_offset + _STATE_SIZE:
         return "unknown"
-    state = struct.unpack_from("<I", raw, _STATE_OFFSET)[0]
+    state = struct.unpack_from("<I", raw, state_offset)[0]
     # Mirrored FH5 child groups retain their access state and add one transform flag.
     access_state = state
     base_state = state & ~_TRANSFORM_STATE_FLAG
@@ -67,6 +92,7 @@ def assess_group_tree(
     *,
     max_depth: int = DEFAULT_MAX_DEPTH,
     max_groups: int = DEFAULT_MAX_GROUPS,
+    game: str | None = "fh6",
     allow_transformed_child_state: bool = False,
 ) -> LiveGroupPolicyResult:
     entries: list[tuple[int, str, tuple[int, ...]]] = []
@@ -107,6 +133,7 @@ def assess_group_tree(
             header = read_header(group)
             status = classify_group_header(
                 header,
+                game=game,
                 allow_transformed_child_state=allow_transformed_child_state,
             )
             if status == "restricted":

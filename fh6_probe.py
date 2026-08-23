@@ -12,7 +12,7 @@ from pathlib import Path
 
 import psutil
 
-from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, MIN_HEADER_SIZE, assess_group_tree
+from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, assess_group_tree, minimum_header_size
 from game_profiles import PROFILES, get_profile
 from fh6_rtti_registry import load_runtime_profiles
 from native import (
@@ -1576,7 +1576,7 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables, writable_c
 
     def read_header(address):
         try:
-            return read_process_memory(pid, address, MIN_HEADER_SIZE)
+            return read_process_memory(pid, address, minimum_header_size(profile.key))
         except Exception:
             return b""
 
@@ -1615,6 +1615,7 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables, writable_c
         group_info["group_address"],
         read_header,
         read_children,
+        game=profile.key,
         allow_transformed_child_state=profile.key == "fh5",
     )
 
@@ -2159,10 +2160,10 @@ def finish_incomplete_exact_scan(
     failed_regions = stats.get("failed_regions") or []
     if not failed_regions:
         raise LocatorRefused(
-            "KFPS could not prove complete coverage of the FH6 livery allocator.",
+            f"KFPS could not prove complete coverage of the {profile.label} livery allocator.",
             {"scan_status": stats.get("stopped_by") or "incomplete"},
         )
-    print("Retrying FH6 livery allocator pages that changed during the scan.", flush=True)
+    print(f"Retrying {profile.label} livery allocator pages that changed during the scan.", flush=True)
     retry_candidates, retry_refusals, retry_stats = scan_exact_calibrated_vtables(
         pid,
         profile,
@@ -2177,7 +2178,7 @@ def finish_incomplete_exact_scan(
     refusals.extend(retry_refusals)
     if not retry_stats.get("complete"):
         raise LocatorRefused(
-            "KFPS could not read every eligible FH6 livery allocator page.",
+            f"KFPS could not read every eligible {profile.label} livery allocator page.",
             {
                 "failed_mb": retry_stats.get("failed_mb"),
                 "vtable_hits": retry_stats.get("vtable_hits"),
@@ -2186,13 +2187,13 @@ def finish_incomplete_exact_scan(
     return candidates, refusals
 
 
-def select_exact_calibrated_candidate(candidates):
+def select_exact_calibrated_candidate(candidates, *, game_label="FH6"):
     unique = {int(item["group_address"]): item for item in candidates}
     if len(unique) == 1:
         return next(iter(unique.values()))
     if len(unique) > 1:
         raise LocatorRefused(
-            "KFPS found multiple exact live FH6 groups with the requested layer count.",
+            f"KFPS found multiple exact live {game_label} groups with the requested layer count.",
             {"matched_group_count": len(unique)},
         )
     return None
@@ -2237,7 +2238,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         diagnostic_name="calibrated_allocator_retry",
         locator_kind="rtti_allocator_exact_retry",
     )
-    winner = select_exact_calibrated_candidate(candidates)
+    winner = select_exact_calibrated_candidate(candidates, game_label=profile.label)
     if winner:
         save_fh6_allocator_cache(
             rtti,
@@ -2288,7 +2289,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
             locator_kind="rtti_discovered_allocator_exact_retry",
         )
         refusals.extend(verified_refusals)
-        winner = select_exact_calibrated_candidate(verified_candidates)
+        winner = select_exact_calibrated_candidate(verified_candidates, game_label=profile.label)
         if winner:
             save_fh6_allocator_cache(
                 rtti,
@@ -2312,7 +2313,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
                 locator_kind="rtti_exact_retry",
             )
             refusals.extend(retry_refusals)
-            winner = select_exact_calibrated_candidate(retry_candidates)
+            winner = select_exact_calibrated_candidate(retry_candidates, game_label=profile.label)
             if winner:
                 discovered_window = allocator_window_for_address(winner["group_address"])
                 save_fh6_allocator_cache(
@@ -2341,6 +2342,56 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         active_group_found=False,
     )
     return []
+
+
+def locate_fm8_clivery_group_by_root_arena(pid, profile, layer_count, rtti):
+    """Resolve an FM8 editor root from its compact low-address object arena."""
+    all_regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
+    arena_regions = regions_in_allocator_windows(all_regions, [(0x10000, 0x100000000)])
+    if not arena_regions:
+        return []
+    print(
+        f"Searching the FM8 live vinyl root arena "
+        f"({sum(region[1] for region in arena_regions) // (1024 * 1024)} MB committed).",
+        flush=True,
+    )
+    candidates, refusals, stats = scan_exact_calibrated_vtables(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        arena_regions,
+        diagnostic_name="fm8_root_arena",
+        locator_kind="fm8_rtti_root_arena",
+        progress_mb=256,
+    )
+    candidates, refusals = finish_incomplete_exact_scan(
+        pid,
+        profile,
+        layer_count,
+        rtti,
+        all_regions,
+        candidates,
+        refusals,
+        stats,
+        diagnostic_name="fm8_root_arena_retry",
+        locator_kind="fm8_rtti_root_arena_retry",
+    )
+    if refusals:
+        refusal = refusals[0]
+        raise LocatorRefused(
+            refusal.reason,
+            {
+                "matched_group_count": len(candidates) + len(refusals),
+                "access_status": refusal.status,
+            },
+        )
+    winner = select_exact_calibrated_candidate(candidates, game_label=profile.label)
+    if not winner:
+        return []
+    print("FM8 group resolved from the dedicated live vinyl root arena.", flush=True)
+    return [winner]
 
 
 def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti, max_seconds=12):
@@ -2530,6 +2581,28 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
 
     if rtti.get("source") == "calibrated_profile":
         return locate_clivery_group_by_allocator(pid, profile, layer_count, rtti)
+
+    if profile.key == "fm":
+        groups = locate_fm8_clivery_group_by_root_arena(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+        groups = locate_clivery_groups_by_calibrated_count(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            max_seconds=20,
+        )
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
+        groups = locate_clivery_groups_by_calibrated_flattened(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            max_seconds=18,
+        )
+        return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     groups = []
     vtable_patterns = [(vtable, struct.pack("<Q", vtable)) for vtable in rtti["vtables"]]

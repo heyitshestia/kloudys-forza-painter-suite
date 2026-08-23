@@ -16,7 +16,7 @@ from collections import Counter
 from ctypes import wintypes
 from pathlib import Path
 
-from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, MIN_HEADER_SIZE, assess_group_tree
+from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, assess_group_tree, minimum_header_size
 from game_profiles import PROFILES
 from tools.cgroup.shape_identity import canonical_resource_for_word
 
@@ -330,7 +330,7 @@ def read_group_metadata(handle, group):
     }
 
 
-def validate_editable_group(metadata, requested_count, expected_table, allow_flattened=False):
+def validate_editable_group(metadata, requested_count, expected_table, allow_flattened=False, game="fh6"):
     reasons = []
     try:
         begin = parse_int(metadata.get("table_begin_0x78", "0"))
@@ -341,7 +341,9 @@ def validate_editable_group(metadata, requested_count, expected_table, allow_fla
         reasons.append("group vector addresses could not be parsed")
     if not allow_flattened and int(metadata.get("count_u16_0x5a") or -1) != int(requested_count):
         reasons.append(f"group layer count does not match requested count ({metadata.get('count_u16_0x5a')} != {requested_count})")
-    if parse_int(metadata.get("group", "0")) < MIN_NORMAL_GROUP_ADDRESS:
+    # FM8 keeps the editable root header in a low-address arena. Its locator
+    # independently verifies the RTTI root, hierarchy, ownership, and table.
+    if str(game).lower() != "fm" and parse_int(metadata.get("group", "0")) < MIN_NORMAL_GROUP_ADDRESS:
         reasons.append("group header address is outside the normal FH6 editable group range")
     if not begin or not end or not capacity:
         reasons.append("group vector begin/end/capacity is missing")
@@ -801,11 +803,12 @@ def assess_fh6_live_group(handle, group, locator, *, game="fh6"):
             group,
             lambda _address: b"",
             lambda _address: (),
+            game=game,
             allow_transformed_child_state=game == "fh5",
         )
 
     def read_header(address):
-        return try_read_memory(handle, address, MIN_HEADER_SIZE)
+        return try_read_memory(handle, address, minimum_header_size(game))
 
     def read_children(address):
         info = read_group_vector_info(handle, address, expected_vtable)
@@ -828,6 +831,7 @@ def assess_fh6_live_group(handle, group, locator, *, game="fh6"):
         group,
         read_header,
         read_children,
+        game=game,
         allow_transformed_child_state=game == "fh5",
     )
 
@@ -1055,6 +1059,7 @@ def main():
             int(args.count),
             table,
             allow_flattened=locator_allows_flattened(locator_report),
+            game=args.game,
         )
         if not editable_ok:
             write_refusal_report(args, table, group, report_path, metadata=group_metadata, reasons=editable_reasons)

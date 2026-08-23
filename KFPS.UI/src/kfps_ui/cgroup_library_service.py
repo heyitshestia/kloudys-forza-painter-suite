@@ -124,9 +124,6 @@ class CGroupLibraryService(QObject):
             return
         game_key = self._game_key(game)
         self._active_game_key = game_key
-        if game_key == "fm8" and not self._load_creator_profile():
-            if self._prepare_fm8_creator_prompt():
-                return
         self._running = True
         game_label = self._game_label(game_key)
         self._status = f"Scanning {game_label}"
@@ -411,6 +408,19 @@ class CGroupLibraryService(QObject):
         digest = str(profile.get("creator_hash") or "")
         return bool(creator) and self._creator_hash(creator, salt) == digest
 
+    def _fm8_profile_matches_verified_group(self, profile: dict[str, str] | None) -> bool:
+        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
+
+        if not profile:
+            return False
+        for source_path in self._discover_save_artifacts(self._default_save_roots("fm8"), "fm8"):
+            if not assess_fm8_layer_group_files(source_path).allowed:
+                continue
+            metadata = self._read_layer_group_metadata(source_path)
+            if self._creator_matches_profile(str(metadata.get("creator") or ""), profile):
+                return True
+        return False
+
     def _prepare_fm8_creator_prompt(self) -> bool:
         rows = self._fm8_creator_candidate_rows()
         self._creator_prompt_model.replace(rows)
@@ -430,6 +440,9 @@ class CGroupLibraryService(QObject):
         return True
 
     def _fm8_creator_candidate_rows(self) -> list[dict[str, Any]]:
+        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
+        from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
+
         roots = self._default_save_roots("fm8")
         system_names = self._system_creator_names()
         candidates: dict[str, dict[str, Any]] = {}
@@ -437,7 +450,7 @@ class CGroupLibraryService(QObject):
         def add_creator(creator: str, title: str, kind: str, mtime: float) -> None:
             creator = " ".join(str(creator or "").replace("\x00", " ").split())
             key = self._normalize_creator_name(creator)
-            if key in system_names:
+            if not key or key in system_names:
                 return
             item = candidates.setdefault(
                 key,
@@ -458,6 +471,8 @@ class CGroupLibraryService(QObject):
             item["newest"] = max(float(item.get("newest") or 0.0), float(mtime or 0.0))
 
         for source_path in self._discover_save_artifacts(roots, "fm8"):
+            if not assess_fm8_layer_group_files(source_path).allowed:
+                continue
             metadata = self._read_layer_group_metadata(source_path)
             try:
                 mtime = source_path.stat().st_mtime
@@ -475,6 +490,10 @@ class CGroupLibraryService(QObject):
                 if resolved in seen_liveries:
                     continue
                 seen_liveries.add(resolved)
+                try:
+                    decode_forza_source(livery_path, allow_locked=False, game="fm8")
+                except DecodeError:
+                    continue
                 metadata = self._read_layer_group_metadata(livery_path)
                 try:
                     mtime = livery_path.stat().st_mtime
@@ -515,6 +534,7 @@ class CGroupLibraryService(QObject):
         return rows[:18]
 
     def _scan_work(self, game_key: str = "fh6") -> dict[str, Any]:
+        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
         from tools.cgroup.find_forza_sources import describe_source
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
@@ -522,7 +542,6 @@ class CGroupLibraryService(QObject):
             raise concurrent.futures.CancelledError()
         game_key = self._game_key(game_key)
         game_label = self._game_label(game_key)
-        creator_profile = self._load_creator_profile() if game_key == "fm8" else None
         roots = self._default_save_roots(game_key)
         if self.demo:
             return {
@@ -566,7 +585,7 @@ class CGroupLibraryService(QObject):
         active_entry_names: set[str] = set()
         active_source_keys: set[str] = set()
         skipped = 0
-        ignored_other_creators = 0
+        ignored_restricted_fm8 = 0
         fm8_grouped_sources = 0
         fm8_group_transforms = 0
         fm8_pre_group_records = 0
@@ -574,12 +593,19 @@ class CGroupLibraryService(QObject):
         for source in candidates:
             if self._cancel_event.is_set():
                 raise concurrent.futures.CancelledError()
-            decode = source.get("decode") or {}
-            if not decode.get("ok"):
-                skipped += 1
-                continue
             source_path = Path(str(source.get("file") or ""))
             if not source_path.is_file():
+                skipped += 1
+                continue
+            fm8_ownership = None
+            if game_key == "fm8":
+                fm8_ownership = assess_fm8_layer_group_files(source_path)
+                if not fm8_ownership.allowed:
+                    skipped += 1
+                    ignored_restricted_fm8 += 1
+                    continue
+            decode = source.get("decode") or {}
+            if not decode.get("ok"):
                 skipped += 1
                 continue
             fingerprint = str(source.get("fingerprint") or self._file_fingerprint(source_path))
@@ -605,11 +631,6 @@ class CGroupLibraryService(QObject):
                 fm8_group_transforms += int(report.get("non_identity_group_transforms") or 0)
                 fm8_pre_group_records += int(report.get("fm8_pre_group_transform_records") or 0)
             metadata = self._read_layer_group_metadata(source_path)
-            if game_key == "fm8" and creator_profile:
-                creator = str(metadata.get("creator") or "")
-                if not self._creator_matches_profile(creator, creator_profile):
-                    ignored_other_creators += 1
-                    continue
             title = metadata.get("title") or source.get("folder_name") or source_path.parent.name or "Forza LayerGroup"
             metadata["layers"] = layers
             metadata["layer_count"] = layers
@@ -617,6 +638,8 @@ class CGroupLibraryService(QObject):
             metadata["asset_type"] = "vinyl_group"
             metadata["target_game"] = game_key
             metadata["source_folder"] = source.get("folder_name") or source_path.parent.name
+            if fm8_ownership is not None:
+                metadata["ownership_verified"] = True
             display_stem = safe_file_part(str(title), "forza-layergroup")
             try:
                 source_key_text = str(source_path.resolve())
@@ -689,7 +712,7 @@ class CGroupLibraryService(QObject):
             "exported": len(exported),
             "skipped": skipped,
             "ignored_designs": ignored_designs,
-            "ignored_other_creators": ignored_other_creators,
+            "ignored_restricted_fm8": ignored_restricted_fm8,
             "fm8_grouped_sources": fm8_grouped_sources,
             "fm8_group_transforms": fm8_group_transforms,
             "fm8_pre_group_records": fm8_pre_group_records,
@@ -697,7 +720,7 @@ class CGroupLibraryService(QObject):
             "message": (
                 f"{game_label} save scan complete: scanned {len(candidates)} candidate(s), "
                 f"exported {len(exported)}, skipped {skipped}"
-                + (f", ignored {ignored_other_creators} other-creator vinyl(s)" if ignored_other_creators else "")
+                + (f", protected {ignored_restricted_fm8} non-owned FM8 vinyl(s)" if ignored_restricted_fm8 else "")
                 + (f", ignored {ignored_designs} design(s)" if ignored_designs else "")
                 + fm8_message
                 + "."
@@ -831,6 +854,8 @@ class CGroupLibraryService(QObject):
 
     def _create_fm8_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload
+        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
+        from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
         json_path = json_path.resolve()
         if not json_path.is_file():
@@ -852,6 +877,7 @@ class CGroupLibraryService(QObject):
         if temp_folder.exists():
             shutil.rmtree(temp_folder)
         temp_folder.mkdir(parents=True)
+        target_installed = False
         try:
             payload = build_flat_cgroup_from_json(json_path, target_game="fm8")
             self._atomic_write_bytes(temp_folder / "data", payload)
@@ -871,6 +897,24 @@ class CGroupLibraryService(QObject):
                     shutil.copy2(source_thumb, temp_folder / "thumbnail")
 
             os.replace(temp_folder, target_folder)
+            target_installed = True
+            ownership = assess_fm8_layer_group_files(target_folder / "data")
+            if not ownership.allowed:
+                raise ValueError("The newly created FM8 vinyl group failed its ownership safety check.")
+            try:
+                verified = decode_forza_source(target_folder / "data", allow_locked=False, game="fm8")
+            except DecodeError as exc:
+                raise ValueError("The newly created FM8 vinyl group could not be reopened safely.") from exc
+            expected_layers = int(parsed.get("count") or 0)
+            if len(verified.layers) != expected_layers:
+                raise ValueError(
+                    f"The newly created FM8 vinyl group reopened with {len(verified.layers)} layer(s), "
+                    f"expected {expected_layers}."
+                )
+        except Exception:
+            if target_installed and target_folder.exists():
+                shutil.rmtree(target_folder, ignore_errors=True)
+            raise
         finally:
             if temp_folder.exists():
                 shutil.rmtree(temp_folder, ignore_errors=True)
@@ -1075,17 +1119,16 @@ class CGroupLibraryService(QObject):
         return latest[1] if latest else None
 
     def _latest_fm8_layer_group(self) -> Path | None:
+        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
+
         latest: tuple[float, Path] | None = None
         root = self._fm8_layer_groups_root()
         if root is None:
             return None
-        creator_profile = self._load_creator_profile()
         for data_file in self._targeted_fm8_layer_groups(root):
             folder = data_file.parent
-            if creator_profile:
-                metadata = self._read_layer_group_metadata(data_file)
-                if not self._creator_matches_profile(str(metadata.get("creator") or ""), creator_profile):
-                    continue
+            if not assess_fm8_layer_group_files(data_file).allowed:
+                continue
             try:
                 mtime = data_file.stat().st_mtime
             except OSError:

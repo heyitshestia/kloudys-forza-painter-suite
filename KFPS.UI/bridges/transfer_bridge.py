@@ -194,9 +194,14 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                     game,
                     template_count,
                 ) if purpose.startswith("import") else (True, "")
-                if not template_ok:
+                ownership_ok = True
+                if game == "fm" and session.get("export_access_verified") is not True:
+                    ownership_ok = False
+                    template_ok = False
+                    log("Rejected located FM8 group: the complete live vinyl hierarchy was not ownership-verified.")
+                if not template_ok and template_detail:
                     log(f"Rejected located {game.upper()} import group: {template_detail}.")
-                if purpose.startswith("import") and (
+                if purpose.startswith("import") and ownership_ok and (
                     not import_target_verified or import_vector_count != int(template_count)
                 ):
                     template_ok = False
@@ -220,6 +225,12 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                 session.get("failure_reason")
                 or "A complete exact-RTTI scan did not find the requested live FH6 group."
             )
+            log(reason)
+            raise RuntimeError(reason)
+        if game == "fm":
+            reason = "No ownership-verified live FM8 vinyl group was found. No memory was written."
+            if isinstance(session, dict):
+                reason = str(session.get("failure_reason") or reason)
             log(reason)
             raise RuntimeError(reason)
         log("Fast locate did not produce a usable group/table. Falling back to research scanner.")

@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.36
+- Added ownership-aware FM8 offline save scans and live grouped-vinyl transfers, blocking foreign content while preserving owned nested groups.
+- Removed FM8 creator-name setup; offline scans and import templates now rely directly on verified local ownership state.
+- Added fast FM8 live-group location, recursive flattening, cross-game shape normalization, and fail-closed transfer validation.
+
 ## 3.1.35
 - Fixed offline imports turning color channel value `1` into `255`, which caused isolated shapes to appear bright red, green, blue, cyan, magenta, or white.
 - Preserved byte-based RGBA colors exactly while retaining support for explicitly normalized floating-point colors.

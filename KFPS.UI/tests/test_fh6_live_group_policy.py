@@ -13,7 +13,12 @@ sys.path.insert(0, str(ROOT))
 
 import fh6_export_typecode_json as live_export  # noqa: E402
 import fh6_probe  # noqa: E402
-from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree, classify_group_header  # noqa: E402
+from fh6_live_group_policy import (  # noqa: E402
+    MIN_HEADER_SIZE,
+    assess_group_tree,
+    classify_group_header,
+    minimum_header_size,
+)
 from tools.cgroup.forza_source_decoder import (  # noqa: E402
     ShapeNode,
     Transform,
@@ -26,13 +31,59 @@ sys.path.insert(0, str(ROOT / "KFPS.UI" / "bridges"))
 import transfer_bridge  # noqa: E402
 
 
-def policy_header(state: int = 0) -> bytes:
-    raw = bytearray(MIN_HEADER_SIZE)
-    struct.pack_into("<I", raw, MIN_HEADER_SIZE - 4, state)
+def policy_header(state: int = 0, *, game: str = "fh6") -> bytes:
+    size = minimum_header_size(game)
+    raw = bytearray(size)
+    struct.pack_into("<I", raw, size - 4, state)
     return bytes(raw)
 
 
 class Fh6LiveGroupPolicyTests(unittest.TestCase):
+    def test_fm8_export_accepts_verified_low_address_root(self):
+        table = 0x341E28048
+        metadata = {
+            "group": "0x81578e00",
+            "count_u16_0x5a": 65,
+            "table_begin_0x78": hex(table),
+            "table_end_0x80": hex(table + 8),
+            "table_capacity_0x88": hex(table + 8),
+            "vector_count": 1,
+            "capacity_count": 1,
+        }
+
+        passed, reasons = live_export.validate_editable_group(
+            metadata,
+            65,
+            table,
+            allow_flattened=True,
+            game="fm",
+        )
+
+        self.assertTrue(passed, reasons)
+
+    def test_fh6_export_still_rejects_low_address_root(self):
+        table = 0x341E28048
+        metadata = {
+            "group": "0x81578e00",
+            "count_u16_0x5a": 65,
+            "table_begin_0x78": hex(table),
+            "table_end_0x80": hex(table + 8),
+            "table_capacity_0x88": hex(table + 8),
+            "vector_count": 1,
+            "capacity_count": 1,
+        }
+
+        passed, reasons = live_export.validate_editable_group(
+            metadata,
+            65,
+            table,
+            allow_flattened=True,
+            game="fh6",
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("group header address is outside the normal FH6 editable group range", reasons)
+
     def test_exact_locator_success_returns_candidate_and_refusal_tuple(self):
         group = {
             "group_address": 0x1000,
@@ -169,6 +220,99 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         self.assertEqual("unknown", classify_group_header(policy_header(0x22)))
         self.assertEqual("unknown", classify_group_header(policy_header(0x7F)))
         self.assertEqual("unknown", classify_group_header(b"short"))
+
+    def test_fm8_uses_its_own_live_ownership_field(self):
+        self.assertGreater(minimum_header_size("fm"), MIN_HEADER_SIZE)
+        self.assertEqual("clear", classify_group_header(policy_header(0x20, game="fm"), game="fm"))
+        self.assertEqual("restricted", classify_group_header(policy_header(0x21, game="fm"), game="fm"))
+        self.assertEqual("unknown", classify_group_header(policy_header(0x21), game="fm"))
+
+        headers = {
+            0x1000: policy_header(0, game="fm"),
+            0x2000: policy_header(0x21, game="fm"),
+        }
+        children = {0x1000: [0x2000], 0x2000: []}
+        result = assess_group_tree(
+            0x1000,
+            headers.__getitem__,
+            lambda group: children[group],
+            game="fm",
+        )
+        self.assertFalse(result.allowed)
+        self.assertEqual("restricted", result.status)
+
+    def test_fm8_dynamic_rtti_prioritizes_the_root_arena(self):
+        profile = fh6_probe.get_profile("fm")
+        candidate = {"group_address": 0x81000000, "score": 10}
+        with patch.object(
+            fh6_probe,
+            "locate_clivery_group_rtti",
+            return_value={"source": "pattern_scan", "vtables": [0xAA]},
+        ), patch.object(
+            fh6_probe,
+            "locate_fm8_clivery_group_by_root_arena",
+            return_value=[candidate],
+        ) as arena, patch.object(
+            fh6_probe,
+            "locate_clivery_groups_by_calibrated_count",
+        ) as count_scan:
+            located = fh6_probe.locate_clivery_groups_by_rtti(99, profile, 65)
+
+        self.assertEqual([candidate], located)
+        arena.assert_called_once()
+        count_scan.assert_not_called()
+
+    def test_fm8_root_arena_scan_excludes_high_memory_regions(self):
+        profile = fh6_probe.get_profile("fm")
+        candidate = {"group_address": 0x81000000, "score": 10}
+        regions = [
+            (0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
+            (0x140000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
+        ]
+        stats = {"complete": True, "failed_regions": []}
+        with patch.object(fh6_probe, "iter_regions", return_value=regions), patch.object(
+            fh6_probe,
+            "scan_exact_calibrated_vtables",
+            return_value=([candidate], [], stats),
+        ) as scan, patch.object(
+            fh6_probe,
+            "finish_incomplete_exact_scan",
+            return_value=([candidate], []),
+        ):
+            located = fh6_probe.locate_fm8_clivery_group_by_root_arena(
+                99,
+                profile,
+                65,
+                {"vtables": [0xAA]},
+            )
+
+        self.assertEqual([candidate], located)
+        scanned_regions = scan.call_args.args[5]
+        self.assertEqual([(0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE)], scanned_regions)
+
+    def test_fm8_unverified_fast_session_never_uses_research_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            calls = []
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                command = [str(item) for item in command]
+                calls.append(command)
+                session = Path(command[command.index("--write-session") + 1])
+                session.write_text(
+                    '{"type":"fh6_session_location_v1","game":"fm","layer_count":65,'
+                    '"no_match":true,"failure_reason":"No verified FM8 group matched."}',
+                    encoding="utf-8",
+                )
+                return 0
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "No verified FM8 group matched"):
+                    transfer_bridge.locate_universal_template("fm", 123, 65, run_dir, "import-template")
+
+            self.assertEqual(1, len(calls))
+            self.assertFalse((run_dir / "fallback-import-template-probe.json").exists())
 
     def test_transformed_clear_child_is_allowed_but_transformed_restricted_child_is_blocked(self):
         children = {0x1000: [0x2000], 0x2000: []}
