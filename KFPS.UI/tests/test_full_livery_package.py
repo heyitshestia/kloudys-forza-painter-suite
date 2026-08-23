@@ -16,7 +16,7 @@ import zipfile
 import zlib
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -81,12 +81,28 @@ from tools.livery.vehicle_assets import (
     read_vehicle_assembly_metadata,
 )
 from kfps_ui.app_paths import AppPaths
+from kfps_ui.experimental.full_livery import jobs as full_livery_jobs
+from kfps_ui.experimental.full_livery.jobs import JobPaths
+from kfps_ui.experimental.full_livery.paths import FullLiveryPaths
 from kfps_ui.full_livery_service import FullLiveryService
 from kfps_ui.log_service import LogService
 from json_preview_renderer import render_typecode_layers_canvas
 
 
 APP = QCoreApplication.instance() or QCoreApplication([])
+
+
+def full_livery_job_paths(paths: AppPaths) -> JobPaths:
+    experiment = FullLiveryPaths.for_app(paths)
+    experiment.ensure()
+    return JobPaths(
+        app_root=paths.app_root.resolve(),
+        inspector_root=(paths.app_root / "tools" / "livery-inspector").resolve(),
+        **{
+            key: Path(value)
+            for key, value in experiment.as_worker_payload().items()
+        },
+    )
 
 
 def json_bytes(value) -> bytes:
@@ -392,14 +408,22 @@ class FullLiveryPackageTests(unittest.TestCase):
             try:
                 with (
                     patch("kfps_ui.full_livery_service.QFileDialog.getExistingDirectory", return_value=str(root / "Forza Horizon 6")),
-                    patch("kfps_ui.full_livery_service.load_or_build_vehicle_asset_index", return_value={3304: object()}),
-                    patch.object(service, "_refresh_packages") as refresh,
+                    patch.object(service._tasks, "start", return_value=True) as start,
                     patch.object(service, "scanSaves") as rescan,
                 ):
                     service.chooseGameFolder()
+                    start.assert_called_once_with(
+                        "link-game",
+                        service._worker_payload(folder=str(root / "Forza Horizon 6")),
+                        kind="link-game",
+                    )
+                    service._apply_result({
+                        "ok": True,
+                        "kind": "link-game",
+                        "payload": {"game_folder": str(content.resolve()), "vehicle_count": 1},
+                    })
                 self.assertEqual(str(content.resolve()), service.gameFolder)
                 self.assertEqual(str(content.resolve()), service._settings["fh6_game_folder"])
-                refresh.assert_called_once_with(open_remembered=False)
                 rescan.assert_called_once_with()
             finally:
                 service.close()
@@ -421,7 +445,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                 service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             try:
                 service._save_root = str(chosen)
-                self.assertEqual([chosen.resolve()], service._scan_roots())
+                self.assertEqual([chosen.resolve()], full_livery_jobs._scan_roots(service._save_root))
             finally:
                 service.close()
 
@@ -441,9 +465,9 @@ class FullLiveryPackageTests(unittest.TestCase):
             with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
                 service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             try:
-                with patch.object(service._executor, "submit") as submit:
+                with patch.object(service._tasks, "start") as start:
                     service.selectSource(str(source))
-                submit.assert_not_called()
+                start.assert_not_called()
                 self.assertEqual("FH6 folder required", service.status)
                 self.assertIn("build a 3D preview", service.summary)
                 self.assertEqual("", service.selectedSource)
@@ -473,6 +497,38 @@ class FullLiveryPackageTests(unittest.TestCase):
                 self.assertEqual("FH6 folder required", service.status)
                 self.assertNotIn("supporter", service.summary.casefold())
                 self.assertEqual("", service.selectedSource)
+            finally:
+                service.close()
+
+    def test_disabled_experiment_cannot_start_cached_preview_or_package_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "Livery_test" / "C_livery"
+            build_livery_source(source, state=0)
+            package = root / "saved.kfpslivery"
+            package.write_bytes(b"cached package placeholder")
+            paths = AppPaths(
+                app_root=root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=root / "runtime",
+                bundled_python=root / "python" / "python.exe",
+            )
+            with (
+                patch.dict(os.environ, {"KFPS_FULL_LIVERY_STAGE": "disabled"}),
+                patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None),
+            ):
+                service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
+            try:
+                with patch.object(service._tasks, "start") as start:
+                    service.activate()
+                    service.selectSource(str(source))
+                    service.selectPackage(str(package))
+                    service.refreshPackages()
+                start.assert_not_called()
+                self.assertFalse(service.featureEnabled)
+                self.assertEqual("Full Liveries disabled", service.status)
             finally:
                 service.close()
 
@@ -702,18 +758,16 @@ class FullLiveryPackageTests(unittest.TestCase):
                     "portable_mesh": False,
                 }
 
+            worker_paths = full_livery_job_paths(paths)
             with (
-                patch("kfps_ui.full_livery_service.package_compiler_revision", return_value=PACKAGE_COMPILER_REVISION),
-                patch("kfps_ui.full_livery_service.inspect_full_livery_package", side_effect=inspect),
+                patch.object(full_livery_jobs, "package_compiler_revision", return_value=PACKAGE_COMPILER_REVISION),
+                patch.object(full_livery_jobs, "inspect_full_livery_package", side_effect=inspect),
             ):
-                service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            try:
-                rows = service._packages.rows
-                self.assertEqual(["populated.kfpslivery"], [Path(row["path"]).name for row in rows])
-                self.assertEqual(12, rows[0]["placementCount"])
-                self.assertTrue(empty.is_file())
-            finally:
-                service.close()
+                result = full_livery_jobs.refresh_packages(worker_paths, {}, threading.Event())
+            rows = result["rows"]
+            self.assertEqual(["populated.kfpslivery"], [Path(row["path"]).name for row in rows])
+            self.assertEqual(12, rows[0]["placementCount"])
+            self.assertTrue(empty.is_file())
 
     def test_save_scan_refreshes_an_open_preview_only_when_source_content_changed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -731,15 +785,19 @@ class FullLiveryPackageTests(unittest.TestCase):
             service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             service._active_source_preview = str(source.resolve())
             service._selected_source = str(source.resolve())
-            service._selected_package = str(service._source_preview_target(source).resolve())
+            service._selected_package = "active-preview.kfpspreview"
+            service._active_source_fingerprint = "before"
             row = {"path": str(source.resolve()), "exportable": True, "privacyDetail": ""}
             try:
                 with patch.object(service, "selectSource") as select:
-                    self.assertFalse(service._refresh_active_source_after_scan([row]))
+                    self.assertFalse(service._refresh_active_source_after_scan(
+                        [row], {str(source.resolve()): "before"}
+                    ))
                     select.assert_not_called()
 
-                    source.write_bytes(source.read_bytes() + b"changed")
-                    self.assertTrue(service._refresh_active_source_after_scan([row]))
+                    self.assertTrue(service._refresh_active_source_after_scan(
+                        [row], {str(source.resolve()): "after"}
+                    ))
                     select.assert_called_once_with(str(source.resolve()))
             finally:
                 service.close()
@@ -763,14 +821,14 @@ class FullLiveryPackageTests(unittest.TestCase):
             service._selected_package = "old-preview.kfpspreview"
             service._viewer_url = "http://127.0.0.1/old-preview"
             try:
-                self.assertFalse(service._refresh_active_source_after_scan([]))
+                self.assertFalse(service._refresh_active_source_after_scan([], {}))
                 self.assertEqual("", service.selectedSource)
                 self.assertEqual("", service.selectedPackage)
                 self.assertEqual("", service.viewerUrl)
             finally:
                 service.close()
 
-    def test_service_removes_only_legacy_source_preview_packages(self):
+    def test_service_leaves_legacy_preview_cache_untouched(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             cache = root / "runtime" / "full-livery" / "cache" / "source-previews"
@@ -790,8 +848,9 @@ class FullLiveryPackageTests(unittest.TestCase):
 
             service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             try:
-                self.assertFalse(legacy.exists())
+                self.assertTrue(legacy.exists())
                 self.assertTrue(current.exists())
+                self.assertNotEqual(cache.resolve(), service._experiment_paths.preview_cache.resolve())
             finally:
                 service.close()
 
@@ -808,17 +867,17 @@ class FullLiveryPackageTests(unittest.TestCase):
             )
             with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
                 service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            cache = root / "runtime" / "full-livery" / "cache"
+            cache = service._experiment_paths.cache
             cached_files = [
-                cache / "fh6-vehicle-index.json",
+                service._experiment_paths.vehicle_index,
                 cache / "meshes" / "car.glb",
-                cache / "section-render" / "car" / "index.json",
-                cache / "source-previews" / "preview.kfpspreview",
+                cache / "atlases" / "car" / "index.json",
+                cache / "previews" / "preview.kfpspreview",
             ]
             for path in cached_files:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"cached")
-            settings = root / "runtime" / "full-livery" / "settings.json"
+            settings = service._experiment_paths.settings_file
             settings.write_text('{"fh6_save_root": "preserve"}\n', encoding="utf-8")
             saved = root / "imgs" / "exported" / "full-liveries" / "preserve.kfpslivery"
             saved.parent.mkdir(parents=True, exist_ok=True)
@@ -833,7 +892,11 @@ class FullLiveryPackageTests(unittest.TestCase):
 
                 self.assertFalse(service.running)
                 self.assertTrue(cache.is_dir())
-                self.assertEqual([], list(cache.iterdir()))
+                self.assertEqual([], [path for path in cache.rglob("*") if path.is_file()])
+                self.assertEqual(
+                    {"atlases", "meshes", "previews", "vehicle-index"},
+                    {path.name for path in cache.iterdir() if path.is_dir()},
+                )
                 self.assertTrue(settings.is_file())
                 self.assertEqual(b"saved package", saved.read_bytes())
                 self.assertEqual("Full-livery cache cleared", service.status)
@@ -1028,44 +1091,25 @@ class FullLiveryPackageTests(unittest.TestCase):
                 runtime_root=root / "runtime",
                 bundled_python=root / "python" / "python.exe",
             )
-            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            service._game_folder = "C:/FH6"
-            created: list[Path] = []
-
-            def validate(path):
-                if not Path(path).is_file():
-                    raise OSError("not built")
-                return {}
-
-            def create(_source, output, **_kwargs):
-                target = Path(output)
-                target.write_bytes(b"package")
-                created.append(target)
-
-            try:
-                with (
-                    patch("kfps_ui.full_livery_service.validate_livery_inspection_artifact", side_effect=validate),
-                    patch("kfps_ui.full_livery_service.create_local_livery_preview", side_effect=create),
-                ):
-                    first = service._preview_source_work(source)["path"]
-                    repeated = service._preview_source_work(source)["path"]
-                    with patch(
-                        "kfps_ui.full_livery_service.PACKAGE_COMPILER_REVISION",
-                        PACKAGE_COMPILER_REVISION + 1,
-                    ):
-                        package_revised = service._preview_source_work(source)["path"]
-                    with patch(
-                        "kfps_ui.full_livery_service.SOURCE_PREVIEW_CACHE_REVISION",
-                        3,
-                    ):
-                        renderer_revised = service._preview_source_work(source)["path"]
-                self.assertEqual(first, repeated)
-                self.assertNotEqual(first, package_revised)
-                self.assertNotEqual(first, renderer_revised)
-                self.assertNotEqual(package_revised, renderer_revised)
-                self.assertEqual(3, len(created))
-            finally:
-                service.close()
+            worker_paths = full_livery_job_paths(paths)
+            first = full_livery_jobs._preview_target(worker_paths, source, "C:/FH6")[0]
+            repeated = full_livery_jobs._preview_target(worker_paths, source, "C:/FH6")[0]
+            with patch.object(
+                full_livery_jobs,
+                "PACKAGE_COMPILER_REVISION",
+                PACKAGE_COMPILER_REVISION + 1,
+            ):
+                package_revised = full_livery_jobs._preview_target(worker_paths, source, "C:/FH6")[0]
+            with patch.object(
+                full_livery_jobs,
+                "SOURCE_PREVIEW_CACHE_REVISION",
+                full_livery_jobs.SOURCE_PREVIEW_CACHE_REVISION + 1,
+            ):
+                renderer_revised = full_livery_jobs._preview_target(worker_paths, source, "C:/FH6")[0]
+            self.assertEqual(first, repeated)
+            self.assertNotEqual(first, package_revised)
+            self.assertNotEqual(first, renderer_revised)
+            self.assertNotEqual(package_revised, renderer_revised)
 
     def test_save_scan_hides_unowned_liveries_and_marks_foreign_groups_preview_only(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1090,28 +1134,26 @@ class FullLiveryPackageTests(unittest.TestCase):
                 runtime_root=root / "runtime",
                 bundled_python=root / "python" / "python.exe",
             )
-            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            service._game_folder = ""
-            service._scan_roots = lambda: [save_root]
-            try:
-                result = service._scan_saves_work()
-                self.assertEqual(4, result["inspected"])
-                self.assertEqual(1, result["locked"])
-                self.assertEqual(0, result["rejected"])
-                self.assertEqual(1, result["foreign_blocked"])
-                self.assertEqual(1, result["empty"])
-                self.assertFalse(result["game_assets_ready"])
-                rows = {row["path"]: row for row in result["rows"]}
-                self.assertEqual(
-                    {str(shareable.resolve()), str(protected.resolve())},
-                    set(rows),
-                )
-                self.assertTrue(rows[str(shareable.resolve())]["exportable"])
-                self.assertFalse(rows[str(protected.resolve())]["exportable"])
-                self.assertIn("Link the local FH6 folder", rows[str(shareable.resolve())]["detail"])
-                self.assertIn("Remove every foreign vinyl group", rows[str(protected.resolve())]["privacyDetail"])
-            finally:
-                service.close()
+            result = full_livery_jobs.scan_saves(
+                full_livery_job_paths(paths),
+                {"game_folder": "", "save_root": str(save_root)},
+                threading.Event(),
+            )
+            self.assertEqual(4, result["inspected"])
+            self.assertEqual(1, result["locked"])
+            self.assertEqual(0, result["rejected"])
+            self.assertEqual(1, result["foreign_blocked"])
+            self.assertEqual(1, result["empty"])
+            self.assertFalse(result["game_assets_ready"])
+            rows = {row["path"]: row for row in result["rows"]}
+            self.assertEqual(
+                {str(shareable.resolve()), str(protected.resolve())},
+                set(rows),
+            )
+            self.assertTrue(rows[str(shareable.resolve())]["exportable"])
+            self.assertFalse(rows[str(protected.resolve())]["exportable"])
+            self.assertIn("Link the local FH6 folder", rows[str(shareable.resolve())]["detail"])
+            self.assertIn("Remove every foreign vinyl group", rows[str(protected.resolve())]["privacyDetail"])
 
     def test_local_marker_cannot_enable_unowned_liveries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1132,26 +1174,26 @@ class FullLiveryPackageTests(unittest.TestCase):
             marker = paths.runtime_root / "full-livery" / "allow-unowned-comparison-previews.local"
             marker.parent.mkdir(parents=True)
             marker.write_text("local test\n", encoding="utf-8")
-            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            service._game_folder = "C:/FH6"
-            service._scan_roots = lambda: [save_root]
+            worker_paths = full_livery_job_paths(paths)
+            result = full_livery_jobs.scan_saves(
+                worker_paths,
+                {"game_folder": "", "save_root": str(save_root)},
+                threading.Event(),
+            )
+            rows = {row["path"]: row for row in result["rows"]}
+            self.assertEqual(0, result["foreign_blocked"])
+            self.assertEqual(1, result["locked"])
+            self.assertEqual({str(owned.resolve())}, set(rows))
+            self.assertTrue(rows[str(owned.resolve())]["exportable"])
 
-            try:
-                with patch("kfps_ui.full_livery_service.load_or_build_vehicle_asset_index", return_value={}):
-                    result = service._scan_saves_work()
-                rows = {row["path"]: row for row in result["rows"]}
-                self.assertEqual(0, result["foreign_blocked"])
-                self.assertEqual(1, result["locked"])
-                self.assertEqual({str(owned.resolve())}, set(rows))
-                self.assertTrue(rows[str(owned.resolve())]["exportable"])
-                self.assertFalse(hasattr(service, "_allow_unowned_comparison"))
-
-                with self.assertRaises(FullLiveryPackageError):
-                    create_local_livery_preview(comparison, root / "unowned.kfpspreview")
-                with self.assertRaises(FullLiveryPackageError):
-                    service._preview_source_work(comparison)
-            finally:
-                service.close()
+            with self.assertRaises(FullLiveryPackageError):
+                create_local_livery_preview(comparison, root / "unowned.kfpspreview")
+            with self.assertRaises(FullLiveryPackageError):
+                full_livery_jobs.preview_source(
+                    worker_paths,
+                    {"source": str(comparison), "game_folder": ""},
+                    threading.Event(),
+                )
 
     def test_export_selected_uses_a_unique_saved_package_path_without_a_save_dialog(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1171,21 +1213,29 @@ class FullLiveryPackageTests(unittest.TestCase):
             first = service._package_root / "My Livery - FH6 3304.kfpslivery"
             first.write_bytes(b"existing package")
             service._selected_source = str(source.resolve())
+            service._source_privacy[str(source.resolve())] = {
+                "exportable": True,
+                "carId": 3304,
+                "title": "My Livery",
+                "privacyDetail": "",
+            }
             try:
                 with (
                     patch("kfps_ui.full_livery_service.QFileDialog.getSaveFileName") as save_dialog,
-                    patch.object(service._executor, "submit") as submit,
+                    patch.object(service._tasks, "start", return_value=True) as start,
                 ):
                     service.exportSelected()
 
                 save_dialog.assert_not_called()
-                submit.assert_called_once()
-                self.assertEqual(service._export_work, submit.call_args.args[0])
-                self.assertEqual(source, submit.call_args.args[1])
+                start.assert_called_once()
+                self.assertEqual("export-package", start.call_args.args[0])
+                payload = start.call_args.args[1]
+                self.assertEqual(str(source.resolve()), payload["source"])
                 self.assertEqual(
                     service._package_root / "My Livery - FH6 3304 (2).kfpslivery",
-                    submit.call_args.args[2],
+                    Path(payload["output"]),
                 )
+                self.assertEqual("export", start.call_args.kwargs["kind"])
                 self.assertEqual("Building full-livery package", service.status)
                 self.assertIn("Saved packages", service.summary)
             finally:
@@ -1207,15 +1257,10 @@ class FullLiveryPackageTests(unittest.TestCase):
             package = service._package_root / "Finished - FH6 3304.kfpslivery"
             try:
                 service._running = True
-                with (
-                    patch.object(service, "_refresh_packages") as refresh,
-                    patch.object(service, "selectPackage") as select,
-                ):
+                with patch.object(service, "_refresh_packages_then_open") as refresh_then_open:
                     service._apply_result({"ok": True, "kind": "export", "payload": {"path": str(package)}})
 
-                refresh.assert_called_once_with(open_remembered=False)
-                select.assert_called_once_with(str(package))
-                self.assertFalse(service.running)
+                refresh_then_open.assert_called_once_with(str(package))
                 self.assertEqual("Full-livery package created", service.status)
                 self.assertIn(package.name, service.summary)
             finally:
@@ -1402,7 +1447,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                     )
             self.assertEqual(before, sorted(path.name for path in containers.iterdir()))
 
-    def test_service_submits_install_with_its_own_cancellation_token_and_no_process_gate(self):
+    def test_service_submits_install_to_the_isolated_worker_without_a_process_gate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             package = root / "fixture.kfpslivery"
@@ -1416,22 +1461,19 @@ class FullLiveryPackageTests(unittest.TestCase):
                 bundled_python=root / "python" / "python.exe",
             )
             with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
-                service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
+                service = FullLiveryService(paths, LogService(), supporter=None, demo=False)
             try:
                 service._selected_package = str(package)
                 service._current_manifest = manifest
                 service._game_folder = str(root)
-                pending = MagicMock()
-                pending.done.return_value = True
-                with patch.object(service._executor, "submit", return_value=pending) as submit:
+                with patch.object(service._tasks, "start", return_value=True) as start:
                     service.installSelectedPackage()
-                submitted = submit.call_args.args
-                self.assertEqual(service._install_package_work, submitted[0])
-                self.assertEqual(package, submitted[1])
-                self.assertIsInstance(submitted[2], threading.Event)
-                self.assertIs(service._install_cancel_event, submitted[2])
-                pending.add_done_callback.assert_called_once()
+                start.assert_called_once()
+                self.assertEqual("install-package", start.call_args.args[0])
+                self.assertEqual(str(package.resolve()), start.call_args.args[1]["package"])
+                self.assertEqual("install", start.call_args.kwargs["kind"])
                 self.assertNotIn("_fh6_running", FullLiveryService.__dict__)
+                self.assertNotIn("_executor", FullLiveryService.__dict__)
             finally:
                 service.close()
 
@@ -1639,7 +1681,8 @@ class FullLiveryPackageTests(unittest.TestCase):
                 runtime_root=root / "runtime",
                 bundled_python=root / "python" / "python.exe",
             )
-            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
+            package = root / "fixture.kfpslivery"
+            package.write_bytes(b"fixture")
             asset = VehicleAsset(
                 car_id=1,
                 model_code="TEST_CAR",
@@ -1649,20 +1692,32 @@ class FullLiveryPackageTests(unittest.TestCase):
                 archive_mtime_ns=1234,
                 clip_entry="clip",
             )
-            try:
-                self.assertEqual(
-                "TEST_CAR-1234.local-chassis-v10.glb",
-                    service._cached_mesh_path(asset).name,
+            worker_paths = full_livery_job_paths(paths)
+            render_contract = {"root": str(worker_paths.render_cache / "fixture")}
+            with (
+                patch.object(full_livery_jobs, "load_or_build_vehicle_asset_index", return_value={1: asset}),
+                patch.object(full_livery_jobs, "validate_local_chassis_glb"),
+                patch.object(full_livery_jobs, "build_local_livery_atlases", return_value=render_contract),
+            ):
+                result = full_livery_jobs.prepare_mesh(
+                    worker_paths,
+                    {
+                        "game_folder": str(root),
+                        "car_id": 1,
+                        "package_id": "fixture",
+                        "package_path": str(package),
+                        "expected_model_code": "TEST_CAR",
+                    },
+                    threading.Event(),
                 )
-            finally:
-                service.close()
+            self.assertEqual(
+                f"TEST_CAR-1234.local-chassis-v{full_livery_jobs.INSPECTION_MESH_CACHE_REVISION}.glb",
+                Path(result["mesh_path"]).name,
+            )
 
-    def test_cancelled_mesh_future_is_a_quiet_superseded_result(self):
-        future = concurrent.futures.Future()
-        future.cancel()
-        result = FullLiveryService._future_result("mesh", future)
-        self.assertFalse(result["ok"])
-        self.assertTrue(result["cancelled"])
+    def test_full_livery_facade_has_no_in_process_future_executor(self):
+        self.assertFalse(hasattr(FullLiveryService, "_future_result"))
+        self.assertFalse(hasattr(FullLiveryService, "_executor"))
 
     def test_apply_result_treats_superseded_work_as_quiet(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1702,16 +1757,26 @@ class FullLiveryPackageTests(unittest.TestCase):
             service._game_folder = "C:/FH6"
             service._viewer_url = "http://127.0.0.1/previous"
             service._selected_package = "previous.kfpslivery"
-            pending = concurrent.futures.Future()
             try:
-                with patch.object(service._executor, "submit", return_value=pending) as submit:
+                with (
+                    patch.object(service._tasks, "start", return_value=True) as start,
+                    patch.object(service._inspector, "stop") as stop,
+                    patch.object(
+                        type(service._tasks),
+                        "running",
+                        new_callable=PropertyMock,
+                        return_value=True,
+                    ),
+                ):
                     service.selectSource(str(source))
                     service.selectSource(str(source))
                 self.assertEqual("", service.viewerUrl)
                 self.assertEqual("", service.selectedPackage)
                 self.assertEqual(str(source.resolve()), service.selectedSource)
-                submit.assert_called_once()
-                pending.cancel()
+                start.assert_called_once()
+                self.assertEqual("preview-source", start.call_args.args[0])
+                self.assertTrue(start.call_args.kwargs["supersede"])
+                stop.assert_called_once()
             finally:
                 service.close()
 
@@ -1923,18 +1988,32 @@ class FullLiveryPackageTests(unittest.TestCase):
                 runtime_root=root / "runtime",
                 bundled_python=root / "python" / "python.exe",
             )
-            service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
-            service._game_folder = ""
-            try:
-                self.assertTrue(service.addPackage(str(first_source)))
-                self.assertTrue(service.addPackage(str(second_source)))
-                self.assertTrue(service.addPackage(str(first_source)))
-                saved = sorted((root / "imgs" / "exported" / "full-liveries").glob("*.kfpslivery"))
-                self.assertEqual(2, len(saved))
-                self.assertEqual(first_bytes, (root / "imgs" / "exported" / "full-liveries" / "shared.kfpslivery").read_bytes())
-                self.assertEqual({3304, 4171}, {validate_full_livery_package(path)["livery"]["target_car_id"] for path in saved})
-            finally:
-                service.close()
+            worker_paths = full_livery_job_paths(paths)
+            cancel = threading.Event()
+            first_result = full_livery_jobs.add_package(
+                worker_paths,
+                {"selected": str(first_source), "game_folder": ""},
+                cancel,
+            )
+            second_result = full_livery_jobs.add_package(
+                worker_paths,
+                {"selected": str(second_source), "game_folder": ""},
+                cancel,
+            )
+            repeated = full_livery_jobs.add_package(
+                worker_paths,
+                {"selected": str(first_source), "game_folder": ""},
+                cancel,
+            )
+            saved = sorted(worker_paths.package_root.glob("*.kfpslivery"))
+            self.assertEqual(2, len(saved))
+            self.assertEqual(first_result["path"], repeated["path"])
+            self.assertNotEqual(first_result["path"], second_result["path"])
+            self.assertEqual(first_bytes, (worker_paths.package_root / "shared.kfpslivery").read_bytes())
+            self.assertEqual(
+                {3304, 4171},
+                {validate_full_livery_package(path)["livery"]["target_car_id"] for path in saved},
+            )
 
     def test_ui_package_addition_verifies_on_the_worker(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1983,27 +2062,22 @@ class FullLiveryPackageTests(unittest.TestCase):
             service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             service._game_folder = ""
             try:
-                self.assertTrue(service.addPackage(str(first)))
+                with (
+                    patch.object(service._tasks, "start", return_value=True) as start,
+                    patch.object(service._inspector, "stop") as stop,
+                ):
+                    service.selectPackage(str(first))
+                    service._running = False
+                    service.selectPackage(str(second))
                 self.assertEqual("", service.viewerUrl)
-                first_url = service._inspector.start()
-                first_manifest_url = first_url.split("?", 1)[0] + "api/manifest"
-                with urlopen(first_manifest_url, timeout=2) as response:
-                    self.assertEqual(3304, json.load(response)["livery"]["target_car_id"])
-
-                self.assertTrue(service.addPackage(str(second)))
-                self.assertEqual("", service.viewerUrl)
-                second_url = service._inspector.start()
-                second_manifest_url = second_url.split("?", 1)[0] + "api/manifest"
-                self.assertNotEqual(first_url.split("?", 1)[0], second_url.split("?", 1)[0])
-                with urlopen(second_manifest_url, timeout=2) as response:
-                    self.assertEqual(4171, json.load(response)["livery"]["target_car_id"])
-                with self.assertRaises(URLError):
-                    urlopen(first_manifest_url, timeout=1)
-
-                selected = service.selectedPackage
-                service.refreshPackages()
-                self.assertEqual(selected, service.selectedPackage)
-                self.assertEqual("", service.viewerUrl)
+                self.assertEqual(str(second.resolve()), service.selectedPackage)
+                self.assertEqual(2, start.call_count)
+                self.assertEqual(
+                    ["open-package", "open-package"],
+                    [call.args[0] for call in start.call_args_list],
+                )
+                self.assertTrue(all(call.kwargs["supersede"] for call in start.call_args_list))
+                self.assertEqual(2, stop.call_count)
             finally:
                 service.close()
 
@@ -2023,13 +2097,25 @@ class FullLiveryPackageTests(unittest.TestCase):
             service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
             service._game_folder = "C:/FH6"
             try:
-                with patch.object(service, "_prepare_local_mesh") as prepare:
+                manifest = validate_full_livery_package(package, verify_previews=False)
+                with (
+                    patch.object(service._tasks, "start", return_value=True),
+                    patch.object(service, "_prepare_local_mesh") as prepare,
+                ):
                     service._open_package(str(package), remember=False)
+                    service._apply_result({
+                        "ok": True,
+                        "kind": "open-package",
+                        "payload": {
+                            "path": str(package.resolve()),
+                            "manifest": manifest,
+                            "remember": False,
+                        },
+                    })
 
                 self.assertEqual(str(package.resolve()), service.selectedPackage)
                 self.assertEqual("", service.viewerUrl)
-                self.assertEqual("", service._inspector.url)
-                prepare.assert_called_once()
+                prepare.assert_called_once_with(manifest, str(package.resolve()))
             finally:
                 service.close()
 

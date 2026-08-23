@@ -97,6 +97,14 @@ def parse_args():
     parser.add_argument("--thumbnail-worker-max-items", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-preferred-source", help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-regenerate", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-worker-request", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-worker-result", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-worker-parent-pid", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-inspector", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-inspector-config", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-inspector-ready", help=argparse.SUPPRESS)
+    parser.add_argument("--full-livery-inspector-stop", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -340,6 +348,31 @@ def main():
         if args.thumbnail_worker_regenerate:
             worker_args.append("--regenerate")
         return thumbnail_worker_main(worker_args)
+    if args.full_livery_worker:
+        from kfps_ui.experimental.full_livery.worker_main import run_request
+
+        if not args.full_livery_worker_request or not args.full_livery_worker_result:
+            raise SystemExit("The isolated full-livery worker request is incomplete.")
+        return run_request(
+            args.full_livery_worker_request,
+            args.full_livery_worker_result,
+            args.full_livery_worker_parent_pid or os.getppid(),
+        )
+    if args.full_livery_inspector:
+        from kfps_ui.experimental.full_livery.inspector_main import run as run_full_livery_inspector
+
+        if not all((
+            args.full_livery_inspector_config,
+            args.full_livery_inspector_ready,
+            args.full_livery_inspector_stop,
+        )):
+            raise SystemExit("The isolated full-livery inspector request is incomplete.")
+        return run_full_livery_inspector(
+            args.full_livery_inspector_config,
+            args.full_livery_inspector_ready,
+            args.full_livery_inspector_stop,
+            args.full_livery_worker_parent_pid or os.getppid(),
+        )
     if sys.version_info[:2] != (3, 12) and not args.allow_unsupported_python:
         raise SystemExit("KFPS requires 64-bit Python 3.12. Use the bundled runtime.")
     renderer_policy = select_renderer_policy(os.environ)

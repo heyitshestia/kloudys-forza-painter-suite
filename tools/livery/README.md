@@ -90,7 +90,12 @@ Installation is deliberately fail-closed:
   decoded artwork, and thumbnail are reopened and verified. A failed check
   removes the newly created folder automatically.
 - A transaction recovery record is stored under
-  `runtime/full-livery/install-backups`.
+  `runtime/experiments/full-livery/recovery/install-backups`.
+
+The QML workflow is process-isolated and uses a durable, rebuildable SQLite
+catalog. Runtime structure, cancellation, diagnostics, and the qualification
+gate are documented in
+[`KFPS.UI/docs/FULL_LIVERY_EXPERIMENT.md`](../../KFPS.UI/docs/FULL_LIVERY_EXPERIMENT.md).
 
 ## Target decisions
 
@@ -184,9 +189,9 @@ The embedded inspector is local-only:
 ```powershell
 .\python\python.exe -m tools.livery.export_full_livery_package `
   "C:\path\to\Livery_folder" `
-  "runtime\full-livery\runs\test.kfpslivery" `
+  "runtime\experiments\full-livery\diagnostics\manual\test.kfpslivery" `
   --game-folder "C:\XboxGames\Forza Horizon 6\Content"
 
 .\python\python.exe -m tools.livery.serve_inspector `
-  "runtime\full-livery\runs\test.kfpslivery"
+  "runtime\experiments\full-livery\diagnostics\manual\test.kfpslivery"
 ```

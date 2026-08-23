@@ -343,6 +343,12 @@ The first scan can take a while when many vinyls are present because KFPS has to
 
 ## FH6 Full Livery Workshop
 
+The Full Livery Workshop is currently an isolated **candidate/WIP** feature.
+Its scan, package, conversion, rendering, and installation work runs outside the
+main UI process, but visual correctness is still being qualified across cars,
+store versions, and GPU families. Treat its output as test material and keep the
+original FH6 saves and KFPS recovery records.
+
 The public `Liveries` tab is separate from individual vinyl-group import
 and export. It scans local FH6 full-car livery records read-only, deduplicates
 repeated save-slot copies, and renders the complete vinyl placement set on the

@@ -76,7 +76,13 @@ External workflows:
 - `UpdateService`: close-and-handoff to the installed updater.
 - `SupporterService` and activation modules: isolated receipt and remote activation
   state.
-- `FullLiveryService`: experimental full-livery package and local viewer workflow.
+- `FullLiveryService`: lightweight QML facade for the process-isolated full-livery experiment.
+
+The full-livery implementation lives under
+`kfps_ui.experimental.full_livery`. Its worker protocol, durable catalog,
+disposable viewer, cache, diagnostics, recovery records, and evidence-based
+release gate are isolated from the stable services. See
+`FULL_LIVERY_EXPERIMENT.md` before changing this boundary.
 
 ## Canonical shape contract
 

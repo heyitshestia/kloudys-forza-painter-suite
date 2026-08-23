@@ -24,8 +24,15 @@ Item {
     }
 
     Component.onCompleted: {
-        fullLiveryService.refreshPackages()
-        fullLiveryService.scanSaves()
+        if (pageActive)
+            fullLiveryService.activate()
+    }
+
+    onPageActiveChanged: {
+        if (pageActive)
+            fullLiveryService.activate()
+        else
+            fullLiveryService.deactivate()
     }
 
     ColumnLayout {
@@ -60,7 +67,7 @@ Item {
                     dense: true
                     text: fullLiveryService.gameFolder.length > 0 ? "FH6 Linked" : "FH6 Folder"
                     iconName: "folder"
-                    enabled: !fullLiveryService.running
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                     toolTipText: fullLiveryService.gameFolder.length > 0
                                  ? "FH6 is linked at " + fullLiveryService.gameFolder + ". Choose this again to change it."
                                  : "Choose the local FH6 game or Content folder used to resolve car IDs and meshes."
@@ -71,7 +78,7 @@ Item {
                     dense: true
                     text: "Save Folder"
                     iconName: "folder"
-                    enabled: !fullLiveryService.running
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                     toolTipText: "Choose the FH6 GameSave root if it was not found automatically."
                     onClicked: fullLiveryService.chooseSaveRoot()
                 }
@@ -81,18 +88,36 @@ Item {
                     dense: true
                     text: "Clear Cache"
                     iconName: "refresh"
-                    enabled: !fullLiveryService.running
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                     toolTipText: "Remove rebuilt full-livery previews, car meshes, and indexes. Saved liveries and packages are kept."
                     onClicked: fullLiveryService.clearFullLiveryCache()
+                }
+
+                GhostButton {
+                    dense: true
+                    text: "Diagnostics"
+                    iconName: "reports"
+                    enabled: !fullLiveryService.running
+                    toolTipText: "Export privacy-scrubbed livery worker, cache, crash-recovery, and environment diagnostics."
+                    onClicked: fullLiveryService.exportDiagnostics()
                 }
 
                 PrimaryButton {
                     dense: true
                     text: fullLiveryService.running ? "Working..." : "Scan Saves"
                     iconName: "refresh"
-                    enabled: !fullLiveryService.running
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                     toolTipText: "Find unique full-car FH6 livery records without changing the save."
                     onClicked: fullLiveryService.scanSaves()
+                }
+
+
+                Text {
+                    text: fullLiveryService.featureStage.toUpperCase()
+                    color: fullLiveryService.featureStable ? Theme.success : Theme.warning
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.px(9.5)
+                    font.weight: Font.DemiBold
                 }
             }
         }
@@ -173,6 +198,7 @@ Item {
                                 title: sourceDelegate.title
                                 subtitle: sourceDelegate.modelCode + " · " + sourceDelegate.placementCount + " placements · "
                                           + (sourceDelegate.exportable ? "ready to export" : "preview only")
+                                enabled: fullLiveryService.featureEnabled
                                 toolTipText: sourceDelegate.exportable
                                              ? "Select this owned full-car livery for preview or export."
                                              : sourceDelegate.privacyDetail
@@ -197,6 +223,7 @@ Item {
                         text: fullLiveryService.running ? "Packaging..." : "Export Selected"
                         iconName: "transfer"
                         enabled: !fullLiveryService.running
+                                 && fullLiveryService.featureEnabled
                                  && fullLiveryService.selectedSource.length > 0
                                  && fullLiveryService.selectedSourceExportable
                         toolTipText: fullLiveryService.selectedSourceExportable
@@ -236,6 +263,7 @@ Item {
                             dense: true
                             text: "Add"
                             iconName: "folder"
+                            enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                             toolTipText: "Validate and add a received .kfpslivery package to this KFPS instance."
                             onClicked: fullLiveryService.choosePackage()
                         }
@@ -277,6 +305,7 @@ Item {
                                 iconName: "monitor"
                                 title: packageDelegate.title
                                 subtitle: packageDelegate.modelCode + " · " + packageDelegate.placementCount + " placements"
+                                enabled: fullLiveryService.featureEnabled
                                 toolTipText: packageDelegate.portableMesh
                                              ? "Open this development package in the interactive car inspector."
                                              : "Open this verified package using the matching car assets from your local FH6 installation."
@@ -317,6 +346,10 @@ Item {
                             settings.localContentCanAccessRemoteUrls: false
                             settings.localContentCanAccessFileUrls: false
                             settings.javascriptCanOpenWindows: false
+                            Component.onDestruction: {
+                                stop()
+                                url = "about:blank"
+                            }
                         }
                     }
                 }
