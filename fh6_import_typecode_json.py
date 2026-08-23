@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import math
 import re
 import struct
 import time
@@ -85,7 +86,7 @@ def read_memory(handle, address, size):
     return buf.raw[: read.value]
 
 
-def write_memory(handle, address, raw, write):
+def write_memory(handle, address, raw, write, *, original=None, rollback_writes=None):
     if not write:
         return
     buf = ctypes.create_string_buffer(raw)
@@ -93,6 +94,8 @@ def write_memory(handle, address, raw, write):
     ok = k32.WriteProcessMemory(handle, int(address), buf, len(raw), ctypes.byref(written))
     if not ok or written.value != len(raw):
         raise ctypes.WinError(ctypes.get_last_error())
+    if rollback_writes is not None and original is not None:
+        rollback_writes.append((int(address), bytes(original)))
 
 
 def ptr_at(handle, table, index):
@@ -104,6 +107,77 @@ def try_read_memory(handle, address, size):
         return read_memory(handle, address, size)
     except Exception:
         return b""
+
+
+def is_user_pointer(value):
+    return 0x10000 <= int(value) <= 0x7FFFFFFFFFFF
+
+
+def plausible_layer_blob(raw):
+    if len(raw) < CLEAR_REQUIRED_SIZE:
+        return False
+    try:
+        values = (
+            *struct.unpack_from("<ff", raw, 0x18),
+            *struct.unpack_from("<ff", raw, 0x28),
+            struct.unpack_from("<f", raw, 0x50)[0],
+            struct.unpack_from("<f", raw, 0x70)[0],
+        )
+    except (struct.error, ValueError):
+        return False
+    if not all(math.isfinite(value) and -100000.0 < value < 100000.0 for value in values):
+        return False
+    if abs(values[2]) < 0.0001 and abs(values[3]) < 0.0001:
+        return False
+    return raw[0x78] in (0, 1)
+
+
+def read_table_snapshot(handle, table, layer_count):
+    count = int(layer_count)
+    if count <= 0:
+        raise RuntimeError("live import requires a positive template layer count")
+    raw = read_memory(handle, int(table), count * 8)
+    pointers = list(struct.unpack(f"<{count}Q", raw))
+    if len(set(pointers)) != count:
+        raise RuntimeError("live import safety preflight rejected duplicate layer pointers")
+    invalid = [index for index, pointer in enumerate(pointers) if not is_user_pointer(pointer)]
+    if invalid:
+        raise RuntimeError(
+            f"live import safety preflight rejected an invalid layer pointer at slot {invalid[0] + 1}"
+        )
+    return pointers
+
+
+def assert_table_unchanged(handle, table, pointers):
+    current = read_table_snapshot(handle, table, len(pointers))
+    if current != pointers:
+        raise RuntimeError("live import template changed during safety validation; no further writes were attempted")
+
+
+def preflight_layer_table(handle, table, layer_count):
+    pointers = read_table_snapshot(handle, table, layer_count)
+    layers = []
+    for index, pointer in enumerate(pointers):
+        raw, read_size = read_layer_blob(handle, pointer)
+        if not plausible_layer_blob(raw):
+            raise RuntimeError(
+                f"live import safety preflight rejected unreadable or invalid layer {index + 1} at {hx(pointer)}"
+            )
+        layers.append((pointer, raw, read_size))
+    assert_table_unchanged(handle, table, pointers)
+    return pointers, layers
+
+
+def rollback_memory(handle, rollback_writes):
+    restored = 0
+    failed = 0
+    for address, original in reversed(rollback_writes):
+        try:
+            write_memory(handle, address, original, True)
+            restored += 1
+        except Exception:
+            failed += 1
+    return restored, failed
 
 
 def decode(raw):
@@ -588,38 +662,55 @@ def main():
     )
     if args.limit is not None:
         shapes = shapes[: args.limit]
+    if not args.template_count:
+        raise ValueError("live import requires --template-count for a complete safety preflight")
+    template_count = int(args.template_count)
+    if len(shapes) > template_count:
+        raise ValueError(f"import has {len(shapes)} shapes but the template has only {template_count} layers")
     table = parse_int(args.table)
     handle = open_process(args.pid, args.write)
     backup_layers = []
     report_layers = []
     failures = []
     partial_clears = []
+    rollback_writes = []
     try:
+        log(f"validating all {template_count} template layers before any memory write")
+        pointers, preflight_layers = preflight_layer_table(handle, table, template_count)
+        backup_layers = [
+            {
+                "index": index,
+                "ptr": hx(pointer),
+                "read_size": read_size,
+                "raw_hex": raw.hex(),
+                "decoded": decode(raw) if len(raw) >= 0xB0 else decode_partial(raw),
+                "partial": len(raw) < FULL_LAYER_SIZE,
+            }
+            for index, (pointer, raw, read_size) in enumerate(preflight_layers)
+        ]
+        backup = {
+            "format": "fh6_typecode_json_import_backup_v2",
+            "pid": args.pid,
+            "table": args.table,
+            "source_json": args.json,
+            "template_count": template_count,
+            "layers": backup_layers,
+        }
+        backup_path = Path(args.backup)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_path.write_text(json.dumps(backup, indent=2), encoding="utf-8")
+        log(f"complete pre-write backup saved: {args.backup}")
+        assert_table_unchanged(handle, table, pointers)
+
         used_indices = set()
         for target_idx, item in enumerate(shapes):
             idx = target_idx if args.compact_supported_layers else item["index"]
+            if idx < 0 or idx >= template_count:
+                raise RuntimeError(f"source layer {item['index'] + 1} maps outside the verified template")
+            if target_idx % 64 == 0:
+                assert_table_unchanged(handle, table, pointers)
             used_indices.add(idx)
-            ptr = ptr_at(handle, table, idx)
-            before, before_size = read_layer_blob(handle, ptr)
-            if len(before) < MIN_IMPORT_READ_SIZE:
-                failure = {
-                    "phase": "import",
-                    "index": idx,
-                    "ptr": hx(ptr),
-                    "reason": f"unreadable layer blob, read {len(before)} bytes",
-                }
-                failures.append(failure)
-                report_layers.append({**failure, "shape": item, "target_index": idx})
-                log(f"FAILED import layer {idx + 1}: {failure['reason']} ptr={hx(ptr)}")
-                continue
-            backup_layers.append({
-                "index": idx,
-                "ptr": hx(ptr),
-                "read_size": before_size,
-                "raw_hex": before.hex(),
-                "decoded": decode(before) if len(before) >= 0xB0 else decode_partial(before),
-                "partial": len(before) < FULL_LAYER_SIZE,
-            })
+            ptr, before, before_size = preflight_layers[idx]
             writes = [
                 (0x18, struct.pack("<ff", item["x"], item["y"])),
                 (0x28, struct.pack("<ff", item["sx"], item["sy"])),
@@ -630,10 +721,19 @@ def main():
                 (0x7A, struct.pack("<H", item["shape_word"])),
             ]
             for offset, raw in writes:
-                write_memory(handle, ptr + offset, raw, args.write)
+                write_memory(
+                    handle,
+                    ptr + offset,
+                    raw,
+                    args.write,
+                    original=before[offset:offset + len(raw)],
+                    rollback_writes=rollback_writes,
+                )
+                if args.write and read_memory(handle, ptr + offset, len(raw)) != raw:
+                    raise RuntimeError(f"write verification failed for layer {idx + 1} at offset {hx(offset)}")
             after, after_size = read_layer_blob(handle, ptr) if args.write else (before, before_size)
             if len(after) < MIN_IMPORT_READ_SIZE:
-                after = before
+                raise RuntimeError(f"post-write validation could not read layer {idx + 1}")
             report_layers.append({
                 "index": idx,
                 "target_index": idx,
@@ -653,8 +753,6 @@ def main():
                     f"word=0x{item['shape_word']:04x} byte={item['shape_byte']} page={item['page_byte']}"
                 )
         if args.clear_unused:
-            if not args.template_count:
-                raise ValueError("--clear-unused requires --template-count")
             clear_writes = [
                 (0x18, struct.pack("<ff", 0.0, 0.0)),
                 (0x28, struct.pack("<ff", 0.001, 0.001)),
@@ -663,59 +761,46 @@ def main():
                 (0x78, b"\x00"),
             ]
             first_clear = None
-            for idx in range(int(args.template_count)):
+            for idx in range(template_count):
                 if idx in used_indices:
                     continue
                 if first_clear is None:
                     first_clear = idx
-                ptr = ptr_at(handle, table, idx)
-                before, before_size = read_layer_blob(handle, ptr)
-                partial = False
-                if len(before) != FULL_LAYER_SIZE:
-                    prefix = try_read_memory(handle, ptr, CLEAR_REQUIRED_SIZE)
-                    if len(prefix) >= CLEAR_REQUIRED_SIZE:
-                        before = prefix
-                        before_size = len(prefix)
-                        partial = True
-                    else:
-                        failure = {
-                            "phase": "clear",
-                            "index": idx,
-                            "ptr": hx(ptr),
-                            "reason": f"unreadable layer clear prefix, full read {len(before)} bytes, prefix read {len(prefix)} bytes",
-                        }
-                        failures.append(failure)
-                        if idx == first_clear or (idx + 1) % 100 == 0 or idx == int(args.template_count) - 1:
-                            log(f"FAILED clear unused layer {idx + 1}/{args.template_count}: {failure['reason']} ptr={hx(ptr)}")
-                        continue
-                if partial:
-                    partial_item = {
-                        "phase": "clear",
-                        "index": idx,
-                        "ptr": hx(ptr),
-                        "reason": f"full layer read crossed unreadable memory; cleared writable prefix {len(before)} bytes",
-                    }
-                    partial_clears.append(partial_item)
-                    backup_layers.append({"index": idx, "ptr": hx(ptr), "read_size": before_size, "raw_hex": before.hex(), "decoded": decode_partial(before), "partial": True})
-                else:
-                    backup_layers.append({
-                        "index": idx,
-                        "ptr": hx(ptr),
-                        "read_size": before_size,
-                        "raw_hex": before.hex(),
-                        "decoded": decode(before) if len(before) >= 0xB0 else decode_partial(before),
-                        "partial": len(before) < FULL_LAYER_SIZE,
-                    })
+                if idx % 64 == 0:
+                    assert_table_unchanged(handle, table, pointers)
+                ptr, before, _before_size = preflight_layers[idx]
                 for offset, raw in clear_writes:
-                    write_memory(handle, ptr + offset, raw, args.write)
-                if partial:
-                    log(f"{'cleared' if args.write else 'would clear'} unreadable-tail layer {idx + 1}/{args.template_count}: writable prefix only")
-                elif idx == first_clear or (idx + 1) % 100 == 0 or idx == int(args.template_count) - 1:
-                    log(f"{'cleared' if args.write else 'would clear'} unused layer {idx + 1}/{args.template_count}")
+                    write_memory(
+                        handle,
+                        ptr + offset,
+                        raw,
+                        args.write,
+                        original=before[offset:offset + len(raw)],
+                        rollback_writes=rollback_writes,
+                    )
+                    if args.write and read_memory(handle, ptr + offset, len(raw)) != raw:
+                        raise RuntimeError(f"clear verification failed for layer {idx + 1} at offset {hx(offset)}")
+                if idx == first_clear or (idx + 1) % 100 == 0 or idx == template_count - 1:
+                    log(f"{'cleared' if args.write else 'would clear'} unused layer {idx + 1}/{template_count}")
+        assert_table_unchanged(handle, table, pointers)
+    except Exception as exc:
+        if args.write and rollback_writes:
+            try:
+                assert_table_unchanged(handle, table, pointers)
+            except Exception:
+                log("live import aborted after the template changed; rollback was withheld to avoid stale-pointer writes")
+            else:
+                restored, rollback_failures = rollback_memory(handle, rollback_writes)
+                log(f"live import aborted; rollback restored {restored} write(s), failures={rollback_failures}")
+                if rollback_failures:
+                    raise RuntimeError(
+                        f"live import failed and rollback was incomplete ({rollback_failures} restore failures)"
+                    ) from exc
+                raise RuntimeError("live import failed; all completed memory writes were rolled back") from exc
+        raise
     finally:
         close_handle(handle)
 
-    backup = {"format": "fh6_typecode_json_import_backup_v1", "pid": args.pid, "table": args.table, "source_json": args.json, "layers": backup_layers}
     report = {
         "format": "fh6_typecode_json_import_report_v1",
         "pid": args.pid,
@@ -723,6 +808,9 @@ def main():
         "source_json": args.json,
         "target_game": args.game,
         "write": args.write,
+        "safety_preflight": "complete",
+        "preflight_layer_count": template_count,
+        "backup_format": "fh6_typecode_json_import_backup_v2",
         "preferred_layer_read_size": hx(FULL_LAYER_SIZE),
         "fallback_layer_read_size": hx(GROUPED_SAFE_LAYER_SIZE),
         "minimum_import_read_size": hx(MIN_IMPORT_READ_SIZE),
@@ -738,7 +826,7 @@ def main():
         "failures": failures,
         "layers": report_layers,
     }
-    Path(args.backup).write_text(json.dumps(backup, indent=2), encoding="utf-8")
+    Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     log(f"backup: {args.backup}")
     log(f"report: {args.report}")

@@ -50,6 +50,8 @@ PROFILES: Dict[str, GameProfile] = {
         # live FH6 build if the scanner reports no match.
         signature_patterns=(KNOWN_LIVERY_SIGNATURE,),
         scan_regions=COMMON_SCAN_REGIONS,
+        import_template_shape_word=0x0066,
+        import_template_min_ratio=0.90,
     ),
     "fh5": GameProfile(
         key="fh5",

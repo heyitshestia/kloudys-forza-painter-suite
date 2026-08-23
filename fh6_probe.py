@@ -1484,6 +1484,7 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
                         "rtti_update_code": rtti.get("update_code"),
                         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
                     }
+                    candidate.update(flattened_import_target(flat, layer_count))
             if candidate:
                 candidate["export_access_verified"] = access is None or access.allowed
                 record_locator_diagnostic(
@@ -1757,7 +1758,7 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
         if access is not None and not access.allowed:
             access_refusals.append(access)
             continue
-        groups.append({
+        candidate = {
             "score": 400 + min(layer_count, 3000) + flat["group_count"] * 10,
             "group_address": info["group_address"],
             "count_address": info["count_address"],
@@ -1784,7 +1785,9 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
             "rtti_update_code": rtti.get("update_code"),
             "rtti_descriptor_offset": rtti.get("descriptor_offset"),
             "export_access_verified": access is None or access.allowed,
-        })
+        }
+        candidate.update(flattened_import_target(flat, layer_count))
+        groups.append(candidate)
 
     groups.sort(key=lambda item: item["score"], reverse=True)
     if groups:
@@ -1824,13 +1827,23 @@ def flatten_calibrated_group(
         seen_groups = set()
     group_address = group_info["group_address"]
     if group_address in seen_groups or depth > 12:
-        return {"shape_count": 0, "invalid_count": 1, "group_count": 0, "max_depth": depth, "samples": []}
+        return {
+            "shape_count": 0,
+            "invalid_count": 1,
+            "group_count": 0,
+            "max_depth": depth,
+            "samples": [],
+            "leaf_groups": [],
+        }
     seen_groups.add(group_address)
     shape_count = 0
     invalid_count = 0
     group_count = 1
     max_depth = depth
     samples = []
+    leaf_groups = []
+    direct_shape_count = 0
+    child_group_count = 0
     table_address = group_info["table_address"]
     vector_count = group_info["vector_count"]
     contains = writable_contains or (lambda address, size=1: is_private_writable_address(pid, address))
@@ -1848,6 +1861,7 @@ def flatten_calibrated_group(
             writable_contains=contains,
         )
         if child_info:
+            child_group_count += 1
             child = flatten_calibrated_group(
                 pid,
                 profile,
@@ -1863,8 +1877,10 @@ def flatten_calibrated_group(
             group_count += child["group_count"]
             max_depth = max(max_depth, child["max_depth"])
             samples.extend(child["samples"])
+            leaf_groups.extend(child.get("leaf_groups") or [])
         elif export_layer_pointer_ok(pid, ptr, profile):
             shape_count += 1
+            direct_shape_count += 1
             if len(samples) < 16:
                 layer_score, checks = score_layer_pointer(pid, ptr, profile)
                 samples.append((shape_count - 1, ptr, max(layer_score, 3), checks or ["export-layer"]))
@@ -1872,12 +1888,46 @@ def flatten_calibrated_group(
             invalid_count += 1
         if shape_count > requested_count and invalid_count:
             break
-    return {
+    if child_group_count == 0 and invalid_count == 0 and direct_shape_count == vector_count:
+        leaf_groups.append({
+            "group_address": group_info["group_address"],
+            "count_address": group_info["count_address"],
+            "table_pointer_field": group_info["table_pointer_field"],
+            "table_address": group_info["table_address"],
+            "vector_count": group_info["vector_count"],
+            "capacity_count": group_info["capacity_count"],
+            "shape_count": direct_shape_count,
+        })
+    candidate = {
         "shape_count": shape_count,
         "invalid_count": invalid_count,
         "group_count": group_count,
         "max_depth": max_depth,
         "samples": samples,
+        "leaf_groups": leaf_groups,
+    }
+    return candidate
+
+
+def flattened_import_target(flat, requested_count):
+    """Return the only direct layer vector that can safely receive an import."""
+    matches = [
+        item
+        for item in (flat.get("leaf_groups") or [])
+        if int(item.get("shape_count") or 0) == int(requested_count)
+        and int(item.get("vector_count") or 0) == int(requested_count)
+    ]
+    if len(matches) != 1:
+        return {}
+    target = matches[0]
+    return {
+        "import_group_address": target["group_address"],
+        "import_count_address": target["count_address"],
+        "import_table_pointer_field": target["table_pointer_field"],
+        "import_table_address": target["table_address"],
+        "import_vector_count": target["vector_count"],
+        "import_capacity_count": target["capacity_count"],
+        "import_target_verified": True,
     }
 
 
@@ -1936,7 +1986,7 @@ def evaluate_exact_calibrated_root(
     if int(flat["shape_count"]) != int(layer_count) or int(flat["invalid_count"]):
         return None, None
     is_recursive = int(flat["group_count"]) > 1
-    return {
+    candidate = {
         "score": 500 + min(layer_count, 3000) + int(flat["group_count"]) * 10,
         "group_address": group_info["group_address"],
         "count_address": group_info["count_address"],
@@ -1965,7 +2015,9 @@ def evaluate_exact_calibrated_root(
         "rtti_update_code": rtti.get("update_code"),
         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
         "export_access_verified": access is None or access.allowed,
-    }, None
+    }
+    candidate.update(flattened_import_target(flat, layer_count))
+    return candidate, None
 
 
 def scan_exact_calibrated_vtables(
@@ -2382,7 +2434,7 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                     vtable_hits=hits,
                     stopped_by="match",
                 )
-                return [{
+                candidate = {
                     "score": 420 + min(layer_count, 3000) + flat["group_count"] * 10,
                     "group_address": group_info["group_address"],
                     "count_address": group_info["count_address"],
@@ -2414,7 +2466,9 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                     "locator_scan_mb": scanned // (1024 * 1024),
                     "locator_vtable_hits": hits,
                     "locator_scan_complete": not stopped_by_time,
-                }]
+                }
+                candidate.update(flattened_import_target(flat, layer_count))
+                return [candidate]
             if max_seconds and time.monotonic() - started > max_seconds:
                 print(f"Stopped calibrated flattened-group scan after {max_seconds} seconds.", flush=True)
                 stopped_by_time = True
@@ -2657,6 +2711,24 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             )
             for index, ptr, layer_score, checks in item["samples"][:4]:
                 print(f"  sample[{index}] score={layer_score} {'; '.join(checks)}")
+        import_group_address = winner.get("import_group_address")
+        import_count_address = winner.get("import_count_address")
+        import_table_pointer_field = winner.get("import_table_pointer_field")
+        import_table_address = winner.get("import_table_address")
+        import_vector_count = winner.get("import_vector_count")
+        import_capacity_count = winner.get("import_capacity_count")
+        import_target_verified = winner.get("import_target_verified") is True
+        if not winner.get("flattened_from_groups") and int(winner.get("vector_count") or 0) == int(layer_count):
+            import_group_address = winner["group_address"]
+            import_count_address = winner["count_address"]
+            import_table_pointer_field = winner["table_pointer_field"]
+            import_table_address = winner["table_address"]
+            import_vector_count = winner.get("vector_count")
+            import_capacity_count = winner.get("capacity_count")
+            import_target_verified = True
+        shape_word_counts = {}
+        if import_target_verified and import_table_address:
+            shape_word_counts = table_shape_word_counts(pid, profile, import_table_address, layer_count)
         payload = {
             "type": "fh6_session_location_v1",
             "pid": pid,
@@ -2672,13 +2744,20 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "score": winner["score"],
             "locator": winner["count_kind"],
             "validated_entries": winner.get("validated_entries"),
-            "shape_word_counts": winner.get("shape_word_counts") or {},
+            "shape_word_counts": shape_word_counts or winner.get("shape_word_counts") or {},
             "vector_count": winner.get("vector_count"),
             "capacity_count": winner.get("capacity_count"),
             "top_vector_count": winner.get("top_vector_count"),
             "flattened_from_groups": bool(winner.get("flattened_from_groups")),
             "flattened_group_count": winner.get("flattened_group_count"),
             "flattened_max_depth": winner.get("flattened_max_depth"),
+            "import_group_address": import_group_address,
+            "import_count_address": import_count_address,
+            "import_table_pointer_field": import_table_pointer_field,
+            "import_table_address": import_table_address,
+            "import_vector_count": import_vector_count,
+            "import_capacity_count": import_capacity_count,
+            "import_target_verified": import_target_verified,
             "export_access_verified": winner.get("export_access_verified") is True,
             "group_graph": winner.get("group_graph"),
             "group_graph_complete": winner.get("group_graph_complete"),

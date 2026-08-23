@@ -177,9 +177,18 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                 log(reason)
                 raise RuntimeError(reason)
             if str(session.get("layer_count", "")) == str(template_count):
-                table_value = session.get("table_address")
-                count_value = session.get("count_address")
-                group_value = session.get("group_address")
+                if purpose.startswith("import"):
+                    table_value = session.get("import_table_address")
+                    count_value = session.get("import_count_address")
+                    group_value = session.get("import_group_address")
+                    import_target_verified = session.get("import_target_verified") is True
+                    import_vector_count = int(session.get("import_vector_count") or 0)
+                else:
+                    table_value = session.get("table_address")
+                    count_value = session.get("count_address")
+                    group_value = session.get("group_address")
+                    import_target_verified = True
+                    import_vector_count = template_count
                 template_ok, template_detail = session_matches_import_template(
                     session,
                     game,
@@ -187,6 +196,14 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                 ) if purpose.startswith("import") else (True, "")
                 if not template_ok:
                     log(f"Rejected located {game.upper()} import group: {template_detail}.")
+                if purpose.startswith("import") and (
+                    not import_target_verified or import_vector_count != int(template_count)
+                ):
+                    template_ok = False
+                    log(
+                        f"Rejected located {game.upper()} import group: no single verified "
+                        f"{template_count}-layer template table was found."
+                    )
                 if template_ok and table_value and (group_value or count_value):
                     table = f"0x{int(table_value):x}" if isinstance(table_value, int) else str(table_value)
                     if group_value:

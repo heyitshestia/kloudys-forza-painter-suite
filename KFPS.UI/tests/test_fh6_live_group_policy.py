@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 import fh6_export_typecode_json as live_export  # noqa: E402
+import fh6_probe  # noqa: E402
 from fh6_live_group_policy import MIN_HEADER_SIZE, assess_group_tree, classify_group_header  # noqa: E402
 from tools.cgroup.forza_source_decoder import (  # noqa: E402
     ShapeNode,
@@ -32,6 +33,124 @@ def policy_header(state: int = 0) -> bytes:
 
 
 class Fh6LiveGroupPolicyTests(unittest.TestCase):
+    def test_exact_locator_success_returns_candidate_and_refusal_tuple(self):
+        group = {
+            "group_address": 0x1000,
+            "count_address": 0x105A,
+            "table_pointer_field": 0x1078,
+            "table_address": 0x1100,
+            "vector_count": 3,
+            "capacity_count": 3,
+            "current_u16": 3,
+            "current_u32": 3,
+            "parent_group": 0,
+            "vtable": 0xAA,
+        }
+        flat = {
+            "shape_count": 3,
+            "invalid_count": 0,
+            "group_count": 1,
+            "max_depth": 0,
+            "samples": [],
+            "leaf_groups": [{**group, "shape_count": 3}],
+        }
+        with patch.object(fh6_probe, "read_calibrated_group_vector", return_value=group), patch.object(
+            fh6_probe, "assess_calibrated_group_access", return_value=None
+        ), patch.object(
+            fh6_probe, "flatten_calibrated_group", return_value=flat
+        ):
+            candidate, refusal = fh6_probe.evaluate_exact_calibrated_root(
+                99,
+                fh6_probe.get_profile("fh6"),
+                3,
+                {"vtables": [0xAA]},
+                0x1000,
+                lambda _address, _size=1: True,
+                locator_kind="test_exact",
+            )
+
+        self.assertIsNone(refusal)
+        self.assertEqual("test_exact", candidate["count_kind"])
+        self.assertEqual(0x1100, candidate["import_table_address"])
+
+    def test_nested_import_target_uses_verified_leaf_table_not_root_table(self):
+        root = {
+            "group_address": 0x1000,
+            "count_address": 0x105A,
+            "table_pointer_field": 0x1078,
+            "table_address": 0x1100,
+            "vector_count": 1,
+            "capacity_count": 1,
+        }
+        child = {
+            "group_address": 0x2000,
+            "count_address": 0x205A,
+            "table_pointer_field": 0x2078,
+            "table_address": 0x2100,
+            "vector_count": 3,
+            "capacity_count": 3,
+        }
+        tables = {0x1100: [0x2000], 0x2100: [0x3000, 0x3100, 0x3200]}
+
+        with patch.object(
+            fh6_probe,
+            "read_group_pointer_table",
+            side_effect=lambda _pid, table, _count: tables[table],
+        ), patch.object(
+            fh6_probe,
+            "read_calibrated_group_vector",
+            side_effect=lambda _pid, _profile, address, _vtables, **_kwargs: child if address == 0x2000 else None,
+        ), patch.object(
+            fh6_probe,
+            "export_layer_pointer_ok",
+            side_effect=lambda _pid, address, _profile: address in {0x3000, 0x3100, 0x3200},
+        ), patch.object(
+            fh6_probe,
+            "score_layer_pointer",
+            return_value=(5, ["layer"]),
+        ):
+            flat = fh6_probe.flatten_calibrated_group(
+                99,
+                fh6_probe.get_profile("fh6"),
+                root,
+                {0xAA},
+                3,
+                writable_contains=lambda _address, _size=1: True,
+            )
+
+        target = fh6_probe.flattened_import_target(flat, 3)
+        self.assertEqual(3, flat["shape_count"])
+        self.assertEqual(2, flat["group_count"])
+        self.assertEqual(0x2000, target["import_group_address"])
+        self.assertEqual(0x2100, target["import_table_address"])
+        self.assertNotEqual(root["table_address"], target["import_table_address"])
+
+    def test_fast_import_uses_dedicated_leaf_addresses(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                command = [str(item) for item in command]
+                session = Path(command[command.index("--write-session") + 1])
+                session.write_text(
+                    '{"type":"fh6_session_location_v1","layer_count":3,'
+                    '"group_address":4096,"table_address":4352,"flattened_from_groups":true,'
+                    '"import_group_address":8192,"import_count_address":8282,'
+                    '"import_table_address":8448,"import_vector_count":3,'
+                    '"import_target_verified":true,"shape_word_counts":{"102":3}}',
+                    encoding="utf-8",
+                )
+                return 0
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                group, table, _report = transfer_bridge.locate_universal_template(
+                    "fh6", 123, 3, run_dir, "import-template"
+                )
+
+        self.assertEqual("0x2000", group)
+        self.assertEqual("0x2100", table)
+
     def test_header_states_fail_closed(self):
         self.assertEqual("clear", classify_group_header(policy_header(0)))
         self.assertEqual("clear", classify_group_header(policy_header(0x20)))

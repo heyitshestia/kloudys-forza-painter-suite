@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.34
+- Fixed FH6 live imports into grouped 3000-layer templates by locating the actual writable leaf table instead of the parent group table.
+- Added complete template validation, pre-write backups, write verification, and automatic rollback so failed imports stop without leaving partial edits.
+- Improved exact live-group validation while preserving recursive exports for grouped vinyls at any supported layer count.
+
 ## 3.1.33
 - Fixed every Outputs right-click file action, including copy, cut, paste, move, rename, folder creation, and confirmed deletion.
 - Kept initialized app tabs loaded for faster return navigation while suspending the hidden 3D livery viewer.
