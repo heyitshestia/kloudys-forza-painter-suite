@@ -216,7 +216,22 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
             "restricted",
             classify_group_header(policy_header(0x31), allow_transformed_child_state=True),
         )
+        for state in (0x60, 0x70):
+            self.assertEqual(
+                "clear",
+                classify_group_header(policy_header(state), allow_transformed_child_state=True),
+            )
+        for state in (0x61, 0x71):
+            self.assertEqual(
+                "restricted",
+                classify_group_header(policy_header(state), allow_transformed_child_state=True),
+            )
         self.assertEqual("unknown", classify_group_header(policy_header(0x10)))
+        for state in (0x10, 0x40, 0x50, 0x22, 0x72):
+            self.assertEqual(
+                "unknown",
+                classify_group_header(policy_header(state), allow_transformed_child_state=True),
+            )
         self.assertEqual("unknown", classify_group_header(policy_header(0x22)))
         self.assertEqual("unknown", classify_group_header(policy_header(0x7F)))
         self.assertEqual("unknown", classify_group_header(b"short"))
@@ -343,6 +358,37 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         )
         self.assertFalse(restricted.allowed)
         self.assertEqual("restricted", restricted.status)
+
+    def test_fh6_nested_layout_flags_preserve_owned_and_restricted_states(self):
+        children = {1: (2, 3, 4), 2: (), 3: (), 4: ()}
+        clear_headers = {
+            1: policy_header(),
+            2: policy_header(0x30),
+            3: policy_header(0x60),
+            4: policy_header(0x70),
+        }
+        clear = assess_group_tree(
+            1,
+            clear_headers.__getitem__,
+            children.__getitem__,
+            game="fh6",
+            allow_transformed_child_state=True,
+        )
+        self.assertTrue(clear.allowed)
+        self.assertEqual(4, clear.group_count)
+
+        for restricted_state in (0x31, 0x61, 0x71):
+            headers = dict(clear_headers)
+            headers[3] = policy_header(restricted_state)
+            restricted = assess_group_tree(
+                1,
+                headers.__getitem__,
+                children.__getitem__,
+                game="fh6",
+                allow_transformed_child_state=True,
+            )
+            self.assertFalse(restricted.allowed)
+            self.assertEqual("restricted", restricted.status)
 
     def test_restricted_nested_child_blocks_clear_root(self):
         headers = {0x1000: policy_header(), 0x2000: policy_header(0x21)}

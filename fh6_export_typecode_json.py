@@ -804,7 +804,7 @@ def assess_fh6_live_group(handle, group, locator, *, game="fh6"):
             lambda _address: b"",
             lambda _address: (),
             game=game,
-            allow_transformed_child_state=game == "fh5",
+            allow_transformed_child_state=game in {"fh5", "fh6"},
         )
 
     def read_header(address):
@@ -832,7 +832,7 @@ def assess_fh6_live_group(handle, group, locator, *, game="fh6"):
         read_header,
         read_children,
         game=game,
-        allow_transformed_child_state=game == "fh5",
+        allow_transformed_child_state=game in {"fh5", "fh6"},
     )
 
 

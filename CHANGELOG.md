@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.39
+- Fixed owned FH6 nested, transformed, and mirrored child groups being rejected as unverifiable during live export.
+- Preserved fail-closed ownership checks by separating only verified structural flags from owned and restricted states.
+- Prevented valid exact-RTTI matches from falling through to a redundant full-memory recovery scan for these groups.
+
 ## 3.1.38
 - Centralized FH4, FH5, FH6, and FM8 capabilities, store variants, save discovery, ownership policy, locator selection, and shape compatibility behind tested game adapters.
 - Fixed FM8 offline discovery across Microsoft Store and Steam save layouts while retaining strict local ownership filtering.

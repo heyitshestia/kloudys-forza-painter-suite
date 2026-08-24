@@ -17,7 +17,10 @@ _STATE_OFFSETS = {
     "fm": 0x154,
 }
 _STATE_SIZE = 4
-_TRANSFORM_STATE_FLAG = 0x10
+_CHILD_STRUCTURAL_STATE_FLAGS = {
+    "fh5": 0x10,
+    "fh6": 0x10 | 0x40,
+}
 _CLEAR_STATES = frozenset((0x00, 0x20))
 _RESTRICTED_STATE = 0x21
 _TRANSFORMABLE_CHILD_STATES = frozenset((0x20, _RESTRICTED_STATE))
@@ -69,9 +72,10 @@ def classify_group_header(
     if len(raw) < state_offset + _STATE_SIZE:
         return "unknown"
     state = struct.unpack_from("<I", raw, state_offset)[0]
-    # Mirrored FH5 child groups retain their access state and add one transform flag.
+    # Child-group transform/layout bits do not alter the underlying access state.
     access_state = state
-    base_state = state & ~_TRANSFORM_STATE_FLAG
+    structural_flags = _CHILD_STRUCTURAL_STATE_FLAGS.get(_normalize_game(game), 0)
+    base_state = state & ~structural_flags
     if (
         allow_transformed_child_state
         and state != base_state

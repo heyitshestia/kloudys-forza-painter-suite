@@ -1698,7 +1698,7 @@ def assess_calibrated_group_access(pid, profile, group_info, vtables, writable_c
         read_header,
         read_children,
         game=profile.key,
-        allow_transformed_child_state=profile.key == "fh5",
+        allow_transformed_child_state=profile.key in {"fh5", "fh6"},
     )
 
 
