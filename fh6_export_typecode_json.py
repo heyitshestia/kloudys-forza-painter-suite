@@ -27,12 +27,12 @@ FULL_LAYER_SIZE = 0x140
 GROUPED_SAFE_LAYER_SIZE = 0xC0
 MIN_LAYER_DECODE_SIZE = 0x7C
 TYPE_CODE_BASE = 0x100000
-GROUP_HEADER_READ_SIZE = 0x300
 GROUP_COUNT_OFFSET = 0x5A
 GROUP_PARENT_OFFSET = 0x60
 GROUP_TABLE_BEGIN_OFFSET = 0x78
 GROUP_TABLE_END_OFFSET = 0x80
 GROUP_TABLE_CAPACITY_OFFSET = 0x88
+GROUP_METADATA_READ_SIZE = GROUP_TABLE_CAPACITY_OFFSET + 8
 MIN_NORMAL_GROUP_ADDRESS = 0x100000000
 EXPORT_REFUSAL_MESSAGE = (
     "Export refused: KFPS could not verify this live vinyl as exportable. "
@@ -312,7 +312,7 @@ def read_group_parent(handle, group):
 
 
 def read_group_metadata(handle, group):
-    raw = read_memory(handle, group, GROUP_HEADER_READ_SIZE)
+    raw = read_memory(handle, group, GROUP_METADATA_READ_SIZE)
     begin = struct.unpack_from("<Q", raw, GROUP_TABLE_BEGIN_OFFSET)[0]
     end = struct.unpack_from("<Q", raw, GROUP_TABLE_END_OFFSET)[0]
     capacity = struct.unpack_from("<Q", raw, GROUP_TABLE_CAPACITY_OFFSET)[0]

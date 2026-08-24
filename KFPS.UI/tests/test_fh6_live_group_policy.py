@@ -39,6 +39,17 @@ def policy_header(state: int = 0, *, game: str = "fh6") -> bytes:
 
 
 class Fh6LiveGroupPolicyTests(unittest.TestCase):
+    def test_export_group_metadata_uses_the_minimum_required_read(self):
+        raw = bytearray(live_export.GROUP_METADATA_READ_SIZE)
+        struct.pack_into("<H", raw, live_export.GROUP_COUNT_OFFSET, 2923)
+        struct.pack_into("<QQQ", raw, live_export.GROUP_TABLE_BEGIN_OFFSET, 0x2000, 0x2008, 0x2008)
+        with patch.object(live_export, "read_memory", return_value=bytes(raw)) as read:
+            metadata = live_export.read_group_metadata(99, 0x1000)
+
+        read.assert_called_once_with(99, 0x1000, live_export.GROUP_TABLE_CAPACITY_OFFSET + 8)
+        self.assertEqual(2923, metadata["count_u16_0x5a"])
+        self.assertEqual(1, metadata["vector_count"])
+
     def test_fm8_export_accepts_verified_low_address_root(self):
         table = 0x341E28048
         metadata = {

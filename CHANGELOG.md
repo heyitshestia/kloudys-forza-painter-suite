@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.40
+- Fixed large nested FH6 exports failing during the exporter's second hierarchy verification after the fast locator had already validated them.
+- Limited group metadata reads to the fields KFPS actually uses, avoiding false failures when valid group objects sit near memory boundaries.
+
 ## 3.1.39
 - Fixed owned FH6 nested, transformed, and mirrored child groups being rejected as unverifiable during live export.
 - Preserved fail-closed ownership checks by separating only verified structural flags from owned and restricted states.
