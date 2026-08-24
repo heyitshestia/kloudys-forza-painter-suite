@@ -68,8 +68,11 @@ Artwork and JSON:
 
 External workflows:
 
-- `TransferService`: online memory transfer and offline save-file bridges.
-- `CgroupLibraryService`: local save discovery and library extraction.
+- `TransferService`: online memory-transfer process ownership and log streaming.
+- `CgroupLibraryService`: offline library extraction and save-import orchestration.
+- The root `game_adapters` package declares per-game capabilities, store families,
+  ownership policy, save discovery, locator strategy, and shape/schema targets for
+  both services and their subprocess bridge. See `GAME_ADAPTERS.md`.
 - `CommunityService`, `community_catalog.py`, and `community_validation.py`:
   authenticated catalog workflows, UI normalization, and upload validation.
 - `EditorService`: authenticated local Fabric editor process and project browser.
@@ -95,6 +98,19 @@ then routing consumers through the same implementation.
 The package intentionally does not perform game-memory access, filesystem UI,
 network requests, or rendering. This keeps parsing deterministic and independently
 testable.
+
+## Game adapter boundary
+
+QML and orchestration services do not infer game behavior from names. They resolve
+one immutable `GameAdapter` and ask it for capabilities and strategies. The
+adapter may select a focused codec, locator, or offline-import handler, but it
+does not perform writes itself. `game_profiles.py` is a compatibility facade for
+older memory scripts and must not become a second declaration source.
+
+Save discovery is read-only and strategy driven. Ownership stays fail closed:
+all decoded save sources reject locked content, and formats with external
+ownership evidence add an adapter-selected preflight. A new game or store path
+must be represented and tested in the registry before QML exposes it.
 
 ## Local Fabric editor boundary
 

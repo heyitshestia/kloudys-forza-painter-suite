@@ -155,12 +155,12 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("heavy work-in-progress preview", livery)
         self.assertIn("onClicked: root.dismissWipNotice()", livery)
 
-    def test_outputs_exposes_fh4_live_and_offline_transfer(self):
+    def test_outputs_uses_game_adapter_capabilities(self):
         outputs = self.read("pages/JsonPage.qml")
-        self.assertIn('model: ["FH6", "FH5", "FH4", "FM8"]', outputs)
-        self.assertIn('"Offline Import to FH4"', outputs)
-        self.assertIn('game.currentText === "FH4" || game.currentText === "FH6"', outputs)
-        self.assertIn("all four support offline save-library scanning", outputs)
+        self.assertIn("model: cgroupLibraryService.gameTargets", outputs)
+        self.assertIn("cgroupLibraryService.offlineImportLabel(game.currentText)", outputs)
+        self.assertIn('cgroupLibraryService.supportsOperation(game.currentText, "offline_import")', outputs)
+        self.assertIn("text: cgroupLibraryService.capabilitySummary", outputs)
         self.assertIn('"Online Import to " + game.currentText', outputs)
 
     def test_frameless_window_uses_native_resize_zones(self):

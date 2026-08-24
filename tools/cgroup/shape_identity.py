@@ -158,6 +158,13 @@ def resource_shape_word(family: str, index: int) -> int | None:
 
 
 def normalize_game_key(game: str | None) -> str:
+    try:
+        from game_adapters import get_adapter_or_default
+
+        return get_adapter_or_default(game).shape_schema.canonical_game
+    except ImportError:
+        # Keep direct copies of this standalone codec usable outside the app root.
+        pass
     text = str(game or "fh6").strip().lower()
     if text in {"fm", "fm8", "forza motorsport", "forza motorsport 8", "motorsport"}:
         return "fm8"

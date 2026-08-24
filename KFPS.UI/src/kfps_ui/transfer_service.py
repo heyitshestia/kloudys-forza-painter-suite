@@ -6,6 +6,8 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, Property, QProcess, QProcessEnvironment, QTimer, Signal, Slot
 
+from game_adapters import get_adapter_or_default
+
 from .app_paths import AppPaths
 from .json_service import JsonService
 from .log_service import LogService
@@ -60,19 +62,29 @@ class TransferService(QObject):
         if not path or not Path(path).is_file():
             self.log.append("Select a JSON before importing.", "warning")
             return
-        args = ["import", "--game", self._game(game), "--layer-count", str(layers), "--json", path]
+        adapter = get_adapter_or_default(game)
+        if not adapter.supports("live_import"):
+            self.log.append(f"{adapter.short_label} online import is not supported.", "warning")
+            return
+        args = ["import", "--game", adapter.bridge_key, "--layer-count", str(layers), "--json", path]
         if clear_unused:
             args.append("--clear-unused")
         self._start(args, "Importing JSON into game")
 
     @Slot(str, int)
     def exportJson(self, game, layers):
-        self._start(["export", "--game", self._game(game), "--layer-count", str(layers)], "Exporting current game group")
+        adapter = get_adapter_or_default(game)
+        if not adapter.supports("live_export"):
+            self.log.append(f"{adapter.short_label} online export is not supported.", "warning")
+            return
+        self._start(
+            ["export", "--game", adapter.bridge_key, "--layer-count", str(layers)],
+            "Exporting current game group",
+        )
 
     @staticmethod
     def _game(value):
-        value = str(value or "").lower()
-        return "fm" if value.startswith("fm") else value
+        return get_adapter_or_default(value).bridge_key
 
     def _start(self, args, status):
         if self._closed:

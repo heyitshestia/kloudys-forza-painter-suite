@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,217 @@ def candidate(**overrides):
 
 
 class Fh6GroupProbeTests(unittest.TestCase):
+    def test_resilient_reader_recovers_around_one_unreadable_page(self):
+        base = 0x270000000
+        page = fh6_probe.FH6_RECOVERY_PAGE_SIZE
+        source = bytes(index % 251 for index in range(page * 3))
+        blocked_start = base + page
+        blocked_end = blocked_start + page
+
+        def read_region(_pid, address, size, max_size=None):
+            del max_size
+            if address < blocked_end and address + size > blocked_start:
+                return b""
+            offset = address - base
+            return source[offset:offset + size]
+
+        region = (base, len(source), 0x04, fh6_probe.MEM_PRIVATE)
+        with patch.object(fh6_probe, "read_region", side_effect=read_region), patch.object(
+            fh6_probe,
+            "iter_regions",
+            return_value=[region],
+        ):
+            readable, failed, stale_bytes, split_reads = fh6_probe.read_region_resilient(
+                123,
+                *region,
+                max_size=len(source),
+                minimum_size=page,
+            )
+
+        self.assertEqual([base, base + page * 2], [address for address, _raw in readable])
+        self.assertEqual([(blocked_start, page, 0x04, fh6_probe.MEM_PRIVATE)], failed)
+        self.assertEqual(0, stale_bytes)
+        self.assertGreater(split_reads, 1)
+
+    def test_resilient_reader_does_not_call_decommitted_memory_a_read_failure(self):
+        base = 0x270000000
+        page = fh6_probe.FH6_RECOVERY_PAGE_SIZE
+        region = (base, page * 2, 0x04, fh6_probe.MEM_PRIVATE)
+
+        def read_region(_pid, address, size, max_size=None):
+            del max_size
+            if size == page * 2:
+                return b""
+            return b"x" * size if address == base else b""
+
+        with patch.object(fh6_probe, "read_region", side_effect=read_region), patch.object(
+            fh6_probe,
+            "iter_regions",
+            return_value=[(base, page, 0x04, fh6_probe.MEM_PRIVATE)],
+        ):
+            readable, failed, stale_bytes, _split_reads = fh6_probe.read_region_resilient(
+                123,
+                *region,
+                max_size=region[1],
+                minimum_size=page,
+            )
+
+        self.assertEqual([(base, b"x" * page)], readable)
+        self.assertEqual([], failed)
+        self.assertEqual(page, stale_bytes)
+
+    def test_exact_scan_preserves_vtable_match_across_recovered_block_boundary(self):
+        vtable = 0x140001000
+        pattern = struct.pack("<Q", vtable)
+        base = 0x270010000
+        region = (base, 16, 0x04, fh6_probe.MEM_PRIVATE)
+        expected = {"group_address": base}
+
+        with patch.object(
+            fh6_probe,
+            "read_region_resilient",
+            return_value=([(base, pattern[:4]), (base + 4, pattern[4:] + b"\0" * 8)], [], 0, 1),
+        ), patch.object(
+            fh6_probe,
+            "evaluate_exact_calibrated_root",
+            return_value=(expected, None),
+        ):
+            candidates, refusals, stats = fh6_probe.scan_exact_calibrated_vtables(
+                123,
+                get_profile("fh6"),
+                8,
+                {"vtables": [vtable]},
+                [region],
+                [region],
+                diagnostic_name="split_boundary_test",
+                locator_kind="rtti_exact_recovery",
+            )
+
+        self.assertEqual([expected], candidates)
+        self.assertEqual([], refusals)
+        self.assertTrue(stats["complete"])
+        self.assertEqual(1, stats["vtable_hits"])
+
+    def test_exact_recovery_ignores_unreadable_pages_outside_observed_allocator(self):
+        vtable = 0x140001000
+        relevant_base = 0x270010000
+        unrelated_base = 0x500010000
+        regions = [
+            (relevant_base, 0x1000, 0x04, fh6_probe.MEM_PRIVATE),
+            (unrelated_base, 0x1000, 0x04, fh6_probe.MEM_PRIVATE),
+        ]
+
+        def resilient(_pid, base, size, protect, region_type, **_kwargs):
+            if base == relevant_base:
+                return [(base, struct.pack("<Q", vtable) + b"\0" * (size - 8))], [], 0, 0
+            return [], [(base, size, protect, region_type)], 0, 1
+
+        def reject_child(*_args, rejection_callback=None, **_kwargs):
+            rejection_callback({"reason": "child_group_has_parent"})
+            return None, None
+
+        with patch.object(fh6_probe, "read_region_resilient", side_effect=resilient), patch.object(
+            fh6_probe,
+            "evaluate_exact_calibrated_root",
+            side_effect=reject_child,
+        ):
+            _candidates, _refusals, stats = fh6_probe.scan_exact_calibrated_vtables(
+                123,
+                get_profile("fh6"),
+                2923,
+                {"vtables": [vtable]},
+                regions,
+                regions,
+                diagnostic_name="irrelevant_gap_test",
+                locator_kind="rtti_exact_recovery",
+                discover_relevant_windows=True,
+            )
+
+        self.assertTrue(stats["complete"])
+        self.assertEqual("complete_with_unrelated_read_gaps", stats["stopped_by"])
+        self.assertEqual(0, stats["failed_bytes"])
+        self.assertEqual(0x1000, stats["unrelated_failed_bytes"])
+        self.assertEqual({"child_group_has_parent": 1}, stats["rejection_counts"])
+
+    def test_exact_recovery_fails_closed_for_unreadable_page_in_observed_allocator(self):
+        vtable = 0x140001000
+        readable_base = 0x270010000
+        failed_base = 0x270020000
+        regions = [
+            (readable_base, 0x1000, 0x04, fh6_probe.MEM_PRIVATE),
+            (failed_base, 0x1000, 0x04, fh6_probe.MEM_PRIVATE),
+        ]
+
+        def resilient(_pid, base, size, protect, region_type, **_kwargs):
+            if base == readable_base:
+                return [(base, struct.pack("<Q", vtable) + b"\0" * (size - 8))], [], 0, 0
+            return [], [(base, size, protect, region_type)], 0, 1
+
+        def reject_child(*_args, rejection_callback=None, **_kwargs):
+            rejection_callback({"reason": "child_group_has_parent"})
+            return None, None
+
+        with patch.object(fh6_probe, "read_region_resilient", side_effect=resilient), patch.object(
+            fh6_probe,
+            "evaluate_exact_calibrated_root",
+            side_effect=reject_child,
+        ):
+            _candidates, _refusals, stats = fh6_probe.scan_exact_calibrated_vtables(
+                123,
+                get_profile("fh6"),
+                2923,
+                {"vtables": [vtable]},
+                regions,
+                regions,
+                diagnostic_name="relevant_gap_test",
+                locator_kind="rtti_exact_recovery",
+                discover_relevant_windows=True,
+            )
+
+        self.assertFalse(stats["complete"])
+        self.assertEqual("read_failure", stats["stopped_by"])
+        self.assertEqual(0x1000, stats["failed_bytes"])
+        self.assertEqual(0, stats["unrelated_failed_bytes"])
+
+    def test_exact_rejection_reports_group_traversal_details(self):
+        profile = get_profile("fh6")
+        group = {
+            "group_address": 0x270010000,
+            "parent_group": 0,
+            "current_u16": 2923,
+        }
+        flat = {
+            "shape_count": 2910,
+            "invalid_count": 2,
+            "invalid_reasons": {"reused_group_reference": 1, "unrecognized_group_item": 1},
+            "group_count": 40,
+            "max_depth": 6,
+            "samples": [],
+            "leaf_groups": [],
+        }
+        with patch.object(fh6_probe, "read_calibrated_group_vector", return_value=group), patch.object(
+            fh6_probe,
+            "assess_calibrated_group_access",
+            return_value=None,
+        ), patch.object(fh6_probe, "flatten_calibrated_group", return_value=flat):
+            rejections = []
+            candidate_result, refusal = fh6_probe.evaluate_exact_calibrated_root(
+                123,
+                profile,
+                2923,
+                {"vtables": [0x140001000]},
+                group["group_address"],
+                lambda _address, _size=1: True,
+                locator_kind="rtti_exact_recovery",
+                rejection_callback=rejections.append,
+            )
+
+        self.assertIsNone(candidate_result)
+        self.assertIsNone(refusal)
+        rejection = rejections[0]
+        self.assertEqual("group_traversal_invalid", rejection["reason"])
+        self.assertEqual(flat["invalid_reasons"], rejection["invalid_reasons"])
+
     def test_allocator_window_selection_clips_regions_without_crossing_bounds(self):
         regions = [
             (0x260000000, 0x18000000, 0x04, fh6_probe.MEM_PRIVATE),
@@ -182,6 +394,10 @@ class Fh6GroupProbeTests(unittest.TestCase):
                 )
 
         retry.assert_called_once()
+        self.assertEqual(
+            fh6_probe.FH6_RECOVERY_PAGE_SIZE,
+            retry.call_args.kwargs["minimum_read_size"],
+        )
 
     def test_rejects_the_observed_duplicate_vector_invalid_false_candidate(self):
         observed_false_match = candidate(

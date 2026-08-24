@@ -47,6 +47,8 @@ FH6_GROUP_GRAPH_ACCEPT_CAP = 5
 FH6_GROUP_GRAPH_SCAN_CAP = 4096
 FH6_LOCATOR_CANDIDATE_CAP = 5
 FH6_REGION_SCAN_CHUNK_SIZE = 64 * 1024 * 1024
+FH6_RECOVERY_PAGE_SIZE = 4096
+FH6_RECOVERY_BLOCK_SIZE = 1024 * 1024
 FH6_COUNT_SCAN_CHUNK_SIZE = 8 * 1024 * 1024
 FH6_SMALL_REGIONS_PER_LARGE_CHUNK = 16
 FH6_GROUP_ARENA_MIN_SIZE = 8 * 1024 * 1024
@@ -81,7 +83,7 @@ def runtime_diagnostic_identity():
     }
 
 
-def normalize_allocator_windows(values):
+def normalize_allocator_windows(values, limit=8):
     windows = []
     for value in values or []:
         try:
@@ -100,7 +102,7 @@ def normalize_allocator_windows(values):
             merged[-1] = (merged[-1][0], max(merged[-1][1], end))
         else:
             merged.append((start, end))
-    return merged[:8]
+    return merged if limit is None else merged[: max(0, int(limit))]
 
 
 def allocator_window_for_address(address):
@@ -946,6 +948,86 @@ def read_region(pid, base, size, max_size=256 * 1024 * 1024):
     if len(memory) != size:
         return b""
     return memory
+
+
+def _split_recovery_range(base, size, minimum_size=FH6_RECOVERY_PAGE_SIZE):
+    if int(size) <= int(minimum_size):
+        return None
+    midpoint = int(size) // 2
+    if midpoint > int(minimum_size):
+        midpoint -= midpoint % int(minimum_size)
+    midpoint = max(1, min(midpoint, int(size) - 1))
+    return (int(base), midpoint), (int(base) + midpoint, int(size) - midpoint)
+
+
+def _clip_regions_to_range(regions, start, size):
+    end = int(start) + int(size)
+    clipped = []
+    for base, region_size, protect, region_type in regions:
+        clipped_start = max(int(start), int(base))
+        clipped_end = min(end, int(base) + int(region_size))
+        if clipped_end > clipped_start:
+            clipped.append((clipped_start, clipped_end - clipped_start, protect, region_type))
+    return clipped
+
+
+def read_region_resilient(
+    pid,
+    base,
+    size,
+    protect,
+    region_type,
+    *,
+    max_size=FH6_REGION_SCAN_CHUNK_SIZE,
+    minimum_size=FH6_RECOVERY_BLOCK_SIZE,
+):
+    """Recover readable pieces of a region without treating one bad page as a lost arena."""
+    base = int(base)
+    size = int(size)
+    memory = read_region(pid, base, size, max_size=max_size)
+    if memory:
+        return [(base, memory)], [], 0, 0
+
+    refreshed = _clip_regions_to_range(
+        list(
+            iter_regions(
+                pid,
+                min_address=base,
+                max_address=base + size,
+                type_filter=region_type,
+                writable_only=True,
+            )
+        ),
+        base,
+        size,
+    )
+    refreshed_bytes = sum(int(item[1]) for item in refreshed)
+    stale_bytes = max(0, size - refreshed_bytes)
+    if not refreshed:
+        return [], [], stale_bytes, 1
+
+    pending = [(int(item[0]), int(item[1]), int(item[2]), int(item[3])) for item in refreshed]
+    readable = []
+    failed = []
+    split_reads = 1
+    while pending:
+        chunk_base, chunk_size, chunk_protect, chunk_type = pending.pop()
+        memory = read_region(pid, chunk_base, chunk_size, max_size=max_size)
+        split_reads += 1
+        if memory:
+            readable.append((chunk_base, memory))
+            continue
+        split = _split_recovery_range(chunk_base, chunk_size, minimum_size)
+        if split is None:
+            failed.append((chunk_base, chunk_size, chunk_protect, chunk_type))
+            continue
+        left, right = split
+        pending.append((right[0], right[1], chunk_protect, chunk_type))
+        pending.append((left[0], left[1], chunk_protect, chunk_type))
+
+    readable.sort(key=lambda item: item[0])
+    failed.sort(key=lambda item: item[0])
+    return readable, failed, stale_bytes, split_reads
 
 
 def build_region_contains(regions):
@@ -1814,6 +1896,11 @@ def locate_clivery_groups_by_calibrated_graph(pid, profile, layer_count, rtti, m
     return groups[:accept_cap]
 
 
+def _merge_reason_counts(target, source):
+    for reason, count in (source or {}).items():
+        target[str(reason)] = int(target.get(str(reason), 0)) + int(count)
+
+
 def flatten_calibrated_group(
     pid,
     profile,
@@ -1828,9 +1915,11 @@ def flatten_calibrated_group(
         seen_groups = set()
     group_address = group_info["group_address"]
     if group_address in seen_groups or depth > 12:
+        reason = "reused_group_reference" if group_address in seen_groups else "group_depth_limit"
         return {
             "shape_count": 0,
             "invalid_count": 1,
+            "invalid_reasons": {reason: 1},
             "group_count": 0,
             "max_depth": depth,
             "samples": [],
@@ -1839,6 +1928,7 @@ def flatten_calibrated_group(
     seen_groups.add(group_address)
     shape_count = 0
     invalid_count = 0
+    invalid_reasons = {}
     group_count = 1
     max_depth = depth
     samples = []
@@ -1852,6 +1942,9 @@ def flatten_calibrated_group(
     for ptr in pointers:
         if not contains(ptr, 1):
             invalid_count += 1
+            invalid_reasons["pointer_outside_writable_memory"] = (
+                int(invalid_reasons.get("pointer_outside_writable_memory", 0)) + 1
+            )
             continue
         child_info = read_calibrated_group_vector(
             pid,
@@ -1875,6 +1968,7 @@ def flatten_calibrated_group(
             )
             shape_count += child["shape_count"]
             invalid_count += child["invalid_count"]
+            _merge_reason_counts(invalid_reasons, child.get("invalid_reasons"))
             group_count += child["group_count"]
             max_depth = max(max_depth, child["max_depth"])
             samples.extend(child["samples"])
@@ -1887,6 +1981,9 @@ def flatten_calibrated_group(
                 samples.append((shape_count - 1, ptr, max(layer_score, 3), checks or ["export-layer"]))
         else:
             invalid_count += 1
+            invalid_reasons["unrecognized_group_item"] = (
+                int(invalid_reasons.get("unrecognized_group_item", 0)) + 1
+            )
         if shape_count > requested_count and invalid_count:
             break
     if child_group_count == 0 and invalid_count == 0 and direct_shape_count == vector_count:
@@ -1902,6 +1999,7 @@ def flatten_calibrated_group(
     candidate = {
         "shape_count": shape_count,
         "invalid_count": invalid_count,
+        "invalid_reasons": invalid_reasons,
         "group_count": group_count,
         "max_depth": max_depth,
         "samples": samples,
@@ -1953,7 +2051,13 @@ def evaluate_exact_calibrated_root(
     writable_contains,
     *,
     locator_kind,
+    rejection_callback=None,
 ):
+    def reject(details):
+        if rejection_callback is not None:
+            rejection_callback(details)
+        return None, None
+
     vtables = set(rtti.get("vtables") or [])
     group_info = read_calibrated_group_vector(
         pid,
@@ -1963,10 +2067,15 @@ def evaluate_exact_calibrated_root(
         max_vector_count=max(3000, layer_count),
         writable_contains=writable_contains,
     )
-    if not group_info or int(group_info.get("parent_group") or 0) != 0:
-        return None, None
+    if not group_info:
+        return reject({"reason": "invalid_group_vector"})
+    if int(group_info.get("parent_group") or 0) != 0:
+        return reject({"reason": "child_group_has_parent"})
     if int(group_info.get("current_u16") or -1) != int(layer_count):
-        return None, None
+        return reject({
+            "reason": "flattened_count_mismatch",
+            "observed_count": int(group_info.get("current_u16") or -1),
+        })
     access = assess_calibrated_group_access(
         pid,
         profile,
@@ -1975,6 +2084,8 @@ def evaluate_exact_calibrated_root(
         writable_contains=writable_contains,
     )
     if access is not None and not access.allowed:
+        if rejection_callback is not None:
+            rejection_callback({"reason": f"ownership_{access.status}"})
         return None, access
     flat = flatten_calibrated_group(
         pid,
@@ -1985,7 +2096,14 @@ def evaluate_exact_calibrated_root(
         writable_contains=writable_contains,
     )
     if int(flat["shape_count"]) != int(layer_count) or int(flat["invalid_count"]):
-        return None, None
+        return reject({
+            "reason": "group_traversal_invalid" if int(flat["invalid_count"]) else "layer_total_mismatch",
+            "shape_count": int(flat["shape_count"]),
+            "invalid_count": int(flat["invalid_count"]),
+            "invalid_reasons": dict(flat.get("invalid_reasons") or {}),
+            "group_count": int(flat["group_count"]),
+            "max_depth": int(flat["max_depth"]),
+        })
     is_recursive = int(flat["group_count"]) > 1
     candidate = {
         "score": 500 + min(layer_count, 3000) + int(flat["group_count"]) * 10,
@@ -2021,6 +2139,43 @@ def evaluate_exact_calibrated_root(
     return candidate, None
 
 
+def _summarize_exact_rejection(rejection_counts, best_rejection, rejection, layer_count):
+    if not rejection:
+        return best_rejection
+    reason = str(rejection.get("reason") or "unknown")
+    rejection_counts[reason] = int(rejection_counts.get(reason, 0)) + 1
+    if "shape_count" not in rejection:
+        return best_rejection
+    summary = {
+        "reason": reason,
+        "shape_count": int(rejection.get("shape_count") or 0),
+        "invalid_count": int(rejection.get("invalid_count") or 0),
+        "invalid_reasons": dict(rejection.get("invalid_reasons") or {}),
+        "group_count": int(rejection.get("group_count") or 0),
+        "max_depth": int(rejection.get("max_depth") or 0),
+    }
+    miss = abs(summary["shape_count"] - int(layer_count)) + summary["invalid_count"] * 10
+    if best_rejection is None or miss < int(best_rejection.get("miss_score") or 0x7FFFFFFF):
+        summary["miss_score"] = miss
+        return summary
+    return best_rejection
+
+
+def _relevant_failed_regions(failed_regions, coverage_windows, hit_windows, discover_relevant_windows):
+    failed_regions = list(failed_regions or [])
+    if not discover_relevant_windows:
+        return failed_regions, normalize_allocator_windows(coverage_windows, limit=None)
+    windows = normalize_allocator_windows(
+        [*(coverage_windows or []), *(hit_windows or [])],
+        limit=None,
+    )
+    if not windows:
+        # With no observed allocator evidence, fail closed rather than assuming
+        # an unreadable allocation could not contain the only active root.
+        return failed_regions, []
+    return regions_in_allocator_windows(failed_regions, windows), windows
+
+
 def scan_exact_calibrated_vtables(
     pid,
     profile,
@@ -2033,6 +2188,9 @@ def scan_exact_calibrated_vtables(
     locator_kind,
     stop_on_candidate=False,
     progress_mb=512,
+    coverage_windows=None,
+    discover_relevant_windows=False,
+    minimum_read_size=FH6_RECOVERY_BLOCK_SIZE,
 ):
     vtables = set(rtti.get("vtables") or [])
     if not vtables:
@@ -2042,46 +2200,64 @@ def scan_exact_calibrated_vtables(
     total_bytes = sum(int(region[1]) for region in scan_regions)
     scanned = 0
     failed_bytes = 0
+    stale_bytes = 0
+    coarse_failed_bytes = 0
+    recovery_read_count = 0
     raw_hits = 0
     seen_groups = set()
     candidates = {}
     refusals = []
     failed_regions = []
+    hit_windows = []
+    rejection_counts = {}
+    best_rejection = None
     started = time.monotonic()
     next_progress = max(1, int(progress_mb)) * 1024 * 1024
 
     for base, size, protect, region_type in scan_regions:
-        overlap = 7
         offset = 0
-        first_chunk = True
+        previous_end = None
+        previous_tail = b""
         while offset < int(size):
             requested = min(FH6_REGION_SCAN_CHUNK_SIZE, int(size) - offset)
             chunk_base = int(base) + offset
-            memory = read_region(
+            readable_parts, failed_parts, changed_bytes, split_reads = read_region_resilient(
                 pid,
                 chunk_base,
                 requested,
+                protect,
+                region_type,
                 max_size=FH6_REGION_SCAN_CHUNK_SIZE,
+                minimum_size=minimum_read_size,
             )
-            unique_size = requested if first_chunk else max(0, requested - overlap)
-            first_chunk = False
-            if not memory:
-                failed_bytes += unique_size
-                failed_regions.append((chunk_base, requested, protect, region_type))
-            else:
-                scanned += unique_size
+            if split_reads:
+                coarse_failed_bytes += requested
+                recovery_read_count += split_reads
+            stale_bytes += int(changed_bytes)
+            failed_regions.extend(failed_parts)
+            failed_bytes += sum(int(item[1]) for item in failed_parts)
+            for readable_base, memory in readable_parts:
+                scanned += len(memory)
+                if previous_end == int(readable_base) and previous_tail:
+                    scan_base = int(readable_base) - len(previous_tail)
+                    scan_memory = previous_tail + memory
+                else:
+                    scan_base = int(readable_base)
+                    scan_memory = memory
                 for _vtable, pattern in patterns:
                     start = 0
                     while True:
-                        position = memory.find(pattern, start)
+                        position = scan_memory.find(pattern, start)
                         if position == -1:
                             break
                         start = position + 8
-                        group_address = chunk_base + position
+                        group_address = scan_base + position
                         if group_address % 8 or group_address in seen_groups:
                             continue
                         seen_groups.add(group_address)
                         raw_hits += 1
+                        hit_windows.append(allocator_window_for_address(group_address))
+                        observed_rejections = []
                         candidate, refusal = evaluate_exact_calibrated_root(
                             pid,
                             profile,
@@ -2090,20 +2266,43 @@ def scan_exact_calibrated_vtables(
                             group_address,
                             writable_contains,
                             locator_kind=locator_kind,
+                            rejection_callback=observed_rejections.append,
                         )
+                        for rejection in observed_rejections:
+                            best_rejection = _summarize_exact_rejection(
+                                rejection_counts,
+                                best_rejection,
+                                rejection,
+                                layer_count,
+                            )
                         if candidate:
                             candidates[int(candidate["group_address"])] = candidate
                             if stop_on_candidate:
+                                relevant_failures, relevant_windows = _relevant_failed_regions(
+                                    failed_regions,
+                                    coverage_windows,
+                                    hit_windows,
+                                    discover_relevant_windows,
+                                )
+                                relevant_failed_bytes = sum(int(item[1]) for item in relevant_failures)
                                 stats = {
                                     "scanned_mb": scanned // (1024 * 1024),
                                     "total_mb": total_bytes // (1024 * 1024),
-                                    "failed_mb": failed_bytes // (1024 * 1024),
+                                    "failed_mb": relevant_failed_bytes // (1024 * 1024),
+                                    "failed_bytes": relevant_failed_bytes,
+                                    "unrelated_failed_bytes": max(0, failed_bytes - relevant_failed_bytes),
+                                    "stale_bytes": stale_bytes,
+                                    "recovered_bytes": max(0, coarse_failed_bytes - failed_bytes - stale_bytes),
+                                    "recovery_read_count": recovery_read_count,
                                     "vtable_hits": raw_hits,
                                     "candidate_count": len(candidates),
+                                    "rejection_counts": dict(rejection_counts),
+                                    "best_rejection": best_rejection,
+                                    "coverage_window_count": len(relevant_windows),
                                     "complete": False,
                                     "stopped_by": "match",
                                     "elapsed_seconds": round(time.monotonic() - started, 3),
-                                    "failed_regions": failed_regions,
+                                    "failed_regions": relevant_failures,
                                 }
                                 record_locator_diagnostic(
                                     diagnostic_name,
@@ -2112,6 +2311,8 @@ def scan_exact_calibrated_vtables(
                                 return list(candidates.values()), refusals, stats
                         elif refusal is not None:
                             refusals.append(refusal)
+                previous_end = int(readable_base) + len(memory)
+                previous_tail = memory[-7:]
             if scanned + failed_bytes >= next_progress:
                 print(
                     f"Exact RTTI recovery checked {(scanned + failed_bytes) // (1024 * 1024)}/"
@@ -2119,21 +2320,42 @@ def scan_exact_calibrated_vtables(
                     flush=True,
                 )
                 next_progress += max(1, int(progress_mb)) * 1024 * 1024
-            if offset + requested >= int(size) or requested <= overlap:
+            if offset + requested >= int(size):
                 break
-            offset += requested - overlap
+            offset += requested
 
-    complete = failed_bytes == 0 and scanned >= total_bytes
+    relevant_failures, relevant_windows = _relevant_failed_regions(
+        failed_regions,
+        coverage_windows,
+        hit_windows,
+        discover_relevant_windows,
+    )
+    relevant_failed_bytes = sum(int(item[1]) for item in relevant_failures)
+    complete = relevant_failed_bytes == 0 and scanned + stale_bytes + failed_bytes >= total_bytes
     stats = {
         "scanned_mb": scanned // (1024 * 1024),
         "total_mb": total_bytes // (1024 * 1024),
-        "failed_mb": failed_bytes // (1024 * 1024),
+        "failed_mb": relevant_failed_bytes // (1024 * 1024),
+        "failed_bytes": relevant_failed_bytes,
+        "unrelated_failed_bytes": max(0, failed_bytes - relevant_failed_bytes),
+        "stale_bytes": stale_bytes,
+        "recovered_bytes": max(0, coarse_failed_bytes - failed_bytes - stale_bytes),
+        "recovery_read_count": recovery_read_count,
         "vtable_hits": raw_hits,
         "candidate_count": len(candidates),
+        "rejection_counts": dict(rejection_counts),
+        "best_rejection": best_rejection,
+        "coverage_window_count": len(relevant_windows),
         "complete": complete,
-        "stopped_by": "complete" if complete else "read_failure",
+        "stopped_by": (
+            "complete_with_unrelated_read_gaps"
+            if complete and failed_bytes
+            else "complete"
+            if complete
+            else "read_failure"
+        ),
         "elapsed_seconds": round(time.monotonic() - started, 3),
-        "failed_regions": failed_regions,
+        "failed_regions": relevant_failures,
     }
     record_locator_diagnostic(
         diagnostic_name,
@@ -2173,6 +2395,7 @@ def finish_incomplete_exact_scan(
         failed_regions,
         diagnostic_name=diagnostic_name,
         locator_kind=locator_kind,
+        minimum_read_size=FH6_RECOVERY_PAGE_SIZE,
     )
     candidates.extend(retry_candidates)
     refusals.extend(retry_refusals)
@@ -2181,7 +2404,10 @@ def finish_incomplete_exact_scan(
             f"KFPS could not read every eligible {profile.label} livery allocator page.",
             {
                 "failed_mb": retry_stats.get("failed_mb"),
+                "failed_bytes": retry_stats.get("failed_bytes"),
                 "vtable_hits": retry_stats.get("vtable_hits"),
+                "rejection_counts": retry_stats.get("rejection_counts") or {},
+                "best_rejection": retry_stats.get("best_rejection"),
             },
         )
     return candidates, refusals
@@ -2225,6 +2451,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         allocator_regions,
         diagnostic_name="calibrated_allocator",
         locator_kind="rtti_allocator_exact",
+        coverage_windows=allocator_windows,
     )
     candidates, refusals = finish_incomplete_exact_scan(
         pid,
@@ -2261,6 +2488,8 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         diagnostic_name="calibrated_exact_recovery",
         locator_kind="rtti_exact_recovery",
         stop_on_candidate=True,
+        coverage_windows=allocator_windows,
+        discover_relevant_windows=True,
     )
     refusals.extend(recovery_refusals)
     if recovery_candidates:
@@ -2275,6 +2504,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
             discovered_regions,
             diagnostic_name="calibrated_discovered_allocator",
             locator_kind="rtti_discovered_allocator_exact",
+            coverage_windows=[discovered_window],
         )
         verified_candidates, verified_refusals = finish_incomplete_exact_scan(
             pid,
@@ -2311,6 +2541,7 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
                 retry_regions,
                 diagnostic_name="calibrated_exact_retry",
                 locator_kind="rtti_exact_retry",
+                minimum_read_size=FH6_RECOVERY_PAGE_SIZE,
             )
             refusals.extend(retry_refusals)
             winner = select_exact_calibrated_candidate(retry_candidates, game_label=profile.label)
@@ -2326,7 +2557,10 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
                     "KFPS could not read every eligible FH6 memory page during exact RTTI recovery.",
                     {
                         "failed_mb": retry_stats.get("failed_mb"),
+                        "failed_bytes": retry_stats.get("failed_bytes"),
                         "vtable_hits": retry_stats.get("vtable_hits"),
+                        "rejection_counts": retry_stats.get("rejection_counts") or {},
+                        "best_rejection": retry_stats.get("best_rejection"),
                     },
                 )
 
@@ -2570,9 +2804,13 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
         return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     if rtti.get("source") == "static_profile":
-        # A retired title's verified vtable makes the count scan both faster
-        # and stricter than starting with a process-wide type scan. The graph
-        # fallback still handles nested groups and verifies their full tree.
+        # FH4 templates are commonly represented by a one-entry root whose
+        # child owns the direct layer table. Search verified group roots first
+        # so grouped templates do not spend a full count scan looking for a
+        # direct table that cannot exist at the root.
+        groups = locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtti)
+        if groups:
+            return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         groups = locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti)
         if groups:
             return groups[:FH6_LOCATOR_CANDIDATE_CAP]

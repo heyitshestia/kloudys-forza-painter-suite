@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 import psutil
 
-from game_profiles import PROFILES
+from game_adapters import get_adapter, iter_adapters
 
 UNIVERSAL_IMPORT_ROOT = ROOT / "runtime" / "universal-import"
 EXPORTED_JSON_ROOT = ROOT / "imgs" / "exported"
@@ -45,7 +45,11 @@ def parse_args():
     sub = parser.add_subparsers(dest="mode", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--game", default="fh6", choices=sorted(PROFILES.keys()))
+    common.add_argument(
+        "--game",
+        default="fh6",
+        choices=sorted(adapter.bridge_key for adapter in iter_adapters()),
+    )
     common.add_argument("--layer-count", type=int, required=True)
     common.add_argument("--pid", type=int)
 
@@ -93,9 +97,11 @@ def run_subprocess(cmd, timeout=None):
 
 
 def find_game_pid(game):
-    if game not in PROFILES:
-        raise RuntimeError(f"unsupported game: {game}")
-    names = {name.lower() for name in PROFILES[game].process_names}
+    try:
+        adapter = get_adapter(game)
+    except ValueError as exc:
+        raise RuntimeError(f"unsupported game: {game}") from exc
+    names = {name.lower() for name in adapter.process_names}
     matches = []
     for proc in psutil.process_iter(["pid", "name"]):
         try:
@@ -105,7 +111,7 @@ def find_game_pid(game):
         except (psutil.Error, OSError, KeyError, TypeError):
             continue
     if not matches:
-        expected = ", ".join(PROFILES[game].process_names)
+        expected = ", ".join(adapter.process_names)
         raise RuntimeError(f"no supported {game.upper()} process detected ({expected})")
     matches.sort()
     if len(matches) > 1:
@@ -124,7 +130,7 @@ def import_json_shape_count(path):
 
 
 def session_matches_import_template(session, game, template_count):
-    profile = PROFILES[game]
+    profile = get_adapter(game).memory_profile
     required_word = int(getattr(profile, "import_template_shape_word", -1))
     minimum_ratio = float(getattr(profile, "import_template_min_ratio", 0.0))
     if required_word < 0 or minimum_ratio <= 0:
@@ -138,6 +144,7 @@ def session_matches_import_template(session, game, template_count):
 
 
 def locate_universal_template(game, pid, template_count, run_dir, purpose):
+    adapter = get_adapter(game)
     session_report = run_dir / f"fast-{purpose}-session.json"
     probe_report = run_dir / f"fallback-{purpose}-probe.json"
     group = None
@@ -195,10 +202,13 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
                     template_count,
                 ) if purpose.startswith("import") else (True, "")
                 ownership_ok = True
-                if game == "fm" and session.get("export_access_verified") is not True:
+                if adapter.locator.require_live_export_ownership and session.get("export_access_verified") is not True:
                     ownership_ok = False
                     template_ok = False
-                    log("Rejected located FM8 group: the complete live vinyl hierarchy was not ownership-verified.")
+                    log(
+                        f"Rejected located {adapter.short_label} group: the complete live vinyl hierarchy "
+                        "was not ownership-verified."
+                    )
                 if not template_ok and template_detail:
                     log(f"Rejected located {game.upper()} import group: {template_detail}.")
                 if purpose.startswith("import") and ownership_ok and (
@@ -223,12 +233,12 @@ def locate_universal_template(game, pid, template_count, run_dir, purpose):
         if isinstance(session, dict) and session.get("authoritative_no_match"):
             reason = str(
                 session.get("failure_reason")
-                or "A complete exact-RTTI scan did not find the requested live FH6 group."
+                or f"A complete exact-RTTI scan did not find the requested live {adapter.short_label} group."
             )
             log(reason)
             raise RuntimeError(reason)
-        if game == "fm":
-            reason = "No ownership-verified live FM8 vinyl group was found. No memory was written."
+        if not adapter.locator.allow_research_fallback:
+            reason = f"No ownership-verified live {adapter.short_label} vinyl group was found. No memory was written."
             if isinstance(session, dict):
                 reason = str(session.get("failure_reason") or reason)
             log(reason)
@@ -388,6 +398,9 @@ def copy_export_to_exported_folder(export_json):
 
 
 def run_import(args):
+    adapter = get_adapter(args.game)
+    if not adapter.supports("live_import"):
+        raise RuntimeError(f"{adapter.short_label} online import is not supported")
     json_path = Path(args.json).expanduser().resolve()
     if not json_path.is_file():
         raise RuntimeError(f"missing import JSON: {json_path}")
@@ -469,6 +482,9 @@ def run_import(args):
 
 
 def run_export(args):
+    adapter = get_adapter(args.game)
+    if not adapter.supports("live_export"):
+        raise RuntimeError(f"{adapter.short_label} online export is not supported")
     if args.layer_count <= 0:
         raise RuntimeError("loaded group layer count must be greater than zero")
     pid = args.pid or find_game_pid(args.game)

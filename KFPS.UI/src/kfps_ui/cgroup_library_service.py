@@ -8,7 +8,6 @@ import psutil
 import secrets
 import shutil
 import struct
-import string
 import threading
 import time
 import uuid
@@ -18,6 +17,10 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from PySide6.QtWidgets import QFileDialog
+
+from game_adapters import get_adapter_or_default, iter_adapters
+from game_adapters import discovery as game_discovery
+from game_adapters.policies import assess_offline_source
 
 from .app_paths import AppPaths
 from .json_service import JsonService
@@ -110,6 +113,47 @@ class CGroupLibraryService(QObject):
     def creatorPromptSummary(self):
         return self._creator_prompt_summary
 
+    @Property("QVariantList", constant=True)
+    def gameTargets(self):
+        return [adapter.short_label for adapter in iter_adapters()]
+
+    @Property(str, constant=True)
+    def gameTargetHeading(self):
+        return "/".join(adapter.short_label for adapter in iter_adapters()) + " save library"
+
+    @Property(str, constant=True)
+    def capabilitySummary(self):
+        live_games = ", ".join(
+            adapter.short_label
+            for adapter in iter_adapters()
+            if adapter.supports("live_import") and adapter.supports("live_export")
+        )
+        offline_imports = ", ".join(
+            adapter.short_label for adapter in iter_adapters() if adapter.supports("offline_import")
+        )
+        offline_exports = ", ".join(
+            adapter.short_label for adapter in iter_adapters() if adapter.supports("offline_export")
+        )
+        return (
+            f"Online import/export works with {live_games} while the selected game is running. "
+            f"{offline_imports} also support offline import; {offline_exports} support offline save-library scanning."
+        )
+
+    @Slot(str, str, result=bool)
+    def supportsOperation(self, game: str, operation: str) -> bool:
+        return get_adapter_or_default(game).supports(operation)
+
+    @Slot(str, result=str)
+    def offlineImportLabel(self, game: str) -> str:
+        adapter = get_adapter_or_default(game)
+        if adapter.supports("offline_import"):
+            return f"Offline Import to {adapter.short_label}"
+        return f"{adapter.short_label} Offline Import Unavailable"
+
+    @Slot(str, result=str)
+    def offlineImportHelp(self, game: str) -> str:
+        return get_adapter_or_default(game).offline_import_help
+
     @Slot()
     @Slot(str)
     def scanSaves(self, game: str = "fh6"):
@@ -122,7 +166,8 @@ class CGroupLibraryService(QObject):
             self.changed.emit()
             self.log.append("Forza save-library scan requires a local supporter unlock.")
             return
-        game_key = self._game_key(game)
+        adapter = get_adapter_or_default(game)
+        game_key = adapter.key
         self._active_game_key = game_key
         self._running = True
         game_label = self._game_label(game_key)
@@ -130,21 +175,8 @@ class CGroupLibraryService(QObject):
         self._summary = f"Scanning common {game_label} save folders for individual vinyl group files..."
         self.changed.emit()
         self.log.append(f"Scanning {game_label} save folders for individual vinyl group files...")
-        if game_key == "fh5":
-            self.log.append(
-                "FH5 save-library scan: the first scan can take quite some time when you have many vinyls, "
-                "because KFPS imports each group and renders thumbnails/previews. Later scans reuse cached previews."
-            )
-        elif game_key == "fh4":
-            self.log.append(
-                "FH4 offline scan reads user-created vinyl groups from the Microsoft Store/Xbox WGS save container. "
-                "It does not edit the save or require FH4 to be running."
-            )
-        elif game_key == "fm8":
-            self.log.append(
-                "FM8 offline scan uses the separate local-save LayerGroups/data path. "
-                "It reads saved files only; it does not touch the live editor or FH offline export flow."
-            )
+        if adapter.scan_notice:
+            self.log.append(adapter.scan_notice)
 
         self._cancel_event.clear()
         future = self._executor.submit(self._scan_work, game_key)
@@ -221,31 +253,19 @@ class CGroupLibraryService(QObject):
         if not source.is_file():
             self.log.append("Choose a JSON before creating a save-folder vinyl.", "error")
             return
-        game_key = self._game_key(game)
-        game_label = self._game_label(game_key)
-        if game_key == "fh5":
-            self._status = "FH5 offline import disabled"
-            self._summary = "FH5 offline folder import is not wired yet. Use online import/export for FH5 testing."
+        adapter = get_adapter_or_default(game)
+        game_key = adapter.key
+        game_label = adapter.short_label
+        if not adapter.supports("offline_import") or not adapter.offline_import_handler:
+            self._status = f"{adapter.short_label} offline import disabled"
+            self._summary = adapter.offline_import_summary
             self.changed.emit()
-            self.log.append("FH5 offline folder import is not wired yet.", "error")
+            self.log.append(adapter.offline_import_help, "error")
             return
         self._running = True
         self._active_game_key = game_key
         self._status = "Offline import"
-        if game_key == "fm8":
-            self._summary = "Creating a separate FM8 LayerGroups/data folder from the selected JSON."
-            self.log.append(
-                "FM8 offline import writes a new local-save LayerGroups/data folder. "
-                "Existing FM8 saves and the FH offline C_group writer are left untouched."
-            )
-        elif game_key == "fh4":
-            self._summary = "Creating a new FH4 vinyl group in the local Xbox WGS save container."
-            self.log.append(
-                "FH4 offline import creates a separate WGS LayerGroup entry after backing up the complete local save slot. "
-                "FH4 must be fully closed before the save is changed."
-            )
-        else:
-            self._summary = f"Creating a new {game_label} vinyl group folder from the selected JSON."
+        self._summary = adapter.offline_import_summary
         self.changed.emit()
         self.log.append(f"Offline import: creating a new {game_label} vinyl group in supported local save data...")
         self._cancel_event.clear()
@@ -328,20 +348,11 @@ class CGroupLibraryService(QObject):
 
     @staticmethod
     def _game_key(game: str | None) -> str:
-        text = str(game or "fh6").strip().lower()
-        if text in {"fm", "fm8", "forza motorsport", "forza motorsport 8", "motorsport"}:
-            return "fm8"
-        if text in {"fh4", "forza horizon 4"}:
-            return "fh4"
-        if text in {"fh5", "forza horizon 5"}:
-            return "fh5"
-        return "fh6"
+        return get_adapter_or_default(game).key
 
     @staticmethod
     def _game_label(game_key: str) -> str:
-        return {"fm8": "FM8", "fh4": "FH4", "fh5": "FH5", "fh6": "FH6"}.get(
-            game_key, str(game_key).upper()
-        )
+        return get_adapter_or_default(game_key).short_label
 
     def _library_root(self, game_key: str | None = None) -> Path:
         return self.paths.library_root
@@ -534,14 +545,14 @@ class CGroupLibraryService(QObject):
         return rows[:18]
 
     def _scan_work(self, game_key: str = "fh6") -> dict[str, Any]:
-        from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
         from tools.cgroup.find_forza_sources import describe_source
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
         if self._cancel_event.is_set():
             raise concurrent.futures.CancelledError()
-        game_key = self._game_key(game_key)
-        game_label = self._game_label(game_key)
+        adapter = get_adapter_or_default(game_key)
+        game_key = adapter.key
+        game_label = adapter.short_label
         roots = self._default_save_roots(game_key)
         if self.demo:
             return {
@@ -568,7 +579,7 @@ class CGroupLibraryService(QObject):
         source_paths = self._discover_save_artifacts(roots, game_key)
         ignored_designs = self._count_ignored_designs(roots, game_key)
         if source_paths:
-            self._save_cached_roots(self._roots_for_sources(source_paths), game_key)
+            self._save_cached_roots(self._roots_for_sources(source_paths, game_key), game_key)
         candidates = []
         for path in source_paths:
             if self._cancel_event.is_set():
@@ -597,13 +608,11 @@ class CGroupLibraryService(QObject):
             if not source_path.is_file():
                 skipped += 1
                 continue
-            fm8_ownership = None
-            if game_key == "fm8":
-                fm8_ownership = assess_fm8_layer_group_files(source_path)
-                if not fm8_ownership.allowed:
-                    skipped += 1
-                    ignored_restricted_fm8 += 1
-                    continue
+            ownership = assess_offline_source(adapter, source_path)
+            if not ownership.allowed:
+                skipped += 1
+                ignored_restricted_fm8 += 1
+                continue
             decode = source.get("decode") or {}
             if not decode.get("ok"):
                 skipped += 1
@@ -611,19 +620,20 @@ class CGroupLibraryService(QObject):
             fingerprint = str(source.get("fingerprint") or self._file_fingerprint(source_path))
 
             try:
-                decoded = decode_forza_source(source_path, allow_locked=False, game=game_key)
+                decoded = decode_forza_source(
+                    source_path,
+                    allow_locked=False,
+                    game=adapter.shape_schema.canonical_game,
+                )
             except DecodeError:
                 skipped += 1
                 continue
 
             layers = len(decoded.layers)
-            if game_key == "fh5" and decoded.source_kind != "cgroup":
+            if not adapter.accepts_decoded_source(decoded.source_kind, layers):
                 skipped += 1
                 continue
-            if game_key == "fm8" and layers <= 0:
-                skipped += 1
-                continue
-            if game_key == "fm8":
+            if adapter.save_discovery.ignored_design_kind == "fm8_liveries":
                 report = decoded.report
                 grouped = int(report.get("group_nodes") or 0)
                 if grouped:
@@ -638,7 +648,7 @@ class CGroupLibraryService(QObject):
             metadata["asset_type"] = "vinyl_group"
             metadata["target_game"] = game_key
             metadata["source_folder"] = source.get("folder_name") or source_path.parent.name
-            if fm8_ownership is not None:
+            if ownership.details is not None:
                 metadata["ownership_verified"] = True
             display_stem = safe_file_part(str(title), "forza-layergroup")
             try:
@@ -698,7 +708,7 @@ class CGroupLibraryService(QObject):
         )
 
         fm8_message = ""
-        if game_key == "fm8":
+        if adapter.save_discovery.ignored_design_kind == "fm8_liveries":
             fm8_message = (
                 f"; FM8 local-save decoder recovered {fm8_group_transforms} placed group transform(s) "
                 f"from {fm8_grouped_sources} grouped save(s), using {fm8_pre_group_records} pre-group transform record(s)"
@@ -782,17 +792,21 @@ class CGroupLibraryService(QObject):
         }
 
     def _create_folder_install_work(self, json_path: Path, game_key: str = "fh6") -> dict[str, Any]:
+        adapter = get_adapter_or_default(game_key)
+        if not adapter.supports("offline_import") or not adapter.offline_import_handler:
+            raise ValueError(adapter.offline_import_help)
+        handler = getattr(self, adapter.offline_import_handler, None)
+        if not callable(handler):
+            raise RuntimeError(
+                f"{adapter.short_label} declares offline import but its adapter handler is unavailable."
+            )
+        return handler(json_path)
+
+    def _create_fh6_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
 
         if self._cancel_event.is_set():
             raise concurrent.futures.CancelledError()
-        game_key = self._game_key(game_key)
-        if game_key == "fm8":
-            return self._create_fm8_layer_group_install_work(json_path)
-        if game_key == "fh4":
-            return self._create_fh4_layer_group_install_work(json_path)
-        if game_key != "fh6":
-            raise ValueError(f"{self._game_label(game_key)} offline folder import is not wired yet.")
 
         json_path = json_path.resolve()
         if not json_path.is_file():
@@ -1331,170 +1345,35 @@ class CGroupLibraryService(QObject):
 
     @classmethod
     def _discover_save_artifacts(cls, roots: list[Path], game_key: str = "fh6") -> list[Path]:
-        game_key = cls._game_key(game_key)
-        found: list[Path] = []
-        seen: set[str] = set()
-
-        def add(path: Path) -> None:
-            if not path.is_file():
-                return
-            key = str(path.resolve()).lower()
-            if key in seen:
-                return
-            seen.add(key)
-            found.append(path)
-
-        for root in roots:
-            if game_key == "fm8":
-                targeted = cls._targeted_fm8_layer_groups(root)
-            elif game_key == "fh4":
-                targeted = cls._targeted_fh4_wgs_layer_groups(root)
-            else:
-                targeted = cls._targeted_xbox_layer_groups(root)
-            for path in targeted:
-                add(path)
-
-        for root in roots:
-            if game_key != "fm8" and cls._is_xbox_game_save_root(root):
-                continue
-            complete_fh5_root = game_key == "fh5" and cls._is_fh5_save_root(root)
-            for path in cls._bounded_source_walk(
-                root,
-                max_files=None if complete_fh5_root else 60_000,
-                max_seconds=None if complete_fh5_root else 18.0,
-                game_key=game_key,
-            ):
-                add(path)
-
-        found.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
-        return found
+        return game_discovery.discover_save_artifacts(get_adapter_or_default(game_key), roots)
 
     @staticmethod
     def _is_xbox_game_save_root(root: Path) -> bool:
-        text = str(root).replace("\\", "/").lower()
-        return "/xboxgames/gamesave" in text or text.endswith("/xboxgames/gamesave") or text.endswith("/xboxgames/gamesave/pgs")
+        return game_discovery.is_xbox_game_save_root(root)
 
     @staticmethod
     def _targeted_xbox_layer_groups(root: Path) -> list[Path]:
-        text = str(root).replace("\\", "/").lower().rstrip("/")
-        if text.endswith("/xboxgames/gamesave"):
-            pgs_roots = [root / "pgs"]
-        elif text.endswith("/xboxgames/gamesave/pgs"):
-            pgs_roots = [root]
-        else:
-            return []
-
-        paths: list[Path] = []
-        for pgs in pgs_roots:
-            if not pgs.exists():
-                continue
-            try:
-                users = [item for item in pgs.iterdir() if item.is_dir()]
-            except OSError:
-                continue
-            for user_folder in users:
-                try:
-                    save_slots = [item for item in user_folder.iterdir() if item.is_dir()]
-                except OSError:
-                    continue
-                for slot in save_slots:
-                    containers = slot / "ContainersRoot"
-                    if not containers.is_dir():
-                        continue
-                    try:
-                        groups = [item for item in containers.iterdir() if item.is_dir() and item.name.startswith("LayerGroup_")]
-                    except OSError:
-                        continue
-                    for group in groups:
-                        paths.append(group / "C_group")
-        return paths
+        return game_discovery.targeted_xbox_layer_groups(root)
 
     @staticmethod
     def _targeted_fh4_wgs_layer_groups(root: Path) -> list[Path]:
-        from tools.cgroup.xbox_wgs import find_wgs_slots, read_wgs_layer_groups
-
-        paths: list[Path] = []
-        for slot in find_wgs_slots([root]):
-            try:
-                groups = read_wgs_layer_groups(slot)
-            except (OSError, ValueError):
-                continue
-            for group in groups:
-                if group.cgroup_path and group.cgroup_path.is_file():
-                    paths.append(group.cgroup_path)
-        return paths
+        return game_discovery.targeted_fh4_wgs_layer_groups(root)
 
     @staticmethod
     def _targeted_fm8_layer_groups(root: Path) -> list[Path]:
-        candidates: list[Path] = []
-        if not root.exists():
-            return candidates
-        if root.name.lower() == "layergroups":
-            layer_groups_root = root
-        elif root.name.lower() == "ugc":
-            layer_groups_root = root / "LayerGroups"
-        else:
-            maybe = root / "Microsoft.ForzaMotorsport" / "UGC" / "LayerGroups"
-            layer_groups_root = maybe if maybe.is_dir() else root / "LayerGroups"
-        if not layer_groups_root.is_dir():
-            return candidates
-        try:
-            folders = [item for item in layer_groups_root.iterdir() if item.is_dir()]
-        except OSError:
-            return candidates
-        for folder in folders:
-            data_file = folder / "data"
-            if data_file.is_file():
-                candidates.append(data_file)
-        return candidates
+        return game_discovery.targeted_fm8_layer_groups(root)
 
     @staticmethod
     def _targeted_fm8_liveries(root: Path) -> list[Path]:
-        candidates: list[Path] = []
-        if not root.exists():
-            return candidates
-        if root.name.lower() == "liveries":
-            liveries_root = root
-        elif root.name.lower() == "ugc":
-            liveries_root = root / "Liveries"
-        else:
-            maybe = root / "Microsoft.ForzaMotorsport" / "UGC" / "Liveries"
-            liveries_root = maybe if maybe.is_dir() else root / "Liveries"
-        if not liveries_root.is_dir():
-            return candidates
-        try:
-            folders = [item for item in liveries_root.iterdir() if item.is_dir()]
-        except OSError:
-            return candidates
-        for folder in folders:
-            data_file = folder / "data"
-            if data_file.is_file():
-                candidates.append(data_file)
-        return candidates
+        return game_discovery.targeted_fm8_liveries(root)
 
     @classmethod
     def _count_ignored_designs(cls, roots: list[Path], game_key: str) -> int:
-        if cls._game_key(game_key) != "fm8":
-            return 0
-        seen: set[str] = set()
-        for root in roots:
-            for path in cls._targeted_fm8_liveries(root):
-                try:
-                    seen.add(str(path.resolve()).lower())
-                except OSError:
-                    continue
-        return len(seen)
+        return game_discovery.count_ignored_designs(get_adapter_or_default(game_key), roots)
 
     @staticmethod
     def _is_fh5_layer_group_candidate(path: Path) -> bool:
-        name = path.name.lower()
-        if name == "c_group":
-            return True
-        if name.endswith(".c_group"):
-            return True
-        from tools.cgroup.forza_source_decoder import probe_forza_source_kind
-
-        return probe_forza_source_kind(path) == "cgroup"
+        return game_discovery.is_cgroup_candidate(path)
 
     @staticmethod
     def _bounded_source_walk(
@@ -1503,298 +1382,67 @@ class CGroupLibraryService(QObject):
         max_seconds: float | None,
         game_key: str = "fh6",
     ) -> list[Path]:
-        if not root.exists():
-            return []
-        skip_names = {
-            ".git",
-            ".hg",
-            ".svn",
-            ".venv",
-            "__pycache__",
-            "checkpoints",
-            "generated",
-            "imgs",
-            "node_modules",
-            "previews",
-            "python",
-            "reports",
-            "runtime",
-            "site-packages",
-            "venv",
-        }
-        found: list[Path] = []
-        scanned = 0
-        deadline = time.monotonic() + max_seconds if max_seconds is not None else None
-        for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-            dirnames[:] = [name for name in dirnames if name.lower() not in skip_names]
-            scanned += len(filenames)
-            for filename in filenames:
-                current = Path(dirpath)
-                filename_lower = filename.lower()
-                if game_key == "fm8":
-                    is_candidate = filename_lower == "data" and current.parent.name.lower() == "layergroups"
-                elif game_key in {"fh4", "fh5"}:
-                    is_candidate = CGroupLibraryService._is_fh5_layer_group_candidate(current / filename)
-                else:
-                    is_candidate = filename_lower == "c_group" and current.name.startswith("LayerGroup_")
-                if is_candidate:
-                    found.append(current / filename)
-            if (max_files is not None and scanned >= max_files) or (
-                deadline is not None and time.monotonic() >= deadline
-            ):
-                break
-        return found
+        adapter = get_adapter_or_default(game_key)
+        return game_discovery.bounded_source_walk(
+            root,
+            max_files=max_files,
+            max_seconds=max_seconds,
+            walk_kind=adapter.save_discovery.walk_kind,
+        )
 
     def _default_save_roots(self, game_key: str | None = None) -> list[Path]:
-        game_key = self._game_key(game_key)
-        roots: list[Path] = []
-        cached_roots = self._load_cached_roots(game_key)
-        if game_key == "fh5":
-            roots.extend(root for root in cached_roots if self._is_fh5_save_root(root))
-        elif game_key == "fh4":
-            roots.extend(root for root in cached_roots if self._is_fh4_save_root(root))
-        else:
-            roots.extend(cached_roots)
-
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if game_key == "fh5":
-            roots.extend(self._discover_fh5_save_roots())
-        elif game_key == "fh4":
-            roots.extend(self._discover_fh4_save_roots())
-        elif game_key == "fm8" and local_app_data:
-            fm8_ugc = Path(local_app_data) / "Microsoft.ForzaMotorsport" / "UGC"
-            for candidate in (fm8_ugc / "LayerGroups", fm8_ugc):
-                if candidate.exists():
-                    roots.append(candidate)
-            roots.extend(self._discover_xbox_game_save_roots())
-        else:
-            roots.extend(self._discover_xbox_game_save_roots())
-
-        if local_app_data and game_key == "fh6":
-            packages = Path(local_app_data) / "Packages"
-            if packages.exists():
-                for pattern in (
-                    "*Forza*/SystemAppData/wgs",
-                    "*Forza*/SystemAppData/Helium",
-                    "*Microsoft*Forza*/SystemAppData/wgs",
-                    "*Microsoft*Forza*/SystemAppData/Helium",
-                ):
-                    roots.extend(path for path in packages.glob(pattern) if path.exists())
-
-        unique: list[Path] = []
-        seen: set[str] = set()
-        for root in roots:
-            key = str(root.resolve()).lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(root)
-        return unique
+        adapter = get_adapter_or_default(game_key)
+        return game_discovery.discover_save_roots(adapter, self._load_cached_roots(adapter.key))
 
     @classmethod
     def _is_fh4_save_root(cls, root: Path) -> bool:
-        text = str(root).replace("\\", "/").lower()
-        return (
-            "sunrisebasegame" in text
-            or "forzahorizon4" in text
-            or "/1293830/" in text
-            or text.endswith("/1293830/remote")
-        )
+        return get_adapter_or_default("fh4").is_save_root(root)
 
     @classmethod
     def _discover_fh4_save_roots(cls) -> list[Path]:
-        roots: list[Path] = []
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            packages = Path(local_app_data) / "Packages"
-            if packages.exists():
-                try:
-                    package_folders = [item for item in packages.iterdir() if item.is_dir()]
-                except OSError:
-                    package_folders = []
-                for package in package_folders:
-                    name = package.name.lower()
-                    if "sunrisebasegame" not in name and "forzahorizon4" not in name:
-                        continue
-                    for marker in ("wgs", "Helium"):
-                        candidate = package / "SystemAppData" / marker
-                        if candidate.exists():
-                            roots.append(candidate)
-        roots.extend(cls._discover_steam_remote_roots("1293830"))
-        return cls._unique_existing_paths(roots)
-
-    @classmethod
-    def _is_fh5_save_root(cls, root: Path) -> bool:
-        text = str(root).replace("\\", "/").lower()
-        return (
-            "624f8b84b80" in text
-            or "forzahorizon5" in text
-            or "/1551360/" in text
-            or text.endswith("/1551360/remote")
+        adapter = get_adapter_or_default("fh4")
+        return game_discovery.unique_existing_paths(
+            [*game_discovery.discover_package_roots(adapter), *game_discovery.discover_steam_remote_roots("1293830")]
         )
 
     @classmethod
+    def _is_fh5_save_root(cls, root: Path) -> bool:
+        return get_adapter_or_default("fh5").is_save_root(root)
+
+    @classmethod
     def _discover_fh5_save_roots(cls) -> list[Path]:
-        roots: list[Path] = []
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            packages = Path(local_app_data) / "Packages"
-            if packages.exists():
-                for package in packages.iterdir():
-                    if not package.is_dir():
-                        continue
-                    name = package.name.lower()
-                    if "624f8b84b80" not in name and "forzahorizon5" not in name:
-                        continue
-                    for marker in ("wgs", "Helium"):
-                        candidate = package / "SystemAppData" / marker
-                        if candidate.exists():
-                            roots.append(candidate)
-        roots.extend(cls._discover_fh5_steam_roots())
-        return cls._unique_existing_paths(roots)
+        adapter = get_adapter_or_default("fh5")
+        return game_discovery.unique_existing_paths(
+            [*game_discovery.discover_package_roots(adapter), *game_discovery.discover_steam_remote_roots("1551360")]
+        )
 
     @classmethod
     def _discover_fh5_steam_roots(cls) -> list[Path]:
-        return cls._discover_steam_remote_roots("1551360")
+        return game_discovery.discover_steam_remote_roots("1551360")
 
     @classmethod
     def _discover_steam_remote_roots(cls, app_id: str) -> list[Path]:
-        roots: list[Path] = []
-        for steam_root in cls._steam_install_roots():
-            userdata = steam_root / "userdata"
-            if not userdata.is_dir():
-                continue
-            try:
-                users = [item for item in userdata.iterdir() if item.is_dir()]
-            except OSError:
-                continue
-            for user in users:
-                remote = user / str(app_id) / "remote"
-                if remote.exists():
-                    roots.append(remote)
-        return cls._unique_existing_paths(roots)
+        return game_discovery.discover_steam_remote_roots(app_id)
 
     @classmethod
     def _steam_install_roots(cls) -> list[Path]:
-        candidates: list[Path] = []
-        try:
-            import winreg  # type: ignore
-
-            registry_locations = (
-                (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
-                (winreg.HKEY_LOCAL_MACHINE, r"Software\Valve\Steam", "InstallPath"),
-                (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Valve\Steam", "InstallPath"),
-            )
-            for hive, key_name, value_name in registry_locations:
-                try:
-                    with winreg.OpenKey(hive, key_name) as key:
-                        value, _ = winreg.QueryValueEx(key, value_name)
-                    if value:
-                        candidates.append(Path(str(value)))
-                except OSError:
-                    continue
-        except Exception:
-            pass
-
-        for env_name in ("PROGRAMFILES(X86)", "PROGRAMFILES"):
-            value = os.environ.get(env_name)
-            if value:
-                candidates.append(Path(value) / "Steam")
-
-        for drive in cls._windows_drive_roots():
-            candidates.extend((drive / "Steam", drive / "SteamLibrary" / "Steam"))
-
-        return cls._unique_existing_paths(candidates)
+        return game_discovery.steam_install_roots()
 
     @staticmethod
     def _unique_existing_paths(paths: list[Path]) -> list[Path]:
-        unique: list[Path] = []
-        seen: set[str] = set()
-        for path in paths:
-            if not path.exists():
-                continue
-            try:
-                key = str(path.resolve()).lower()
-            except OSError:
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(path)
-        return unique
+        return game_discovery.unique_existing_paths(paths)
 
     @classmethod
     def _discover_xbox_game_save_roots(cls) -> list[Path]:
-        roots: list[Path] = []
-        for drive in cls._windows_drive_roots():
-            for xbox_root in cls._find_xboxgames_roots(drive):
-                for candidate in (xbox_root / "GameSave", xbox_root / "GameSave" / "pgs"):
-                    if candidate.exists():
-                        roots.append(candidate)
-        return roots
+        return game_discovery.discover_xbox_game_save_roots()
 
     @staticmethod
     def _windows_drive_roots() -> list[Path]:
-        roots: list[Path] = []
-        if os.name == "nt":
-            for letter in string.ascii_uppercase:
-                root = Path(f"{letter}:/")
-                if root.exists():
-                    roots.append(root)
-        else:
-            for candidate in (Path("C:/"), Path("/mnt/c"), Path("/mnt/d"), Path("/mnt/e")):
-                if candidate.exists():
-                    roots.append(candidate)
-        return roots
+        return game_discovery.windows_drive_roots()
 
     @staticmethod
     def _find_xboxgames_roots(drive: Path) -> list[Path]:
-        found: list[Path] = []
-        direct = drive / "XboxGames"
-        if direct.is_dir():
-            found.append(direct)
-
-        queue: list[tuple[Path, int]] = [(drive, 0)]
-        seen: set[str] = set()
-        max_depth = 3
-        deadline = time.monotonic() + 4.0
-        while queue and time.monotonic() < deadline:
-            current, depth = queue.pop(0)
-            try:
-                key = str(current.resolve()).lower()
-            except OSError:
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            if current.name.lower() == "xboxgames":
-                found.append(current)
-                continue
-            if depth >= max_depth:
-                continue
-            try:
-                children = [item for item in current.iterdir() if item.is_dir()]
-            except OSError:
-                continue
-            for child in children:
-                name = child.name.lower()
-                if name in {"$recycle.bin", "program files", "program files (x86)", "programdata", "users", "windows"}:
-                    continue
-                if name == "xboxgames" or depth < 2:
-                    queue.append((child, depth + 1))
-
-        unique: list[Path] = []
-        seen_paths: set[str] = set()
-        for path in found:
-            try:
-                key = str(path.resolve()).lower()
-            except OSError:
-                continue
-            if key in seen_paths:
-                continue
-            seen_paths.add(key)
-            unique.append(path)
-        return unique
+        return game_discovery.find_xboxgames_roots(drive)
 
     def _load_cached_roots(self, game_key: str | None = None) -> list[Path]:
         try:
@@ -1847,29 +1495,8 @@ class CGroupLibraryService(QObject):
             pass
 
     @staticmethod
-    def _roots_for_sources(source_paths: list[Path]) -> list[Path]:
-        roots: list[Path] = []
-        for source in source_paths:
-            parts = source.parts
-            lowered = [part.lower() for part in parts]
-            if "pgs" in lowered:
-                index = lowered.index("pgs")
-                roots.append(Path(*parts[: index + 1]))
-                continue
-            if "ugc" in lowered and "layergroups" in lowered:
-                index = lowered.index("ugc")
-                roots.append(Path(*parts[: index + 2]))
-                continue
-            if "1551360" in lowered and "remote" in lowered:
-                index = lowered.index("remote")
-                roots.append(Path(*parts[: index + 1]))
-                continue
-            for marker in ("wgs", "helium"):
-                if marker in lowered:
-                    index = lowered.index(marker)
-                    roots.append(Path(*parts[: index + 1]))
-                    break
-        return roots
+    def _roots_for_sources(source_paths: list[Path], game_key: str = "fh6") -> list[Path]:
+        return game_discovery.roots_for_sources(get_adapter_or_default(game_key), source_paths)
 
     @staticmethod
     def _file_fingerprint(path: Path) -> str:
@@ -2046,7 +1673,6 @@ class CGroupLibraryService(QObject):
         return value[:120]
 
     @staticmethod
-    @staticmethod
     def _flatten_legacy_game_library_roots(library_root: Path) -> None:
         for game_folder in ("fh6", "fh5", "fh4", "fm8"):
             legacy_root = library_root / game_folder
@@ -2105,15 +1731,8 @@ class CGroupLibraryService(QObject):
             target_game = CGroupLibraryService._game_key(str(manifest.get("target_game") or "fh6"))
             if target_game != scan_game_key:
                 continue
-            is_fh_layer_group = source_path.name.lower() == "c_group" and source_folder.startswith("LayerGroup_")
-            is_fh5_layer_group = target_game == "fh5" and source_kind == "cgroup"
-            is_fh4_layer_group = target_game == "fh4" and source_kind == "cgroup"
-            is_fm8_layer_group = (
-                target_game == "fm8"
-                and source_path.name.lower() == "data"
-                and source_path.parent.parent.name.lower() == "layergroups"
-            )
-            is_layer_group = is_fh_layer_group or is_fh5_layer_group or is_fh4_layer_group or is_fm8_layer_group
+            adapter = get_adapter_or_default(target_game)
+            is_layer_group = adapter.is_library_artifact(source_path, source_folder, source_kind)
             source_was_rescanned = CGroupLibraryService._source_path_key(source_path) in active_source_keys
             superseded = source_was_rescanned and entry.name not in active_entry_names
             if not is_layer_group or superseded:

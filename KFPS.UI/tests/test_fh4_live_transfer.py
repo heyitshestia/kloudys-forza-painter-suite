@@ -65,6 +65,24 @@ class Fh4LiveTransferTests(unittest.TestCase):
             self.assertIsNone(fh6_probe.locate_static_clivery_group_rtti(99, profile))
         reader.assert_not_called()
 
+    def test_static_locator_uses_recursive_root_scan_before_count_and_graph_fallbacks(self):
+        profile = get_profile("fh4")
+        rtti = {"source": "static_profile", "vtables": [0xAA]}
+        candidate = {"score": 10}
+        with patch.object(fh6_probe, "locate_clivery_group_rtti", return_value=rtti), patch.object(
+            fh6_probe, "locate_clivery_groups_by_calibrated_flattened", return_value=[candidate]
+        ) as direct_scan, patch.object(
+            fh6_probe, "locate_clivery_groups_by_calibrated_count"
+        ) as count_scan, patch.object(
+            fh6_probe, "locate_clivery_groups_by_calibrated_graph"
+        ) as graph_scan:
+            located = fh6_probe.locate_clivery_groups_by_rtti(99, profile, 3000)
+
+        self.assertEqual([candidate], located)
+        direct_scan.assert_called_once_with(99, profile, 3000, rtti)
+        count_scan.assert_not_called()
+        graph_scan.assert_not_called()
+
     def test_fh4_import_requires_a_mostly_plain_circle_template(self):
         valid, detail = transfer_bridge.session_matches_import_template(
             {"shape_word_counts": {"102": 3000}}, "fh4", 3000

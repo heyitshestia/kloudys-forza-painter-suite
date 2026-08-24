@@ -135,7 +135,7 @@ Item {
                                     id: game
                                     Layout.fillWidth: true
                                     dense: root.compactHeight
-                                    model: ["FH6", "FH5", "FH4", "FM8"]
+                                    model: cgroupLibraryService.gameTargets
                                     toolTipText: "Choose the game whose live editor or local save files you want to use."
                                 }
                             }
@@ -187,7 +187,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "FH4/FH5/FH6/FM8 save library"
+                                text: cgroupLibraryService.gameTargetHeading
                                 color: Theme.primaryBright
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(12.4)
@@ -247,22 +247,12 @@ Item {
                             minimumWidth: 0
                             text: cgroupLibraryService.running
                                   ? "Working..."
-                                  : (game.currentText === "FH6"
-                                     ? "Offline Import to FH6"
-                                     : (game.currentText === "FH4"
-                                        ? "Offline Import to FH4"
-                                     : (game.currentText === "FM8"
-                                        ? "Offline Import to FM8"
-                                        : game.currentText + " Offline Import Unavailable")))
+                                  : cgroupLibraryService.offlineImportLabel(game.currentText)
                             iconName: "transfer"
                             dense: root.compactHeight
-                            toolTipText: game.currentText === "FH5"
-                                         ? "FH5 local save-file importing is not available. Use online import with FH5 running."
-                                         : (game.currentText === "FH4"
-                                            ? "With FH4 fully closed, create a new vinyl in the Microsoft Store/Xbox WGS save after backing up the complete local slot."
-                                            : "Write the selected JSON into the selected game's local save library without opening the game.")
+                            toolTipText: cgroupLibraryService.offlineImportHelp(game.currentText)
                             enabled: !cgroupLibraryService.running
-                                     && (game.currentText === "FH4" || game.currentText === "FH6" || game.currentText === "FM8")
+                                     && cgroupLibraryService.supportsOperation(game.currentText, "offline_import")
                                      && jsonService.selectedPath.length > 0
                             onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
                         }
@@ -342,7 +332,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Online import/export works with FH4, FH5, FH6, and FM8 while the selected game is running. FH4, FH6, and FM8 also support offline import; all four support offline save-library scanning."
+                            text: cgroupLibraryService.capabilitySummary
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(10.2)

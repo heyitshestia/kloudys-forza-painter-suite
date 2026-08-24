@@ -36,4 +36,6 @@ The shipped executable is intentionally small. It prefers the packaged `python/`
 - `docs/` — architecture, behavior, build, and validation notes
 
 See `docs/ARCHITECTURE.md` before changing application state or process handling, and
-`docs/THEME_SYSTEM.md` before adding or changing a theme.
+`docs/THEME_SYSTEM.md` before adding or changing a theme. Game capabilities, save
+discovery, ownership policy, and locator selection are defined in
+`docs/GAME_ADAPTERS.md` and the root `game_adapters/` package.
