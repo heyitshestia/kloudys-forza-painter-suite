@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.38
+- Centralized FH4, FH5, FH6, and FM8 capabilities, store variants, save discovery, ownership policy, locator selection, and shape compatibility behind tested game adapters.
+- Fixed FM8 offline discovery across Microsoft Store and Steam save layouts while retaining strict local ownership filtering.
+- Hardened FH6 exact-RTTI recovery so one changing memory page no longer discards an entire allocator block, while keeping relevant unreadable pages fail-closed and recording precise locator rejection diagnostics.
+
 ## 3.1.37
 - Isolated full-livery scanning, indexing, rendering preparation, package handling, and save installation from the main KFPS process.
 - Added dedicated full-livery cache, catalog, recovery, diagnostics, cancellation, timeout, and memory-safety boundaries.
