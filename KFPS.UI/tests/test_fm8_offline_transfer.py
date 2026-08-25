@@ -58,6 +58,23 @@ def fm8_payload(*, restricted: bool = False) -> bytes:
     return bytes(payload)
 
 
+def fm8_legacy_import_payload() -> bytes:
+    payload = build_flat_payload(
+        [
+            CGroupLayer(0x0065, -10.0, 20.0, 3.0, 4.0, 5.0, 0.0, (12, 34, 56, 255)),
+            CGroupLayer(0x0066, 30.0, -40.0, 5.0, 6.0, 7.0, 0.0, (78, 90, 123, 255)),
+            CGroupLayer(0x0202, 50.0, 60.0, 2.0, 3.0, 9.0, 0.0, (45, 67, 89, 255)),
+        ]
+    )
+    first_shape = 0x24 + payload[0x20]
+    records = [
+        b"\x01" + payload[first_shape + 1 : first_shape + 31],
+        b"\x01" + payload[first_shape + 33 : first_shape + 63],
+        b"\x01" + payload[first_shape + 65 : first_shape + 95],
+    ]
+    return payload[:first_shape] + b"".join(records) + payload[first_shape + 95 :]
+
+
 def write_group(
     root: Path,
     name: str,
@@ -65,17 +82,37 @@ def write_group(
     creator: str = "LocalUser",
     catalog_state: int = 0,
     restricted: bool = False,
+    legacy_import: bool = False,
 ) -> Path:
     folder = root / name
     folder.mkdir(parents=True)
     (folder / "header").write_bytes(
         fm8_header(title=name, creator=creator, catalog_state=catalog_state)
     )
-    (folder / "data").write_bytes(fm8_payload(restricted=restricted))
+    payload = fm8_legacy_import_payload() if legacy_import else fm8_payload(restricted=restricted)
+    if restricted and legacy_import:
+        payload = bytearray(payload)
+        payload[0x1D] = 0x21
+        payload = bytes(payload)
+    (folder / "data").write_bytes(payload)
     return folder
 
 
 class FM8OfflineTransferTests(unittest.TestCase):
+    def test_legacy_import_shape_records_decode_only_for_fm8(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "data"
+            source.write_bytes(fm8_legacy_import_payload())
+
+            decoded = decode_forza_source(source, allow_locked=False, game="fm8")
+            wrong_game = decode_forza_source(source, allow_locked=False, game="fh6")
+
+            self.assertEqual(3, len(decoded.layers))
+            self.assertEqual(3, decoded.report["fm8_legacy_shape_records"])
+            self.assertEqual(0, len(wrong_game.layers))
+            self.assertEqual([12, 34, 56, 255], decoded.layers[0]["color"])
+            self.assertEqual(0x0202, decoded.layers[2]["source_raw_type_word"])
+
     def test_header_parser_handles_variable_text_lengths(self):
         parsed = parse_fm8_header(
             fm8_header(
@@ -178,8 +215,15 @@ class FM8OfflineTransferTests(unittest.TestCase):
             groups = app_root / "LayerGroups"
             groups.mkdir()
             safe = write_group(groups, "safe")
+            safe_legacy = write_group(groups, "safe-legacy", legacy_import=True)
             downloaded = write_group(groups, "downloaded", catalog_state=1)
             resaved = write_group(groups, "resaved", restricted=True)
+            downloaded_legacy = write_group(
+                groups,
+                "downloaded-legacy",
+                catalog_state=1,
+                legacy_import=True,
+            )
             paths = AppPaths(
                 app_root=app_root,
                 ui_root=UI,
@@ -199,7 +243,13 @@ class FM8OfflineTransferTests(unittest.TestCase):
             with patch.object(service, "_default_save_roots", return_value=[groups]), patch.object(
                 service,
                 "_discover_save_artifacts",
-                return_value=[safe / "data", downloaded / "data", resaved / "data"],
+                return_value=[
+                    safe / "data",
+                    safe_legacy / "data",
+                    downloaded / "data",
+                    resaved / "data",
+                    downloaded_legacy / "data",
+                ],
             ), patch.object(service, "_save_cached_roots"), patch.object(
                 service,
                 "_library_root",
@@ -210,12 +260,17 @@ class FM8OfflineTransferTests(unittest.TestCase):
             ), patch.object(service, "_write_preview"):
                 result = service._scan_work("fm8")
 
-            self.assertEqual(1, result["exported"])
-            self.assertEqual(2, result["ignored_restricted_fm8"])
-            self.assertEqual(2, result["skipped"])
-            self.assertEqual(1, len(result["outputs"]))
-            payload = json.loads(Path(result["outputs"][0]).read_text(encoding="utf-8"))
-            self.assertTrue(payload["metadata"]["ownership_verified"])
+            self.assertEqual(2, result["exported"])
+            self.assertEqual(3, result["ignored_restricted_fm8"])
+            self.assertEqual(3, result["skipped"])
+            self.assertEqual(2, len(result["outputs"]))
+            self.assertEqual(3, result["fm8_legacy_shape_records"])
+            payloads = [
+                json.loads(Path(output).read_text(encoding="utf-8"))
+                for output in result["outputs"]
+            ]
+            self.assertTrue(all(payload["metadata"]["ownership_verified"] for payload in payloads))
+            self.assertEqual([1, 3], sorted(len(payload["shapes"]) for payload in payloads))
 
     def test_created_group_is_reopened_and_ownership_verified(self):
         with tempfile.TemporaryDirectory() as temp:

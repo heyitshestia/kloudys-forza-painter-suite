@@ -121,6 +121,7 @@ class WalkState:
     pending_flags: int = 0
     pending_mask: bool = False
     decoded_shapes: int = 0
+    fm8_legacy_shapes: int = 0
 
 
 @dataclass
@@ -387,6 +388,61 @@ def is_valid_shape_at(data: bytes, pos: int, end: int) -> bool:
         and 1e-6 < abs(sy) < 200.0
         and math.isfinite(skew)
         and abs(skew) < 200.0
+    )
+
+
+def is_fm8_legacy_shape_at(data: bytes, pos: int, end: int) -> bool:
+    """Recognize the older shape record retained by FM8 legacy imports."""
+
+    if (
+        pos < 0
+        or pos + 31 > end
+        or pos + 31 > len(data)
+        or data[pos] != 0x01
+    ):
+        return False
+    shape_id = read_u16(data, pos + 1)
+    rotation = read_f32(data, pos + 3)
+    x = read_f32(data, pos + 7)
+    y = read_f32(data, pos + 11)
+    sx = read_f32(data, pos + 15)
+    sy = read_f32(data, pos + 19)
+    skew = read_f32(data, pos + 23)
+    return (
+        is_known_shape_id(shape_id)
+        and math.isfinite(rotation)
+        and abs(rotation) <= 10000.0
+        and math.isfinite(x)
+        and math.isfinite(y)
+        and abs(x) < 50000.0
+        and abs(y) < 50000.0
+        and math.isfinite(sx)
+        and math.isfinite(sy)
+        and 1e-6 < abs(sx) < 200.0
+        and 1e-6 < abs(sy) < 200.0
+        and math.isfinite(skew)
+        and abs(skew) < 200.0
+    )
+
+
+def decode_fm8_legacy_shape_at(
+    data: bytes, pos: int, is_mask: bool = False, flags: int = 0
+) -> ShapeNode:
+    b, g, r, a = data[pos + 27 : pos + 31]
+    return ShapeNode(
+        shape_id=read_u16(data, pos + 1),
+        rotation=read_f32(data, pos + 3),
+        x=read_f32(data, pos + 7),
+        y=read_f32(data, pos + 11),
+        sx=read_f32(data, pos + 15),
+        sy=read_f32(data, pos + 19),
+        skew=read_f32(data, pos + 23),
+        color_rgba=(r, g, b, a),
+        offset=pos,
+        marker=data[pos : pos + 1],
+        flags=flags,
+        mask=is_mask,
+        mask_authoritative=False,
     )
 
 
@@ -1181,6 +1237,7 @@ def walk_step(
     game: str | None = None,
     livery_invert_odd_rotation: bool = True,
 ) -> int:
+    game_key = normalize_game_key(game)
     expected_group = next_child_is_group(state.stack[-1])
     may_decode_group = expected_group is None or expected_group
     may_decode_shape = expected_group is None or not expected_group
@@ -1301,6 +1358,39 @@ def walk_step(
         state.pending_prefix = b""
         return pos + (32 if bytes_at(data, pos, b"\x00\x02", end) or bytes_at(data, pos, b"\x01\x02", end) else 31)
 
+    if game_key == "fm8" and may_decode_shape and is_fm8_legacy_shape_at(data, pos, end):
+        if state.pending_transform:
+            node = GroupNode(
+                transform=state.pending_transform,
+                expected_children=2,
+                flags=state.pending_flags,
+                mask=state.pending_mask,
+                offset=pos,
+                marker=state.pending_marker,
+                source="implicit_transform_pair",
+            )
+            state.stack[-1].items.append(node)
+            state.stack.append(node)
+            state.pending_transform = None
+            state.pending_marker = b""
+            state.pending_prefix = b""
+            state.pending_flags = 0
+            state.pending_mask = False
+        shape = decode_fm8_legacy_shape_at(
+            data,
+            pos,
+            is_mask=state.pending_mask,
+            flags=state.pending_flags,
+        )
+        state.stack[-1].items.append(shape)
+        state.decoded_shapes += 1
+        state.fm8_legacy_shapes += 1
+        state.pending_flags = 0
+        state.pending_mask = False
+        state.pending_marker = b""
+        state.pending_prefix = b""
+        return pos + 31
+
     # Livery streams have a broader transform dialect whose leading bytes can
     # also look like a generic group transform. Resolve the more specific
     # grammar first so those bytes cannot be consumed by the generic decoder.
@@ -1404,6 +1494,7 @@ def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNo
     stats = cgroup_tree_stats(root)
     if game_key == "fm8":
         stats["fm8_pre_group_transform_records"] = count_fm8_pre_group_transform_records(layer_data)
+        stats["fm8_legacy_shape_records"] = state.fm8_legacy_shapes
         stats["offline_decode_profile"] = "fm8_local_save_cgroup_v1"
     else:
         stats["offline_decode_profile"] = "standard_cgroup_v1"

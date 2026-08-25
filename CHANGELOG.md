@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.41
+- Fixed FM8 offline save scans skipping vinyl groups imported through earlier Forza titles.
+- Recovered the older FM8 shape-record format without changing current FM8 or Horizon decoding.
+- Preserved strict ownership checks so downloaded or unverifiable vinyls remain excluded from offline exports.
+
 ## 3.1.40
 - Fixed large nested FH6 exports failing during the exporter's second hierarchy verification after the fast locator had already validated them.
 - Limited group metadata reads to the fields KFPS actually uses, avoiding false failures when valid group objects sit near memory boundaries.

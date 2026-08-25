@@ -600,6 +600,7 @@ class CGroupLibraryService(QObject):
         fm8_grouped_sources = 0
         fm8_group_transforms = 0
         fm8_pre_group_records = 0
+        fm8_legacy_shape_records = 0
 
         for source in candidates:
             if self._cancel_event.is_set():
@@ -640,6 +641,7 @@ class CGroupLibraryService(QObject):
                     fm8_grouped_sources += 1
                 fm8_group_transforms += int(report.get("non_identity_group_transforms") or 0)
                 fm8_pre_group_records += int(report.get("fm8_pre_group_transform_records") or 0)
+                fm8_legacy_shape_records += int(report.get("fm8_legacy_shape_records") or 0)
             metadata = self._read_layer_group_metadata(source_path)
             title = metadata.get("title") or source.get("folder_name") or source_path.parent.name or "Forza LayerGroup"
             metadata["layers"] = layers
@@ -712,6 +714,11 @@ class CGroupLibraryService(QObject):
             fm8_message = (
                 f"; FM8 local-save decoder recovered {fm8_group_transforms} placed group transform(s) "
                 f"from {fm8_grouped_sources} grouped save(s), using {fm8_pre_group_records} pre-group transform record(s)"
+                + (
+                    f", and recovered {fm8_legacy_shape_records} legacy-import shape record(s)"
+                    if fm8_legacy_shape_records
+                    else ""
+                )
             )
 
         return {
@@ -726,6 +733,7 @@ class CGroupLibraryService(QObject):
             "fm8_grouped_sources": fm8_grouped_sources,
             "fm8_group_transforms": fm8_group_transforms,
             "fm8_pre_group_records": fm8_pre_group_records,
+            "fm8_legacy_shape_records": fm8_legacy_shape_records,
             "outputs": exported,
             "message": (
                 f"{game_label} save scan complete: scanned {len(candidates)} candidate(s), "
