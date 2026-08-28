@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.44
+- Added disposable end-to-end Community validation for authentication, browsing, uploads, downloads, classifications, supporter access, version synchronization, deletion, resubmission, and invalid-file quarantine.
+- Added isolated staging and production deployment tooling with sanitized diagnostics, rollback records, compatibility checks, and automated CI coverage without adding Node.js as an application runtime requirement.
+- Fixed Community supporter-access refresh ordering and hardened recommended-bundle Python dependency validation.
+
 ## 3.1.43
 - Auto-detected the single supported running game for live import and export instead of requiring a live game selector.
 - Blocked live transfers when no supported game or multiple game processes are running, and revalidated the detected process before memory access.
