@@ -16,6 +16,8 @@ from pathlib import Path
 
 import psutil
 
+from live_memory_locator.diagnostics import write_backend_diagnostic
+
 
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -660,7 +662,7 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"fh6-group{args.count}-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_backend_diagnostic(out, payload, root=Path(__file__).resolve().parent)
     log(f"Wrote {out}")
 
 

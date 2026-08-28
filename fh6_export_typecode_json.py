@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, assess_group_tree, minimum_header_size
 from game_profiles import PROFILES
+from live_memory_locator import DIAGNOSTIC_SCHEMA
 from tools.cgroup.shape_identity import canonical_resource_for_word
 
 
@@ -365,6 +366,13 @@ def validate_probe_report(probe_report, requested_count, selected_group, selecte
         probe = json.loads(Path(probe_report).read_text(encoding="utf-8"))
     except Exception as exc:
         return False, [f"locator validation report could not be read: {exc}"]
+    if probe.get("schema") == DIAGNOSTIC_SCHEMA:
+        return validate_canonical_locator_report(
+            probe,
+            requested_count,
+            selected_group,
+            selected_table,
+        )
     if probe.get("type") == "fh6_session_location_v1":
         return validate_fast_session_report(probe, requested_count, selected_group, selected_table)
     if int(probe.get("count") or -1) != int(requested_count):
@@ -407,6 +415,76 @@ def validate_probe_report(probe_report, requested_count, selected_group, selecte
         reasons.append("selected group/table was not confirmed by the locator report")
     elif not selected_strong:
         reasons.append("selected group/table did not pass full pointer/vector validation")
+    return not reasons, reasons
+
+
+def validate_canonical_locator_report(session, requested_count, selected_group, selected_table):
+    reasons = []
+    outcome = session.get("outcome") or {}
+    request = session.get("request") or {}
+    selected = session.get("selected") or {}
+    if outcome.get("status") != "located" or outcome.get("authoritative") is not True:
+        reasons.append("locator engine did not produce an authoritative located result")
+    if int(request.get("layer_count") or -1) != int(requested_count):
+        reasons.append(
+            f"locator request count does not match requested count ({request.get('layer_count')} != {requested_count})"
+        )
+    if str(request.get("purpose") or "") != "export":
+        reasons.append("locator report was not created for export")
+    try:
+        selected_seen = (
+            int(selected.get("group_address")) == int(selected_group)
+            and int(selected.get("table_address")) == int(selected_table)
+        )
+    except (TypeError, ValueError):
+        selected_seen = False
+    if not selected_seen:
+        reasons.append("selected group/table was not confirmed by the locator engine")
+    validated_entries = int(selected.get("validated_entries") or 0)
+    if validated_entries != int(requested_count):
+        reasons.append(
+            f"locator engine did not validate every layer pointer ({validated_entries} != {requested_count})"
+        )
+    vector_count = selected.get("vector_count")
+    capacity_count = selected.get("capacity_count")
+    flattened = selected.get("flattened_from_groups") is True
+    if not flattened and vector_count is not None and int(vector_count) != int(requested_count):
+        reasons.append(
+            f"locator vector count does not match requested count ({vector_count} != {requested_count})"
+        )
+    required_capacity = int(vector_count) if flattened and vector_count is not None else int(requested_count)
+    if capacity_count is None or int(capacity_count) < required_capacity:
+        reasons.append(
+            f"locator capacity is smaller than the verified vector ({capacity_count} < {required_capacity})"
+        )
+
+    locator = str(selected.get("locator") or "")
+    if locator.startswith("research_"):
+        candidate = (selected.get("details") or {}).get("candidate") or {}
+        valid_ptrs = int(candidate.get("valid_ptrs") or 0)
+        invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, int(requested_count) - valid_ptrs))
+        decoded = int(candidate.get("layer_ok_count") or candidate.get("sample_ok_count") or 0)
+        if candidate.get("vector_ok") is not True:
+            reasons.append("research locator vector metadata was not valid")
+        if int(candidate.get("vector_count") or -1) != int(requested_count):
+            reasons.append("research locator vector count was not exact")
+        if valid_ptrs != int(requested_count) or invalid_ptrs:
+            reasons.append("research locator did not validate the complete pointer table")
+        if decoded != int(requested_count):
+            reasons.append("research locator did not decode every requested layer")
+        if int(candidate.get("duplicate_ptr_count") or 0):
+            reasons.append("research locator table contained duplicate layer pointers")
+    else:
+        compatibility = dict(session)
+        compatibility.update(selected)
+        fast_ok, fast_reasons = validate_fast_session_report(
+            compatibility,
+            requested_count,
+            selected_group,
+            selected_table,
+        )
+        if not fast_ok:
+            reasons.extend(fast_reasons)
     return not reasons, reasons
 
 

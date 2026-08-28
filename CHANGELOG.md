@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.42
+- Consolidated FH4, FH5, FH6, and FM8 live vinyl location behind one versioned, deterministic engine with exact process, layer, and ownership validation.
+- Improved allocator-window reuse and fail-closed handling for grouped, nested, and foreign vinyls across supported games.
+- Added privacy-scrubbed, dated live-memory diagnostics with a self-rebuilding index and stable latest-report shortcuts by game and operation.
+- Standardized live-transfer run folders by target game and operation, including collision-safe names for repeated attempts within the same second.
+
 ## 3.1.41
 - Fixed FM8 offline save scans skipping vinyl groups imported through earlier Forza titles.
 - Recovered the older FM8 shape-record format without changing current FM8 or Horizon decoding.

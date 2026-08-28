@@ -53,8 +53,12 @@ full-car `Liveries` records remain outside the vinyl-group scanner.
   wrappers around `game_adapters.discovery`.
 - `KFPS.UI/src/kfps_ui/transfer_service.py`: resolves a game once, verifies the
   declared live capability, and passes the adapter's bridge key.
-- `KFPS.UI/bridges/transfer_bridge.py`: consumes process, template, locator, and
-  fallback declarations before invoking the existing verified memory tools.
+- `live_memory_locator/`: consumes process, template, profile, fallback, and
+  ownership declarations and produces one versioned, deterministic locator
+  result. See `LIVE_MEMORY_LOCATOR.md`.
+- `KFPS.UI/bridges/transfer_bridge.py`: invokes the locator engine once, verifies
+  that its canonical diagnostic matches the transfer request, and then invokes
+  the established import or export operation.
 
 ## Compatibility rules
 
@@ -67,6 +71,8 @@ full-car `Liveries` records remain outside the vinyl-group scanner.
   strict and rejects unsupported bridge keys.
 - The common decoder always runs with locked content disabled. A game may declare
   an additional ownership preflight, but may not weaken the common gate.
+- A cached allocator window is only a search hint. Live addresses and ownership
+  decisions are revalidated for every operation.
 
 ## Adding or changing a game
 

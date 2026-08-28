@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT))
 import psutil
 
 from game_adapters import get_adapter, iter_adapters
+from live_memory_locator import DIAGNOSTIC_SCHEMA, address_text, read_diagnostic
 
 UNIVERSAL_IMPORT_ROOT = ROOT / "runtime" / "universal-import"
 EXPORTED_JSON_ROOT = ROOT / "imgs" / "exported"
@@ -63,6 +64,29 @@ def parse_args():
 
 def log(message):
     print(message, flush=True)
+
+
+def create_transfer_run_dir(game, operation, layer_count, *, root=None, moment=None):
+    adapter = get_adapter(game)
+    operation = str(operation or "").strip().lower()
+    if operation not in {"import", "export"}:
+        raise ValueError(f"unsupported transfer operation: {operation}")
+    layer_count = int(layer_count)
+    if layer_count <= 0:
+        raise ValueError("transfer layer count must be greater than zero")
+    root = Path(root or UNIVERSAL_IMPORT_ROOT)
+    timestamp = (moment or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    base = f"{adapter.key}-live-{operation}-{layer_count}-{timestamp}"
+    root.mkdir(parents=True, exist_ok=True)
+    for sequence in range(1, 1000):
+        name = base if sequence == 1 else f"{base}-{sequence:02d}"
+        candidate = root / name
+        try:
+            candidate.mkdir(exist_ok=False)
+        except FileExistsError:
+            continue
+        return candidate
+    raise RuntimeError(f"could not allocate a unique transfer run folder below {root}")
 
 
 def run_subprocess(cmd, timeout=None):
@@ -129,259 +153,82 @@ def import_json_shape_count(path):
     return sum(1 for shape in shapes if isinstance(shape, dict) and not shape.get("hidden"))
 
 
-def session_matches_import_template(session, game, template_count):
-    profile = get_adapter(game).memory_profile
-    required_word = int(getattr(profile, "import_template_shape_word", -1))
-    minimum_ratio = float(getattr(profile, "import_template_min_ratio", 0.0))
-    if required_word < 0 or minimum_ratio <= 0:
-        return True, ""
-    counts = session.get("shape_word_counts") or {}
-    matching = int(counts.get(str(required_word)) or counts.get(required_word) or 0)
-    required = int(int(template_count) * minimum_ratio)
-    if matching < required:
-        return False, f"template shape check {matching}/{template_count} plain circles"
-    return True, f"template shape check {matching}/{template_count} plain circles"
-
-
 def locate_universal_template(game, pid, template_count, run_dir, purpose):
     adapter = get_adapter(game)
-    session_report = run_dir / f"fast-{purpose}-session.json"
-    probe_report = run_dir / f"fallback-{purpose}-probe.json"
-    group = None
-    table = None
-    use_research_scanner = False
-    if not use_research_scanner:
-        log(f"Fast-locating loaded {game.upper()} group with {template_count} layers...")
-        session = None
-        fast_cmd = [
-            sys.executable,
-            ROOT / "fh6_probe.py",
-            "--game",
-            game,
-            "--pid",
-            str(pid),
-            "--layer-count",
-            str(template_count),
-            "--auto-locate",
-            "--write-session",
-            session_report,
-            "--dump-slot-radius",
-            "16",
-            "--limit-mb",
-            str(MEMORY_SNAPSHOT_LIMIT_MB),
-            "--max-matches",
-            "500000",
-            "--inspect-radius",
-            "0x800",
-            "--max-seconds",
-            "45",
-        ]
-        code = run_subprocess(fast_cmd, timeout=90)
-        if code == 0 and session_report.exists():
-            session = json.loads(session_report.read_text(encoding="utf-8"))
-            if session.get("refused"):
-                reason = str(session.get("refusal_reason") or "KFPS could not verify this live vinyl safely.")
-                log(reason)
-                raise RuntimeError(reason)
-            if str(session.get("layer_count", "")) == str(template_count):
-                if purpose.startswith("import"):
-                    table_value = session.get("import_table_address")
-                    count_value = session.get("import_count_address")
-                    group_value = session.get("import_group_address")
-                    import_target_verified = session.get("import_target_verified") is True
-                    import_vector_count = int(session.get("import_vector_count") or 0)
-                else:
-                    table_value = session.get("table_address")
-                    count_value = session.get("count_address")
-                    group_value = session.get("group_address")
-                    import_target_verified = True
-                    import_vector_count = template_count
-                template_ok, template_detail = session_matches_import_template(
-                    session,
-                    game,
-                    template_count,
-                ) if purpose.startswith("import") else (True, "")
-                ownership_ok = True
-                if adapter.locator.require_live_export_ownership and session.get("export_access_verified") is not True:
-                    ownership_ok = False
-                    template_ok = False
-                    log(
-                        f"Rejected located {adapter.short_label} group: the complete live vinyl hierarchy "
-                        "was not ownership-verified."
-                    )
-                if not template_ok and template_detail:
-                    log(f"Rejected located {game.upper()} import group: {template_detail}.")
-                if purpose.startswith("import") and ownership_ok and (
-                    not import_target_verified or import_vector_count != int(template_count)
-                ):
-                    template_ok = False
-                    log(
-                        f"Rejected located {game.upper()} import group: no single verified "
-                        f"{template_count}-layer template table was found."
-                    )
-                if template_ok and table_value and (group_value or count_value):
-                    table = f"0x{int(table_value):x}" if isinstance(table_value, int) else str(table_value)
-                    if group_value:
-                        group = f"0x{int(group_value):x}" if isinstance(group_value, int) else str(group_value)
-                    else:
-                        raw_count = int(count_value) if isinstance(count_value, int) else int(str(count_value), 0)
-                        group = f"0x{raw_count - 0x5A:x}"
-                    detail = f", {template_detail}" if template_detail else ""
-                    log(f"{game.upper()} group fast-located and validated for {template_count} layer(s){detail}.")
-        if group and table:
-            return group, table, session_report
-        if isinstance(session, dict) and session.get("authoritative_no_match"):
-            reason = str(
-                session.get("failure_reason")
-                or f"A complete exact-RTTI scan did not find the requested live {adapter.short_label} group."
-            )
-            log(reason)
-            raise RuntimeError(reason)
-        if not adapter.locator.allow_research_fallback:
-            reason = f"No ownership-verified live {adapter.short_label} vinyl group was found. No memory was written."
-            if isinstance(session, dict):
-                reason = str(session.get("failure_reason") or reason)
-            log(reason)
-            raise RuntimeError(reason)
-        log("Fast locate did not produce a usable group/table. Falling back to research scanner.")
-    else:
-        log("Universal import/export uses the research scanner so grouped vinyl child tables can be found safely.")
-    probe_cmd = [
+    operation = "import" if purpose.startswith("import") else "export"
+    session_report = run_dir / "locator-session.json"
+    log(f"Locating and validating the open {adapter.short_label} vinyl through locator engine v1...")
+    locator_cmd = [
         sys.executable,
-        ROOT / "fh6_group1000_probe.py",
+        "-m",
+        "live_memory_locator",
+        "--root",
+        ROOT,
+        "--game",
+        game,
         "--pid",
         str(pid),
-        "--count",
+        "--layer-count",
         str(template_count),
-        "--max-seconds",
+        "--purpose",
+        operation,
+        "--output",
+        session_report,
+        "--limit-mb",
+        str(MEMORY_SNAPSHOT_LIMIT_MB),
+        "--max-matches",
+        "500000",
+        "--inspect-radius",
+        "0x800",
+        "--fast-seconds",
+        "45",
+        "--research-seconds",
         "90",
-        "--report-layers",
-        "40",
-        "--out-dir",
-        run_dir,
     ]
-    code = run_subprocess(probe_cmd, timeout=140)
-    if code != 0:
-        raise RuntimeError("template probe did not complete")
-    probe_files = sorted(run_dir.glob(f"fh6-group{template_count}-probe-*.json"), key=lambda path: path.stat().st_mtime)
-    if not probe_files:
-        raise RuntimeError("template probe report was not created")
-    probe_files[-1].replace(probe_report)
-    probe = json.loads(probe_report.read_text(encoding="utf-8"))
-    candidates = probe.get("candidates") or []
-    if not candidates:
-        raise RuntimeError(f"no matching loaded {game.upper()} group was found")
+    exit_code = run_subprocess(locator_cmd, timeout=180)
+    if not session_report.is_file():
+        raise RuntimeError(f"locator engine exited with code {exit_code} without writing diagnostics")
+    session = read_diagnostic(session_report)
+    request = session.get("request") or {}
+    if (
+        session.get("schema") != DIAGNOSTIC_SCHEMA
+        or str(request.get("game") or "").lower() != adapter.bridge_key
+        or int(request.get("pid") or 0) != int(pid)
+        or int(request.get("layer_count") or 0) != int(template_count)
+        or str(request.get("purpose") or "") != operation
+    ):
+        raise RuntimeError("locator diagnostic does not match the current transfer request")
 
-    requires_fresh_circle_template = purpose.startswith("import")
-    min_circle_count = int(template_count * 0.90) if requires_fresh_circle_template else 0
+    outcome = session.get("outcome") or {}
+    status = str(outcome.get("status") or "error")
+    reason = str(outcome.get("reason") or "The live-memory locator did not return a usable result.")
+    if status != "located":
+        log(reason)
+        raise RuntimeError(reason)
+    if outcome.get("authoritative") is not True:
+        raise RuntimeError("locator engine did not produce an authoritative result")
+    if exit_code != 0:
+        raise RuntimeError(f"locator engine reported success but exited with code {exit_code}")
 
-    def candidate_sample_ok(candidate):
-        return int(candidate.get("layer_ok_count") or candidate.get("sample_ok_count") or 0)
+    selected = session.get("selected") or {}
+    if operation == "import":
+        group_value = selected.get("import_group_address")
+        table_value = selected.get("import_table_address")
+        verified = selected.get("import_target_verified") is True
+    else:
+        group_value = selected.get("group_address")
+        table_value = selected.get("table_address")
+        verified = True
+    if not verified or not group_value or not table_value:
+        raise RuntimeError("locator result did not contain the verified addresses required for this transfer")
 
-    def candidate_sort_key(candidate):
-        valid_ptrs = int(candidate.get("valid_ptrs") or 0)
-        invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, template_count - valid_ptrs))
-        duplicate_ptrs = int(candidate.get("duplicate_ptr_count") or 0)
-        sample_ok = candidate_sample_ok(candidate)
-        exact_table = int(valid_ptrs == template_count and invalid_ptrs == 0)
-        exact_decoded = int(exact_table and sample_ok == template_count and duplicate_ptrs == 0)
-        vector_bonus = int(candidate.get("vector_ok") is True)
-        source_bonus = 1 if candidate.get("source") == "vector_header" else 0
-        return (
-            int(candidate.get("strict_valid") is True),
-            exact_decoded,
-            exact_table,
-            valid_ptrs,
-            sample_ok,
-            -invalid_ptrs,
-            -duplicate_ptrs,
-            vector_bonus,
-            source_bonus,
-            int(candidate.get("score") or 0),
-        )
-
-    candidates = sorted(candidates, key=candidate_sort_key, reverse=True)
-
-    def shape_count(candidate, shape_byte):
-        counts = candidate.get("shape_id_counts_all") or {}
-        return int(counts.get(str(shape_byte)) or counts.get(shape_byte) or 0)
-
-    def candidate_rejection(candidate, valid_ptrs, sample_ok):
-        vector_ok = candidate.get("vector_ok")
-        vector_count = candidate.get("vector_count")
-        capacity_count = candidate.get("capacity_count")
-        duplicate_ptrs = int(candidate.get("duplicate_ptr_count") or 0)
-        if vector_ok is not True:
-            return "vector metadata invalid"
-        if vector_count is None or int(vector_count) != int(template_count):
-            return f"vector_count={vector_count}"
-        if capacity_count is None or int(capacity_count) < int(template_count):
-            return f"capacity_count={capacity_count}"
-        if valid_ptrs < template_count:
-            return f"valid_ptrs={valid_ptrs}"
-        invalid_ptrs = int(candidate.get("invalid_ptrs") or max(0, template_count - valid_ptrs))
-        if invalid_ptrs:
-            return f"invalid_ptrs={invalid_ptrs}"
-        if duplicate_ptrs:
-            return f"duplicate_ptrs={duplicate_ptrs}"
-        if sample_ok != template_count:
-            return f"decoded_layers={sample_ok}"
-        if requires_fresh_circle_template:
-            circle_count = shape_count(candidate, 102)
-            if circle_count < min_circle_count:
-                return f"circle_template_check={circle_count}/{template_count}"
-        return ""
-
-    rejected = []
-    selected = None
-    strong_candidates = []
-    for index, candidate in enumerate(candidates, start=1):
-        group = candidate.get("group")
-        table = candidate.get("table")
-        valid_ptrs = int(candidate.get("valid_ptrs") or 0)
-        sample_ok = candidate_sample_ok(candidate)
-        rejection = candidate_rejection(candidate, valid_ptrs, sample_ok)
-        if group and table and not rejection:
-            strong_candidates.append((index, candidate))
-            selected = (index, group, table, valid_ptrs, sample_ok, shape_count(candidate, 102))
-            break
-        rejected.append(f"#{index}: {rejection or 'missing group/table'}")
-    if purpose.startswith("export"):
-        strong_candidates = []
-        for index, candidate in enumerate(candidates, start=1):
-            group = candidate.get("group")
-            table = candidate.get("table")
-            valid_ptrs = int(candidate.get("valid_ptrs") or 0)
-            sample_ok = candidate_sample_ok(candidate)
-            rejection = candidate_rejection(candidate, valid_ptrs, sample_ok)
-            if group and table and not rejection:
-                strong_candidates.append((index, candidate))
-        if strong_candidates and selected is None:
-            index, candidate = strong_candidates[0]
-            selected = (
-                index,
-                candidate.get("group"),
-                candidate.get("table"),
-                int(candidate.get("valid_ptrs") or 0),
-                candidate_sample_ok(candidate),
-                shape_count(candidate, 102),
-            )
-
-    if not selected:
-        detail = "; ".join(rejected[:5]) if rejected else "no candidates"
-        if requires_fresh_circle_template:
-            raise RuntimeError(
-                f"no safe fresh {game.upper()} import template was found. Load the saved/reopened 3000-layer plain white "
-                f"circle template, stay in the Vinyl Group Editor, and import only once per fresh template ({detail})"
-            )
-        raise RuntimeError(f"located group did not validate strongly enough ({detail})")
-
-    index, group, table, valid_ptrs, sample_ok, circle_count = selected
-    if index > 1:
-        log(f"Skipped {index - 1} weaker fallback candidate(s).")
-    circle_suffix = f", circle_template={circle_count}/{template_count}" if requires_fresh_circle_template else ""
-    log(f"{game.upper()} group fallback-located and validated: layers={template_count}, validated={valid_ptrs}, sample_ok={sample_ok}{circle_suffix}")
-    return group, table, probe_report
+    group = address_text(int(group_value))
+    table = address_text(int(table_value))
+    log(
+        f"{adapter.short_label} group located and validated for {template_count} layer(s) "
+        f"with {selected.get('locator') or 'the versioned locator engine'}."
+    )
+    return group, table, session_report
 
 
 def copy_export_to_exported_folder(export_json):
@@ -413,9 +260,7 @@ def run_import(args):
         raise RuntimeError(f"import JSON has too many visible shapes: JSON={shape_count}, template={args.layer_count}")
 
     pid = args.pid or find_game_pid(args.game)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = UNIVERSAL_IMPORT_ROOT / f"{json_path.stem}-{timestamp}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = create_transfer_run_dir(args.game, "import", args.layer_count)
     import_backup = run_dir / "import-backup.json"
     import_report = run_dir / "import-report.json"
     trim_backup = run_dir / "trim-backup.json"
@@ -488,11 +333,16 @@ def run_export(args):
     if args.layer_count <= 0:
         raise RuntimeError("loaded group layer count must be greater than zero")
     pid = args.pid or find_game_pid(args.game)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = UNIVERSAL_IMPORT_ROOT / f"export-current-group-{args.layer_count}-{timestamp}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    export_json = run_dir / f"{args.game}-current-group-{args.layer_count}-{timestamp}.json"
-    export_report = run_dir / f"{args.game}-current-group-{args.layer_count}-{timestamp}.report.json"
+    moment = datetime.now()
+    timestamp = moment.strftime("%Y%m%d-%H%M%S")
+    run_dir = create_transfer_run_dir(
+        args.game,
+        "export",
+        args.layer_count,
+        moment=moment,
+    )
+    export_json = run_dir / f"{adapter.key}-current-group-{args.layer_count}-{timestamp}.json"
+    export_report = run_dir / f"{adapter.key}-current-group-{args.layer_count}-{timestamp}.report.json"
 
     log(f"Universal export run folder: {run_dir}")
     log(f"Target game: {args.game.upper()}")

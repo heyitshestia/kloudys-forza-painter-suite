@@ -15,6 +15,12 @@ import psutil
 from fh6_live_group_policy import LIVE_OWNERSHIP_GAMES, assess_group_tree, minimum_header_size
 from game_profiles import PROFILES, get_profile
 from fh6_rtti_registry import load_runtime_profiles
+from live_memory_locator.cache import (
+    LocatorCache,
+    allocator_window_for_address as cached_allocator_window_for_address,
+    normalize_allocator_windows as normalize_cached_allocator_windows,
+)
+from live_memory_locator.diagnostics import write_backend_diagnostic
 from native import (
     dereference_pointer,
     get_base_address,
@@ -55,8 +61,12 @@ FH6_GROUP_ARENA_MIN_SIZE = 8 * 1024 * 1024
 FH6_GROUP_ARENA_MAX_SIZE = 16 * 1024 * 1024
 FH6_DEFAULT_ALLOCATOR_WINDOWS = ((0x270000000, 0x280000000),)
 FH6_DISCOVERED_ALLOCATOR_WINDOW_SIZE = 0x10000000
-FH6_LOCATOR_CACHE_FORMAT = "kfps_fh6_allocator_cache_v2"
-FH6_LOCATOR_CACHE_PATH = ROOT / "runtime" / "fh6-rtti" / "live-locator-cache.json"
+FM8_DEFAULT_ROOT_ARENA_WINDOWS = (
+    (0x80000000, 0x90000000),
+    (0x100000000, 0x110000000),
+)
+FH6_LOCATOR_CACHE_PATH = ROOT / "runtime" / "live-memory" / "locator-cache.json"
+FH6_LEGACY_LOCATOR_CACHE_PATH = ROOT / "runtime" / "fh6-rtti" / "live-locator-cache.json"
 LAST_LOCATOR_DIAGNOSTICS = {}
 
 
@@ -84,31 +94,11 @@ def runtime_diagnostic_identity():
 
 
 def normalize_allocator_windows(values, limit=8):
-    windows = []
-    for value in values or []:
-        try:
-            start, end = (int(item) for item in value)
-        except (TypeError, ValueError):
-            continue
-        if start < 0x10000 or end <= start or end > 0x800000000000:
-            continue
-        if end - start > 0x100000000:
-            continue
-        windows.append((start, end))
-    windows.sort()
-    merged = []
-    for start, end in windows:
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged if limit is None else merged[: max(0, int(limit))]
+    return normalize_cached_allocator_windows(values, limit=limit)
 
 
 def allocator_window_for_address(address):
-    size = FH6_DISCOVERED_ALLOCATOR_WINDOW_SIZE
-    start = int(address) & ~(size - 1)
-    return start, start + size
+    return cached_allocator_window_for_address(address, FH6_DISCOVERED_ALLOCATOR_WINDOW_SIZE)
 
 
 def load_fh6_allocator_cache(rtti):
@@ -116,19 +106,8 @@ def load_fh6_allocator_cache(rtti):
     profile_id = str(rtti.get("profile_id") or "").strip()
     if not profile_id:
         return empty
-    try:
-        raw = json.loads(FH6_LOCATOR_CACHE_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return empty
-    if not isinstance(raw, dict) or raw.get("format") != FH6_LOCATOR_CACHE_FORMAT:
-        return empty
-    profiles = raw.get("profiles")
-    profile_cache = profiles.get(profile_id) if isinstance(profiles, dict) else None
-    if not isinstance(profile_cache, dict):
-        return empty
-    return {
-        "windows": normalize_allocator_windows(profile_cache.get("allocator_windows")),
-    }
+    cache = LocatorCache(FH6_LOCATOR_CACHE_PATH, legacy_path=FH6_LEGACY_LOCATOR_CACHE_PATH)
+    return {"windows": cache.allocator_windows(profile_id)}
 
 
 def save_fh6_allocator_cache(rtti, allocator_windows):
@@ -136,36 +115,63 @@ def save_fh6_allocator_cache(rtti, allocator_windows):
     if not profile_id:
         return
     try:
-        raw = json.loads(FH6_LOCATOR_CACHE_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        raw = {}
-    if not isinstance(raw, dict) or raw.get("format") != FH6_LOCATOR_CACHE_FORMAT:
-        raw = {"format": FH6_LOCATOR_CACHE_FORMAT, "profiles": {}}
-    profiles = raw.setdefault("profiles", {})
-    if not isinstance(profiles, dict):
-        profiles = {}
-        raw["profiles"] = profiles
-    windows = normalize_allocator_windows(allocator_windows)
-    profiles[profile_id] = {
-        "allocator_windows": [[start, end] for start, end in windows],
-        "updated": time.time(),
-    }
-    if len(profiles) > 16:
-        ordered = sorted(
-            profiles.items(),
-            key=lambda item: float(item[1].get("updated") or 0.0) if isinstance(item[1], dict) else 0.0,
-            reverse=True,
+        LocatorCache(
+            FH6_LOCATOR_CACHE_PATH,
+            legacy_path=FH6_LEGACY_LOCATOR_CACHE_PATH,
+        ).update_allocator_windows(
+            "fh6",
+            profile_id,
+            allocator_windows,
         )
-        raw["profiles"] = dict(ordered[:16])
-    try:
-        FH6_LOCATOR_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temporary = FH6_LOCATOR_CACHE_PATH.with_name(
-            f".{FH6_LOCATOR_CACHE_PATH.name}.{time.time_ns()}.tmp"
-        )
-        temporary.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
-        temporary.replace(FH6_LOCATOR_CACHE_PATH)
     except OSError:
         pass
+
+
+def fm8_allocator_cache_profile_id(rtti):
+    profile_id = str(rtti.get("profile_id") or "").strip()
+    if profile_id:
+        return profile_id
+    update_code = str(rtti.get("update_code") or "").strip()
+    descriptor_offset = rtti.get("descriptor_offset")
+    if not update_code and descriptor_offset is None:
+        return ""
+    return f"fm8:{update_code}:{descriptor_offset}"
+
+
+def load_fm8_allocator_cache(rtti):
+    profile_id = fm8_allocator_cache_profile_id(rtti)
+    if not profile_id:
+        return {"windows": []}
+    cache = LocatorCache(FH6_LOCATOR_CACHE_PATH, legacy_path=FH6_LEGACY_LOCATOR_CACHE_PATH)
+    return {"windows": cache.allocator_windows(profile_id)}
+
+
+def save_fm8_allocator_cache(rtti, allocator_windows):
+    profile_id = fm8_allocator_cache_profile_id(rtti)
+    if not profile_id:
+        return
+    try:
+        LocatorCache(
+            FH6_LOCATOR_CACHE_PATH,
+            legacy_path=FH6_LEGACY_LOCATOR_CACHE_PATH,
+        ).update_allocator_windows(
+            "fm8",
+            profile_id,
+            allocator_windows,
+        )
+    except OSError:
+        pass
+
+
+def remember_fm8_group_window(profile, rtti, group_address):
+    if profile.key != "fm" or not group_address:
+        return
+    cached_windows = load_fm8_allocator_cache(rtti).get("windows") or []
+    discovered_window = allocator_window_for_address(group_address)
+    save_fm8_allocator_cache(
+        rtti,
+        normalize_allocator_windows([*cached_windows, discovered_window]),
+    )
 
 
 class MEMORY_BASIC_INFORMATION(ctypes.Structure):
@@ -1512,6 +1518,7 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
                 writable_contains=writable_contains,
             )
             if access is not None and not access.allowed:
+                remember_fm8_group_window(profile, rtti, group_address)
                 raise LocatorRefused(
                     access.reason,
                     {"matched_group_count": 1, "access_status": access.status},
@@ -2474,6 +2481,13 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         print("FH6 group resolved from the dedicated livery allocator.", flush=True)
         return [winner]
 
+    if refusals:
+        refusal = refusals[0]
+        raise LocatorRefused(
+            refusal.reason,
+            {"matched_group_count": len(refusals), "access_status": refusal.status},
+        )
+
     print(
         "The active group was not in a known allocator window. Running one complete exact-RTTI recovery scan.",
         flush=True,
@@ -2579,52 +2593,62 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
 
 
 def locate_fm8_clivery_group_by_root_arena(pid, profile, layer_count, rtti):
-    """Resolve an FM8 editor root from its compact low-address object arena."""
+    """Resolve an FM8 editor root from its verified low/high object arenas."""
     all_regions = list(iter_regions(pid, type_filter=MEM_PRIVATE, writable_only=True))
-    arena_regions = regions_in_allocator_windows(all_regions, [(0x10000, 0x100000000)])
-    if not arena_regions:
-        return []
-    print(
-        f"Searching the FM8 live vinyl root arena "
-        f"({sum(region[1] for region in arena_regions) // (1024 * 1024)} MB committed).",
-        flush=True,
+    cached_windows = load_fm8_allocator_cache(rtti).get("windows") or []
+    fast_windows = normalize_allocator_windows(
+        [*FM8_DEFAULT_ROOT_ARENA_WINDOWS, *cached_windows]
     )
-    candidates, refusals, stats = scan_exact_calibrated_vtables(
-        pid,
-        profile,
-        layer_count,
-        rtti,
-        all_regions,
-        arena_regions,
-        diagnostic_name="fm8_root_arena",
-        locator_kind="fm8_rtti_root_arena",
-        progress_mb=256,
-    )
-    candidates, refusals = finish_incomplete_exact_scan(
-        pid,
-        profile,
-        layer_count,
-        rtti,
-        all_regions,
-        candidates,
-        refusals,
-        stats,
-        diagnostic_name="fm8_root_arena_retry",
-        locator_kind="fm8_rtti_root_arena_retry",
-    )
-    if refusals:
-        refusal = refusals[0]
-        raise LocatorRefused(
-            refusal.reason,
-            {
-                "matched_group_count": len(candidates) + len(refusals),
-                "access_status": refusal.status,
-            },
+
+    def scan_windows(windows, diagnostic_name, locator_kind):
+        arena_regions = regions_in_allocator_windows(all_regions, windows)
+        if not arena_regions:
+            return None
+        print(
+            f"Searching the FM8 live vinyl root arena "
+            f"({sum(region[1] for region in arena_regions) // (1024 * 1024)} MB committed).",
+            flush=True,
         )
-    winner = select_exact_calibrated_candidate(candidates, game_label=profile.label)
-    if not winner:
+        candidates, refusals, stats = scan_exact_calibrated_vtables(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            all_regions,
+            arena_regions,
+            diagnostic_name=diagnostic_name,
+            locator_kind=locator_kind,
+            progress_mb=256,
+            coverage_windows=windows,
+        )
+        candidates, refusals = finish_incomplete_exact_scan(
+            pid,
+            profile,
+            layer_count,
+            rtti,
+            all_regions,
+            candidates,
+            refusals,
+            stats,
+            diagnostic_name=f"{diagnostic_name}_retry",
+            locator_kind=f"{locator_kind}_retry",
+        )
+        if refusals:
+            refusal = refusals[0]
+            raise LocatorRefused(
+                refusal.reason,
+                {
+                    "matched_group_count": len(candidates) + len(refusals),
+                    "access_status": refusal.status,
+                },
+            )
+        return select_exact_calibrated_candidate(candidates, game_label=profile.label)
+
+    winner = scan_windows(fast_windows, "fm8_root_arena", "fm8_rtti_root_arena")
+    if winner is None:
         return []
-    print("FM8 group resolved from the dedicated live vinyl root arena.", flush=True)
+    remember_fm8_group_window(profile, rtti, winner["group_address"])
+    print("FM8 group resolved from a verified live vinyl root arena.", flush=True)
     return [winner]
 
 
@@ -2689,6 +2713,7 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
                     writable_contains=writable_contains,
                 )
                 if access is not None and not access.allowed:
+                    remember_fm8_group_window(profile, rtti, group_address)
                     raise LocatorRefused(
                         access.reason,
                         {"matched_group_count": 1, "access_status": access.status},
@@ -2832,6 +2857,7 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
             max_seconds=20,
         )
         if groups:
+            remember_fm8_group_window(profile, rtti, groups[0]["group_address"])
             return groups[:FH6_LOCATOR_CANDIDATE_CAP]
         groups = locate_clivery_groups_by_calibrated_flattened(
             pid,
@@ -2840,6 +2866,8 @@ def locate_clivery_groups_by_rtti(pid, profile, layer_count):
             rtti,
             max_seconds=18,
         )
+        if groups:
+            remember_fm8_group_window(profile, rtti, groups[0]["group_address"])
         return groups[:FH6_LOCATOR_CANDIDATE_CAP]
 
     groups = []
@@ -2970,7 +2998,18 @@ def serialize_samples(samples):
     return result
 
 
-def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, progress_every, radius, output_path=None, max_seconds=None):
+def auto_locate_count_table(
+    pid,
+    profile,
+    layer_count,
+    limit_mb,
+    max_matches,
+    progress_every,
+    radius,
+    output_path=None,
+    max_seconds=None,
+    return_failure_payload=False,
+):
     game_name = str(getattr(profile, "key", "FH6")).upper()
     LAST_LOCATOR_DIAGNOSTICS.clear()
     print(f"Process: {psutil.Process(pid).name()} detected.")
@@ -3006,9 +3045,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
         }
         print(str(exc), flush=True)
         if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
+            write_backend_diagnostic(output_path, payload, root=ROOT)
             print(f"Wrote {game_name} session location to {output_path}")
         return payload
     if fast_groups:
@@ -3086,9 +3123,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "samples": serialize_samples(winner["samples"]),
         }
         if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
+            write_backend_diagnostic(output_path, payload, root=ROOT)
             print(f"Wrote {game_name} session location to {output_path}")
         return payload
 
@@ -3115,11 +3150,9 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
         }
         if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
+            write_backend_diagnostic(output_path, payload, root=ROOT)
             print(f"Wrote {game_name} session location to {output_path}")
-        return None
+        return payload if return_failure_payload else None
 
     if profile.key == "fh6":
         print(f"No safe {game_name} layer group found by the fast layout locator. Trying slower count/table fallback before giving up.")
@@ -3241,11 +3274,9 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
             "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
         }
         if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2)
+            write_backend_diagnostic(output_path, payload, root=ROOT)
             print(f"Wrote {game_name} session location to {output_path}")
-        return None
+        return payload if return_failure_payload else None
 
     winner = best[0]
     payload = {
@@ -3266,9 +3297,7 @@ def auto_locate_count_table(pid, profile, layer_count, limit_mb, max_matches, pr
         "samples": serialize_samples(winner["samples"]),
     }
     if output_path:
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
+        write_backend_diagnostic(output_path, payload, root=ROOT)
         print(f"Wrote FH6 session location to {output_path}")
     return payload
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 import sys
 import tempfile
@@ -29,6 +30,7 @@ from tools.cgroup.forza_source_decoder import (  # noqa: E402
 )
 sys.path.insert(0, str(ROOT / "KFPS.UI" / "bridges"))
 import transfer_bridge  # noqa: E402
+from live_memory_locator import DIAGNOSTIC_SCHEMA  # noqa: E402
 
 
 def policy_header(state: int = 0, *, game: str = "fh6") -> bytes:
@@ -36,6 +38,42 @@ def policy_header(state: int = 0, *, game: str = "fh6") -> bytes:
     raw = bytearray(size)
     struct.pack_into("<I", raw, size - 4, state)
     return bytes(raw)
+
+
+def write_engine_report(command, *, status, reason="", selected=None):
+    command = [str(item) for item in command]
+    output = Path(command[command.index("--output") + 1])
+    game = command[command.index("--game") + 1]
+    pid = int(command[command.index("--pid") + 1])
+    count = int(command[command.index("--layer-count") + 1])
+    purpose = command[command.index("--purpose") + 1]
+    if isinstance(selected, dict):
+        selected = {
+            "validated_entries": count,
+            "vector_count": count,
+            "capacity_count": count,
+            **selected,
+        }
+        if purpose == "import":
+            selected.setdefault("import_vector_count", count)
+            selected.setdefault("import_capacity_count", count)
+    output.write_text(
+        json.dumps(
+            {
+                "schema": DIAGNOSTIC_SCHEMA,
+                "outcome": {"status": status, "reason": reason, "authoritative": True},
+                "request": {
+                    "game": game,
+                    "pid": pid,
+                    "layer_count": count,
+                    "purpose": purpose,
+                },
+                "selected": selected,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {"located": 0, "refused": 2, "no_match": 3, "error": 4}[status]
 
 
 class Fh6LiveGroupPolicyTests(unittest.TestCase):
@@ -193,25 +231,27 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
-                session = Path(command[command.index("--write-session") + 1])
-                session.write_text(
-                    '{"type":"fh6_session_location_v1","layer_count":3,'
-                    '"group_address":4096,"table_address":4352,"flattened_from_groups":true,'
-                    '"import_group_address":8192,"import_count_address":8282,'
-                    '"import_table_address":8448,"import_vector_count":3,'
-                    '"import_target_verified":true,"shape_word_counts":{"102":3}}',
-                    encoding="utf-8",
+                return write_engine_report(
+                    command,
+                    status="located",
+                    selected={
+                        "group_address": 0x10000,
+                        "table_address": 0x11000,
+                        "flattened_from_groups": True,
+                        "import_group_address": 0x20000,
+                        "import_table_address": 0x21000,
+                        "import_target_verified": True,
+                        "locator": "rtti_allocator_exact",
+                    },
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 group, table, _report = transfer_bridge.locate_universal_template(
                     "fh6", 123, 3, run_dir, "import-template"
                 )
 
-        self.assertEqual("0x2000", group)
-        self.assertEqual("0x2100", table)
+        self.assertEqual("0x20000", group)
+        self.assertEqual("0x21000", table)
 
     def test_header_states_fail_closed(self):
         self.assertEqual("clear", classify_group_header(policy_header(0)))
@@ -293,6 +333,7 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         candidate = {"group_address": 0x81000000, "score": 10}
         regions = [
             (0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
+            (0x10E000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
             (0x140000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
         ]
         stats = {"complete": True, "failed_regions": []}
@@ -314,7 +355,54 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
         self.assertEqual([candidate], located)
         scanned_regions = scan.call_args.args[5]
-        self.assertEqual([(0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE)], scanned_regions)
+        self.assertEqual(
+            [
+                (0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
+                (0x10E000000, 0x200000, 0, fh6_probe.MEM_PRIVATE),
+            ],
+            scanned_regions,
+        )
+
+    def test_fm8_known_arena_miss_does_not_scan_the_entire_low_address_space(self):
+        profile = fh6_probe.get_profile("fm")
+        regions = [(0x80000000, 0x200000, 0, fh6_probe.MEM_PRIVATE)]
+        stats = {"complete": True, "failed_regions": []}
+        with patch.object(fh6_probe, "iter_regions", return_value=regions), patch.object(
+            fh6_probe,
+            "scan_exact_calibrated_vtables",
+            return_value=([], [], stats),
+        ) as scan, patch.object(
+            fh6_probe,
+            "finish_incomplete_exact_scan",
+            return_value=([], []),
+        ):
+            located = fh6_probe.locate_fm8_clivery_group_by_root_arena(
+                99,
+                profile,
+                500,
+                {"vtables": [0xAA]},
+            )
+
+        self.assertEqual([], located)
+        scan.assert_called_once()
+
+    def test_fm8_discovered_window_is_merged_into_profile_cache(self):
+        profile = fh6_probe.get_profile("fm")
+        rtti = {"profile_id": "fm8-test-profile"}
+        with patch.object(
+            fh6_probe,
+            "load_fm8_allocator_cache",
+            return_value={"windows": [(0x80000000, 0x90000000)]},
+        ), patch.object(fh6_probe, "save_fm8_allocator_cache") as save:
+            fh6_probe.remember_fm8_group_window(profile, rtti, 0x10EDF1C00)
+
+        save.assert_called_once_with(
+            rtti,
+            [
+                (0x80000000, 0x90000000),
+                (0x100000000, 0x110000000),
+            ],
+        )
 
     def test_fm8_unverified_fast_session_never_uses_research_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -323,15 +411,12 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
                 calls.append(command)
-                session = Path(command[command.index("--write-session") + 1])
-                session.write_text(
-                    '{"type":"fh6_session_location_v1","game":"fm","layer_count":65,'
-                    '"no_match":true,"failure_reason":"No verified FM8 group matched."}',
-                    encoding="utf-8",
+                return write_engine_report(
+                    command,
+                    status="no_match",
+                    reason="No verified FM8 group matched.",
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 with self.assertRaisesRegex(RuntimeError, "No verified FM8 group matched"):
@@ -400,6 +485,28 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
             )
             self.assertFalse(restricted.allowed)
             self.assertEqual("restricted", restricted.status)
+
+    def test_fh5_nested_layout_flag_preserves_owned_and_restricted_states(self):
+        children = {1: (2,), 2: ()}
+        clear = assess_group_tree(
+            1,
+            {1: policy_header(), 2: policy_header(0x30)}.__getitem__,
+            children.__getitem__,
+            game="fh5",
+            allow_transformed_child_state=True,
+        )
+        self.assertTrue(clear.allowed)
+        self.assertEqual("clear", clear.status)
+
+        restricted = assess_group_tree(
+            1,
+            {1: policy_header(), 2: policy_header(0x31)}.__getitem__,
+            children.__getitem__,
+            game="fh5",
+            allow_transformed_child_state=True,
+        )
+        self.assertFalse(restricted.allowed)
+        self.assertEqual("restricted", restricted.status)
 
     def test_restricted_nested_child_blocks_clear_root(self):
         headers = {0x1000: policy_header(), 0x2000: policy_header(0x21)}
@@ -577,38 +684,35 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
         self.assertAlmostEqual(15.0, child_origin[0], places=5)
         self.assertAlmostEqual(20.0, child_origin[1], places=5)
 
-    def test_fallback_locator_returns_its_own_report_when_fast_locator_has_no_match(self):
+    def test_locator_bridge_uses_one_canonical_report_for_research_success(self):
         with tempfile.TemporaryDirectory() as temp:
             run_dir = Path(temp)
+            calls = []
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
-                if any(item.endswith("fh6_probe.py") for item in command):
-                    session = Path(command[command.index("--write-session") + 1])
-                    session.write_text(
-                        '{"type":"fh6_session_location_v1","layer_count":8}',
-                        encoding="utf-8",
-                    )
-                    return 0
-                report = run_dir / "fh6-group8-probe-test.json"
-                report.write_text(
-                    '{"count":8,"candidates":[{"group":"0x1000","table":"0x2000",'
-                    '"valid_ptrs":8,"invalid_ptrs":0,"layer_ok_count":8,"vector_ok":true,'
-                    '"vector_count":8,"capacity_count":8,"score":100}]}',
-                    encoding="utf-8",
+                calls.append(command)
+                return write_engine_report(
+                    command,
+                    status="located",
+                    selected={
+                        "group_address": 0x10000,
+                        "table_address": 0x20000,
+                        "locator": "research_count_header",
+                    },
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 group, table, report = transfer_bridge.locate_universal_template(
                     "fh6", 123, 8, run_dir, "export-template"
                 )
 
-            self.assertEqual("0x1000", group)
-            self.assertEqual("0x2000", table)
-            self.assertEqual(run_dir / "fallback-export-template-probe.json", report)
+            self.assertEqual("0x10000", group)
+            self.assertEqual("0x20000", table)
+            self.assertEqual(run_dir / "locator-session.json", report)
             self.assertTrue(report.exists())
+            self.assertEqual(1, len(calls))
+            self.assertIn("live_memory_locator", [str(item) for item in calls[0]])
 
     def test_fallback_locator_rejects_duplicate_vector_invalid_candidate(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -616,22 +720,11 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
-                if any(item.endswith("fh6_probe.py") for item in command):
-                    session = Path(command[command.index("--write-session") + 1])
-                    session.write_text(
-                        '{"type":"fh6_session_location_v1","layer_count":100,"no_match":true}',
-                        encoding="utf-8",
-                    )
-                    return 0
-                report = run_dir / "fh6-group100-probe-test.json"
-                report.write_text(
-                    '{"count":100,"candidates":[{"group":"0x4badf5fa7","table":"0x601000",'
-                    '"valid_ptrs":100,"invalid_ptrs":0,"duplicate_ptr_count":87,"layer_ok_count":98,'
-                    '"vector_ok":false,"vector_count":-786944,"capacity_count":512,"score":99152}]}',
-                    encoding="utf-8",
+                return write_engine_report(
+                    command,
+                    status="no_match",
+                    reason="#1: vector metadata invalid",
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 with self.assertRaisesRegex(RuntimeError, "vector metadata invalid"):
@@ -646,15 +739,12 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
                 calls.append(command)
-                session = Path(command[command.index("--write-session") + 1])
-                session.write_text(
-                    '{"type":"fh6_session_location_v1","layer_count":8,"refused":true,'
-                    '"refusal_reason":"Export refused: this vinyl contains content that is not owned by the current profile."}',
-                    encoding="utf-8",
+                return write_engine_report(
+                    command,
+                    status="refused",
+                    reason="Export refused: this vinyl contains content that is not owned by the current profile.",
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 with self.assertRaisesRegex(RuntimeError, "not owned"):
@@ -670,16 +760,12 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             def fake_subprocess(command, timeout=None):
                 del timeout
-                command = [str(item) for item in command]
                 calls.append(command)
-                session = Path(command[command.index("--write-session") + 1])
-                session.write_text(
-                    '{"type":"fh6_session_location_v1","layer_count":82,'
-                    '"no_match":true,"authoritative_no_match":true,'
-                    '"failure_reason":"Exact RTTI coverage found no open 82-layer group."}',
-                    encoding="utf-8",
+                return write_engine_report(
+                    command,
+                    status="no_match",
+                    reason="Exact RTTI coverage found no open 82-layer group.",
                 )
-                return 0
 
             with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
                 with self.assertRaisesRegex(RuntimeError, "Exact RTTI coverage"):
@@ -689,6 +775,83 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
 
             self.assertEqual(1, len(calls))
             self.assertFalse((run_dir / "fallback-export-template-probe.json").exists())
+
+    def test_locator_bridge_rejects_a_report_for_another_process(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                code = write_engine_report(
+                    command,
+                    status="located",
+                    selected={
+                        "group_address": 0x10000,
+                        "table_address": 0x20000,
+                        "locator": "rtti_allocator_exact",
+                    },
+                )
+                report = run_dir / "locator-session.json"
+                payload = json.loads(report.read_text(encoding="utf-8"))
+                payload["request"]["pid"] = 999
+                report.write_text(json.dumps(payload), encoding="utf-8")
+                return code
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "does not match"):
+                    transfer_bridge.locate_universal_template(
+                        "fh6", 123, 8, run_dir, "export-template"
+                    )
+
+    def test_locator_bridge_rejects_success_report_with_failed_exit_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                write_engine_report(
+                    command,
+                    status="located",
+                    selected={
+                        "group_address": 0x10000,
+                        "table_address": 0x20000,
+                        "locator": "rtti_allocator_exact",
+                    },
+                )
+                return 4
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "reported success but exited"):
+                    transfer_bridge.locate_universal_template(
+                        "fh6", 123, 8, run_dir, "export-template"
+                    )
+
+    def test_locator_bridge_rejects_non_authoritative_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+
+            def fake_subprocess(command, timeout=None):
+                del timeout
+                code = write_engine_report(
+                    command,
+                    status="located",
+                    selected={
+                        "group_address": 0x10000,
+                        "table_address": 0x20000,
+                        "locator": "rtti_allocator_exact",
+                    },
+                )
+                report = run_dir / "locator-session.json"
+                payload = json.loads(report.read_text(encoding="utf-8"))
+                payload["outcome"]["authoritative"] = False
+                report.write_text(json.dumps(payload), encoding="utf-8")
+                return code
+
+            with patch.object(transfer_bridge, "run_subprocess", side_effect=fake_subprocess):
+                with self.assertRaisesRegex(RuntimeError, "authoritative"):
+                    transfer_bridge.locate_universal_template(
+                        "fh6", 123, 8, run_dir, "export-template"
+                    )
 
 
 if __name__ == "__main__":

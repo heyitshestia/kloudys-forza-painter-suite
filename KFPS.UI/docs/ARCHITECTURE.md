@@ -69,6 +69,10 @@ Artwork and JSON:
 External workflows:
 
 - `TransferService`: online memory-transfer process ownership and log streaming.
+- The root `live_memory_locator` package is the sole production locator entry
+  point. It applies adapter-selected profile and research strategies, exact
+  validation, safe allocator/session hints, process-instance checks, and one
+  canonical diagnostic schema. See `LIVE_MEMORY_LOCATOR.md`.
 - `CgroupLibraryService`: offline library extraction and save-import orchestration.
 - The root `game_adapters` package declares per-game capabilities, store families,
   ownership policy, save discovery, locator strategy, and shape/schema targets for
@@ -131,6 +135,16 @@ minimum Windows rights for read-only or explicitly requested write operations,
 own one process handle, and close it deterministically. There is no module-global
 process handle. Probes must default to read-only and must not retain handles across
 operations.
+
+Live group location is orchestrated only by `live_memory_locator`. Low-level
+scanner modules remain read-only strategy implementations and compatibility CLIs;
+the transfer bridge must not launch or rank them independently. Persistent cache
+data may narrow allocator search windows but must never persist or trust raw live
+group/table pointers. A located export is still independently revalidated against
+the current hierarchy and ownership state before layer reads begin. Canonical
+results are retained under `runtime/live-memory/reports` with dated files, stable
+latest aliases, and a rebuildable index; this local archive is diagnostic evidence
+and is never consumed as authorization for a later transfer.
 
 ## Thread and process rules
 

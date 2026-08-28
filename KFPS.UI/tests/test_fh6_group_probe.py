@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 import fh6_group1000_probe as group_probe  # noqa: E402
 import fh6_probe  # noqa: E402
 from game_profiles import get_profile  # noqa: E402
+from live_memory_locator import DIAGNOSTIC_SCHEMA  # noqa: E402
 
 
 def candidate(**overrides):
@@ -351,6 +352,7 @@ class Fh6GroupProbeTests(unittest.TestCase):
 
             persisted = json.loads(output.read_text(encoding="utf-8"))
             self.assertIsNone(result)
+            self.assertEqual(DIAGNOSTIC_SCHEMA, persisted["schema"])
             self.assertTrue(persisted["no_match"])
             self.assertTrue(persisted["authoritative_no_match"])
             layout_locator.assert_not_called()
@@ -398,6 +400,40 @@ class Fh6GroupProbeTests(unittest.TestCase):
             fh6_probe.FH6_RECOVERY_PAGE_SIZE,
             retry.call_args.kwargs["minimum_read_size"],
         )
+
+    def test_known_allocator_ownership_refusal_skips_full_recovery(self):
+        region = (0x270000000, 0x1000, 0x04, fh6_probe.MEM_PRIVATE)
+        refusal = SimpleNamespace(
+            reason="Export refused: this vinyl contains content that is not owned.",
+            status="ownership_restricted",
+        )
+        stats = {
+            "complete": True,
+            "stopped_by": "complete",
+            "failed_regions": [],
+        }
+        with patch.object(
+            fh6_probe,
+            "iter_regions",
+            return_value=[region],
+        ), patch.object(
+            fh6_probe,
+            "load_fh6_allocator_cache",
+            return_value={"windows": [(0x270000000, 0x280000000)]},
+        ), patch.object(
+            fh6_probe,
+            "scan_exact_calibrated_vtables",
+            return_value=([], [refusal], stats),
+        ) as exact_scan:
+            with self.assertRaisesRegex(fh6_probe.LocatorRefused, "not owned"):
+                fh6_probe.locate_clivery_group_by_allocator(
+                    123,
+                    get_profile("fh6"),
+                    45,
+                    {"profile_id": "profile-test", "vtables": [0x140001000]},
+                )
+
+        exact_scan.assert_called_once()
 
     def test_rejects_the_observed_duplicate_vector_invalid_false_candidate(self):
         observed_false_match = candidate(
@@ -584,6 +620,7 @@ class Fh6GroupProbeTests(unittest.TestCase):
 
             persisted = json.loads(output.read_text(encoding="utf-8"))
             self.assertIsNone(result)
+            self.assertEqual(DIAGNOSTIC_SCHEMA, persisted["schema"])
             self.assertTrue(persisted["no_match"])
             self.assertFalse(persisted["refused"])
             self.assertIn("locator_diagnostics", persisted)

@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,12 +14,52 @@ sys.path.insert(0, str(ROOT))
 import fh6_probe  # noqa: E402
 import fh6_export_typecode_json  # noqa: E402
 import fh6_import_typecode_json  # noqa: E402
+from game_adapters import get_adapter  # noqa: E402
 from game_profiles import get_profile  # noqa: E402
+from live_memory_locator import LocatorRequest  # noqa: E402
+from live_memory_locator.validation import validate_fast_payload  # noqa: E402
 sys.path.insert(0, str(ROOT / "KFPS.UI" / "bridges"))
 import transfer_bridge  # noqa: E402
 
 
 class Fh4LiveTransferTests(unittest.TestCase):
+    def test_transfer_run_folders_use_the_target_game_and_operation(self):
+        moment = datetime(2026, 8, 28, 12, 34, 56)
+        expected = {
+            "fh4": "fh4-live-export-93-20260828-123456",
+            "fh5": "fh5-live-import-31-20260828-123456",
+            "fh6": "fh6-live-import-5-20260828-123456",
+            "fm": "fm8-live-export-65-20260828-123456",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for game, name in expected.items():
+                with self.subTest(game=game):
+                    operation = "export" if "export" in name else "import"
+                    count = int(name.split("-")[3])
+                    actual = transfer_bridge.create_transfer_run_dir(
+                        game,
+                        operation,
+                        count,
+                        root=root,
+                        moment=moment,
+                    )
+                    self.assertEqual(name, actual.name)
+
+    def test_transfer_run_folders_do_not_reuse_same_second_attempts(self):
+        moment = datetime(2026, 8, 28, 12, 34, 56)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = transfer_bridge.create_transfer_run_dir(
+                "fh5", "import", 5, root=root, moment=moment
+            )
+            second = transfer_bridge.create_transfer_run_dir(
+                "fh5", "import", 5, root=root, moment=moment
+            )
+
+        self.assertEqual("fh5-live-import-5-20260828-123456", first.name)
+        self.assertEqual("fh5-live-import-5-20260828-123456-02", second.name)
+
     def test_final_fh4_profile_has_verified_static_rtti(self):
         profile = get_profile("fh4")
         self.assertEqual(("ForzaHorizon4.exe",), profile.process_names)
@@ -84,20 +125,35 @@ class Fh4LiveTransferTests(unittest.TestCase):
         graph_scan.assert_not_called()
 
     def test_fh4_import_requires_a_mostly_plain_circle_template(self):
-        valid, detail = transfer_bridge.session_matches_import_template(
-            {"shape_word_counts": {"102": 3000}}, "fh4", 3000
-        )
-        self.assertTrue(valid)
-        self.assertIn("3000/3000", detail)
+        with tempfile.TemporaryDirectory() as temp:
+            request = LocatorRequest("fh4", 1, 3000, "import", Path(temp) / "report.json")
+            payload = {
+                "game": "fh4",
+                "layer_count": 3000,
+                "group_address": 0x100000000,
+                "table_address": 0x200000000,
+                "validated_entries": 3000,
+                "vector_count": 3000,
+                "capacity_count": 3000,
+                "import_group_address": 0x100000000,
+                "import_table_address": 0x200000000,
+                "import_vector_count": 3000,
+                "import_capacity_count": 3000,
+                "import_target_verified": True,
+                "shape_word_counts": {"102": 3000},
+            }
+            valid = validate_fast_payload(payload, request, get_adapter("fh4"))
+            self.assertTrue(valid.ok, valid.reasons)
 
-        valid, detail = transfer_bridge.session_matches_import_template(
-            {"shape_word_counts": {"102": 2000}}, "fh4", 3000
-        )
-        self.assertFalse(valid)
-        self.assertIn("2000/3000", detail)
+            payload["shape_word_counts"] = {"102": 2000}
+            invalid = validate_fast_payload(payload, request, get_adapter("fh4"))
+            self.assertFalse(invalid.ok)
+            self.assertIn("2000/3000", " ".join(invalid.reasons))
 
     def test_other_games_keep_their_existing_template_policy(self):
-        self.assertEqual((True, ""), transfer_bridge.session_matches_import_template({}, "fh5", 3000))
+        profile = get_adapter("fh5").memory_profile
+        self.assertLess(profile.import_template_shape_word, 0)
+        self.assertEqual(0.0, profile.import_template_min_ratio)
 
     def test_fh4_native_words_normalize_for_every_live_target(self):
         words = (123, 101, 117)
