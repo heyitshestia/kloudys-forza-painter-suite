@@ -135,7 +135,7 @@ class CGroupLibraryService(QObject):
             adapter.short_label for adapter in iter_adapters() if adapter.supports("offline_export")
         )
         return (
-            f"Online import/export works with {live_games} while the selected game is running. "
+            f"Online import/export auto-detects {live_games} when exactly one supported game is running. "
             f"{offline_imports} also support offline import; {offline_exports} support offline save-library scanning."
         )
 

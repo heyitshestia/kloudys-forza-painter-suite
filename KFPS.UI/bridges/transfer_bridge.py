@@ -31,9 +31,7 @@ def looks_like_app_root(path):
 ROOT = discover_app_root()
 sys.path.insert(0, str(ROOT))
 
-import psutil
-
-from game_adapters import get_adapter, iter_adapters
+from game_adapters import detect_single_running_game, get_adapter, iter_adapters
 from live_memory_locator import DIAGNOSTIC_SCHEMA, address_text, read_diagnostic
 
 UNIVERSAL_IMPORT_ROOT = ROOT / "runtime" / "universal-import"
@@ -48,7 +46,6 @@ def parse_args():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--game",
-        default="fh6",
         choices=sorted(adapter.bridge_key for adapter in iter_adapters()),
     )
     common.add_argument("--layer-count", type=int, required=True)
@@ -121,28 +118,16 @@ def run_subprocess(cmd, timeout=None):
 
 
 def find_game_pid(game):
-    try:
-        adapter = get_adapter(game)
-    except ValueError as exc:
-        raise RuntimeError(f"unsupported game: {game}") from exc
-    names = {name.lower() for name in adapter.process_names}
-    matches = []
-    for proc in psutil.process_iter(["pid", "name"]):
-        try:
-            name = (proc.info.get("name") or "").lower()
-            if name in names:
-                matches.append((int(proc.info["pid"]), proc.info.get("name") or "unknown"))
-        except (psutil.Error, OSError, KeyError, TypeError):
-            continue
-    if not matches:
-        expected = ", ".join(adapter.process_names)
-        raise RuntimeError(f"no supported {game.upper()} process detected ({expected})")
-    matches.sort()
-    if len(matches) > 1:
-        log(f"Multiple {game.upper()} processes detected; using pid={matches[0][0]} ({matches[0][1]}).")
-    else:
-        log(f"Detected {game.upper()} process pid={matches[0][0]} ({matches[0][1]}).")
-    return matches[0][0]
+    return detect_single_running_game(expected_game=game).pid
+
+
+def resolve_live_target(game=None, pid=None):
+    target = detect_single_running_game(expected_game=game, expected_pid=pid)
+    log(
+        f"Auto-detected live game: {target.adapter.short_label} "
+        f"(pid={target.pid}, {target.process_name})."
+    )
+    return target
 
 
 def import_json_shape_count(path):
@@ -404,6 +389,9 @@ def run_export(args):
 def main():
     args = parse_args()
     try:
+        target = resolve_live_target(args.game, args.pid)
+        args.game = target.adapter.bridge_key
+        args.pid = target.pid
         if args.mode == "import":
             return run_import(args)
         if args.mode == "export":

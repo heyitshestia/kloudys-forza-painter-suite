@@ -158,10 +158,15 @@ class QmlRefinementTests(unittest.TestCase):
     def test_outputs_uses_game_adapter_capabilities(self):
         outputs = self.read("pages/JsonPage.qml")
         self.assertIn("model: cgroupLibraryService.gameTargets", outputs)
-        self.assertIn("cgroupLibraryService.offlineImportLabel(game.currentText)", outputs)
-        self.assertIn('cgroupLibraryService.supportsOperation(game.currentText, "offline_import")', outputs)
+        self.assertIn('Label { text: "Offline game" }', outputs)
+        self.assertIn("cgroupLibraryService.offlineImportLabel(offlineGame.currentText)", outputs)
+        self.assertIn('cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")', outputs)
         self.assertIn("text: cgroupLibraryService.capabilitySummary", outputs)
-        self.assertIn('"Online Import to " + game.currentText', outputs)
+        self.assertIn('"Online Import to Running Game"', outputs)
+        self.assertIn("transferService.importJson(jsonService.selectedPath", outputs)
+        self.assertNotIn("transferService.importJson(offlineGame.currentText", outputs)
+        self.assertNotIn("game.currentText", outputs)
+        self.assertIn("transferService.exportJson(parseInt(layerCount.text)", outputs)
 
     def test_frameless_window_uses_native_resize_zones(self):
         main = self.read("Main.qml")
@@ -364,11 +369,11 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_output_folder_and_live_transfer_actions_stay_pinned(self):
         outputs = self.read("pages/JsonPage.qml")
-        scroll_end = outputs.index('"Online Import to " + game.currentText')
+        scroll_end = outputs.index('"Online Import to Running Game"')
         self.assertIn("id: importSetupScroll", outputs[:scroll_end])
         self.assertIn('text: "Open Output Folder"', outputs[scroll_end:])
         self.assertIn("onClicked: desktop.openJsonFolders()", outputs[scroll_end:])
-        self.assertIn('text: "Online Export from Game"', outputs[scroll_end:])
+        self.assertIn('text: "Online Export from Running Game"', outputs[scroll_end:])
         self.assertIn("onClicked: transferService.exportJson", outputs[scroll_end:])
 
     def test_outputs_use_explorer_style_selection_and_confirmed_mixed_deletion(self):

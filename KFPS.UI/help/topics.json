@@ -25,13 +25,13 @@
         "Select Generate Vinyl. Keep KFPS open until the status says finalization is complete.",
         "Open Outputs, choose Generated finals, and click the finished vinyl you want to use.",
         "Prepare the running game. For FH6, open your saved, reopened, and ungrouped circle template in Vinyl Group Editor.",
-        "Choose the correct game and exact template layer count, then select Online Import to Game.",
+        "Enter the exact template layer count, then select Online Import to Running Game. KFPS detects the one supported game that is open.",
         "Wait for the transfer to finish. Save the vinyl in the game, leave the editor, and reopen it before judging the final result."
       ],
       "sections": [
         {"heading": "What KFPS makes", "body": "KFPS turns a normal image into a list of Forza shapes. That list is stored in a JSON file. The generator makes the first version; the manual editor is available when you want to move, recolor, group, or replace individual shapes."},
         {"heading": "What online means here", "body": "Online import and export do not upload your artwork. Online means KFPS talks to a game that is running on this computer through live memory. Offline means KFPS works with supported local game save files instead."},
-        {"heading": "The normal path", "body": "For most work, use Create -> Outputs -> Online Import to Game. Use the manual editor only when the generated result needs changes that require your judgment."}
+        {"heading": "The normal path", "body": "For most work, use Create -> Outputs -> Online Import to Running Game. Use the manual editor only when the generated result needs changes that require your judgment."}
       ],
       "pitfalls": [
         "Do not run KFPS from GitHub's main/source ZIP. Use an official release folder.",
@@ -241,7 +241,7 @@
         "Make sure all 3000 circles are individual layers. Do not leave smaller groups nested inside the template.",
         "Save this circle group in the game once.",
         "Leave the group editor, reopen the saved circle group, and choose Ungroup so individual circle layers are visible and editable.",
-        "Stay on that editor screen. In KFPS Outputs, choose the running game and enter 3000 for Template layers.",
+        "Stay on that editor screen. In KFPS Outputs, enter 3000 for Template layers. KFPS detects the running game when the transfer starts.",
         "Reuse this same saved template for later imports: reopen it, ungroup it, and keep the exact count in KFPS."
       ],
       "sections": [
@@ -267,14 +267,14 @@
       "steps": [
         "Start FH4 or FH6 and open your saved circle template in Vinyl Group Editor.",
         "Ungroup the template and confirm individual layers can be selected.",
-        "Open Outputs in KFPS, choose the running game, and enter the template's exact layer count, normally 3000.",
+        "Open Outputs in KFPS and enter the template's exact layer count, normally 3000. KFPS detects the running game when the transfer starts.",
         "Choose Generated finals, Editor exports, or Game exports, then select the JSON you want.",
         "Leave Clear Extra Template Layers on for normal use.",
-        "Select Online Import to Game and do not change screens in the game while KFPS locates and writes the layers.",
+        "Select Online Import to Running Game and do not change screens in the game while KFPS locates and writes the layers.",
         "When the transfer reports success, save the vinyl, leave the editor, and reopen it to check the final result."
       ],
       "sections": [
-        {"heading": "Location is automatic", "body": "KFPS searches the selected running game for the open template when you import. You do not need a separate locate button. Restart the import after reopening the template if the game was restarted or the editor screen changed."},
+        {"heading": "Location is automatic", "body": "KFPS detects the one supported game that is running and searches it for the open template. You do not need a game selector or a separate locate button. Restart the import after reopening the template if the game was restarted or the editor screen changed."},
         {"heading": "Clear extra layers", "body": "If the JSON uses fewer shapes than the template, this option hides the unused placeholder circles. Leave it enabled unless you are doing a controlled transfer test."},
         {"heading": "Permission", "body": "KFPS and the game must be running on the same Windows computer. If Windows blocks live memory access, run KFPS with the same or higher permission level as the game."}
       ],
@@ -293,13 +293,13 @@
       "summary": "Online works with a running game; offline works with supported local save files.",
       "keywords": ["online", "offline", "export", "import", "fh4", "fh5", "fh6", "fm8", "library", "save"],
       "steps": [
-        "For online export, open the vinyl group in Vinyl Group Editor, choose the same game in Outputs, and enter the group's exact layer count.",
-        "Select Online Export from Game. KFPS reads the open group and adds the resulting JSON to Game Exports.",
-        "For online import, open a fresh saved and ungrouped circle template before selecting Online Import to Game.",
+        "For online export, open the vinyl group in Vinyl Group Editor and enter the group's exact layer count in Outputs. Keep only that supported game running.",
+        "Select Online Export from Running Game. KFPS detects the game, reads the open group, and adds the resulting JSON to Game Exports.",
+        "For online import, open a fresh saved and ungrouped circle template before selecting Online Import to Running Game.",
         "Offline features read or write supported local save files and do not require the game to be open."
       ],
       "sections": [
-        {"heading": "Online means live", "body": "Online import and export read or edit the selected game's live memory. FH4, FH5, FH6, and FM8 must be running on the same Windows computer as KFPS."},
+        {"heading": "Online means live", "body": "Online import and export read or edit the detected game's live memory. Keep exactly one of FH4, FH5, FH6, or FM8 running on the same Windows computer as KFPS. Game selectors are used only for offline save-file work."},
         {"heading": "FH4 support", "body": "FH4 supports online live transfer, local save-library scanning, and offline import into the Microsoft Store/Xbox WGS save. Close FH4 before offline import. KFPS creates a separate vinyl group and backs up the complete account save slot before writing."},
         {"heading": "Offline support", "body": "FH4, FH6, and FM8 support offline import. FH4, FH5, FH6, and FM8 support offline save-library scanning. The disabled button in Outputs shows when the selected game does not support local-save import."}
       ],
@@ -501,7 +501,7 @@
       ],
       "sections": [
         {"heading": "Privacy", "body": "Runtime logs can contain filenames. Local paths can contain your Windows username. Those options are off or clearly labeled so you can decide what to include."},
-        {"heading": "Useful evidence", "body": "A clear reproduction, exact error text, selected game, template count, JSON name, and relevant screenshot are more useful than a general statement that it does not work."}
+        {"heading": "Useful evidence", "body": "A clear reproduction, exact error text, detected game, template count, JSON name, and relevant screenshot are more useful than a general statement that it does not work."}
       ],
       "pitfalls": [
         "Review reports before posting them publicly.",
@@ -625,7 +625,7 @@
       "steps": [
         "Open the JSON preview in Outputs or the manual editor. If it is already wrong there, the file or conversion is the problem.",
         "If the KFPS preview is correct but the live game view is wrong, save the vinyl and reopen it once before judging.",
-        "Confirm the correct game target was selected because shape resource numbers differ between games.",
+        "Confirm KFPS detected the correct running game because shape resource numbers differ between games.",
         "For FH6, reopen and ungroup a clean template, enter its exact layer count, and import again.",
         "Check that the JSON fits the template and that Clear Extra Template Layers is enabled.",
         "Keep screenshots of both the KFPS preview and the reopened game result if the mismatch remains."
@@ -662,7 +662,7 @@
         {"heading": "A useful short report", "body": "Example: KFPS version, Windows 11, FH6 online import, 3000-layer saved/reopened template ungrouped, selected 1842-shape final JSON, then the exact first error line."}
       ],
       "pitfalls": [
-        "A cropped screenshot that hides the selected game, count, or status may remove the useful clue.",
+        "A cropped screenshot that hides the detected game, count, or status may remove the useful clue.",
         "Do not paste thousands of repeated progress lines when the first failure line is enough.",
         "Review logs and reports for local filenames and Windows usernames before posting publicly."
       ],

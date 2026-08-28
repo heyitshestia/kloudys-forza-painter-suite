@@ -121,38 +121,19 @@ Item {
                         width: importSetupScroll.availableWidth
                         spacing: Theme.px(root.compactHeight ? 7 : 9)
 
-                        GridLayout {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: Theme.px(9)
-                            rowSpacing: Theme.px(6)
+                            spacing: Theme.px(3)
 
-                            ColumnLayout {
+                            Label { text: "Template layers" }
+                            KfpsTextField {
+                                id: layerCount
                                 Layout.fillWidth: true
-                                spacing: Theme.px(3)
-                                Label { text: "Game target" }
-                                KfpsComboBox {
-                                    id: game
-                                    Layout.fillWidth: true
-                                    dense: root.compactHeight
-                                    model: cgroupLibraryService.gameTargets
-                                    toolTipText: "Choose the game whose live editor or local save files you want to use."
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.px(3)
-                                Label { text: "Template layers" }
-                                KfpsTextField {
-                                    id: layerCount
-                                    Layout.fillWidth: true
-                                    dense: root.compactHeight
-                                    text: "3000"
-                                    placeholderText: "Layer count"
-                                    inputMethodHints: Qt.ImhDigitsOnly
-                                    toolTipText: "For online transfer, enter the exact number of editable layers in the template currently open in the game."
-                                }
+                                dense: root.compactHeight
+                                text: "3000"
+                                placeholderText: "Layer count"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                toolTipText: "For online transfer, enter the exact number of editable layers in the template currently open in the game."
                             }
                         }
 
@@ -171,7 +152,7 @@ Item {
 
                         GlassPanel {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.px(root.compactHeight ? 148 : 176)
+                            Layout.preferredHeight: Theme.px(root.compactHeight ? 184 : 214)
                             soft: true
                             visible: supporterService.unlocked
                             border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
@@ -180,6 +161,20 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: Theme.px(10)
                                 spacing: Theme.px(6)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+
+                            Label { text: "Offline game" }
+                            KfpsComboBox {
+                                id: offlineGame
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                model: cgroupLibraryService.gameTargets
+                                toolTipText: "Choose the game whose local save files you want to scan or edit."
+                            }
+                        }
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -223,12 +218,12 @@ Item {
                             PrimaryButton {
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: cgroupLibraryService.running ? "Scanning " + game.currentText + "..." : "Scan " + game.currentText + " Saves"
+                                text: cgroupLibraryService.running ? "Scanning " + offlineGame.currentText + "..." : "Scan " + offlineGame.currentText + " Saves"
                                 iconName: "folder"
                                 dense: root.compactHeight
                                 toolTipText: "Find vinyl groups in the selected game's local save files and add them to the Library view."
                                 enabled: !cgroupLibraryService.running
-                                onClicked: cgroupLibraryService.scanSaves(game.currentText)
+                                onClicked: cgroupLibraryService.scanSaves(offlineGame.currentText)
                             }
 
                             GhostButton {
@@ -247,14 +242,14 @@ Item {
                             minimumWidth: 0
                             text: cgroupLibraryService.running
                                   ? "Working..."
-                                  : cgroupLibraryService.offlineImportLabel(game.currentText)
+                                  : cgroupLibraryService.offlineImportLabel(offlineGame.currentText)
                             iconName: "transfer"
                             dense: root.compactHeight
-                            toolTipText: cgroupLibraryService.offlineImportHelp(game.currentText)
+                            toolTipText: cgroupLibraryService.offlineImportHelp(offlineGame.currentText)
                             enabled: !cgroupLibraryService.running
-                                     && cgroupLibraryService.supportsOperation(game.currentText, "offline_import")
+                                     && cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")
                                      && jsonService.selectedPath.length > 0
-                            onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, game.currentText)
+                            onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, offlineGame.currentText)
                         }
                             }
                         }
@@ -423,13 +418,13 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to " + game.currentText)
+                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Running Game")
                     iconName: "transfer"
                     toolTipText: jsonService.selectedIsGameLibraryItem
                                  ? "Library items already came from game save files and cannot be imported through live memory from this view."
-                                 : "Replace layers in the template currently open in the running game with the selected JSON."
+                                 : "Auto-detect the running supported game and replace the open template layers with the selected JSON."
                     enabled: !transferService.running && jsonService.selectedPath.length > 0 && !jsonService.selectedIsGameLibraryItem
-                    onClicked: transferService.importJson(game.currentText, jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
+                    onClicked: transferService.importJson(jsonService.selectedPath, parseInt(layerCount.text) || 0, clearUnused.checked)
                 }
 
                 GridLayout {
@@ -450,12 +445,12 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Online Export from Game"
+                        text: "Online Export from Running Game"
                         iconName: "transfer"
                         dense: root.compactHeight
-                        toolTipText: "Read the vinyl group currently open in the running game and save it as a KFPS JSON."
+                        toolTipText: "Auto-detect the running supported game, read its open vinyl group, and save it as a KFPS JSON."
                         enabled: !transferService.running
-                        onClicked: transferService.exportJson(game.currentText, parseInt(layerCount.text) || 0)
+                        onClicked: transferService.exportJson(parseInt(layerCount.text) || 0)
                     }
                 }
             }

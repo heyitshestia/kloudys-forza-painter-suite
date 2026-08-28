@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.43
+- Auto-detected the single supported running game for live import and export instead of requiring a live game selector.
+- Blocked live transfers when no supported game or multiple game processes are running, and revalidated the detected process before memory access.
+- Kept game selection scoped to offline save scanning and import workflows.
+
 ## 3.1.42
 - Consolidated FH4, FH5, FH6, and FM8 live vinyl location behind one versioned, deterministic engine with exact process, layer, and ownership validation.
 - Improved allocator-window reuse and fail-closed handling for grouped, nested, and foreign vinyls across supported games.

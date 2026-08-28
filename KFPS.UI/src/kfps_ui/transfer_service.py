@@ -6,7 +6,7 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, Property, QProcess, QProcessEnvironment, QTimer, Signal, Slot
 
-from game_adapters import get_adapter_or_default
+from game_adapters import LiveGameDetectionError, detect_single_running_game
 
 from .app_paths import AppPaths
 from .json_service import JsonService
@@ -57,34 +57,66 @@ class TransferService(QObject):
     def liveLog(self):
         return self._live_log
 
-    @Slot(str, str, int, bool)
-    def importJson(self, game, path, layers, clear_unused):
+    @Slot(str, int, bool)
+    def importJson(self, path, layers, clear_unused):
         if not path or not Path(path).is_file():
             self.log.append("Select a JSON before importing.", "warning")
             return
-        adapter = get_adapter_or_default(game)
+        target = self._detect_live_target()
+        if target is None:
+            return
+        adapter = target.adapter
         if not adapter.supports("live_import"):
             self.log.append(f"{adapter.short_label} online import is not supported.", "warning")
             return
-        args = ["import", "--game", adapter.bridge_key, "--layer-count", str(layers), "--json", path]
+        args = [
+            "import",
+            "--game",
+            adapter.bridge_key,
+            "--pid",
+            str(target.pid),
+            "--layer-count",
+            str(layers),
+            "--json",
+            path,
+        ]
         if clear_unused:
             args.append("--clear-unused")
-        self._start(args, "Importing JSON into game")
+        self._start(args, f"Importing JSON into {adapter.short_label}")
 
-    @Slot(str, int)
-    def exportJson(self, game, layers):
-        adapter = get_adapter_or_default(game)
+    @Slot(int)
+    def exportJson(self, layers):
+        target = self._detect_live_target()
+        if target is None:
+            return
+        adapter = target.adapter
         if not adapter.supports("live_export"):
             self.log.append(f"{adapter.short_label} online export is not supported.", "warning")
             return
         self._start(
-            ["export", "--game", adapter.bridge_key, "--layer-count", str(layers)],
-            "Exporting current game group",
+            [
+                "export",
+                "--game",
+                adapter.bridge_key,
+                "--pid",
+                str(target.pid),
+                "--layer-count",
+                str(layers),
+            ],
+            f"Exporting current {adapter.short_label} group",
         )
 
-    @staticmethod
-    def _game(value):
-        return get_adapter_or_default(value).bridge_key
+    def _detect_live_target(self):
+        try:
+            return detect_single_running_game()
+        except LiveGameDetectionError as exc:
+            message = str(exc)
+            self._status = "Live transfer blocked"
+            self._live_log_lines = []
+            self._pending_live_lines = []
+            self._set_live_log([message])
+            self.log.append(message, "warning")
+            return None
 
     def _start(self, args, status):
         if self._closed:
