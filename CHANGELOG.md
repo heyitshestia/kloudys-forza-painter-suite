@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.45
+- Allowed creators to choose Everyone or Supporters when restoring their own previously removed Community artwork.
+- Kept audience immutable on active revisions and retained supporter verification when restoring supporter-only access.
+- Preserved artwork identity, classification, revision history, and cross-account duplicate protection during restores.
+
 ## 3.1.44
 - Added disposable end-to-end Community validation for authentication, browsing, uploads, downloads, classifications, supporter access, version synchronization, deletion, resubmission, and invalid-file quarantine.
 - Added isolated staging and production deployment tooling with sanitized diagnostics, rollback records, compatibility checks, and automated CI coverage without adding Node.js as an application runtime requirement.
