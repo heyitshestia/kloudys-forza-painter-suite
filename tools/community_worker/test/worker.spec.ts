@@ -1009,6 +1009,66 @@ describe("community worker", () => {
     expect((await env.ASSETS.list()).objects).toHaveLength(3);
   });
 
+  it("lets an owner choose a new audience only when restoring an owner-removed design", async () => {
+    const supporter = await account("audience-supporter", "AudienceSupporter");
+    await verifySupporter(supporter);
+    const first = await (await jsonFetch("/v1/artworks", "POST", {
+      ...uploadBody(6201), supporter_only: true,
+    }, supporter)).json() as { artwork: { id: string; supporter_only: boolean } };
+    expect(first.artwork.supporter_only).toBe(true);
+    expect((await jsonFetch(`/v1/artworks/${first.artwork.id}`, "DELETE", undefined, supporter)).status).toBe(200);
+
+    const publicRestoreResponse = await jsonFetch("/v1/artworks", "POST", {
+      ...uploadBody(6201), title: "Public restored copy", supporter_only: false,
+      preview_base64: PREVIEW_TWO, thumbnail_base64: PREVIEW,
+    }, supporter);
+    expect(publicRestoreResponse.status).toBe(201);
+    expect(await publicRestoreResponse.json()).toMatchObject({
+      restored: true,
+      artwork: { id: first.artwork.id, supporter_only: false, status: "published" },
+    });
+    expect((await jsonFetch(`/v1/artworks/${first.artwork.id}`)).status).toBe(200);
+    const publicStored = await env.DB.prepare(
+      `SELECT a.supporter_only, r.manifest_json
+         FROM artworks a JOIN artwork_revisions r
+           ON r.artwork_id = a.id AND r.revision = a.current_revision
+        WHERE a.id = ?1`,
+    ).bind(first.artwork.id).first<{ supporter_only: number; manifest_json: string }>();
+    expect(publicStored?.supporter_only).toBe(0);
+    expect(JSON.parse(publicStored?.manifest_json || "{}").supporter_only).toBe(false);
+
+    expect((await jsonFetch(`/v1/artworks/${first.artwork.id}`, "DELETE", undefined, supporter)).status).toBe(200);
+    const supporterRestoreResponse = await jsonFetch("/v1/artworks", "POST", {
+      ...uploadBody(6201), title: "Supporter restored copy", supporter_only: true,
+    }, supporter);
+    expect(supporterRestoreResponse.status).toBe(201);
+    expect(await supporterRestoreResponse.json()).toMatchObject({
+      restored: true,
+      artwork: { id: first.artwork.id, supporter_only: true, status: "published" },
+    });
+    expect((await jsonFetch(`/v1/artworks/${first.artwork.id}`)).status).toBe(404);
+    expect((await jsonFetch(`/v1/artworks/${first.artwork.id}`, "GET", undefined, supporter)).status).toBe(200);
+
+    const regular = await account("audience-regular", "AudienceRegular");
+    const regularUpload = {
+      ...uploadBody(6199), preview_base64: PREVIEW_TWO, thumbnail_base64: PREVIEW,
+    };
+    const regularCreate = await jsonFetch("/v1/artworks", "POST", regularUpload, regular);
+    expect(regularCreate.status).toBe(201);
+    const regularFirst = await regularCreate.json() as {
+      artwork: { id: string };
+    };
+    expect((await jsonFetch(`/v1/artworks/${regularFirst.artwork.id}`, "DELETE", undefined, regular)).status).toBe(200);
+    const denied = await jsonFetch("/v1/artworks", "POST", {
+      ...regularUpload, supporter_only: true,
+    }, regular);
+    expect(denied.status).toBe(403);
+    expect((await denied.json() as { error: string }).error).toBe("supporter_required");
+    expect(await env.DB.prepare(
+      "SELECT status, supporter_only FROM artworks WHERE id = ?1",
+    ).bind(regularFirst.artwork.id).first()).toMatchObject({ status: "removed", supporter_only: 0 });
+  });
+
   it("keeps owner-removed designs reserved against other accounts", async () => {
     const owner = await account("x", "RemovalOwner");
     const other = await account("y", "RemovalOther");

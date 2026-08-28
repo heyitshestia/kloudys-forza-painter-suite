@@ -338,6 +338,23 @@ class CommunityWorkerEndToEndTests(unittest.TestCase):
                 self.assertTrue(wait_for(
                     lambda: all(row.get("id") != artwork_id for row in service._rows) and not service.busy
                 ), service.errorMessage)
+
+                service.chooseUploadJson()
+                self.assertTrue(wait_for(lambda: service.uploadReady and not service.busy), service.errorMessage)
+                public_title = title + " Public Restore"
+                service.submitUpload(
+                    public_title, "Audience-change restore E2E test.", "Original Artwork", "supporter, automated",
+                    "handmade", "kfps-community-share-v1", False, True, False,
+                )
+                self.assertTrue(wait_for(
+                    lambda: service.selectedArtwork.get("id") == artwork_id
+                    and service.selectedArtwork.get("title") == public_title
+                    and service.selectedArtwork.get("supporterOnly") is False and not service.busy
+                ), service.errorMessage)
+                service.removeSelectedUpload()
+                self.assertTrue(wait_for(
+                    lambda: all(row.get("id") != artwork_id for row in service._rows) and not service.busy
+                ), service.errorMessage)
             finally:
                 service.close()
                 APP.processEvents()

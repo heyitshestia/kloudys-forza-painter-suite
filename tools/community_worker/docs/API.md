@@ -89,7 +89,10 @@ Every upload and revision must include `client_version` as a three-part KFPS
 version and `classification` as exactly `handmade` or `toolmade`. New uploads may
 also set `supporter_only: true`, but the server accepts that value only for a
 currently verified supporter. Audience and classification are independent and
-both are immutable to creators on revisions and owner restores. A missing,
+both are immutable to creators on active revisions. Classification remains
+immutable on owner restores, while the creator may choose a new audience when
+restoring their own removed listing. Restoring as supporter-only still requires
+current supporter verification. A missing,
 malformed, or older client version returns `client_update_required` with HTTP 426.
 The effective minimum is exposed by `GET /v1/config` as
 `minimum_upload_version`. During the compatibility bridge it comes from
@@ -111,10 +114,10 @@ broadly available and staged; strict mode uses the synchronized policy floor.
 Artwork responses expose `source_schema`, `schema_label`, `schema_known`, and
 `schema_warning`. `games` contains only detected game origins. Creator deletion is
 a soft removal from active catalog access. A later `POST /v1/artworks` of the same
-validated design by the same creator restores that artwork ID and replaces only its
-derived preview assets. Cross-account duplicates and administrator-removed artwork
-remain blocked. Revision, hash, moderation, and duplicate history remain available
-to the service operator.
+validated design by the same creator restores that artwork ID, may choose a new
+audience, and replaces only its derived preview assets. Cross-account duplicates
+and administrator-removed artwork remain blocked. Revision, hash, moderation, and
+duplicate history remain available to the service operator.
 
 ## Administration
 

@@ -483,10 +483,7 @@ async function restoreOwnerRemovedArtwork(
   if (upload.classification !== removed.classification) {
     throw new HttpError(409, "classification_immutable", "This upload was already classified and can only be reclassified by an administrator.");
   }
-  const supporterOnly = Boolean(removed.supporter_only);
-  if (upload.supporterOnly !== supporterOnly) {
-    throw new HttpError(409, "supporter_visibility_immutable", "Supporter-only visibility cannot be changed after publishing.");
-  }
+  const supporterOnly = upload.supporterOnly;
   if (supporterOnly) requireActiveSupporter(user);
   const classification = removed.classification;
   const assets = await writeRestoredPreviewAssets(env, id, revision, upload);
@@ -521,7 +518,7 @@ async function restoreOwnerRemovedArtwork(
                 tags_json = ?10, games_json = ?11, source_schema = ?12, schema_known = ?13,
                 license = ?14, shape_count = ?15, group_count = ?16, uses_masks = ?21,
                  content_hash = ?3, preview_hash = ?17, thumbnail_hash = ?18,
-                 updated_at = ?19, classification = ?20,
+                updated_at = ?19, classification = ?20, supporter_only = ?22,
                 published_at = CASE WHEN ?6 = 'published' THEN COALESCE(published_at, ?19) ELSE published_at END
           WHERE id = ?1 AND creator_id = ?2 AND status = 'removed' AND content_hash = ?3
             AND EXISTS(
@@ -537,7 +534,7 @@ async function restoreOwnerRemovedArtwork(
         JSON.stringify(upload.games), upload.sourceSchema, upload.schemaKnown ? 1 : 0,
         upload.license, upload.shapeCount, upload.groupCount,
          upload.previewHash, upload.thumbnailHash, now,
-         classification, upload.usesMasks ? 1 : 0,
+        classification, upload.usesMasks ? 1 : 0, supporterOnly ? 1 : 0,
        ),
     ];
     if (autoPublish) {
@@ -559,7 +556,7 @@ async function restoreOwnerRemovedArtwork(
     }
     statements.push(env.DB.prepare(
       `INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at)
-       SELECT ?1, ?2, ?3, 'owner_restored', 'Revalidated with regenerated preview assets.', ?4
+       SELECT ?1, ?2, ?3, 'owner_restored', 'Revalidated with regenerated preview assets and owner-selected audience.', ?4
         WHERE EXISTS(SELECT 1 FROM artwork_revisions r
                       WHERE r.artwork_id = ?2 AND r.revision = ?5 AND r.preview_key = ?6)`,
     ).bind(crypto.randomUUID(), id, user.username, now, revision, assets.previewKey));
