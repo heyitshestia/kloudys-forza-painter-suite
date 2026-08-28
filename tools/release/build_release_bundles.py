@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import subprocess
 import tarfile
@@ -95,7 +96,9 @@ def _is_forbidden(relative: PurePosixPath) -> bool:
     lowered = PurePosixPath(*(part.lower() for part in relative.parts))
     if any(part in FORBIDDEN_PARTS for part in lowered.parts):
         return True
-    if lowered.name in FORBIDDEN_NAMES or lowered.name.startswith(".dev.vars."):
+    if lowered.name in FORBIDDEN_NAMES or (
+        lowered.name.startswith(".dev.vars.") and lowered.name != ".dev.vars.example"
+    ):
         return True
     if lowered.name.endswith(FORBIDDEN_SUFFIXES):
         return True
@@ -128,7 +131,77 @@ def copy_python_runtime(source: Path, destination: Path) -> None:
             or lowered.name.startswith(".dev.vars.")
         ):
             raise RuntimeError(f"Bundled runtime contains personal or secret state: {relative}")
-    shutil.copytree(source, destination)
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+
+
+def _normalized_distribution(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name.strip()).lower()
+
+
+def locked_python_distributions(requirements_lock: Path) -> dict[str, str]:
+    locked = {}
+    for raw in requirements_lock.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or "==" not in line:
+            continue
+        requirement = line.split(";", 1)[0].strip()
+        name, version = requirement.split("==", 1)
+        locked[_normalized_distribution(name)] = version.strip()
+    if not locked:
+        raise RuntimeError(f"No exact Python requirements were found in {requirements_lock}.")
+    return locked
+
+
+def installed_python_distributions(source: Path) -> dict[str, str]:
+    python = source.resolve() / "python.exe"
+    result = subprocess.run(
+        [str(python), "-m", "pip", "list", "--format=json"],
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    values = json.loads(result.stdout)
+    return {
+        _normalized_distribution(str(item["name"])): str(item["version"])
+        for item in values if isinstance(item, dict) and item.get("name") and item.get("version")
+    }
+
+
+def validate_python_runtime(source: Path, requirements_lock: Path) -> None:
+    source = source.resolve()
+    python = source / "python.exe"
+    if not python.is_file():
+        raise RuntimeError(f"Bundled runtime is missing python.exe: {source}")
+    subprocess.run(
+        [str(python), "-m", "pip", "check"], check=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    locked = locked_python_distributions(requirements_lock)
+    installed = installed_python_distributions(source)
+    wrong = {
+        name: {"expected": version, "installed": installed.get(name, "missing")}
+        for name, version in locked.items() if installed.get(name) != version
+    }
+    allowed = set(locked) | {"pip", "setuptools", "wheel"}
+    extras = sorted(set(installed) - allowed)
+    if wrong or extras:
+        raise RuntimeError(
+            "Bundled Python does not match requirements.lock.txt: "
+            + json.dumps({"wrong_or_missing": wrong, "unexpected": extras}, sort_keys=True)
+        )
+
+
+def synchronize_python_runtime(source: Path, requirements_lock: Path) -> None:
+    source = source.resolve()
+    python = source / "python.exe"
+    locked = locked_python_distributions(requirements_lock)
+    installed = installed_python_distributions(source)
+    extras = sorted(set(installed) - set(locked) - {"pip", "setuptools", "wheel"})
+    if extras:
+        subprocess.run([str(python), "-m", "pip", "uninstall", "-y", *extras], check=True)
+    subprocess.run([
+        str(python), "-m", "pip", "install", "--disable-pip-version-check",
+        "--no-warn-script-location", "-r", str(requirements_lock.resolve()),
+    ], check=True)
+    validate_python_runtime(source, requirements_lock)
 
 
 def sha256_file(path: Path) -> str:
@@ -228,6 +301,7 @@ def build_one(
         if kind == "recommended":
             if python_source is None:
                 raise RuntimeError("The recommended bundle requires --python-source.")
+            validate_python_runtime(python_source, app_root / "requirements.lock.txt")
             copy_python_runtime(python_source, app_root / "python")
 
         write_manifest(release_root, version=version, commit=commit, kind=kind, timestamp=timestamp)

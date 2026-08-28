@@ -21,6 +21,12 @@ node_modules/
 .wrangler/
 .dev.vars
 .dev.vars.*
+!tools/community_worker/.dev.vars.example
+tools/community_worker/.staging/
+tools/community_worker/wrangler.staging.jsonc
+Community-Test-Reports/
+Community-Deployment-Reports/
+Community-Deployment-Backups/
 rtti-enrollment.json
 relay-state.dat
 Images/

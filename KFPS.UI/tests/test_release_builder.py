@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -98,18 +99,24 @@ class ReleaseBuilderTests(unittest.TestCase):
             runtime.mkdir()
             (runtime / "python.exe").write_bytes(b"python")
             (runtime / "dependency.pyd").write_bytes(b"dependency")
-            bundle_path = build_one(
-                repo,
-                output,
-                commit=commit,
-                version="9.8.7",
-                timestamp=commit_timestamp(repo, commit),
-                kind="recommended",
-                python_source=runtime,
-            )
+            (runtime / "__pycache__").mkdir()
+            (runtime / "__pycache__" / "generated.cpython-312.pyc").write_bytes(b"cache")
+            with patch("build_release_bundles.validate_python_runtime"):
+                bundle_path = build_one(
+                    repo,
+                    output,
+                    commit=commit,
+                    version="9.8.7",
+                    timestamp=commit_timestamp(repo, commit),
+                    kind="recommended",
+                    python_source=runtime,
+                )
             with zipfile.ZipFile(bundle_path) as bundle:
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/python.exe", bundle.namelist())
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/dependency.pyd", bundle.namelist())
+                self.assertFalse(any(
+                    "__pycache__" in name or name.endswith(".pyc") for name in bundle.namelist()
+                ))
 
 
 if __name__ == "__main__":

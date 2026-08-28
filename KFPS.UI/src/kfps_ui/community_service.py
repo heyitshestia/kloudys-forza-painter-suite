@@ -799,7 +799,10 @@ class CommunityService(QObject):
         self._submit("auth", lambda: self._github_auth_flow(client_id))
 
     def _auth_test(self, installation):
-        client = CommunityApiClient(self._base_url)
+        client = CommunityApiClient(
+            self._base_url,
+            test_auth_token=os.environ.get("KFPS_COMMUNITY_TEST_AUTH_TOKEN", "").strip(),
+        )
         result = client.json("auth/test", "POST", {
             "installation_id": installation,
             "display_name": os.environ.get("USERNAME", "Local KFPS Tester"),
@@ -923,7 +926,14 @@ class CommunityService(QObject):
 
     @Slot()
     def ensureSupporterEntitlement(self):
-        if self.demo or not self.authenticated or (self._local_supporter_state and self._local_supporter_state != "active"):
+        if (
+            self.demo or not self.authenticated or self.usernameRequired
+            or (self._local_supporter_state and self._local_supporter_state != "active")
+        ):
+            return
+        if self._supporter_clear_inflight:
+            self._supporter_status = "Waiting for previous supporter access to clear..."
+            self.changed.emit()
             return
         subject = str(self._session_user.get("id") or "").strip()
         if not subject:
@@ -956,6 +966,12 @@ class CommunityService(QObject):
         if self._local_supporter_state and self._local_supporter_state != "active":
             self._supporter_entitlement_pending = False
             self._clear_supporter_access()
+            return
+        if self._supporter_clear_inflight:
+            self._supporter_entitlement_pending = False
+            self._supporter_request_subject = ""
+            self._supporter_status = "Waiting for previous supporter access to clear..."
+            self.changed.emit()
             return
         self._supporter_entitlement_pending = False
         self._supporter_request_subject = ""
@@ -1488,10 +1504,25 @@ class CommunityService(QObject):
                 return
             if operation == "supporter_clear":
                 self._supporter_clear_inflight = False
+                if self._local_supporter_state == "active":
+                    self._supporter_clear_required = False
+                    self._supporter_request_after = 0.0
+                    self._supporter_status = "Refreshing supporter Community access..."
+                    self.ensureSupporterEntitlement()
+                    return
                 self._supporter_status = "Restricted access is disabled locally; server confirmation will retry."
                 self.log.append(f"Community supporter clear failed: {code}: {message}", "warning")
                 self.changed.emit()
                 return
+            if operation == "supporter_verify":
+                self._supporter_entitlement_pending = False
+                self._supporter_request_subject = ""
+                self._supporter_status = message
+                if code == "username_required":
+                    self._supporter_request_after = 0.0
+                    self._supporter_status = "Choose a Community username before verifying supporter access."
+                    self.changed.emit()
+                    return
             if operation == "auth":
                 self._finish_authentication()
                 if code == "github_auth_cancelled":
@@ -1552,6 +1583,8 @@ class CommunityService(QObject):
             user = dict(value.get("user") or {})
             self._session_user.update(user)
             self._status = f"Community username locked as @{self.username}."
+            self._supporter_request_after = 0.0
+            self.ensureSupporterEntitlement()
         elif operation == "update_profile":
             self._session_user.update(dict(value.get("user") or {}))
             self._status = "Creator profile updated."
@@ -1572,8 +1605,14 @@ class CommunityService(QObject):
             self._supporter_clear_inflight = False
             self._supporter_clear_required = False
             self._supporter = dict(value.get("supporter") or {"active": False, "verified_until": ""})
-            self._supporter_status = "Supporter Community access is not active on this device."
-            self._status = "Supporter Community access cleared."
+            if self._local_supporter_state == "active":
+                self._supporter_request_after = 0.0
+                self._supporter_status = "Refreshing supporter Community access..."
+                self._status = "Refreshing supporter Community access."
+                self.ensureSupporterEntitlement()
+            else:
+                self._supporter_status = "Supporter Community access is not active on this device."
+                self._status = "Supporter Community access cleared."
         elif upload_inspection:
             self._upload_inspection = value
             self._upload_status = (

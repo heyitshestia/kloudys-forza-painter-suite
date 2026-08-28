@@ -105,6 +105,8 @@ jobs:
             directory: tools/supporter_activation_worker
           - name: FH6 RTTI relay
             directory: tools/fh6_rtti_relay_worker
+          - name: Community service
+            directory: tools/community_worker
 
     steps:
       - name: Check out KFPS
@@ -128,3 +130,55 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.directory }}
         run: npm test
+
+      - name: Check Community rollout isolation
+        if: matrix.name == 'Community service'
+        run: python tools/community_worker/tools/check_deployment_contract.py
+
+  community-e2e:
+    name: Disposable Community end-to-end
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out KFPS
+        uses: actions/checkout@v4
+
+      - name: Set up 64-bit Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/community_worker/package-lock.json
+
+      - name: Install locked Python dependencies
+        run: python -m pip install -r requirements.lock.txt
+
+      - name: Install locked Community Worker dependencies
+        working-directory: tools/community_worker
+        run: npm ci
+
+      - name: Audit Community test toolchain
+        working-directory: tools/community_worker
+        run: npm audit --audit-level=moderate
+
+      - name: Run fresh-state Community validation
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: python tools/community_worker/tools/run_kfps_e2e.py --skip-install
+
+      - name: Upload sanitized Community failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-e2e-worker-logs
+          path: runtime/community-e2e/**/*.log
+          if-no-files-found: warn

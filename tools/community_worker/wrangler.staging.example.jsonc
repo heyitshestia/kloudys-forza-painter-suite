@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "REPLACE_WITH_STAGING_WORKER_NAME",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "API_PROTOCOL": "1",
+    "DEPLOYMENT_ENVIRONMENT": "staging",
+    "ALLOW_TEST_AUTH": "1",
+    "AUTO_APPROVE_TEST_UPLOADS": "1",
+    "AUTO_PUBLISH_VALIDATED_UPLOADS": "1",
+    "GITHUB_CLIENT_ID": "REPLACE_WITH_GITHUB_CLIENT_ID",
+    "MINIMUM_UPLOAD_VERSION": "REPLACE_WITH_KFPS_VERSION",
+    "COMPATIBILITY_MINIMUM_UPLOAD_VERSION": "3.0.81",
+    "REQUIRE_MODERN_UPLOAD_CLIENT": "0",
+    "VERSION_SYNC_ENABLED": "0",
+    "VERSION_REPOSITORY": "REPLACE_WITH_VERSION_REPOSITORY",
+    "VERSION_BRANCH": "main",
+    "SUPPORTER_ENTITLEMENT_KEY_ID": "REPLACE_WITH_SUPPORTER_KEY_ID",
+    "SUPPORTER_ENTITLEMENT_MODULUS_HEX": "REPLACE_WITH_SUPPORTER_MODULUS_HEX"
+  },
+  "secrets": {
+    "required": ["ADMIN_TOKEN", "TEST_AUTH_TOKEN"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "REPLACE_WITH_STAGING_D1_NAME",
+      "database_id": "REPLACE_WITH_STAGING_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "REPLACE_WITH_STAGING_R2_BUCKET"
+    }
+  ]
+}

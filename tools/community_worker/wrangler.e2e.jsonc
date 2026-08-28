@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kfps-community-library-e2e",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "API_PROTOCOL": "1",
+    "DEPLOYMENT_ENVIRONMENT": "local-e2e",
+    "ALLOW_TEST_AUTH": "1",
+    "AUTO_APPROVE_TEST_UPLOADS": "1",
+    "AUTO_PUBLISH_VALIDATED_UPLOADS": "1",
+    "GITHUB_CLIENT_ID": "",
+    "MINIMUM_UPLOAD_VERSION": "0.0.0",
+    "COMPATIBILITY_MINIMUM_UPLOAD_VERSION": "3.0.81",
+    "REQUIRE_MODERN_UPLOAD_CLIENT": "0",
+    "VERSION_SYNC_ENABLED": "0",
+    "VERSION_REPOSITORY": "local/e2e",
+    "VERSION_BRANCH": "main",
+    "SUPPORTER_ENTITLEMENT_KEY_ID": "community-e2e-only",
+    "SUPPORTER_ENTITLEMENT_MODULUS_HEX": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kfps-community-e2e",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "kfps-community-e2e-assets"
+    }
+  ]
+}

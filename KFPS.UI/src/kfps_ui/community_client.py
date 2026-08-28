@@ -23,9 +23,10 @@ class CommunityApiError(RuntimeError):
 
 
 class CommunityApiClient:
-    def __init__(self, base_url: str, token: str = ""):
+    def __init__(self, base_url: str, token: str = "", test_auth_token: str = ""):
         self.base_url = str(base_url or "").rstrip("/")
         self.token = str(token or "")
+        self.test_auth_token = str(test_auth_token or "")
         parsed = urllib.parse.urlsplit(self.base_url)
         if (
             parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password
@@ -60,17 +61,20 @@ class CommunityApiClient:
 
     def json(self, path: str, method: str = "GET", payload=None, authenticated: bool = False, maximum: int = 36 * 1024 * 1024):
         data = None if payload is None else json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        target_url = self.url(path)
         headers = {
             "Accept": "application/json",
             "User-Agent": "KFPS-Community-Client/1",
         }
         if data is not None:
             headers["Content-Type"] = "application/json"
+        if self.test_auth_token and target_url == self.url("auth/test"):
+            headers["X-Community-Test-Token"] = self.test_auth_token
         if authenticated:
             if not self.token:
                 raise CommunityApiError(401, "authentication_required", "Sign in to use this community feature.")
             headers["Authorization"] = f"Bearer {self.token}"
-        request = urllib.request.Request(self.url(path), data=data, method=method, headers=headers)
+        request = urllib.request.Request(target_url, data=data, method=method, headers=headers)
         raw, _headers = self._open(request, maximum)
         try:
             return json.loads(raw.decode("utf-8"))
