@@ -38,6 +38,7 @@ ARTWORK_ROLES = [
     "previewUrl", "thumbnailUrl", "downloadUrl", "contentSha256", "previewSha256", "thumbnailSha256", "creatorName", "creatorAvatar",
     "creatorBio", "creatorFollowers", "creatorFollowed",
 ]
+IGNORED_USER_ROLES = ["username", "avatarUrl", "ignoredAt"]
 
 FEATURED_ARTWORK_LIMIT = 8
 SORT_VALUES = ["trending", "new", "downloads", "favorites", "name"]
@@ -155,6 +156,7 @@ class CommunityService(QObject):
         self._filter_timer.setInterval(260)
         self._filter_timer.timeout.connect(self.refresh)
         self._artwork_model = DictListModel(ARTWORK_ROLES)
+        self._ignored_user_model = DictListModel(IGNORED_USER_ROLES)
         self._rows: list[dict] = []
         self._demo_all_rows: list[dict] = []
         self._selected_index = -1
@@ -227,6 +229,10 @@ class CommunityService(QObject):
     @Property(QObject, constant=True)
     def artworkModel(self):
         return self._artwork_model
+
+    @Property(QObject, constant=True)
+    def ignoredUserModel(self):
+        return self._ignored_user_model
 
     @Property(str, notify=changed)
     def serviceUrl(self):
@@ -377,6 +383,10 @@ class CommunityService(QObject):
     @Property("QVariantMap", notify=changed)
     def sessionStats(self):
         return dict(self._session_stats)
+
+    @Property(int, notify=changed)
+    def ignoredUserCount(self):
+        return max(0, int(self._session_stats.get("ignored_count") or 0))
 
     @Property(bool, notify=changed)
     def supporterAccess(self):
@@ -1061,6 +1071,7 @@ class CommunityService(QObject):
         self._session_user = {}
         self._session_stats = {}
         self._supporter = {}
+        self._ignored_user_model.replace([])
         self._supporter_entitlement_pending = False
         self._supporter_request_subject = ""
         self._supporter_clear_inflight = False
@@ -1221,6 +1232,29 @@ class CommunityService(QObject):
         followed = bool(self._selected.get("creatorFollowed") or self._profile.get("followed"))
         self._submit("follow", lambda: CommunityApiClient(self._base_url, self._token).json(
             f"creators/{urllib.parse.quote(creator)}/follow", "POST", {"follow": not followed}, authenticated=True
+        ))
+
+    @Slot()
+    def loadIgnoredUsers(self):
+        if not self.authenticated:
+            self._error = "Sign in to manage ignored creators."
+            self.changed.emit()
+            return
+        token = self._token
+        self._submit("ignored_users", lambda: CommunityApiClient(self._base_url, token).json(
+            "profile/ignored", authenticated=True
+        ))
+
+    @Slot(str, bool)
+    def setCreatorIgnored(self, username, ignored):
+        username = str(username or "").strip()
+        if not username or not self.authenticated:
+            self._error = "Sign in and choose a creator before changing ignore status."
+            self.changed.emit()
+            return
+        self._submit("ignore", lambda: CommunityApiClient(self._base_url, self._token).json(
+            f"creators/{urllib.parse.quote(username)}/ignore", "POST",
+            {"ignored": bool(ignored)}, authenticated=True,
         ))
 
     @Slot(str)
@@ -1662,6 +1696,29 @@ class CommunityService(QObject):
             self._profile["followed"] = bool(value.get("followed"))
             self._profile["followers"] = int(value.get("followers") or 0)
             self._status = "Creator follow updated."
+        elif operation == "ignored_users":
+            rows = []
+            for item in value.get("items", []):
+                if not isinstance(item, dict) or not str(item.get("username") or "").strip():
+                    continue
+                rows.append({
+                    "username": str(item.get("username") or ""),
+                    "avatarUrl": str(item.get("avatar_url") or ""),
+                    "ignoredAt": str(item.get("ignored_at") or ""),
+                })
+            self._ignored_user_model.replace(rows)
+            self._session_stats["ignored_count"] = len(rows)
+            self._status = "Ignored creators are up to date."
+        elif operation == "ignore":
+            ignored = bool(value.get("ignored"))
+            creator = dict(value.get("creator") or {})
+            username = str(creator.get("username") or "")
+            if username and str(self._profile.get("username") or "").casefold() == username.casefold():
+                self._profile["ignored"] = ignored
+            self._session_stats["ignored_count"] = max(0, int(value.get("ignored_count") or 0))
+            self._status = f"@{username} is {'ignored' if ignored else 'visible again'}."
+            self.loadIgnoredUsers()
+            self.refresh()
         elif operation == "creator":
             self._profile = dict(value.get("creator") or {})
             self._status = "Creator profile loaded."

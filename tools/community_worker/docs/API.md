@@ -32,6 +32,7 @@ a current supporter verification.
 - `DELETE /v1/session`
 - `POST /v1/profile/username`
 - `PATCH /v1/profile`
+- `GET /v1/profile/ignored`
 - `POST /v1/supporter/verify`
 
 Authenticated requests use `Authorization: Bearer <community-session>`. GitHub
@@ -59,11 +60,19 @@ uses **Reset Community Link** in the private Operations Console.
 - `POST /v1/artworks/{id}/favorite`
 - `POST /v1/artworks/{id}/report`
 - `POST /v1/creators/{username}/follow`
+- `POST /v1/creators/{username}/ignore`
 
 Every Community Action requires a valid Community bearer session. Catalog browsing,
 public artwork metadata, creator profiles, previews, and thumbnails remain public. An
 anonymous download request returns `authentication_required` without reading the
 stored JSON object or incrementing its download count.
+
+Ignoring is an account-private catalog preference. Authenticated catalog requests
+exclude artwork from ignored creators across Featured, Browse, classification,
+Supporters, Favorites, Following, and creator-filtered views. It does not delete
+artwork, alter follow relationships, affect anonymous or other users, or block the
+creator profile needed to reverse the choice. `GET /v1/profile/ignored` is
+authenticated and returns only the requesting account's ignored-creator list.
 
 Supporter-only metadata, detail, previews, thumbnails, and downloads require a
 currently verified supporter session. Restricted assets return `private, no-store`

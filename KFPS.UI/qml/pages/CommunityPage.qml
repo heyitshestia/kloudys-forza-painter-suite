@@ -1897,7 +1897,7 @@ Item {
                                     toolTipText: "Browse your uploads and their publication status."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(6)
+                                        communityService.setScopeIndex(7)
                                     }
                                 }
 
@@ -1908,7 +1908,7 @@ Item {
                                     toolTipText: "Browse artwork you saved as a favorite."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(4)
+                                        communityService.setScopeIndex(5)
                                     }
                                 }
 
@@ -1919,7 +1919,7 @@ Item {
                                     toolTipText: "Browse recent artwork from creators you follow."
                                     onClicked: {
                                         root.activeTab = 0
-                                        communityService.setScopeIndex(5)
+                                        communityService.setScopeIndex(6)
                                     }
                                 }
 
@@ -1929,6 +1929,16 @@ Item {
                                     text: "Community Downloads"
                                     toolTipText: "Open the local folder where verified community JSON files are saved."
                                     onClicked: communityService.openDownloadedFolder()
+                                }
+
+                                GhostButton {
+                                    Layout.fillWidth: true
+                                    iconName: "reports"
+                                    text: communityService.ignoredUserCount > 0
+                                          ? "Ignored Users (" + communityService.ignoredUserCount + ")"
+                                          : "Ignored Users"
+                                    toolTipText: "Review creators whose artwork is hidden from your Community tabs."
+                                    onClicked: ignoredUsersDialog.open()
                                 }
 
                                 Item { Layout.fillHeight: true }
@@ -3117,6 +3127,19 @@ Item {
                     onClicked: communityService.followSelectedCreator()
                 }
 
+                GhostButton {
+                    visible: communityService.authenticated && !Boolean(communityService.creatorProfile.is_me)
+                    iconName: "reports"
+                    text: Boolean(communityService.creatorProfile.ignored) ? "Unignore Creator" : "Ignore Creator"
+                    toolTipText: Boolean(communityService.creatorProfile.ignored)
+                                 ? "Show this creator's artwork in Community tabs again."
+                                 : "Hide this creator's artwork from every Community tab."
+                    onClicked: communityService.setCreatorIgnored(
+                        String(communityService.creatorProfile.username || ""),
+                        !Boolean(communityService.creatorProfile.ignored)
+                    )
+                }
+
                 Item { Layout.fillWidth: true }
 
                 PrimaryButton {
@@ -3129,6 +3152,132 @@ Item {
                         root.activeTab = 0
                         creatorDialog.close()
                     }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: ignoredUsersDialog
+        objectName: "CommunityIgnoredUsersDialog"
+        modal: true
+        focus: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min(root.width - Theme.px(48), Theme.px(620))
+        height: Math.min(root.height - Theme.px(48), Theme.px(540))
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        padding: Theme.px(18)
+        onAboutToShow: communityService.loadIgnoredUsers()
+
+        background: KfpsPopupSurface {
+            surfaceColor: Theme.surfaceRaised
+            outlineColor: Theme.borderStrong
+            cornerRadius: Theme.px(8)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.px(12)
+
+            RowLayout {
+                Layout.fillWidth: true
+                SectionHeading {
+                    Layout.fillWidth: true
+                    title: "Ignored Users"
+                    subtitle: "Their artwork stays hidden until you make them visible again."
+                }
+                GhostButton {
+                    dense: true
+                    text: "Close"
+                    toolTipText: "Close ignored users."
+                    onClicked: ignoredUsersDialog.close()
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: Math.max(1, Theme.px(1)); color: Theme.borderSoft }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                ListView {
+                    id: ignoredUsersList
+                    anchors.fill: parent
+                    spacing: Theme.px(7)
+                    clip: true
+                    model: communityService.ignoredUserModel
+
+                    delegate: Rectangle {
+                        id: ignoredUserRow
+                        required property string username
+                        required property string avatarUrl
+                        required property string ignoredAt
+                        width: ListView.view.width
+                        height: Theme.px(62)
+                        radius: Theme.corner(Theme.px(6))
+                        color: Theme.surfaceSoft
+                        border.width: Math.max(1, Theme.px(1))
+                        border.color: Theme.borderSoft
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(8)
+                            spacing: Theme.px(9)
+
+                            Rectangle {
+                                Layout.preferredWidth: Theme.px(42)
+                                Layout.preferredHeight: Theme.px(42)
+                                radius: Theme.corner(Theme.px(5))
+                                color: Theme.primarySoft
+                                clip: true
+
+                                Image {
+                                    id: ignoredUserAvatar
+                                    anchors.fill: parent
+                                    source: ignoredUserRow.avatarUrl
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: ignoredUserAvatar.source.toString().length === 0
+                                    text: ignoredUserRow.username.charAt(0).toUpperCase()
+                                    color: Theme.primaryBright
+                                    font.family: Theme.displayFamily
+                                    font.pixelSize: Theme.px(18)
+                                    font.weight: Font.Bold
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: "@" + ignoredUserRow.username
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            GhostButton {
+                                dense: true
+                                iconName: "refresh"
+                                text: "Unignore"
+                                toolTipText: "Show @" + ignoredUserRow.username + " in Community tabs again."
+                                onClicked: communityService.setCreatorIgnored(ignoredUserRow.username, false)
+                            }
+                        }
+                    }
+                }
+
+                EmptyState {
+                    visible: ignoredUsersList.count === 0 && !communityService.busy
+                    anchors.centerIn: parent
+                    iconName: "check"
+                    title: "No ignored users"
+                    message: "Creators you ignore will appear here."
                 }
             }
         }

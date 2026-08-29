@@ -56,7 +56,7 @@ and are never uploaded by CI.
 - Handmade and Toolmade catalog filtering
 - Upload, metadata edit, semantic duplicate rejection, download, and checksum validation
 - Revision publication
-- Favorites, creator follows, and private reports
+- Favorites, creator follows, private ignored-creator filtering, and private reports
 - Owner removal and same-owner resubmission
 - Unknown-schema acknowledgement
 - Exact pre-classification KFPS upload compatibility during the rollout bridge

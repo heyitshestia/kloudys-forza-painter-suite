@@ -29,6 +29,8 @@ import {
   handleCreator,
   handleFavorite,
   handleFollow,
+  handleIgnore,
+  handleIgnoredCreators,
   handleListArtworks,
   handleRemoveArtwork,
   handleReport,
@@ -116,6 +118,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/v1/session" && method === "DELETE") return handleSignOut(request, env);
   if (path === "/v1/profile/username" && method === "POST") return handleChooseUsername(request, env);
   if (path === "/v1/profile" && method === "PATCH") return handleUpdateProfile(request, env);
+  if (path === "/v1/profile/ignored" && method === "GET") return handleIgnoredCreators(request, env);
   if (path === "/v1/supporter/verify" && method === "POST") return handleVerifySupporter(request, env);
   if (path === "/v1/supporter/verify" && method === "DELETE") return handleClearSupporter(request, env);
 
@@ -143,6 +146,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (match && method === "GET") return handleCreator(request, env, match[0]!);
   match = pathMatch(path, /^\/v1\/creators\/([^/]+)\/follow$/);
   if (match && method === "POST") return handleFollow(request, env, match[0]!);
+  match = pathMatch(path, /^\/v1\/creators\/([^/]+)\/ignore$/);
+  if (match && method === "POST") return handleIgnore(request, env, match[0]!);
 
   if (path === "/v1/admin/queue" && method === "GET") return handleAdminQueue(request, env);
   if (path === "/v1/admin/reports" && method === "GET") return handleAdminReports(request, env);

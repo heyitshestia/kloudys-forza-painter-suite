@@ -19,7 +19,7 @@ real service contract can be validated together.
 - Trending, newest, download, favorite, and alphabetical sorting for the main catalog
 - GitHub identity exchange plus local test authentication
 - Unique, case-insensitive, one-time community usernames with exact double confirmation
-- Creator profiles, follows, favorites, and personal upload views
+- Creator profiles, follows, favorites, account-private creator ignoring, and personal upload views
 - Browse-all, Handmade, Toolmade, and server-enforced Supporters catalog views with search constrained to the active view
 - Sanitized JSON uploads, immutable revisions, full inspection previews, compact
   catalog thumbnails, and downloads

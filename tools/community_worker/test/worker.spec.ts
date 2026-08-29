@@ -1229,6 +1229,63 @@ describe("community worker", () => {
     expect((await (await jsonFetch("/v1/artworks")).json() as { total: number }).total).toBe(0);
   });
 
+  it("hides ignored creators from every catalog scope until they are unignored", async () => {
+    const creatorToken = await account("ignored-creator", "IgnoredCreator");
+    const upload = await (await jsonFetch("/v1/artworks", "POST", uploadBody(311), creatorToken)).json() as {
+      artwork: { id: string };
+    };
+    const viewerToken = await account("ignored-viewer", "IgnoredViewer");
+    expect((await jsonFetch("/v1/profile/ignored", "GET")).status).toBe(401);
+    expect((await jsonFetch("/v1/creators/IgnoredViewer/ignore", "POST", { ignored: true }, viewerToken)).status).toBe(400);
+
+    expect((await jsonFetch("/v1/creators/IgnoredCreator/follow", "POST", { follow: true }, viewerToken)).status).toBe(200);
+    expect((await jsonFetch(`/v1/artworks/${upload.artwork.id}/favorite`, "POST", { favorite: true }, viewerToken)).status).toBe(200);
+    const ignoredResponse = await jsonFetch(
+      "/v1/creators/IgnoredCreator/ignore", "POST", { ignored: true }, viewerToken,
+    );
+    expect(ignoredResponse.status).toBe(200);
+    expect(await ignoredResponse.json()).toMatchObject({
+      ignored: true, ignored_count: 1, creator: { username: "IgnoredCreator" },
+    });
+
+    const profile = await (await jsonFetch(
+      "/v1/creators/IgnoredCreator", "GET", undefined, viewerToken,
+    )).json() as { creator: { ignored: boolean; followed: boolean } };
+    expect(profile.creator).toMatchObject({ ignored: true, followed: true });
+    const ignored = await (await jsonFetch("/v1/profile/ignored", "GET", undefined, viewerToken)).json() as {
+      items: Array<{ username: string }>;
+    };
+    expect(ignored.items).toEqual([expect.objectContaining({ username: "IgnoredCreator" })]);
+    const session = await (await jsonFetch("/v1/session", "GET", undefined, viewerToken)).json() as {
+      stats: { ignored_count: number };
+    };
+    expect(session.stats.ignored_count).toBe(1);
+
+    for (const scope of ["browse", "favorites", "following"]) {
+      const catalog = await (await jsonFetch(`/v1/artworks?scope=${scope}`, "GET", undefined, viewerToken)).json() as {
+        total: number;
+      };
+      expect(catalog.total).toBe(0);
+    }
+    await env.DB.prepare("UPDATE artworks SET featured = 1 WHERE id = ?1").bind(upload.artwork.id).run();
+    expect((await (await jsonFetch(
+      "/v1/artworks?scope=featured", "GET", undefined, viewerToken,
+    )).json() as { total: number }).total).toBe(0);
+    expect((await (await jsonFetch("/v1/artworks?scope=featured")).json() as { total: number }).total).toBe(1);
+
+    const restoredResponse = await jsonFetch(
+      "/v1/creators/IgnoredCreator/ignore", "POST", { ignored: false }, viewerToken,
+    );
+    expect(restoredResponse.status).toBe(200);
+    expect(await restoredResponse.json()).toMatchObject({ ignored: false, ignored_count: 0 });
+    expect((await (await jsonFetch("/v1/profile/ignored", "GET", undefined, viewerToken)).json() as {
+      items: unknown[];
+    }).items).toEqual([]);
+    expect((await (await jsonFetch(
+      "/v1/artworks?scope=featured", "GET", undefined, viewerToken,
+    )).json() as { total: number }).total).toBe(1);
+  });
+
   it("requires admin authentication and records moderation decisions", async () => {
     const token = await account("g", "ModeratedCreator");
     const uploaded = await (await jsonFetch("/v1/artworks", "POST", uploadBody(47), token)).json() as { artwork: { id: string } };

@@ -851,6 +851,16 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertNotIn("selectedGames", page)
         self.assertIn("text: \"Report\"", page)
         self.assertIn("text: \"Remove\"", page)
+        activity_start = page.index('title: "Your library activity"')
+        activity = page[activity_start:activity_start + 3600]
+        for label, scope_index in (("My Uploads", 7), ("Favorites", 5), ("Following", 6)):
+            button_start = activity.index(f'text: "{label}"')
+            self.assertIn(f"communityService.setScopeIndex({scope_index})", activity[button_start:button_start + 420])
+        self.assertIn('title: "Ignored Users"', page)
+        self.assertIn("id: ignoredUsersDialog", page)
+        self.assertIn("model: communityService.ignoredUserModel", page)
+        self.assertIn("communityService.setCreatorIgnored(ignoredUserRow.username, false)", page)
+        self.assertIn("!Boolean(communityService.creatorProfile.ignored)", page)
         self.assertNotIn("safe for work", page.lower())
         self.assertNotIn("mature_content", page)
 

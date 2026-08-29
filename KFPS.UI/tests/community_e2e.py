@@ -216,6 +216,31 @@ class CommunityWorkerEndToEndTests(unittest.TestCase):
                     and not service.busy
                 ), service.errorMessage)
 
+                service.setCreatorIgnored(other_creator, True)
+                self.assertTrue(wait_for(
+                    lambda: service.creatorProfile.get("ignored") is True
+                    and service.ignoredUserCount == 1
+                    and all(row.get("creatorName") != other_creator for row in service._rows)
+                    and not service.busy
+                ), service.errorMessage)
+                self.assertEqual(service.ignoredUserModel.rowCount(), 1)
+                self.assertEqual(service.ignoredUserModel.get(0).get("username"), other_creator)
+                set_scope(service, "following")
+                self.assertTrue(wait_for(lambda: service.totalCount == 0 and not service.busy), service.errorMessage)
+
+                service.setCreatorIgnored(other_creator, False)
+                self.assertTrue(wait_for(
+                    lambda: service.creatorProfile.get("ignored") is False
+                    and service.ignoredUserCount == 0
+                    and service.ignoredUserModel.rowCount() == 0
+                    and not service.busy
+                ), service.errorMessage)
+                set_scope(service, "following")
+                self.assertTrue(wait_for(
+                    lambda: any(row.get("creatorName") == other_creator for row in service._rows)
+                    and not service.busy
+                ), service.errorMessage)
+
                 set_scope(service, "mine")
                 self.assertTrue(wait_for(
                     lambda: any(row.get("id") == artwork_id for row in service._rows) and not service.busy

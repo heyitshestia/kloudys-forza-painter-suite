@@ -124,7 +124,8 @@ export async function handleSession(request: Request, env: Env): Promise<Respons
        (SELECT COUNT(*) FROM artworks WHERE creator_id = ?1 AND status = 'published') AS artwork_count,
        (SELECT COUNT(*) FROM favorites WHERE user_id = ?1) AS favorite_count,
        (SELECT COUNT(*) FROM follows WHERE follower_id = ?1) AS following_count,
-       (SELECT COUNT(*) FROM follows WHERE creator_id = ?1) AS follower_count`,
+       (SELECT COUNT(*) FROM follows WHERE creator_id = ?1) AS follower_count,
+       (SELECT COUNT(*) FROM ignored_users WHERE viewer_id = ?1) AS ignored_count`,
   ).bind(user.id).first<Record<string, number>>();
   return jsonResponse({ user: publicUser(user), stats: stats || {}, supporter: publicSupporterState(user) });
 }

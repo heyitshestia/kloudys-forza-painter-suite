@@ -180,6 +180,12 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   } else {
     conditions.push("a.status = 'published'");
   }
+  if (user) {
+    conditions.push(`NOT EXISTS(
+      SELECT 1 FROM ignored_users iu
+       WHERE iu.viewer_id = ${bind(user.id)} AND iu.ignored_id = a.creator_id
+    )`);
+  }
   if (scope === "featured") {
     conditions.push("a.featured = 1");
   } else if (scope === "browse" || scope === "supporters" || scope === "following") {
@@ -868,6 +874,55 @@ export async function handleFollow(request: Request, env: Env, username: string)
   return jsonResponse({ followed: value.follow, followers: integerValue(count?.total) });
 }
 
+export async function handleIgnoredCreators(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const rows = await env.DB.prepare(
+    `SELECT u.username, u.avatar_url, iu.created_at
+       FROM ignored_users iu JOIN users u ON u.id = iu.ignored_id
+      WHERE iu.viewer_id = ?1 AND u.suspended_at IS NULL
+      ORDER BY lower(u.username) ASC, u.id ASC`,
+  ).bind(user.id).all<Record<string, unknown>>();
+  return jsonResponse({
+    items: (rows.results || []).map((row) => ({
+      username: String(row.username || ""),
+      avatar_url: String(row.avatar_url || ""),
+      ignored_at: String(row.created_at || ""),
+    })),
+  }, 200, { "Cache-Control": "private, no-store" });
+}
+
+export async function handleIgnore(request: Request, env: Env, username: string): Promise<Response> {
+  const user = await requireUser(request, env);
+  await enforceRateLimit(env, user.id, "ignore", 120, 3600);
+  const creator = await env.DB.prepare(
+    "SELECT id, username, avatar_url FROM users WHERE username_norm = ?1 AND suspended_at IS NULL LIMIT 1",
+  ).bind(username.toLocaleLowerCase("en-US")).first<Record<string, unknown>>();
+  if (!creator) throw new HttpError(404, "creator_not_found");
+  if (String(creator.id) === user.id) throw new HttpError(400, "cannot_ignore_self");
+  const value = await readJsonObject(request, 2048);
+  if (typeof value.ignored !== "boolean") throw new HttpError(400, "invalid_ignore");
+  if (value.ignored) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO ignored_users(viewer_id, ignored_id, created_at) VALUES (?1, ?2, ?3)",
+    ).bind(user.id, creator.id, new Date().toISOString()).run();
+  } else {
+    await env.DB.prepare(
+      "DELETE FROM ignored_users WHERE viewer_id = ?1 AND ignored_id = ?2",
+    ).bind(user.id, creator.id).run();
+  }
+  const count = await env.DB.prepare(
+    "SELECT COUNT(*) AS total FROM ignored_users WHERE viewer_id = ?1",
+  ).bind(user.id).first<{ total: number }>();
+  return jsonResponse({
+    ignored: value.ignored,
+    ignored_count: integerValue(count?.total),
+    creator: {
+      username: String(creator.username || ""),
+      avatar_url: String(creator.avatar_url || ""),
+    },
+  });
+}
+
 export async function handleCreator(request: Request, env: Env, username: string): Promise<Response> {
   const viewer = await optionalUser(request, env);
   const supporterActive = hasActiveSupporter(viewer) ? 1 : 0;
@@ -879,7 +934,8 @@ export async function handleCreator(request: Request, env: Env, username: string
       (SELECT COALESCE(SUM(download_count), 0) FROM artworks WHERE creator_id = u.id AND status = 'published'
          AND (supporter_only = 0 OR ?3 = 1)) AS downloads,
       (SELECT COUNT(*) FROM follows WHERE creator_id = u.id) AS followers,
-      EXISTS(SELECT 1 FROM follows WHERE creator_id = u.id AND follower_id = ?2) AS followed
+      EXISTS(SELECT 1 FROM follows WHERE creator_id = u.id AND follower_id = ?2) AS followed,
+      EXISTS(SELECT 1 FROM ignored_users WHERE ignored_id = u.id AND viewer_id = ?2) AS ignored
      FROM users u WHERE u.username_norm = ?1 AND u.suspended_at IS NULL LIMIT 1`,
   ).bind(normalized, viewer?.id || "", supporterActive).first<Record<string, unknown>>();
   if (!row) throw new HttpError(404, "creator_not_found");
@@ -888,7 +944,7 @@ export async function handleCreator(request: Request, env: Env, username: string
       username: String(row.username), bio: String(row.bio || ""), website_url: String(row.website_url || ""),
       avatar_url: String(row.avatar_url || ""), joined_at: String(row.created_at || ""),
       artwork_count: integerValue(row.artwork_count), downloads: integerValue(row.downloads),
-      followers: integerValue(row.followers), followed: Boolean(row.followed),
+      followers: integerValue(row.followers), followed: Boolean(row.followed), ignored: Boolean(row.ignored),
       is_me: viewer?.id === String(row.id),
     },
   });

@@ -27,10 +27,11 @@ WORKER_NAME = "kfps-community-library"
 EMAIL_PATTERN = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 SIGNED_EXPORT_URL_PATTERN = re.compile(r"https://\S+\?X-Amz-[^\s]+")
 AUTHORITATIVE_TABLES = (
-    "users", "sessions", "artworks", "artwork_revisions", "favorites", "follows",
+    "users", "sessions", "artworks", "artwork_revisions", "favorites", "follows", "ignored_users",
     "reports", "moderation_events", "rate_limits", "reserved_usernames",
     "download_events", "service_settings",
 )
+PENDING_MIGRATION_TABLES = frozenset({"ignored_users"})
 
 
 def sha256(path: Path) -> str:
@@ -149,6 +150,45 @@ def deployment_summary(values: list[dict]) -> list[dict]:
     ]
 
 
+def d1_query_rows(npx: str, query: str) -> list[dict]:
+    value = json.loads(command_output([
+        npx, "wrangler", "d1", "execute", "DB", "--remote", "--config", str(CONFIG),
+        "--command", query, "--json",
+    ]))
+    batches = value if isinstance(value, list) else [value]
+    rows: list[dict] = []
+    for batch in batches:
+        if not isinstance(batch, dict):
+            continue
+        results = batch.get("results")
+        if isinstance(results, list):
+            rows.extend(item for item in results if isinstance(item, dict))
+    return rows
+
+
+def remote_table_names(npx: str) -> set[str]:
+    return {
+        str(row.get("name") or "")
+        for row in d1_query_rows(
+            npx,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        if row.get("name")
+    }
+
+
+def pre_migration_backup_tables(existing_tables: set[str]) -> tuple[str, ...]:
+    unexpected_missing_tables = sorted(
+        set(AUTHORITATIVE_TABLES) - existing_tables - PENDING_MIGRATION_TABLES
+    )
+    if unexpected_missing_tables:
+        raise RuntimeError(
+            "Production D1 is missing required pre-migration tables: "
+            + ", ".join(unexpected_missing_tables)
+        )
+    return tuple(table for table in AUTHORITATIVE_TABLES if table in existing_tables)
+
+
 def zip_report(report_dir: Path) -> Path:
     target = report_dir.with_suffix(".zip")
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -217,18 +257,20 @@ def main() -> int:
             "public_config": before_public,
         }
 
+        tables_before_migration = remote_table_names(npx)
+        backup_tables = pre_migration_backup_tables(tables_before_migration)
         backup_command = [
             npx, "wrangler", "d1", "export", "DB", "--remote", "--config", str(CONFIG),
             "--output", str(backup_path), "--skip-confirmation",
         ]
-        for table in AUTHORITATIVE_TABLES:
+        for table in backup_tables:
             backup_command.extend(("--table", table))
         run_logged(backup_command, report_dir / "database-backup.log")
         if not backup_path.is_file() or backup_path.stat().st_size < 1024:
             raise RuntimeError("Production D1 backup was not created correctly.")
         backup_sql = backup_path.read_text(encoding="utf-8", errors="strict")
         missing_tables = [
-            table for table in AUTHORITATIVE_TABLES
+            table for table in backup_tables
             if not re.search(rf"(?im)^CREATE TABLE (?:\"?){re.escape(table)}(?:\"?)\s*\(", backup_sql)
         ]
         if missing_tables:
@@ -245,7 +287,8 @@ def main() -> int:
             "bytes": backup_path.stat().st_size,
             "sha256": sha256(backup_path),
             "included_in_report": False,
-            "authoritative_tables": list(AUTHORITATIVE_TABLES),
+            "authoritative_tables": list(backup_tables),
+            "pending_migration_tables": sorted(set(AUTHORITATIVE_TABLES) - set(backup_tables)),
             "excluded_rebuildable_index": "artwork_search (FTS5)",
         }
         inventory = command_output([
@@ -257,6 +300,12 @@ def main() -> int:
         run_logged([
             npx, "wrangler", "d1", "migrations", "apply", "DB", "--remote", "--config", str(CONFIG),
         ], report_dir / "migration.log")
+        missing_after_migration = sorted(set(AUTHORITATIVE_TABLES) - remote_table_names(npx))
+        if missing_after_migration:
+            raise RuntimeError(
+                "Production D1 migrations did not create required tables: "
+                + ", ".join(missing_after_migration)
+            )
         run_logged([npx, "wrangler", "deploy", "--config", str(CONFIG)], report_dir / "deployment.log")
         deployed = True
         evidence["readiness"] = wait_until_ready(api, report_dir / "readiness.json")

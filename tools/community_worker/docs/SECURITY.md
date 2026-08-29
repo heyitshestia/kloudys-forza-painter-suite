@@ -58,7 +58,9 @@ device ID, Windows identity, or local path.
   revisions, reports, favorites, and follows.
 - New artwork uploads allow 50 submission attempts per account in each fixed
   30-minute window. Revision and other action limits remain separate.
-- Favorites and follows have database uniqueness constraints.
+- Favorites, follows, and ignored-creator preferences have database uniqueness constraints.
+- Ignored-creator lists are authenticated, private to the requesting account, and
+  used only to filter that account's catalog results.
 - Downloads require an authenticated Community session. Popularity counts at most
   once per user, artwork, and UTC day.
 - Structurally valid production uploads and revisions may publish immediately when
