@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.49
+- Fixed subsequent FH6 transfers failing when another open group used a compatible root-vtable variant not covered by the first locally recovered profile.
+- Expanded verified local profiles by merging compatible vtable variants and allocator-window hints after one bounded, exact-revalidated recovery pass.
+- Preserved terminal ownership refusals, process-change protection, and fail-closed handling for unrelated authoritative locator failures.
+
 ## 3.1.48
 - Fixed local FH6 compatibility recovery on Steam layouts whose active livery allocator sits outside all known and cached windows.
 - Bounded cold-start discovery to writable livery arenas, then required exact profile, group-tree, process, and ownership revalidation before use or persistence.
