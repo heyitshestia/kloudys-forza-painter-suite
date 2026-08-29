@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.47
+- Added local-only FH6 compatibility recovery when no shared profile matches, with allocator-bounded discovery and exact revalidation before use.
+- Persisted verified recovered profiles separately for immediate reuse without modifying or publishing the shared profile registry.
+- Added a one-shot diagnostic launch mode and fail-closed coverage for process changes, ownership refusals, recovery timeouts, and profile persistence.
+
 ## 3.1.46
 - Fixed Community profile shortcuts opening the wrong personal catalog tabs.
 - Added account-level creator ignoring, with ignored artwork hidden from Community catalogs and a profile manager for restoring users.
