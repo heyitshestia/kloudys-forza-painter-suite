@@ -148,7 +148,18 @@ class LiveMemoryLocatorEngine:
         if adapter.key != "fh6" or payload.get("refused") is True:
             return False
         profile_diagnostic = (payload.get("locator_diagnostics") or {}).get("rtti_profile") or {}
-        return payload.get("profile_recovery_required") is True or profile_diagnostic.get("matched") is False
+        if payload.get("profile_recovery_required") is True or profile_diagnostic.get("matched") is False:
+            return True
+        exact_diagnostic = (
+            (payload.get("locator_diagnostics") or {}).get("calibrated_exact_authoritative") or {}
+        )
+        return (
+            payload.get("no_match") is True
+            and payload.get("authoritative_no_match") is True
+            and profile_diagnostic.get("matched") is True
+            and exact_diagnostic.get("complete") is True
+            and exact_diagnostic.get("active_group_found") is False
+        )
 
     def _recover_fh6_profile(
         self,
@@ -225,11 +236,24 @@ class LiveMemoryLocatorEngine:
             attempts.append({"name": "profile_locator", "status": "error", "error": str(exc)})
 
         if not fast_error and self._needs_fh6_profile_recovery(fast_payload, adapter):
-            print(
-                "No matching FH6 compatibility profile is available. "
-                "Running one local allocator recovery pass.",
-                flush=True,
+            matched_profile = (
+                ((fast_payload.get("locator_diagnostics") or {}).get("rtti_profile") or {}).get(
+                    "matched"
+                )
+                is True
             )
+            if matched_profile:
+                print(
+                    "The saved FH6 compatibility profile did not cover the open group variant. "
+                    "Running one local expansion pass.",
+                    flush=True,
+                )
+            else:
+                print(
+                    "No matching FH6 compatibility profile is available. "
+                    "Running one local allocator recovery pass.",
+                    flush=True,
+                )
             recovery_started = time.monotonic()
             try:
                 recovery = self._recover_fh6_profile(request, adapter, fast_payload)
@@ -275,7 +299,10 @@ class LiveMemoryLocatorEngine:
                     verified_window = recovery.get("verified_allocator_window")
                     if expected_profile_id and isinstance(verified_window, (list, tuple)):
                         try:
+                            compatible_profile_ids = recovery.get("compatible_profile_ids") or []
                             existing_windows = self.cache.allocator_windows(expected_profile_id)
+                            for profile_id in compatible_profile_ids:
+                                existing_windows.extend(self.cache.allocator_windows(str(profile_id)))
                             self.cache.update_allocator_windows(
                                 adapter.key,
                                 expected_profile_id,

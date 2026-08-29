@@ -30,18 +30,22 @@ from live_memory_locator.fh6_recovery import (  # noqa: E402
     load_local_profiles,
     local_registry_path,
     merge_local_profiles,
+    merge_compatible_profile_variants,
     persist_local_profile,
     recover_local_profile,
 )
 
 
-def recovery_profile(update_code: str = "12345678901234") -> dict:
+def recovery_profile(
+    update_code: str = "12345678901234",
+    vtable_offsets: list[int] | None = None,
+) -> dict:
     return normalize_profile(
         {
             "game": "fh6",
             "module_size": 0x0C000000,
             "descriptor_offset": 0x09000000,
-            "vtable_offsets": [0x06000000],
+            "vtable_offsets": vtable_offsets or [0x06000000],
             "update_code": update_code,
             "base_class_count": 1,
             "game_build": "test",
@@ -95,6 +99,23 @@ def located_payload(profile_id: str) -> dict:
     }
 
 
+def matched_exact_no_match_payload(profile_id: str) -> dict:
+    return {
+        "game": "fh6",
+        "layer_count": 8,
+        "no_match": True,
+        "authoritative_no_match": True,
+        "failure_reason": "complete exact scan",
+        "locator_diagnostics": {
+            "rtti_profile": {"matched": True, "profile_id": profile_id},
+            "calibrated_exact_authoritative": {
+                "complete": True,
+                "active_group_found": False,
+            },
+        },
+    }
+
+
 class Fh6RttiRecoveryTests(unittest.TestCase):
     def request(self, root: Path, purpose: str = "export") -> LocatorRequest:
         return LocatorRequest("fh6", 123, 8, purpose, root / "locator-session.json")
@@ -136,6 +157,22 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
             loaded, error = load_local_profiles(root)
             self.assertFalse(error)
             self.assertEqual(saved["profile_id"], loaded[0]["profile_id"])
+
+    def test_compatible_local_profiles_merge_vtable_variants_and_replace_old_entries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = persist_local_profile(root, recovery_profile(vtable_offsets=[0x06000000]))
+            second = recovery_profile(vtable_offsets=[0x06100000])
+
+            merged, compatible_ids = merge_compatible_profile_variants(root, second)
+            persisted = persist_local_profile(root, merged)
+            loaded, error = load_local_profiles(root)
+
+            self.assertFalse(error)
+            self.assertEqual([first["profile_id"]], compatible_ids)
+            self.assertEqual([0x06000000, 0x06100000], persisted["vtable_offsets"])
+            self.assertEqual(1, len(loaded))
+            self.assertEqual(persisted["profile_id"], loaded[0]["profile_id"])
 
     def test_cache_can_reuse_allocator_windows_across_fh6_profiles(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -366,6 +403,52 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
             self.assertEqual(
                 [(0x410000000, 0x420000000)],
                 engine.cache.allocator_windows(profile["profile_id"]),
+            )
+
+    def test_matched_profile_exact_miss_recovers_and_merges_allocator_hints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            engine = LiveMemoryLocatorEngine(root)
+            previous = recovery_profile(vtable_offsets=[0x06000000])
+            expanded = recovery_profile(vtable_offsets=[0x06000000, 0x06100000])
+            previous_window = (0x310000000, 0x320000000)
+            current_window = [0x410000000, 0x420000000]
+            engine.cache.update_allocator_windows("fh6", previous["profile_id"], [previous_window])
+            recovery = {
+                "status": "derived",
+                "reason": "derived",
+                "publication": "disabled",
+                "profile": dict(expanded),
+                "verified_allocator_window": current_window,
+                "compatible_profile_ids": [previous["profile_id"]],
+            }
+            with patch.object(engine, "_process_identity", return_value=self.identity()), patch.object(
+                engine,
+                "_fast_locate",
+                side_effect=[
+                    (
+                        matched_exact_no_match_payload(previous["profile_id"]),
+                        {"name": "profile_locator", "status": "no_match"},
+                    ),
+                    (
+                        located_payload(expanded["profile_id"]),
+                        {"name": "profile_locator", "status": "located"},
+                    ),
+                ],
+            ) as fast, patch.object(
+                engine, "_recover_fh6_profile", return_value=recovery
+            ) as recover, patch(
+                "live_memory_locator.fh6_recovery.persist_local_profile", return_value=expanded
+            ) as persist:
+                report = engine.locate(self.request(root))
+
+            self.assertEqual("located", report["outcome"]["status"])
+            self.assertEqual(2, fast.call_count)
+            recover.assert_called_once()
+            persist.assert_called_once()
+            self.assertEqual(
+                [previous_window, tuple(current_window)],
+                engine.cache.allocator_windows(expanded["profile_id"]),
             )
 
     def test_forced_recovery_ignores_known_profiles_only_for_initial_lookup(self):

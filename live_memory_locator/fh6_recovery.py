@@ -68,13 +68,70 @@ def merge_local_profiles(root: str | Path, profiles: list[dict[str, Any]]) -> li
     return merged
 
 
+def _profile_compatibility_key(profile: Mapping[str, Any]) -> tuple[int, int, str]:
+    return (
+        int(profile.get("module_size") or 0),
+        int(profile.get("descriptor_offset") or 0),
+        str(profile.get("update_code") or "").strip(),
+    )
+
+
+def merge_compatible_profile_variants(
+    root: str | Path,
+    raw_profile: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    profile = normalize_profile(dict(raw_profile))
+    target_key = _profile_compatibility_key(profile)
+    candidates: list[dict[str, Any]] = []
+    local, _error = load_local_profiles(root)
+    candidates.extend(local)
+    for path in (
+        Path(root) / "runtime" / "fh6-rtti" / "RTTI.dat",
+        Path(root) / "RTTI.dat",
+    ):
+        if not path.is_file():
+            continue
+        try:
+            candidates.extend(load_registry_file(path)["profiles"])
+        except Exception:
+            continue
+
+    offsets = set(profile["vtable_offsets"])
+    compatible_ids = []
+    seen_ids = set()
+    for candidate in candidates:
+        if _profile_compatibility_key(candidate) != target_key:
+            continue
+        profile_id = str(candidate.get("profile_id") or "").strip()
+        if profile_id and profile_id != profile["profile_id"] and profile_id not in seen_ids:
+            seen_ids.add(profile_id)
+            compatible_ids.append(profile_id)
+        offsets.update(int(value) for value in candidate.get("vtable_offsets") or [])
+
+    if len(offsets) > 16:
+        raise ValueError("FH6 local recovery found more compatible vtable variants than can be stored safely")
+    merged = normalize_profile({**profile, "vtable_offsets": sorted(offsets)})
+    merged["_registry_source"] = "local_recovery_candidate"
+    return merged, compatible_ids
+
+
 def persist_local_profile(root: str | Path, raw_profile: Mapping[str, Any]) -> dict[str, Any]:
     path = local_registry_path(root)
     try:
         registry = load_registry_file(path) if path.is_file() else empty_registry()
     except Exception:
         registry = empty_registry()
-    profile = normalize_profile(dict(raw_profile))
+    profile, _compatible_ids = merge_compatible_profile_variants(root, raw_profile)
+    profile = normalize_profile(profile)
+    compatibility_key = _profile_compatibility_key(profile)
+    registry = {
+        **registry,
+        "profiles": [
+            item
+            for item in registry["profiles"]
+            if _profile_compatibility_key(item) != compatibility_key
+        ],
+    }
     write_registry_file(path, registry_with_profile(registry, profile))
     return profile
 
@@ -594,6 +651,16 @@ def recover_local_profile(
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
     winner = next(iter(unique.values()))
+    merged_profile, compatible_profile_ids = merge_compatible_profile_variants(
+        root,
+        winner["profile"],
+    )
+    winner["profile"] = merged_profile
+    winner["derivation"] = {
+        **winner["derivation"],
+        "profile_id": merged_profile["profile_id"],
+        "vtable_variant_count": len(merged_profile["vtable_offsets"]),
+    }
     verified_window = probe.allocator_window_for_address(winner["group_address"])
     return {
         **result,
@@ -607,6 +674,7 @@ def recover_local_profile(
         "max_depth": winner["max_depth"],
         "source_group": winner["group_address"],
         "verified_allocator_window": list(verified_window),
+        "compatible_profile_ids": compatible_profile_ids,
         "cold_start": cold_stats,
         "derivation": winner["derivation"],
         "elapsed_seconds": round(time.monotonic() - started, 3),
