@@ -29,6 +29,7 @@ from .json_metadata import (
     count_detail_text,
     display_name_for_json,
     json_count,
+    json_mask_summary,
     json_summary,
     metadata_count,
     metadata_count_value,
@@ -79,8 +80,8 @@ class JsonService(QObject):
         self._preview_futures: set[concurrent.futures.Future] = set()
         self._deferred_timers: set[QTimer] = set()
         self._group_model = DictListModel(["name","displayName","detailText","path","count","modifiedLabel"])
-        self._file_model = DictListModel(["name","displayName","path","layers","modifiedLabel","previewUrl","detailText","folder"])
-        self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","modifiedLabel","previewUrl","detailText","folder","selected"])
+        self._file_model = DictListModel(["name","displayName","path","layers","usesMasks","maskCount","modifiedLabel","previewUrl","detailText","folder"])
+        self._explorer_model = DictListModel(["name","displayName","path","entryKind","isFolder","sourceIndex","layers","usesMasks","maskCount","modifiedLabel","previewUrl","detailText","folder","selected"])
         self._folder_model = DictListModel(["displayName","path","depth","sourceIndex"])
         self._move_folder_model = DictListModel(["displayName","path","depth","sourceIndex"])
         self._recent_model = DictListModel(["name","path","folder","age","source"])
@@ -371,12 +372,12 @@ class JsonService(QObject):
             if not isinstance(row, dict):
                 continue
             preview_url = str(row.get("previewUrl") or "")
-            if not preview_url:
-                continue
             retained[key] = (
                 int(row.get("mtimeNs") or -1),
                 int(row.get("size") or -1),
                 preview_url,
+                int(row.get("maskCount") or 0),
+                bool(row.get("usesMasks")),
             )
         return retained
 
@@ -564,6 +565,8 @@ class JsonService(QObject):
             "isFolder": True,
             "sourceIndex": source,
             "layers": -1,
+            "usesMasks": False,
+            "maskCount": 0,
             "modifiedLabel": "",
             "previewUrl": "",
             "detailText": " • ".join(parts),
@@ -594,6 +597,8 @@ class JsonService(QObject):
             "isFolder": True,
             "sourceIndex": source,
             "layers": -1,
+            "usesMasks": False,
+            "maskCount": 0,
             "modifiedLabel": self._age(modified) if modified else "",
             "previewUrl": "",
             "detailText": " • ".join(parts) if parts else "Empty folder",
@@ -936,6 +941,8 @@ class JsonService(QObject):
                 "displayName": str(raw.get("displayName") or path.name),
                 "path": str(path),
                 "layers": int(raw.get("layers") or 0),
+                "usesMasks": bool(raw.get("usesMasks")),
+                "maskCount": int(raw.get("maskCount") or 0),
                 "modifiedLabel": modified_label,
                 "previewUrl": str(raw.get("previewUrl") or ""),
                 "countDetail": count_detail,
@@ -999,6 +1006,8 @@ class JsonService(QObject):
                     "displayName": row.get("displayName", ""),
                     "path": row.get("path", ""),
                     "layers": int(row.get("layers") or 0),
+                    "usesMasks": bool(row.get("usesMasks")),
+                    "maskCount": int(row.get("maskCount") or 0),
                     "previewUrl": row.get("previewUrl", ""),
                     "countDetail": row.get("countDetail", ""),
                     "folder": row.get("folder", ""),
@@ -2537,15 +2546,22 @@ class JsonService(QObject):
         meta, layers, display_name = self._json_summary(path)
         detail = self._count_detail_text(layers, meta)
         preview_url = ""
+        cached = None
         if retained_previews:
             cached = retained_previews.get(self._preview_key(path))
             if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
                 preview_url = cached[2]
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            mask_count, uses_masks = cached[3], cached[4]
+        else:
+            mask_count, uses_masks = json_mask_summary(path, meta)
         return {
             "name": path.name,
             "displayName": display_name,
             "path": str(path),
             "layers": layers,
+            "usesMasks": uses_masks,
+            "maskCount": mask_count,
             "modifiedLabel": modified_label,
             "previewUrl": preview_url,
             "countDetail": detail,

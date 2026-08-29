@@ -10,6 +10,8 @@ Item {
     required property string path
     required property string previewUrl
     required property string detailText
+    required property bool usesMasks
+    required property int maskCount
     property bool selected: false
     property bool validating: false
     signal clicked()
@@ -20,6 +22,9 @@ Item {
         clickable: true
         strong: root.selected
         toolTipText: "Select " + root.displayName + " and validate it for Community upload."
+                     + (root.usesMasks
+                        ? " Contains " + root.maskCount + " mask layer" + (root.maskCount === 1 ? "." : "s.")
+                        : "")
         onClicked: root.clicked()
 
         ColumnLayout {
@@ -76,6 +81,30 @@ Item {
                     running: root.validating || tilePreview.status === Image.Loading
                     visible: running
                     palette.highlight: Theme.primaryBright
+                }
+
+                Rectangle {
+                    visible: root.usesMasks
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Theme.px(6)
+                    width: uploadMasksText.implicitWidth + Theme.px(14)
+                    height: Theme.px(22)
+                    radius: Theme.corner(Theme.px(5))
+                    color: "#d0181818"
+                    border.width: Math.max(1, Theme.px(1))
+                    border.color: "#ffd84a"
+                    z: 25
+
+                    Text {
+                        id: uploadMasksText
+                        anchors.centerIn: parent
+                        text: "MASKS"
+                        color: "#ffd84a"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(8.6)
+                        font.weight: Font.Bold
+                    }
                 }
             }
 

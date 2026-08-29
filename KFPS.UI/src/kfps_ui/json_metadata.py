@@ -7,6 +7,10 @@ from pathlib import Path
 
 
 _COUNT_SUFFIX = re.compile(r"\.(\d+)v2\.json$", re.IGNORECASE)
+_MASK_KEYS = ("mask", "is_mask", "isMask")
+_MASK_COUNT_KEYS = ("mask_count", "maskCount")
+_USES_MASKS_KEYS = ("uses_masks", "usesMasks")
+_DERIVED_MASK_SUMMARY_KEY = "_kfps_mask_summary_derived"
 
 
 def age_label(timestamp: float, now: float | None = None) -> str:
@@ -31,6 +35,76 @@ def metadata_count_value(metadata: dict) -> int | None:
         except (TypeError, ValueError):
             pass
     return None
+
+
+def shape_uses_mask(shape: object) -> bool:
+    """Match the mask precedence used by the preview and import paths."""
+    if not isinstance(shape, dict):
+        return False
+    for key in _MASK_KEYS:
+        if key in shape:
+            return bool(shape.get(key))
+    data = shape.get("data")
+    if isinstance(data, list) and len(data) > 6:
+        try:
+            return bool(int(float(data[6])))
+        except (TypeError, ValueError):
+            return bool(data[6])
+    return False
+
+
+def payload_mask_count(payload: object) -> int:
+    shapes = payload
+    if isinstance(payload, dict):
+        shapes = next(
+            (payload.get(key) for key in ("shapes", "layers", "items") if isinstance(payload.get(key), list)),
+            [],
+        )
+    if not isinstance(shapes, list):
+        return 0
+    return sum(1 for shape in shapes if shape_uses_mask(shape))
+
+
+def _metadata_mask_summary(metadata: dict) -> tuple[int, bool] | None:
+    for key in _MASK_COUNT_KEYS:
+        value = metadata.get(key)
+        try:
+            if value is not None and str(value).strip():
+                count = max(0, int(value))
+                return count, count > 0
+        except (TypeError, ValueError):
+            pass
+    for key in _USES_MASKS_KEYS:
+        if key not in metadata:
+            continue
+        value = metadata.get(key)
+        if isinstance(value, str):
+            uses_masks = value.strip().casefold() in {"1", "true", "yes", "on"}
+        else:
+            uses_masks = bool(value)
+        return (1 if uses_masks else 0), uses_masks
+    return None
+
+
+def _store_payload_mask_summary(metadata: dict, payload: object) -> tuple[int, bool]:
+    count = payload_mask_count(payload)
+    metadata["mask_count"] = count
+    metadata["uses_masks"] = count > 0
+    metadata[_DERIVED_MASK_SUMMARY_KEY] = True
+    return count, count > 0
+
+
+def json_mask_summary(path: str | Path, metadata: dict | None = None) -> tuple[int, bool]:
+    metadata = metadata or {}
+    summary = _metadata_mask_summary(metadata)
+    if metadata.get(_DERIVED_MASK_SUMMARY_KEY) and summary is not None:
+        return summary
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return summary if summary is not None else (0, False)
+    count = payload_mask_count(payload)
+    return count, count > 0
 
 
 def json_count(path: str | Path) -> int:
@@ -69,10 +143,12 @@ def json_summary(path: str | Path) -> tuple[dict, int, str]:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(payload, list):
                 layers = len(payload)
+                _store_payload_mask_summary(metadata, payload)
             elif isinstance(payload, dict):
                 if isinstance(payload.get("metadata"), dict):
                     metadata = dict(payload["metadata"])
                     layers = metadata_count_value(metadata)
+                _store_payload_mask_summary(metadata, payload)
                 if layers is None:
                     for key in ("shapes", "layers", "items"):
                         if isinstance(payload.get(key), list):

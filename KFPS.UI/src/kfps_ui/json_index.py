@@ -7,14 +7,14 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from .json_metadata import age_label, count_detail_text, json_count, json_summary
+from .json_metadata import age_label, count_detail_text, json_count, json_mask_summary, json_summary
 
 if TYPE_CHECKING:
     from .app_paths import AppPaths
     from .preview_service import PreviewService
 
 
-JSON_INDEX_CACHE_VERSION = 1
+JSON_INDEX_CACHE_VERSION = 2
 OUTPUT_FOLDER_MARKER = ".kfps-output-folder"
 _IGNORED_JSON_TOKENS = (
     ".report.",
@@ -185,12 +185,15 @@ class StartupJsonIndexBuilder:
         stat = path.stat()
         modified_label = age_label(stat.st_mtime)
         metadata, layers, display_name = json_summary(path)
+        mask_count, uses_masks = json_mask_summary(path, metadata)
         detail = count_detail_text(layers, metadata)
         return {
             "name": path.name,
             "displayName": display_name,
             "path": str(path),
             "layers": layers,
+            "usesMasks": uses_masks,
+            "maskCount": mask_count,
             "modifiedLabel": modified_label,
             "previewUrl": self.existing_preview(path, self.source_names()[source]),
             "countDetail": detail,
@@ -223,6 +226,8 @@ class StartupJsonIndexBuilder:
                     "displayName": row.get("displayName", ""),
                     "path": row.get("path", ""),
                     "layers": int(row.get("layers") or 0),
+                    "usesMasks": bool(row.get("usesMasks")),
+                    "maskCount": int(row.get("maskCount") or 0),
                     "previewUrl": row.get("previewUrl", ""),
                     "countDetail": row.get("countDetail", ""),
                     "folder": row.get("folder", ""),

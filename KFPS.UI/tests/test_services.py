@@ -7,6 +7,7 @@ sys.path.insert(0,str(UI/"src"));sys.path.insert(0,str(ROOT));os.environ.setdefa
 from PySide6.QtCore import QCoreApplication
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.generation_service import GenerationService
+from kfps_ui.json_metadata import json_mask_summary, payload_mask_count, shape_uses_mask
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
 from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command
 from kfps_ui.log_service import LogService
@@ -699,6 +700,34 @@ class ServiceTests(unittest.TestCase):
     self.assertEqual("Cached Vinyl",cached.fileModel.row(0)["displayName"])
    finally:
     shutdown_json_service(cached)
+ def test_mask_metadata_survives_output_index_and_cache_reload(self):
+  with tempfile.TemporaryDirectory() as td:
+   app_root=Path(td);target=app_root/"imgs"/"exported"/"Masked.json";target.parent.mkdir(parents=True)
+   shapes=[
+    {"mask":True,"data":[0,0,1,1,0,0,0]},
+    {"is_mask":1,"data":[0,0,1,1,0,0,0]},
+    {"data":[0,0,1,1,0,0,1]},
+    {"mask":False,"data":[0,0,1,1,0,0,1]},
+   ]
+   target.write_text(json.dumps({"metadata":{"display_name":"Masked Vinyl","layers":4},"shapes":shapes}),encoding="utf-8")
+   target.with_suffix(".manifest.json").write_text(json.dumps({"display_name":"Masked Vinyl","layers":4,"mask_count":0,"uses_masks":False}),encoding="utf-8")
+   self.assertTrue(shape_uses_mask(shapes[0]));self.assertFalse(shape_uses_mask(shapes[3]))
+   self.assertEqual(3,payload_mask_count({"shapes":shapes}));self.assertEqual((3,True),json_mask_summary(target))
+   paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   self.assertEqual(1,build_startup_json_index_cache(paths,preview=DummyPreview()))
+   payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   cached_row=payload["sources"]["2"]["rows"][0]
+   self.assertEqual(2,payload["version"]);self.assertTrue(cached_row["usesMasks"]);self.assertEqual(3,cached_row["maskCount"])
+   class NoScanJsonService(JsonService):
+    def _request_source_scan(self,source,force=False):pass
+   svc=NoScanJsonService(paths,DummyPreview(),DummyDesktop(target),DummyLog())
+   try:
+    svc.setSource(2);row=svc.fileModel.row(0)
+    self.assertTrue(row["usesMasks"]);self.assertEqual(3,row["maskCount"])
+    explorer=next(item for item in svc.explorerModel.rows if item.get("path")==str(target))
+    self.assertTrue(explorer["usesMasks"]);self.assertEqual(3,explorer["maskCount"])
+   finally:
+    shutdown_json_service(svc)
  def test_startup_index_cache_preserves_existing_preview_urls(self):
   class ExistingPreview:
    def existing_preview_for_json(self,path,source=""):

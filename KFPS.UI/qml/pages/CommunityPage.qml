@@ -878,6 +878,15 @@ Item {
                                     }
 
                                     Text {
+                                        visible: Boolean(communityService.selectedArtwork.usesMasks)
+                                        text: "MASKS"
+                                        color: "#ffd84a"
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(9.6)
+                                        font.weight: Font.Bold
+                                    }
+
+                                    Text {
                                         text: Number(communityService.selectedArtwork.downloads || 0).toLocaleString(Qt.locale(), "f", 0) + " downloads"
                                         color: Theme.muted
                                         font.family: Theme.fontFamily
@@ -2637,6 +2646,7 @@ Item {
                                   + " downloads  |  "
                                   + Number(communityService.selectedArtwork.favorites || 0).toLocaleString(Qt.locale(), "f", 0)
                                   + " favorites"
+                                  + (Boolean(communityService.selectedArtwork.usesMasks) ? "  |  MASKS" : "")
                             color: Theme.subtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.2)
@@ -3007,6 +3017,12 @@ Item {
 
     Popup {
         id: creatorDialog
+        readonly property string profileUsername: String(communityService.creatorProfile.username || "")
+        readonly property string signedInUsername: String(communityService.username || "")
+        readonly property bool ownProfile: Boolean(communityService.creatorProfile.is_me)
+                                                   || (communityService.authenticated
+                                                       && profileUsername.length > 0
+                                                       && profileUsername.toLowerCase() === signedInUsername.toLowerCase())
         modal: true
         focus: true
         dim: true
@@ -3128,16 +3144,27 @@ Item {
                 }
 
                 GhostButton {
-                    visible: communityService.authenticated && !Boolean(communityService.creatorProfile.is_me)
+                    visible: creatorDialog.profileUsername.length > 0 && !creatorDialog.ownProfile
                     iconName: "reports"
-                    text: Boolean(communityService.creatorProfile.ignored) ? "Unignore Creator" : "Ignore Creator"
-                    toolTipText: Boolean(communityService.creatorProfile.ignored)
-                                 ? "Show this creator's artwork in Community tabs again."
-                                 : "Hide this creator's artwork from every Community tab."
-                    onClicked: communityService.setCreatorIgnored(
-                        String(communityService.creatorProfile.username || ""),
-                        !Boolean(communityService.creatorProfile.ignored)
-                    )
+                    text: !communityService.authenticated
+                          ? "Sign In to Ignore"
+                          : (Boolean(communityService.creatorProfile.ignored) ? "Unignore Creator" : "Ignore Creator")
+                    toolTipText: !communityService.authenticated
+                                 ? "Connect a Community account to hide this creator's artwork."
+                                 : (Boolean(communityService.creatorProfile.ignored)
+                                    ? "Show this creator's artwork in Community tabs again."
+                                    : "Hide this creator's artwork from every Community tab.")
+                    onClicked: {
+                        if (!communityService.authenticated) {
+                            creatorDialog.close()
+                            root.openLogin()
+                            return
+                        }
+                        communityService.setCreatorIgnored(
+                            creatorDialog.profileUsername,
+                            !Boolean(communityService.creatorProfile.ignored)
+                        )
+                    }
                 }
 
                 Item { Layout.fillWidth: true }

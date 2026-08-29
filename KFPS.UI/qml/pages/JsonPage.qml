@@ -758,6 +758,8 @@ Item {
                                         required property string displayName
                                         required property string path
                                         required property int layers
+                                        required property bool usesMasks
+                                        required property int maskCount
                                         required property string modifiedLabel
                                         required property string previewUrl
                                         required property string detailText
@@ -879,6 +881,31 @@ Item {
                                                         elide: Text.ElideRight
                                                     }
                                                 }
+
+                                                Rectangle {
+                                                    visible: !fileCard.isFolder && fileCard.usesMasks
+                                                    objectName: "OutputMasksBadge:" + fileCard.displayName
+                                                    anchors.left: parent.left
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.margins: Theme.px(6)
+                                                    width: outputMasksText.implicitWidth + Theme.px(14)
+                                                    height: Theme.px(22)
+                                                    radius: Theme.corner(Theme.px(5))
+                                                    color: "#d0181818"
+                                                    border.width: Math.max(1, Theme.px(1))
+                                                    border.color: "#ffd84a"
+                                                    z: 25
+
+                                                    Text {
+                                                        id: outputMasksText
+                                                        anchors.centerIn: parent
+                                                        text: "MASKS"
+                                                        color: "#ffd84a"
+                                                        font.family: Theme.fontFamily
+                                                        font.pixelSize: Theme.px(8.6)
+                                                        font.weight: Font.Bold
+                                                    }
+                                                }
                                             }
 
                                             Text {
@@ -918,6 +945,10 @@ Item {
                                             text: fileCard.isFolder
                                                   ? "Click to select. Double-click to open. Use Shift or Ctrl for multiple items; right-click for actions."
                                                   : "Click to select. Double-click for details. Use Shift or Ctrl for multiple items; right-click for actions."
+                                                    + (fileCard.usesMasks
+                                                       ? " Contains " + fileCard.maskCount + " mask layer"
+                                                         + (fileCard.maskCount === 1 ? "." : "s.")
+                                                       : "")
                                         }
 
                                         MouseArea {
