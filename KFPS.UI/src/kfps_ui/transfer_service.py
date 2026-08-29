@@ -7,6 +7,10 @@ import psutil
 from PySide6.QtCore import QObject, Property, QProcess, QProcessEnvironment, QTimer, Signal, Slot
 
 from game_adapters import LiveGameDetectionError, detect_single_running_game
+from live_memory_locator.fh6_recovery import (
+    FORCE_LOCAL_RECOVERY_ENV,
+    force_local_recovery_requested,
+)
 
 from .app_paths import AppPaths
 from .json_service import JsonService
@@ -31,6 +35,7 @@ class TransferService(QObject):
         self._live_log = "Import/export log appears here."
         self._full_log_path = ""
         self._full_log_handle = None
+        self._force_fh6_recovery_pending = force_local_recovery_requested()
         self._process = QProcess(self)
         self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read)
@@ -44,6 +49,10 @@ class TransferService(QObject):
         self._startup_timer.setSingleShot(True)
         self._startup_timer.setInterval(5000)
         self._startup_timer.timeout.connect(self._startup_timed_out)
+        if self._force_fh6_recovery_pending:
+            self.log.append(
+                "FH6 local compatibility recovery test is armed for the first FH6 live transfer."
+            )
 
     @Property(bool, notify=changed)
     def running(self):
@@ -137,13 +146,37 @@ class TransferService(QObject):
         if self._full_log_path:
             self.log.append(f"Full import/export log: {self._full_log_path}")
 
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONUTF8", "1")
-        env.insert("KFPS_APP_ROOT", str(self.paths.app_root))
+        env, forced_recovery_test = self._build_process_environment(args)
+        if forced_recovery_test:
+            message = "Forcing one FH6 local compatibility recovery test."
+            self.log.append(message)
+            self._set_live_log([message])
         self._process.setProcessEnvironment(env)
         self._process.setWorkingDirectory(str(self.paths.app_root))
         self._process.start(self.paths.python_executable, ["-u", str(bridge), *args])
         self._startup_timer.start()
+
+    @staticmethod
+    def _game_argument(args):
+        try:
+            index = args.index("--game")
+            return str(args[index + 1]).strip().casefold()
+        except (AttributeError, IndexError, ValueError):
+            return ""
+
+    def _build_process_environment(self, args):
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUTF8", "1")
+        env.insert("KFPS_APP_ROOT", str(self.paths.app_root))
+        force_this_transfer = (
+            self._force_fh6_recovery_pending and self._game_argument(args) == "fh6"
+        )
+        if force_this_transfer:
+            env.insert(FORCE_LOCAL_RECOVERY_ENV, "1")
+            self._force_fh6_recovery_pending = False
+        else:
+            env.remove(FORCE_LOCAL_RECOVERY_ENV)
+        return env, force_this_transfer
 
     def _process_started(self):
         if not self._closed:

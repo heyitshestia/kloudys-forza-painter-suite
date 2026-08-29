@@ -431,8 +431,29 @@ class RttiRegistryTests(unittest.TestCase):
                 return current["update_code"].encode("ascii")[:size]
             return b"x" * size
 
+        locator = module_base + 0x05000000
+
+        def fake_u64(_pid, address):
+            if address == module_base + 0x06100000 - 8:
+                return locator
+            return 0
+
+        def fake_u32(_pid, address):
+            values = {
+                locator: 1,
+                locator + 0xC: current["descriptor_offset"],
+                locator + 0x14: locator - module_base,
+            }
+            return values.get(address, 0)
+
         with patch.object(fh6_probe, "get_base_address", return_value=module_base), patch.object(
             fh6_probe, "read_process_memory", side_effect=fake_read
+        ), patch.object(
+            fh6_probe, "read_pe_image_size", return_value=current["module_size"]
+        ), patch.object(
+            fh6_probe, "read_u64", side_effect=fake_u64
+        ), patch.object(
+            fh6_probe, "read_u32", side_effect=fake_u32
         ):
             located = fh6_probe.locate_calibrated_clivery_group_rtti(
                 99,

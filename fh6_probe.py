@@ -875,6 +875,8 @@ def find_table_at_known_group_delta(pid, profile, count_address, layer_count):
 
 
 def load_shared_rtti_profiles(refresh=True):
+    from live_memory_locator.fh6_recovery import merge_local_profiles
+
     fallback = {
         "game": "fh6",
         "module_size": FH6_CALIBRATED_RTTI_PROFILE["module_size"],
@@ -893,6 +895,7 @@ def load_shared_rtti_profiles(refresh=True):
         },
     }
     profiles, status = load_runtime_profiles(ROOT, fallback, refresh=refresh)
+    profiles = merge_local_profiles(ROOT, profiles)
     refresh_status = status.get("refresh") or {}
     if refresh_status.get("updated"):
         print(
@@ -1218,10 +1221,13 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
     )
     for candidate in profiles:
         try:
+            expected_module_size = int(candidate["module_size"])
             descriptor_offset = int(candidate["descriptor_offset"])
             vtable_offsets = [int(offset) for offset in candidate["vtable_offsets"]]
             update_code = str(candidate["update_code"]).encode("ascii", "strict").strip()
         except (KeyError, TypeError, ValueError, UnicodeEncodeError):
+            continue
+        if expected_module_size != module_size:
             continue
         descriptor_address = module_base + descriptor_offset
         try:
@@ -1229,6 +1235,26 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
         except Exception:
             continue
         if not found_code or found_code != update_code.rstrip(b"\x00 "):
+            continue
+        valid_vtables = []
+        module_end = module_base + module_size
+        for offset in vtable_offsets:
+            vtable = module_base + offset
+            try:
+                locator = read_u64(pid, vtable - 8)
+                signature = read_u32(pid, locator)
+                type_descriptor_offset = read_u32(pid, locator + 0xC)
+                self_offset = read_u32(pid, locator + 0x14)
+            except Exception:
+                continue
+            if not module_base <= locator < module_end:
+                continue
+            if signature != 1 or type_descriptor_offset != descriptor_offset:
+                continue
+            if locator - self_offset != module_base:
+                continue
+            valid_vtables.append(vtable)
+        if not valid_vtables:
             continue
         source = str(candidate.get("_registry_source") or "profile")
         record_locator_diagnostic(
@@ -1245,7 +1271,7 @@ def locate_calibrated_clivery_group_rtti(pid, profile, calibrated_profiles=None)
             "descriptor_address": descriptor_address,
             "descriptor_offset": descriptor_offset,
             "info_addresses": [],
-            "vtables": [module_base + offset for offset in vtable_offsets],
+            "vtables": valid_vtables,
             "source": "calibrated_profile",
             "registry_source": source,
             "profile_id": candidate.get("profile_id"),
@@ -1316,12 +1342,19 @@ def locate_static_clivery_group_rtti(pid, profile):
     }
 
 
-def locate_clivery_group_rtti(pid, profile=None):
-    calibrated_profiles = (
-        load_shared_rtti_profiles()
-        if profile is not None and getattr(profile, "key", "") == "fh6"
-        else []
-    )
+def locate_clivery_group_rtti(
+    pid,
+    profile=None,
+    calibrated_profiles=None,
+    *,
+    allow_pattern_fallback=True,
+):
+    if calibrated_profiles is None:
+        calibrated_profiles = (
+            load_shared_rtti_profiles()
+            if profile is not None and getattr(profile, "key", "") == "fh6"
+            else []
+        )
     static_profile = locate_static_clivery_group_rtti(pid, profile) if profile is not None else None
     if static_profile:
         return static_profile
@@ -1332,6 +1365,8 @@ def locate_clivery_group_rtti(pid, profile=None):
     )
     if calibrated:
         return calibrated
+    if not allow_pattern_fallback:
+        return None
     patterns = load_update_code_patterns(calibrated_profiles, profile=profile)
     game_name = str(getattr(profile, "key", "FH6")).upper()
     print(f"Loaded {len(patterns)} {game_name} group locator pattern(s).", flush=True)
@@ -1436,6 +1471,7 @@ def build_clivery_group_candidate(pid, profile, layer_count, rtti, group_address
         "rtti_source": rtti.get("source") or "pattern_scan",
         "rtti_update_code": rtti.get("update_code"),
         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+        "rtti_profile_id": rtti.get("profile_id"),
     }
 
 
@@ -1572,6 +1608,7 @@ def locate_clivery_groups_by_calibrated_count(pid, profile, layer_count, rtti, m
                         "rtti_source": rtti.get("source") or "pattern_scan",
                         "rtti_update_code": rtti.get("update_code"),
                         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+                        "rtti_profile_id": rtti.get("profile_id"),
                     }
                     candidate.update(flattened_import_target(flat, layer_count))
             if candidate:
@@ -2140,6 +2177,7 @@ def evaluate_exact_calibrated_root(
         "rtti_source": rtti.get("source") or "pattern_scan",
         "rtti_update_code": rtti.get("update_code"),
         "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+        "rtti_profile_id": rtti.get("profile_id"),
         "export_access_verified": access is None or access.allowed,
     }
     candidate.update(flattened_import_target(flat, layer_count))
@@ -2485,7 +2523,14 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         refusal = refusals[0]
         raise LocatorRefused(
             refusal.reason,
-            {"matched_group_count": len(refusals), "access_status": refusal.status},
+            {
+                "matched_group_count": len(refusals),
+                "access_status": refusal.status,
+                "rtti_profile_id": rtti.get("profile_id"),
+                "rtti_source": rtti.get("registry_source") or rtti.get("source"),
+                "rtti_update_code": rtti.get("update_code"),
+                "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+            },
         )
 
     print(
@@ -2582,7 +2627,14 @@ def locate_clivery_group_by_allocator(pid, profile, layer_count, rtti):
         refusal = refusals[0]
         raise LocatorRefused(
             refusal.reason,
-            {"matched_group_count": len(refusals), "access_status": refusal.status},
+            {
+                "matched_group_count": len(refusals),
+                "access_status": refusal.status,
+                "rtti_profile_id": rtti.get("profile_id"),
+                "rtti_source": rtti.get("registry_source") or rtti.get("source"),
+                "rtti_update_code": rtti.get("update_code"),
+                "rtti_descriptor_offset": rtti.get("descriptor_offset"),
+            },
         )
     record_locator_diagnostic(
         "calibrated_exact_authoritative",
@@ -2813,8 +2865,20 @@ def locate_clivery_groups_by_calibrated_flattened(pid, profile, layer_count, rtt
     return []
 
 
-def locate_clivery_groups_by_rtti(pid, profile, layer_count):
-    rtti = locate_clivery_group_rtti(pid, profile)
+def locate_clivery_groups_by_rtti(
+    pid,
+    profile,
+    layer_count,
+    calibrated_profiles=None,
+    *,
+    allow_pattern_fallback=True,
+):
+    rtti = locate_clivery_group_rtti(
+        pid,
+        profile,
+        calibrated_profiles=calibrated_profiles,
+        allow_pattern_fallback=allow_pattern_fallback,
+    )
     if not rtti:
         return []
 
@@ -3009,6 +3073,8 @@ def auto_locate_count_table(
     output_path=None,
     max_seconds=None,
     return_failure_payload=False,
+    calibrated_profiles=None,
+    defer_unmatched_profile_fallback=False,
 ):
     game_name = str(getattr(profile, "key", "FH6")).upper()
     LAST_LOCATOR_DIAGNOSTICS.clear()
@@ -3018,10 +3084,42 @@ def auto_locate_count_table(
 
     try:
         if profile.key == "fh6":
-            fast_groups = locate_clivery_groups_by_rtti(pid, profile, layer_count)
+            if calibrated_profiles is None and not defer_unmatched_profile_fallback:
+                fast_groups = locate_clivery_groups_by_rtti(pid, profile, layer_count)
+            else:
+                fast_groups = locate_clivery_groups_by_rtti(
+                    pid,
+                    profile,
+                    layer_count,
+                    calibrated_profiles=calibrated_profiles,
+                    allow_pattern_fallback=not defer_unmatched_profile_fallback,
+                )
             exact_authoritative = bool(
                 (LAST_LOCATOR_DIAGNOSTICS.get("calibrated_exact_authoritative") or {}).get("complete")
             )
+            profile_matched = bool((LAST_LOCATOR_DIAGNOSTICS.get("rtti_profile") or {}).get("matched"))
+            if not fast_groups and not profile_matched and defer_unmatched_profile_fallback:
+                failure_reason = (
+                    "No shared FH6 compatibility profile matched this game build. "
+                    "Local compatibility recovery is required."
+                )
+                payload = {
+                    "type": "fh6_session_location_v1",
+                    "pid": pid,
+                    "process": psutil.Process(pid).name(),
+                    "game": profile.key,
+                    "layer_count": layer_count,
+                    "created": time.time(),
+                    **runtime_diagnostic_identity(),
+                    "no_match": True,
+                    "refused": False,
+                    "profile_recovery_required": True,
+                    "failure_reason": failure_reason,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                    "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
+                }
+                print(failure_reason, flush=True)
+                return payload if return_failure_payload else None
             if not fast_groups and not exact_authoritative:
                 fast_groups = locate_clivery_groups_by_layout_count(pid, profile, layer_count, max_seconds=max_seconds)
         else:
@@ -3041,6 +3139,10 @@ def auto_locate_count_table(
             "refused": True,
             "refusal_reason": str(exc),
             "locator_details": exc.details,
+            "rtti_profile_id": exc.details.get("rtti_profile_id"),
+            "rtti_source": exc.details.get("rtti_source"),
+            "rtti_update_code": exc.details.get("rtti_update_code"),
+            "rtti_descriptor_offset": exc.details.get("rtti_descriptor_offset"),
             "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
         }
         print(str(exc), flush=True)
@@ -3119,6 +3221,7 @@ def auto_locate_count_table(
             "rtti_source": winner.get("rtti_source"),
             "rtti_update_code": winner.get("rtti_update_code"),
             "rtti_descriptor_offset": winner.get("rtti_descriptor_offset"),
+            "rtti_profile_id": winner.get("rtti_profile_id"),
             "locator_diagnostics": dict(LAST_LOCATOR_DIAGNOSTICS),
             "samples": serialize_samples(winner["samples"]),
         }

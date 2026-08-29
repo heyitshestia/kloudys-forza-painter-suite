@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -852,6 +853,30 @@ class Fh6LiveGroupPolicyTests(unittest.TestCase):
                     transfer_bridge.locate_universal_template(
                         "fh6", 123, 8, run_dir, "export-template"
                     )
+
+    def test_live_import_never_launches_a_writer_when_locator_recovery_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.json"
+            source.write_text("{}", encoding="utf-8")
+            args = SimpleNamespace(
+                game="fh6",
+                json=str(source),
+                layer_count=8,
+                pid=123,
+                clear_unused=False,
+            )
+            with patch.object(transfer_bridge, "import_json_shape_count", return_value=1), patch.object(
+                transfer_bridge, "create_transfer_run_dir", return_value=root / "run"
+            ), patch.object(
+                transfer_bridge,
+                "locate_universal_template",
+                side_effect=RuntimeError("local compatibility recovery failed"),
+            ), patch.object(transfer_bridge, "run_subprocess") as writer:
+                with self.assertRaisesRegex(RuntimeError, "compatibility recovery failed"):
+                    transfer_bridge.run_import(args)
+
+            writer.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from game_adapters import (  # noqa: E402
 )
 from kfps_ui.app_paths import AppPaths  # noqa: E402
 from kfps_ui.transfer_service import TransferService  # noqa: E402
+from live_memory_locator.fh6_recovery import FORCE_LOCAL_RECOVERY_ENV  # noqa: E402
 
 
 APP = QCoreApplication.instance() or QCoreApplication([])
@@ -162,6 +163,32 @@ class TransferServiceDetectionTests(unittest.TestCase):
             start.assert_not_called()
             self.assertEqual("Live transfer blocked", service.status)
             self.assertIn("Multiple supported Forza games", service.liveLog)
+
+    def test_forced_fh6_recovery_is_consumed_by_only_the_first_fh6_transfer(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ,
+            {FORCE_LOCAL_RECOVERY_ENV: "1"},
+            clear=False,
+        ):
+            service = self.make_service(Path(temp))
+            self.addCleanup(service.close)
+
+            fh5_env, fh5_forced = service._build_process_environment(
+                ["export", "--game", "fh5", "--layer-count", "8"]
+            )
+            first_env, first_forced = service._build_process_environment(
+                ["export", "--game", "fh6", "--layer-count", "8"]
+            )
+            second_env, second_forced = service._build_process_environment(
+                ["export", "--game", "fh6", "--layer-count", "8"]
+            )
+
+            self.assertFalse(fh5_forced)
+            self.assertFalse(fh5_env.contains(FORCE_LOCAL_RECOVERY_ENV))
+            self.assertTrue(first_forced)
+            self.assertEqual("1", first_env.value(FORCE_LOCAL_RECOVERY_ENV))
+            self.assertFalse(second_forced)
+            self.assertFalse(second_env.contains(FORCE_LOCAL_RECOVERY_ENV))
 
 
 if __name__ == "__main__":

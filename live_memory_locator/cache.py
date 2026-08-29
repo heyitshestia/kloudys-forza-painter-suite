@@ -105,6 +105,15 @@ class LocatorCache:
             profile.get("allocator_windows") if isinstance(profile, dict) else []
         )
 
+    def all_allocator_windows(self, game: str) -> list[tuple[int, int]]:
+        game = str(game or "").lower()
+        windows = []
+        for profile in (self._load().get("profiles") or {}).values():
+            if not isinstance(profile, dict) or str(profile.get("game") or "").lower() != game:
+                continue
+            windows.extend(profile.get("allocator_windows") or [])
+        return normalize_allocator_windows(windows)
+
     def update_allocator_windows(self, game: str, profile_id: str, windows: Any) -> None:
         profile_id = str(profile_id or "").strip()
         if not profile_id:

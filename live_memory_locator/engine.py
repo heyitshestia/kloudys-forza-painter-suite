@@ -12,6 +12,7 @@ from native import process_memory_session
 from .cache import LocatorCache
 from .contracts import LocatorRequest, LocatorSelection
 from .diagnostics import build_diagnostic, persist_diagnostic
+from .fh6_recovery import force_local_recovery_requested
 from .validation import select_fallback_candidate, validate_fast_payload
 
 
@@ -92,10 +93,27 @@ class LiveMemoryLocatorEngine:
                 return f"{label} refused:{reason[len(prefix):]}"
         return reason
 
-    def _fast_locate(self, request: LocatorRequest, adapter: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _fast_locate(
+        self,
+        request: LocatorRequest,
+        adapter: Any,
+        *,
+        calibrated_profiles: list[dict[str, Any]] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         import fh6_probe
 
         started = time.monotonic()
+        forced_recovery_test = (
+            adapter.key == "fh6"
+            and calibrated_profiles is None
+            and force_local_recovery_requested()
+        )
+        profiles = [] if forced_recovery_test else calibrated_profiles
+        if forced_recovery_test:
+            print(
+                "FH6 local compatibility recovery test mode: ignoring known profiles for this lookup.",
+                flush=True,
+            )
         with process_memory_session(request.pid):
             payload = fh6_probe.auto_locate_count_table(
                 request.pid,
@@ -108,6 +126,10 @@ class LiveMemoryLocatorEngine:
                 output_path=None,
                 max_seconds=request.fast_seconds,
                 return_failure_payload=True,
+                calibrated_profiles=profiles,
+                defer_unmatched_profile_fallback=(
+                    forced_recovery_test or calibrated_profiles is None
+                ),
             )
         payload = dict(payload or {})
         return payload, self._attempt(
@@ -117,8 +139,34 @@ class LiveMemoryLocatorEngine:
                 "refused" if payload.get("refused") else "no_match" if payload.get("no_match") else "located"
             ),
             authoritative=bool(payload.get("authoritative_no_match")),
+            forced_local_profile_recovery=forced_recovery_test,
             locator_diagnostics=payload.get("locator_diagnostics") or {},
         )
+
+    @staticmethod
+    def _needs_fh6_profile_recovery(payload: Mapping[str, Any], adapter: Any) -> bool:
+        if adapter.key != "fh6" or payload.get("refused") is True:
+            return False
+        profile_diagnostic = (payload.get("locator_diagnostics") or {}).get("rtti_profile") or {}
+        return payload.get("profile_recovery_required") is True or profile_diagnostic.get("matched") is False
+
+    def _recover_fh6_profile(
+        self,
+        request: LocatorRequest,
+        adapter: Any,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        from .fh6_recovery import recover_local_profile
+
+        with process_memory_session(request.pid):
+            return recover_local_profile(
+                self.root,
+                request.pid,
+                adapter.memory_profile,
+                request.layer_count,
+                seed_payload=payload,
+                process_identity=self._process_identity,
+            )
 
     def _research_locate(
         self, request: LocatorRequest, adapter: Any
@@ -166,9 +214,142 @@ class LiveMemoryLocatorEngine:
             fast_payload, attempt = self._fast_locate(request, adapter)
             attempts.append(attempt)
             backend_diagnostics["profile_locator"] = fast_payload.get("locator_diagnostics") or {}
+            if attempt.get("forced_local_profile_recovery"):
+                backend_diagnostics["test_mode"] = {
+                    "forced_local_profile_recovery": True,
+                    "scope": "first_fh6_live_transfer_in_this_kfps_launch",
+                    "publication": "disabled",
+                }
         except Exception as exc:
             fast_error = f"Profile locator failed unexpectedly: {exc}"
             attempts.append({"name": "profile_locator", "status": "error", "error": str(exc)})
+
+        if not fast_error and self._needs_fh6_profile_recovery(fast_payload, adapter):
+            print(
+                "No matching FH6 compatibility profile is available. "
+                "Running one local allocator recovery pass.",
+                flush=True,
+            )
+            recovery_started = time.monotonic()
+            try:
+                recovery = self._recover_fh6_profile(request, adapter, fast_payload)
+            except Exception as exc:
+                recovery = {
+                    "status": "error",
+                    "reason": f"Local FH6 compatibility recovery failed unexpectedly: {exc}",
+                    "publication": "disabled",
+                }
+            recovery_profile = recovery.pop("profile", None)
+            attempts.append(
+                self._attempt(
+                    "local_profile_recovery",
+                    recovery_started,
+                    **recovery,
+                )
+            )
+            backend_diagnostics["local_profile_recovery"] = recovery
+
+            if recovery.get("status") == "derived" and isinstance(recovery_profile, dict):
+                try:
+                    process_before_retry = self._process_identity(request.pid)
+                except Exception as exc:
+                    process_before_retry = {}
+                    attempts.append(
+                        {
+                            "name": "local_profile_process_recheck",
+                            "status": "error",
+                            "error": str(exc),
+                        }
+                    )
+                if not self._same_process_instance(process, process_before_retry):
+                    fast_payload = {
+                        **fast_payload,
+                        "no_match": True,
+                        "authoritative_no_match": True,
+                        "failure_reason": (
+                            "The FH6 process changed before local compatibility recovery could be revalidated."
+                        ),
+                    }
+                else:
+                    print("Revalidating the recovered FH6 profile with the exact locator.", flush=True)
+                    try:
+                        retry_payload, retry_attempt = self._fast_locate(
+                            request,
+                            adapter,
+                            calibrated_profiles=[recovery_profile],
+                        )
+                    except Exception as exc:
+                        retry_payload = {
+                            "no_match": True,
+                            "authoritative_no_match": True,
+                            "failure_reason": f"Recovered FH6 profile revalidation failed: {exc}",
+                        }
+                        retry_attempt = {
+                            "name": "recovered_profile_locator",
+                            "status": "error",
+                            "error": str(exc),
+                        }
+                    else:
+                        retry_attempt = {**retry_attempt, "name": "recovered_profile_locator"}
+                    attempts.append(retry_attempt)
+                    backend_diagnostics["recovered_profile_locator"] = (
+                        retry_payload.get("locator_diagnostics") or {}
+                    )
+                    retry_validation = validate_fast_payload(retry_payload, request, adapter)
+                    expected_profile_id = str(recovery_profile.get("profile_id") or "")
+                    located_profile_id = str(retry_payload.get("rtti_profile_id") or "")
+                    exact_verified = (
+                        retry_validation.ok
+                        and bool(expected_profile_id)
+                        and located_profile_id == expected_profile_id
+                    )
+                    access_refusal_verified = (
+                        retry_payload.get("refused") is True
+                        and bool((retry_payload.get("locator_details") or {}).get("access_status"))
+                        and str(retry_payload.get("rtti_profile_id") or "") == expected_profile_id
+                    )
+                    if exact_verified or access_refusal_verified:
+                        from .fh6_recovery import persist_local_profile
+
+                        try:
+                            persisted = persist_local_profile(self.root, recovery_profile)
+                        except Exception as exc:
+                            attempts.append(
+                                {
+                                    "name": "local_profile_persistence",
+                                    "status": "error",
+                                    "error": str(exc),
+                                }
+                            )
+                        else:
+                            attempts.append(
+                                {
+                                    "name": "local_profile_persistence",
+                                    "status": "saved",
+                                    "profile_id": persisted["profile_id"],
+                                    "publication": "disabled",
+                                }
+                            )
+                            print(
+                                "Local FH6 compatibility recovery was verified and saved for this game build.",
+                                flush=True,
+                            )
+                    else:
+                        print(
+                            "The recovered FH6 profile did not pass exact revalidation and was not saved.",
+                            flush=True,
+                        )
+                    fast_payload = retry_payload
+            else:
+                fast_payload = {
+                    **fast_payload,
+                    "no_match": True,
+                    "authoritative_no_match": True,
+                    "failure_reason": str(
+                        recovery.get("reason")
+                        or "Local FH6 compatibility recovery did not produce one exact profile."
+                    ),
+                }
 
         profile = self._profile_identity(adapter, fast_payload)
         session_key = self.cache.session_key(
