@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.48
+- Fixed local FH6 compatibility recovery on Steam layouts whose active livery allocator sits outside all known and cached windows.
+- Bounded cold-start discovery to writable livery arenas, then required exact profile, group-tree, process, and ownership revalidation before use or persistence.
+- Added cold-cache regression coverage for allocator discovery, recovered-window handoff, ownership refusal, and process changes.
+
 ## 3.1.47
 - Added local-only FH6 compatibility recovery when no shared profile matches, with allocator-bounded discovery and exact revalidation before use.
 - Persisted verified recovered profiles separately for immediate reuse without modifying or publishing the shared profile registry.
