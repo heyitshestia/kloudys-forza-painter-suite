@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.46
+- Fixed Community profile shortcuts opening the wrong personal catalog tabs.
+- Added account-level creator ignoring, with ignored artwork hidden from Community catalogs and a profile manager for restoring users.
+- Added migration-safe Community deployment backups and end-to-end coverage for ignore and unignore behavior.
+
 ## 3.1.45
 - Allowed creators to choose Everyone or Supporters when restoring their own previously removed Community artwork.
 - Kept audience immutable on active revisions and retained supporter verification when restoring supporter-only access.
