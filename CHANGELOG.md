@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.50
+- Added retroactive mask-layer detection and cached mask counts for existing JSONs across every Outputs source.
+- Added clear MASKS indicators to output tiles, Community upload selection, and Community artwork details without exposing invisible mask geometry in previews.
+- Kept Ignore Creator visible on other users' profiles while signed out by routing through account connection, while preserving the self-ignore guard.
+
 ## 3.1.49
 - Fixed subsequent FH6 transfers failing when another open group used a compatible root-vtable variant not covered by the first locally recovered profile.
 - Expanded verified local profiles by merging compatible vtable variants and allocator-window hints after one bounded, exact-revalidated recovery pass.
