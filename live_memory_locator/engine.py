@@ -271,6 +271,32 @@ class LiveMemoryLocatorEngine:
                         ),
                     }
                 else:
+                    expected_profile_id = str(recovery_profile.get("profile_id") or "")
+                    verified_window = recovery.get("verified_allocator_window")
+                    if expected_profile_id and isinstance(verified_window, (list, tuple)):
+                        try:
+                            existing_windows = self.cache.allocator_windows(expected_profile_id)
+                            self.cache.update_allocator_windows(
+                                adapter.key,
+                                expected_profile_id,
+                                [*existing_windows, verified_window],
+                            )
+                        except Exception as exc:
+                            attempts.append(
+                                {
+                                    "name": "local_allocator_hint",
+                                    "status": "error",
+                                    "error": str(exc),
+                                }
+                            )
+                        else:
+                            attempts.append(
+                                {
+                                    "name": "local_allocator_hint",
+                                    "status": "saved",
+                                    "profile_id": expected_profile_id,
+                                }
+                            )
                     print("Revalidating the recovered FH6 profile with the exact locator.", flush=True)
                     try:
                         retry_payload, retry_attempt = self._fast_locate(
@@ -296,7 +322,6 @@ class LiveMemoryLocatorEngine:
                         retry_payload.get("locator_diagnostics") or {}
                     )
                     retry_validation = validate_fast_payload(retry_payload, request, adapter)
-                    expected_profile_id = str(recovery_profile.get("profile_id") or "")
                     located_profile_id = str(retry_payload.get("rtti_profile_id") or "")
                     exact_verified = (
                         retry_validation.ok

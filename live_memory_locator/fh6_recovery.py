@@ -206,6 +206,168 @@ def _derive_profile_from_group(
     }
 
 
+def _evaluate_group_candidate(
+    probe: Any,
+    pid: int,
+    memory_profile: Any,
+    layer_count: int,
+    group_address: int,
+    module_base: int,
+    module_size: int,
+    writable_contains: Callable[[int, int], bool],
+) -> tuple[dict[str, Any] | None, str]:
+    try:
+        vtable = _read_u64(pid, group_address)
+    except Exception:
+        return None, "group_vtable_unreadable"
+    if not _inside(module_base, module_size, vtable, 8):
+        return None, "group_vtable_outside_main_module"
+    try:
+        group_info = probe.read_calibrated_group_vector(
+            pid,
+            memory_profile,
+            group_address,
+            {vtable},
+            max_vector_count=max(3000, layer_count),
+            writable_contains=writable_contains,
+        )
+    except Exception:
+        return None, "group_vector_unreadable"
+    if not group_info or int(group_info.get("parent_group") or 0):
+        return None, "group_vector_invalid"
+    if int(group_info.get("current_u16") or -1) != int(layer_count):
+        return None, "group_count_changed"
+    profile, derivation = _derive_profile_from_group(
+        probe,
+        pid,
+        group_address,
+        vtable,
+        module_base,
+        module_size,
+        layer_count,
+    )
+    if profile is None:
+        return None, str(derivation.get("reason") or "rtti_derivation_failed")
+    try:
+        flat = probe.flatten_calibrated_group(
+            pid,
+            memory_profile,
+            group_info,
+            {vtable},
+            layer_count,
+            writable_contains=writable_contains,
+        )
+    except Exception:
+        return None, "group_traversal_unreadable"
+    if int(flat.get("shape_count") or 0) != int(layer_count) or int(flat.get("invalid_count") or 0):
+        return None, "group_traversal_invalid"
+    return {
+        "group_address": group_address,
+        "vtable": vtable,
+        "shape_count": flat["shape_count"],
+        "group_count": flat["group_count"],
+        "max_depth": flat["max_depth"],
+        "profile": profile,
+        "derivation": derivation,
+    }, ""
+
+
+def _discover_cold_group(
+    probe: Any,
+    pid: int,
+    memory_profile: Any,
+    layer_count: int,
+    module_base: int,
+    module_size: int,
+    all_regions: list[tuple[int, int, int, int]],
+    writable_contains: Callable[[int, int], bool],
+    seen_groups: set[int],
+    rejection_counts: dict[str, int],
+    deadline: float,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    table_offset = int(memory_profile.layer_table_offset)
+    count_offset = int(memory_profile.livery_count_offset)
+    required_header = max(table_offset + 24, count_offset + 2, 0x68)
+    count_pattern = struct.pack("<H", int(layer_count))
+    scanned_bytes = 0
+    count_hits = 0
+    pointer_hits = 0
+    timed_out = False
+    scheduled = probe.iter_balanced_region_chunks(
+        pid,
+        all_regions,
+        overlap=required_header - 1,
+        preferred_size_range=(probe.FH6_GROUP_ARENA_MIN_SIZE, probe.FH6_GROUP_ARENA_MAX_SIZE),
+    )
+    for _region, chunk_base, memory, unique_size in scheduled:
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        scanned_bytes += int(unique_size)
+        search_from = 0
+        while True:
+            count_position = memory.find(count_pattern, search_from)
+            if count_position < 0:
+                break
+            search_from = count_position + 1
+            count_hits += 1
+            if count_hits % 2048 == 0 and time.monotonic() >= deadline:
+                timed_out = True
+                break
+            group_offset = count_position - count_offset
+            if group_offset < 0 or group_offset + required_header > len(memory):
+                continue
+            group_address = int(chunk_base) + group_offset
+            if group_address % 8 or group_address in seen_groups:
+                continue
+            vtable = struct.unpack_from("<Q", memory, group_offset)[0]
+            if not _inside(module_base, module_size, vtable, 8):
+                continue
+            pointer_hits += 1
+            parent_group = struct.unpack_from("<Q", memory, group_offset + 0x60)[0]
+            table_address, table_end, table_capacity = struct.unpack_from(
+                "<3Q", memory, group_offset + table_offset
+            )
+            if parent_group or table_end <= table_address or table_capacity < table_end:
+                continue
+            if (table_end - table_address) % 8 or (table_capacity - table_address) % 8:
+                continue
+            vector_count = (table_end - table_address) // 8
+            if not 1 <= vector_count <= max(3000, layer_count):
+                continue
+            if not writable_contains(table_address, vector_count * 8):
+                continue
+            seen_groups.add(group_address)
+            candidate, reason = _evaluate_group_candidate(
+                probe,
+                pid,
+                memory_profile,
+                layer_count,
+                group_address,
+                module_base,
+                module_size,
+                writable_contains,
+            )
+            if candidate is not None:
+                return candidate, {
+                    "status": "match",
+                    "scanned_bytes": scanned_bytes,
+                    "scanned_mb": scanned_bytes // (1024 * 1024),
+                    "count_hits": count_hits,
+                    "pointer_hits": pointer_hits,
+                }
+            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+        if timed_out:
+            break
+    return None, {
+        "status": "timeout" if timed_out else "exhausted",
+        "scanned_bytes": scanned_bytes,
+        "scanned_mb": scanned_bytes // (1024 * 1024),
+        "count_hits": count_hits,
+        "pointer_hits": pointer_hits,
+    }
+
+
 def recover_local_profile(
     root: str | Path,
     pid: int,
@@ -215,7 +377,7 @@ def recover_local_profile(
     seed_payload: Mapping[str, Any] | None = None,
     process_identity: Callable[[int], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Derive one local FH6 profile from a complete group in known allocator windows."""
+    """Derive one local FH6 profile from one exact open group tree."""
     import fh6_probe as probe
 
     started = time.monotonic()
@@ -223,7 +385,7 @@ def recover_local_profile(
     result: dict[str, Any] = {
         "format": RECOVERY_FORMAT,
         "status": "no_match",
-        "reason": "No exact FH6 group was found in a known livery allocator window.",
+        "reason": "No exact open FH6 group tree was found.",
         "publication": "disabled",
         "profile": None,
     }
@@ -245,8 +407,6 @@ def recover_local_profile(
         windows.append(probe.allocator_window_for_address(seed_group))
     windows = normalize_allocator_windows(windows)
     scan_regions = probe.regions_in_allocator_windows(all_regions, windows)
-    if not scan_regions:
-        return {**result, "reason": "No committed FH6 livery allocator memory was available."}
 
     group_addresses = []
     if seed_group:
@@ -355,60 +515,46 @@ def recover_local_profile(
                 "scanned_mb": scanned_bytes // (1024 * 1024),
                 "elapsed_seconds": round(time.monotonic() - started, 3),
             }
-        try:
-            vtable = _read_u64(pid, group_address)
-        except Exception:
-            continue
-        if not _inside(module_base, module_size, vtable, 8):
-            continue
-        group_info = probe.read_calibrated_group_vector(
-            pid,
-            memory_profile,
-            group_address,
-            {vtable},
-            max_vector_count=max(3000, layer_count),
-            writable_contains=writable_contains,
-        )
-        if not group_info or int(group_info.get("parent_group") or 0):
-            continue
-        if int(group_info.get("current_u16") or -1) != int(layer_count):
-            continue
-        profile, derivation = _derive_profile_from_group(
+        candidate, reason = _evaluate_group_candidate(
             probe,
             pid,
+            memory_profile,
+            layer_count,
             group_address,
-            vtable,
             module_base,
             module_size,
-            layer_count,
+            writable_contains,
         )
-        if profile is None:
-            reason = str(derivation.get("reason") or "rtti_derivation_failed")
+        if candidate is None:
             rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
             continue
-        flat = probe.flatten_calibrated_group(
+        exact.append(candidate)
+
+    cold_stats = {
+        "status": "not_needed",
+        "scanned_bytes": 0,
+        "scanned_mb": 0,
+        "count_hits": 0,
+        "pointer_hits": 0,
+    }
+    if not exact:
+        cold_candidate, cold_stats = _discover_cold_group(
+            probe,
             pid,
             memory_profile,
-            group_info,
-            {vtable},
             layer_count,
-            writable_contains=writable_contains,
+            module_base,
+            module_size,
+            all_regions,
+            writable_contains,
+            seen_groups,
+            rejection_counts,
+            deadline,
         )
-        if int(flat.get("shape_count") or 0) != int(layer_count) or int(flat.get("invalid_count") or 0):
-            reason = "group_traversal_invalid"
-            rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
-            continue
-        exact.append(
-            {
-                "group_address": group_address,
-                "vtable": vtable,
-                "shape_count": flat["shape_count"],
-                "group_count": flat["group_count"],
-                "max_depth": flat["max_depth"],
-                "profile": profile,
-                "derivation": derivation,
-            }
-        )
+        pointer_hits += int(cold_stats.get("pointer_hits") or 0)
+        scanned_bytes += int(cold_stats.get("scanned_bytes") or 0)
+        if cold_candidate is not None:
+            exact.append(cold_candidate)
 
     if process_identity:
         after = dict(process_identity(pid))
@@ -420,10 +566,22 @@ def recover_local_profile(
             }
     unique = {int(item["group_address"]): item for item in exact}
     if len(unique) != 1:
+        if cold_stats.get("status") == "timeout":
+            return {
+                **result,
+                "status": "timeout",
+                "reason": "Local FH6 compatibility recovery reached its 60-second safety limit.",
+                "candidate_count": len(unique),
+                "pointer_hits": pointer_hits,
+                "scanned_mb": scanned_bytes // (1024 * 1024),
+                "cold_start": cold_stats,
+                "rejection_counts": rejection_counts,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+            }
         reason = (
             "KFPS found multiple exact FH6 groups in the livery allocator; local recovery was not accepted."
             if len(unique) > 1
-            else result["reason"]
+            else "Cold-start recovery did not find one exact open FH6 group."
         )
         return {
             **result,
@@ -431,10 +589,12 @@ def recover_local_profile(
             "candidate_count": len(unique),
             "pointer_hits": pointer_hits,
             "scanned_mb": scanned_bytes // (1024 * 1024),
+            "cold_start": cold_stats,
             "rejection_counts": rejection_counts,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
     winner = next(iter(unique.values()))
+    verified_window = probe.allocator_window_for_address(winner["group_address"])
     return {
         **result,
         "status": "derived",
@@ -446,6 +606,8 @@ def recover_local_profile(
         "group_count": winner["group_count"],
         "max_depth": winner["max_depth"],
         "source_group": winner["group_address"],
+        "verified_allocator_window": list(verified_window),
+        "cold_start": cold_stats,
         "derivation": winner["derivation"],
         "elapsed_seconds": round(time.monotonic() - started, 3),
     }

@@ -268,6 +268,65 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
         self.assertEqual(3, result["group_count"])
         self.assertEqual("disabled", result["publication"])
 
+    def test_cold_recovery_discovers_group_outside_default_and_cached_windows(self):
+        module_base = 0x140000000
+        module_size = 0x0C000000
+        region_base = 0x410000000
+        region_size = 13 * 1024 * 1024
+        group = region_base + 0x100
+        table = region_base + 0x1000
+        vtable = module_base + 0x06000000
+        raw = bytearray(0x200)
+        struct.pack_into("<Q", raw, 0x100, vtable)
+        struct.pack_into("<H", raw, 0x100 + 0x5A, 8)
+        struct.pack_into("<Q", raw, 0x100 + 0x60, 0)
+        struct.pack_into("<3Q", raw, 0x100 + 0x78, table, table + 64, table + 64)
+        profile = recovery_profile()
+        derived = {**profile, "_registry_source": "local_recovery_candidate"}
+        memory_profile = SimpleNamespace(layer_table_offset=0x78, livery_count_offset=0x5A)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "live_memory_locator.fh6_recovery.get_base_address", return_value=module_base
+        ), patch.object(
+            fh6_probe, "read_pe_image_size", return_value=module_size
+        ), patch.object(
+            fh6_probe,
+            "iter_regions",
+            return_value=iter(
+                [(region_base, region_size, fh6_probe.PAGE_READWRITE, fh6_probe.MEM_PRIVATE)]
+            ),
+        ), patch.object(
+            fh6_probe, "read_region", return_value=bytes(raw)
+        ), patch.object(
+            fh6_probe,
+            "read_calibrated_group_vector",
+            return_value={
+                "group_address": group,
+                "table_address": table,
+                "vector_count": 8,
+                "current_u16": 8,
+                "parent_group": 0,
+            },
+        ), patch.object(
+            fh6_probe,
+            "flatten_calibrated_group",
+            return_value={"shape_count": 8, "invalid_count": 0, "group_count": 4, "max_depth": 3},
+        ), patch(
+            "live_memory_locator.fh6_recovery._read_u64", return_value=vtable
+        ), patch(
+            "live_memory_locator.fh6_recovery._derive_profile_from_group",
+            return_value=(derived, {"reason": "derived", "profile_id": profile["profile_id"]}),
+        ):
+            result = recover_local_profile(Path(temp), 123, memory_profile, 8)
+
+        self.assertEqual("derived", result["status"])
+        self.assertEqual("match", result["cold_start"]["status"])
+        self.assertEqual(group, result["source_group"])
+        self.assertGreater(result["cold_start"]["scanned_bytes"], 0)
+        window_start, window_end = result["verified_allocator_window"]
+        self.assertLessEqual(window_start, group)
+        self.assertGreater(window_end, group)
+
     def test_engine_recovers_once_revalidates_and_saves_locally(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -278,6 +337,7 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
                 "reason": "derived",
                 "publication": "disabled",
                 "profile": dict(profile),
+                "verified_allocator_window": [0x410000000, 0x420000000],
             }
             with patch.object(engine, "_process_identity", return_value=self.identity()), patch.object(
                 engine,
@@ -299,6 +359,13 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
             persist.assert_called_once()
             self.assertTrue(
                 any(item["name"] == "local_profile_persistence" for item in report["attempts"])
+            )
+            self.assertTrue(
+                any(item["name"] == "local_allocator_hint" for item in report["attempts"])
+            )
+            self.assertEqual(
+                [(0x410000000, 0x420000000)],
+                engine.cache.allocator_windows(profile["profile_id"]),
             )
 
     def test_forced_recovery_ignores_known_profiles_only_for_initial_lookup(self):
@@ -444,6 +511,7 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
                     "reason": "derived",
                     "publication": "disabled",
                     "profile": dict(profile),
+                    "verified_allocator_window": [0x410000000, 0x420000000],
                 },
             ), patch(
                 "live_memory_locator.fh6_recovery.persist_local_profile", return_value=profile
@@ -453,6 +521,10 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
             self.assertEqual("refused", report["outcome"]["status"])
             self.assertIsNone(report["selected"])
             persist.assert_called_once()
+            self.assertEqual(
+                [(0x410000000, 0x420000000)],
+                engine.cache.allocator_windows(profile["profile_id"]),
+            )
 
     def test_process_change_prevents_retry_and_profile_persistence(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -477,6 +549,7 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
                     "reason": "derived",
                     "publication": "disabled",
                     "profile": dict(profile),
+                    "verified_allocator_window": [0x410000000, 0x420000000],
                 },
             ), patch(
                 "live_memory_locator.fh6_recovery.persist_local_profile"
@@ -487,6 +560,7 @@ class Fh6RttiRecoveryTests(unittest.TestCase):
             self.assertIn("process changed", report["outcome"]["reason"].lower())
             self.assertEqual(1, fast.call_count)
             persist.assert_not_called()
+            self.assertEqual([], engine.cache.allocator_windows(profile["profile_id"]))
 
 
 if __name__ == "__main__":
