@@ -585,9 +585,26 @@ if not defined QML_ROOT_REASON (
     set "QML_ROOT_REASON=updated"
 )
 if /I "!QML_ROOT_REASON!"=="missing" call :log "Native KFPS launcher is missing; installing QML executable."
-if /I "!QML_ROOT_REASON!"=="updated" call :log "Native launcher hash differs; replacing KFPS.exe."
+if /I "!QML_ROOT_REASON!"=="updated" (
+    call :log "Native launcher hash differs; replacing KFPS.exe."
+    if defined QML_ROOT_HASH call :log "Current parent launcher SHA-256: !QML_ROOT_HASH!"
+    call :log "Expected launcher SHA-256: %QML_BINARY_ASSET_SHA256%"
+)
 call :install_qml_binary_payload
 if errorlevel 1 exit /b 1
+set "QML_SOURCE_HASH="
+call :capture_file_sha256 "%CD%\KFPS.exe" QML_SOURCE_HASH
+if errorlevel 1 (
+    call :log "Native launcher repair could not hash the synced KFPS.exe payload."
+    exit /b 1
+)
+if /I not "!QML_SOURCE_HASH!"=="%QML_BINARY_ASSET_SHA256%" (
+    call :log "Native launcher payload hash does not match the expected QML launcher."
+    call :log "Synced payload SHA-256: !QML_SOURCE_HASH!"
+    call :log "Expected launcher SHA-256: %QML_BINARY_ASSET_SHA256%"
+    exit /b 1
+)
+call :log "Native launcher payload hash verified."
 call :sync_native_root_exe
 if exist "!QML_ROOT_EXE!" (
     set "QML_ROOT_HASH="
@@ -601,6 +618,8 @@ if exist "!QML_ROOT_EXE!" (
     )
 )
 call :log "Native launcher repair did not produce the expected QML launcher hash."
+if defined QML_ROOT_HASH call :log "Installed parent launcher SHA-256: !QML_ROOT_HASH!"
+call :log "Expected launcher SHA-256: %QML_BINARY_ASSET_SHA256%"
 exit /b 1
 
 :init_qml_payload_defaults
@@ -609,15 +628,20 @@ if not defined QML_BINARY_ASSET_SHA256 set "QML_BINARY_ASSET_SHA256=E602689BC684
 exit /b 0
 
 :capture_file_sha256
-set "HASH_VALUE="
 if "%~1"=="" exit /b 1
 if "%~2"=="" exit /b 1
 if not exist "%~1" exit /b 1
-for /f "tokens=1" %%H in ('certutil -hashfile "%~1" SHA256 2^>nul ^| findstr /R /V /C:"hash" /C:"CertUtil"') do (
+setlocal DisableDelayedExpansion
+set "KFPS_HASH_PATH=%~f1"
+set "HASH_VALUE="
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $path=$env:KFPS_HASH_PATH; if(-not (Test-Path -LiteralPath $path -PathType Leaf)){ exit 2 }; $stream=[IO.File]::OpenRead($path); try { $sha=[Security.Cryptography.SHA256]::Create(); try { $hash=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-',''); if($hash -notmatch '^[0-9A-F]{64}$'){ exit 3 }; [Console]::Out.WriteLine($hash) } finally { $sha.Dispose() } } finally { $stream.Dispose() }" 2^>nul`) do (
     if not defined HASH_VALUE set "HASH_VALUE=%%H"
 )
-if not defined HASH_VALUE exit /b 1
-set "%~2=%HASH_VALUE%"
+if not defined HASH_VALUE (
+    endlocal
+    exit /b 1
+)
+endlocal & set "%~2=%HASH_VALUE%"
 exit /b 0
 
 :verify_native_root_binary
@@ -638,6 +662,8 @@ if errorlevel 1 (
 )
 if /I not "!QML_ROOT_HASH!"=="%QML_BINARY_ASSET_SHA256%" (
     call :log "Verification failed: native KFPS.exe hash does not match the expected payload."
+    call :log "Installed parent launcher SHA-256: !QML_ROOT_HASH!"
+    call :log "Expected launcher SHA-256: %QML_BINARY_ASSET_SHA256%"
     exit /b 1
 )
 call :log "Native KFPS.exe verification passed."

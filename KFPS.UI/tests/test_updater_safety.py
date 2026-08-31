@@ -41,8 +41,13 @@ class UpdaterSafetyTests(unittest.TestCase):
             with self.subTest(exclusion=exclusion):
                 self.assertIn(exclusion, clean_line)
 
+        self.assertNotIn("certutil -hashfile", text)
         self.assertNotIn("Get-FileHash", text)
         self.assertIn("[Security.Cryptography.SHA256]::Create()", text)
+        self.assertIn("$env:KFPS_HASH_PATH", text)
+        self.assertIn("Native launcher payload hash verified.", text)
+        self.assertIn("Installed parent launcher SHA-256:", text)
+        self.assertIn("Expected launcher SHA-256:", text)
 
     def test_updater_executes_only_the_shipped_local_batch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -106,7 +111,7 @@ class UpdaterSafetyTests(unittest.TestCase):
     def test_failed_non_git_update_restores_program_files_and_parent_launcher(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            remote = root / "remote"
+            remote = root / "remote source with spaces"
             remote.mkdir()
             subprocess.run(["git", "init", "-b", "main"], cwd=remote, check=True, capture_output=True)
             subprocess.run(
@@ -143,7 +148,7 @@ class UpdaterSafetyTests(unittest.TestCase):
             subprocess.run(["git", "add", "."], cwd=remote, check=True)
             subprocess.run(["git", "commit", "-m", "target"], cwd=remote, check=True, capture_output=True)
 
-            outer = root / "install"
+            outer = root / "legacy install with spaces"
             app_root = outer / "KloudysFH6Painter"
             for directory in ("KFPS.UI", "assets", "settings"):
                 (app_root / directory).mkdir(parents=True, exist_ok=True)
@@ -189,6 +194,97 @@ class UpdaterSafetyTests(unittest.TestCase):
             self.assertTrue((app_root / "old-program-file.txt").is_file())
             self.assertFalse((app_root / "new-program-file.txt").exists())
             self.assertIn("Previous program files restored", result.stdout)
+
+    @unittest.skipUnless(os.name == "nt", "Batch updater integration test is Windows-specific")
+    def test_non_git_legacy_install_updates_without_certutil_hash_parsing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            remote = root / "remote source with spaces"
+            remote.mkdir()
+            subprocess.run(["git", "init", "-b", "main"], cwd=remote, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "updater-tests@example.invalid"],
+                cwd=remote,
+                check=True,
+            )
+            subprocess.run(["git", "config", "user.name", "Updater Tests"], cwd=remote, check=True)
+
+            expected_launcher = (ROOT / "KFPS.exe").read_bytes()
+            required_files = {
+                "VERSION": b"9.9.9\n",
+                "KFPS.exe": expected_launcher,
+                "fh6_probe.py": b"# target\n",
+                "generator_backend.py": b"# target\n",
+                "KloudysGalateaGenesis.exe": b"target-generator",
+                "KFPS.UI/keep.txt": b"target",
+                "assets/keep.txt": b"target",
+                "settings/keep.txt": b"target",
+            }
+            for relative, payload in required_files.items():
+                target = remote / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+            for relative in (
+                "03_update_from_github.bat",
+                "tools/update/Stop-KfpsProcesses.ps1",
+                "tools/update/Replace-NativeLauncher.ps1",
+                "tools/update/UpdatePathSafety.psm1",
+            ):
+                target = remote / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / relative).read_bytes())
+            subprocess.run(["git", "add", "."], cwd=remote, check=True)
+            subprocess.run(["git", "commit", "-m", "target"], cwd=remote, check=True, capture_output=True)
+
+            outer = root / "legacy install with spaces"
+            app_root = outer / "KloudysFH6Painter"
+            for directory in ("KFPS.UI", "assets", "settings"):
+                (app_root / directory).mkdir(parents=True, exist_ok=True)
+            (app_root / "VERSION").write_bytes(b"3.1.28\n")
+            (app_root / "KFPS.exe").write_bytes(b"legacy-app-launcher")
+            (app_root / "fh6_probe.py").write_bytes(b"# old\n")
+            (app_root / "generator_backend.py").write_bytes(b"# old\n")
+            (app_root / "KloudysGalateaGenesis.exe").write_bytes(b"old-generator")
+            (app_root / "03_update_from_github.bat").write_bytes(
+                (ROOT / "03_update_from_github.bat").read_bytes()
+            )
+            (outer / "KFPS.exe").write_bytes(b"legacy-parent-launcher")
+
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            (fake_bin / "certutil.cmd").write_text("@exit /b 97\n", encoding="ascii")
+            temp_root = root / "temp"
+            temp_root.mkdir()
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "KFPS_ALLOW_CUSTOM_UPDATE_SOURCE": "1",
+                    "REPO_URL": str(remote),
+                    "BRANCH": "main",
+                    "KFPS_UPDATER_ROOT": str(app_root),
+                    "FORZA_PAINTER_NO_PAUSE": "1",
+                    "LOCALAPPDATA": str(root / "local-app-data"),
+                    "TEMP": str(temp_root),
+                    "TMP": str(temp_root),
+                    "PATH": str(fake_bin) + os.pathsep + environment.get("PATH", ""),
+                }
+            )
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", str(app_root / "03_update_from_github.bat")],
+                cwd=app_root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertEqual("9.9.9", (app_root / "VERSION").read_text(encoding="utf-8").strip())
+            self.assertEqual(expected_launcher, (app_root / "KFPS.exe").read_bytes())
+            self.assertEqual(expected_launcher, (outer / "KFPS.exe").read_bytes())
+            self.assertIn("Native launcher payload hash verified.", result.stdout)
+            self.assertIn("Native KFPS.exe verification passed.", result.stdout)
+            self.assertIn("Update complete.", result.stdout)
 
 
 if __name__ == "__main__":
