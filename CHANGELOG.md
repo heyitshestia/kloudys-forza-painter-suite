@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.53
+- Version-only update to validate in-app updating from 3.1.52 installations.
+
 ## 3.1.52
 - Moved the installed updater's self-handoff into KFPS's preserved runtime folder so temporary-file cleanup cannot remove the running updater mid-sync.
 - Verified the full non-Git bundle update path preserves packaged Python and runtime output while cleaning up the handoff afterward.
