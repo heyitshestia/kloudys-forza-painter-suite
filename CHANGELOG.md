@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.52
+- Moved the installed updater's self-handoff into KFPS's preserved runtime folder so temporary-file cleanup cannot remove the running updater mid-sync.
+- Verified the full non-Git bundle update path preserves packaged Python and runtime output while cleaning up the handoff afterward.
+
 ## 3.1.51
 - Fixed native launcher updates failing on Windows installations whose localized certificate utility output did not match the updater's English-only hash parser.
 - Replaced text-parsed launcher verification with locale-independent SHA-256 hashing of the actual file bytes.
