@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.51
+- Fixed native launcher updates failing on Windows installations whose localized certificate utility output did not match the updater's English-only hash parser.
+- Replaced text-parsed launcher verification with locale-independent SHA-256 hashing of the actual file bytes.
+- Added source and installed launcher hash diagnostics plus backward-update and rollback regression coverage.
+
 ## 3.1.50
 - Added retroactive mask-layer detection and cached mask counts for existing JSONs across every Outputs source.
 - Added clear MASKS indicators to output tiles, Community upload selection, and Community artwork details without exposing invisible mask geometry in previews.
