@@ -13,7 +13,13 @@ if /I not "%KFPS_ALLOW_CUSTOM_UPDATE_SOURCE%"=="1" (
 if not defined KFPS_UPDATER_HANDOFF (
     set "KFPS_UPDATER_HANDOFF=1"
     if not defined KFPS_UPDATER_ROOT set "KFPS_UPDATER_ROOT=%CD%"
-    set "KFPS_UPDATER_TEMP=%TEMP%\kfps-updater-handoff-%RANDOM%-%RANDOM%.bat"
+    set "KFPS_UPDATER_HANDOFF_DIR=!KFPS_UPDATER_ROOT!\runtime\update-handoff"
+    if not exist "!KFPS_UPDATER_HANDOFF_DIR!" mkdir "!KFPS_UPDATER_HANDOFF_DIR!" >nul 2>nul
+    if not exist "!KFPS_UPDATER_HANDOFF_DIR!" (
+        echo Failed to create updater handoff folder.
+        exit /b 1
+    )
+    set "KFPS_UPDATER_TEMP=!KFPS_UPDATER_HANDOFF_DIR!\kfps-updater-handoff-%RANDOM%-%RANDOM%.bat"
     copy /y "%~f0" "!KFPS_UPDATER_TEMP!" >nul
     if errorlevel 1 (
         echo Failed to create updater handoff copy.
@@ -22,6 +28,7 @@ if not defined KFPS_UPDATER_HANDOFF (
     call "!KFPS_UPDATER_TEMP!"
     set "KFPS_UPDATER_EXIT=!ERRORLEVEL!"
     del /f /q "!KFPS_UPDATER_TEMP!" >nul 2>nul
+    rmdir "!KFPS_UPDATER_HANDOFF_DIR!" >nul 2>nul
     exit /b !KFPS_UPDATER_EXIT!
 )
 

@@ -48,6 +48,8 @@ class UpdaterSafetyTests(unittest.TestCase):
         self.assertIn("Native launcher payload hash verified.", text)
         self.assertIn("Installed parent launcher SHA-256:", text)
         self.assertIn("Expected launcher SHA-256:", text)
+        self.assertIn(r"\runtime\update-handoff", text)
+        self.assertNotIn(r"%TEMP%\kfps-updater-handoff", text)
 
     def test_updater_executes_only_the_shipped_local_batch(self):
         with tempfile.TemporaryDirectory() as temporary:
