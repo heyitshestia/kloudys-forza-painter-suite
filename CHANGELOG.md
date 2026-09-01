@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.54
+- Fixed Recommended bundle preparation leaving OpenCV package metadata installed while shared `cv2` files were missing.
+- Reinstall locked dependencies after runtime sanitization and reject incomplete wheel files before packaging.
+- Added isolated native dependency API checks so local user packages cannot hide a broken bundled runtime.
+
 ## 3.1.53
 - Version-only update to validate in-app updating from 3.1.52 installations.
 
