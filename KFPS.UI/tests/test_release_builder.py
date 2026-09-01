@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -14,7 +15,14 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "release"))
 
-from build_release_bundles import build_one, commit_timestamp, read_version, resolve_commit
+from build_release_bundles import (
+    build_one,
+    commit_timestamp,
+    read_version,
+    resolve_commit,
+    synchronize_python_runtime,
+    validate_python_distribution_records,
+)
 
 
 def run(*command: str, cwd: Path) -> None:
@@ -101,7 +109,10 @@ class ReleaseBuilderTests(unittest.TestCase):
             (runtime / "dependency.pyd").write_bytes(b"dependency")
             (runtime / "__pycache__").mkdir()
             (runtime / "__pycache__" / "generated.cpython-312.pyc").write_bytes(b"cache")
-            with patch("build_release_bundles.validate_python_runtime"):
+            with (
+                patch("build_release_bundles.synchronize_python_runtime") as synchronize,
+                patch("build_release_bundles.validate_python_runtime") as validate,
+            ):
                 bundle_path = build_one(
                     repo,
                     output,
@@ -111,12 +122,74 @@ class ReleaseBuilderTests(unittest.TestCase):
                     kind="recommended",
                     python_source=runtime,
                 )
+            synchronize.assert_called_once()
+            validate.assert_called_once()
             with zipfile.ZipFile(bundle_path) as bundle:
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/python.exe", bundle.namelist())
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/dependency.pyd", bundle.namelist())
                 self.assertFalse(any(
                     "__pycache__" in name or name.endswith(".pyc") for name in bundle.namelist()
                 ))
+
+    def test_distribution_record_validation_rejects_missing_required_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            site_packages = runtime / "Lib" / "site-packages"
+            dist_info = site_packages / "example-1.0.dist-info"
+            dist_info.mkdir(parents=True)
+            (dist_info / "RECORD").write_text(
+                "example/__init__.py,,12\nexample/__pycache__/__init__.pyc,,99\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "missing example/__init__.py"):
+                validate_python_distribution_records(runtime)
+
+    def test_distribution_record_validation_checks_recorded_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            site_packages = runtime / "Lib" / "site-packages"
+            package_file = site_packages / "example" / "__init__.py"
+            package_file.parent.mkdir(parents=True)
+            package_file.write_bytes(b"first")
+            digest = base64.urlsafe_b64encode(hashlib.sha256(b"first").digest()).rstrip(b"=").decode("ascii")
+            dist_info = site_packages / "example-1.0.dist-info"
+            dist_info.mkdir()
+            (dist_info / "RECORD").write_text(
+                f"example/__init__.py,sha256={digest},5\n",
+                encoding="utf-8",
+            )
+
+            validate_python_distribution_records(runtime)
+            package_file.write_bytes(b"other")
+            with self.assertRaisesRegex(RuntimeError, "hash mismatch for example/__init__.py"):
+                validate_python_distribution_records(runtime)
+
+    @patch("build_release_bundles.validate_python_runtime")
+    @patch("build_release_bundles.installed_python_distributions")
+    @patch("build_release_bundles.subprocess.run")
+    def test_runtime_synchronization_force_reinstalls_locked_packages(
+        self, run_process, installed, validate
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary) / "python"
+            runtime.mkdir()
+            python = runtime / "python.exe"
+            python.write_bytes(b"python")
+            requirements = Path(temporary) / "requirements.lock.txt"
+            requirements.write_text("numpy==1.26.4\n", encoding="ascii")
+            installed.return_value = {"numpy": "1.26.4", "opencv-python": "4.9.0.80"}
+
+            synchronize_python_runtime(runtime, requirements)
+
+            uninstall_command = run_process.call_args_list[0].args[0]
+            self.assertEqual(str(python), uninstall_command[0])
+            self.assertIn("--isolated", uninstall_command)
+            self.assertEqual(["opencv-python"], uninstall_command[-1:])
+            install_command = run_process.call_args_list[1].args[0]
+            self.assertIn("--isolated", install_command)
+            self.assertIn("--force-reinstall", install_command)
+            self.assertIn("--no-deps", install_command)
+            validate.assert_called_once_with(runtime.resolve(), requirements)
 
 
 if __name__ == "__main__":

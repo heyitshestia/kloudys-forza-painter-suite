@@ -56,11 +56,13 @@ For each archive:
 1. verify its SHA-256 sidecar;
 2. inspect `RELEASE-MANIFEST.json` and confirm the source commit;
 3. extract into a new temporary directory;
-4. start the recommended package on a machine without relying on system Python;
-5. start the advanced package with a supported system Python installation;
-6. test first startup, second startup, updater handoff, editor launch, and an
+4. confirm the Recommended build reports complete wheel `RECORD` contents and
+   passes the bundled dependency API probe;
+5. start the recommended package on a machine without relying on system Python;
+6. start the advanced package with a supported system Python installation;
+7. test first startup, second startup, updater handoff, editor launch, and an
    output that survives restart;
-7. verify generated/runtime data is absent before upload.
+8. verify generated/runtime data is absent before upload.
 
 The manifest and hash prove content consistency, not publisher identity. Do not
 describe them as signatures unless a separately controlled signing workflow is

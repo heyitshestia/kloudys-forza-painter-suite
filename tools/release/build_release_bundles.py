@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import csv
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -138,6 +140,14 @@ def _normalized_distribution(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name.strip()).lower()
 
 
+def _python_runtime_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["PYTHONNOUSERSITE"] = "1"
+    environment.pop("PYTHONHOME", None)
+    environment.pop("PYTHONPATH", None)
+    return environment
+
+
 def locked_python_distributions(requirements_lock: Path) -> dict[str, str]:
     locked = {}
     for raw in requirements_lock.read_text(encoding="utf-8").splitlines():
@@ -155,8 +165,9 @@ def locked_python_distributions(requirements_lock: Path) -> dict[str, str]:
 def installed_python_distributions(source: Path) -> dict[str, str]:
     python = source.resolve() / "python.exe"
     result = subprocess.run(
-        [str(python), "-m", "pip", "list", "--format=json"],
+        [str(python), "-m", "pip", "--isolated", "list", "--format=json"],
         check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=_python_runtime_environment(),
     )
     values = json.loads(result.stdout)
     return {
@@ -165,14 +176,140 @@ def installed_python_distributions(source: Path) -> dict[str, str]:
     }
 
 
+def _is_optional_record_path(relative: PurePosixPath) -> bool:
+    return relative.suffix.lower() == ".pyc" or "__pycache__" in relative.parts
+
+
+def _record_hash(path: Path, algorithm: str) -> str:
+    try:
+        digest = hashlib.new(algorithm)
+    except ValueError as exc:
+        raise RuntimeError(f"Unsupported Python RECORD hash algorithm: {algorithm}") from exc
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return base64.urlsafe_b64encode(digest.digest()).rstrip(b"=").decode("ascii")
+
+
+def validate_python_distribution_records(source: Path) -> None:
+    source = source.resolve()
+    site_packages = source / "Lib" / "site-packages"
+    if not site_packages.is_dir():
+        raise RuntimeError(f"Bundled runtime is missing site-packages: {site_packages}")
+
+    issues = []
+    distributions = sorted(site_packages.glob("*.dist-info"), key=lambda path: path.name.lower())
+    if not distributions:
+        raise RuntimeError(f"Bundled runtime contains no Python distribution metadata: {site_packages}")
+
+    for dist_info in distributions:
+        record_path = dist_info / "RECORD"
+        if not record_path.is_file():
+            issues.append(f"{dist_info.name}: missing RECORD")
+            continue
+        with record_path.open("r", encoding="utf-8", errors="replace", newline="") as stream:
+            records = csv.reader(stream)
+            for row in records:
+                if not row:
+                    continue
+                relative_text, hash_field, size_field = (row + ["", ""])[:3]
+                relative = PurePosixPath(relative_text)
+                if _is_optional_record_path(relative):
+                    continue
+                if not relative_text or relative.is_absolute():
+                    issues.append(f"{dist_info.name}: unsafe path {relative_text!r}")
+                    continue
+                target = (site_packages / Path(*relative.parts)).resolve()
+                try:
+                    target.relative_to(source)
+                except ValueError:
+                    issues.append(f"{dist_info.name}: unsafe path {relative_text}")
+                    continue
+                if not target.is_file():
+                    issues.append(f"{dist_info.name}: missing {relative_text}")
+                    continue
+                if size_field:
+                    try:
+                        expected_size = int(size_field)
+                    except ValueError:
+                        issues.append(f"{dist_info.name}: invalid size for {relative_text}")
+                    else:
+                        if target.stat().st_size != expected_size:
+                            issues.append(f"{dist_info.name}: size mismatch for {relative_text}")
+                if hash_field:
+                    if "=" not in hash_field:
+                        issues.append(f"{dist_info.name}: invalid hash for {relative_text}")
+                        continue
+                    algorithm, expected_hash = hash_field.split("=", 1)
+                    if _record_hash(target, algorithm) != expected_hash:
+                        issues.append(f"{dist_info.name}: hash mismatch for {relative_text}")
+
+    if issues:
+        preview = "\n".join(f"  {issue}" for issue in issues[:30])
+        remainder = len(issues) - 30
+        suffix = f"\n  ... and {remainder} more" if remainder > 0 else ""
+        raise RuntimeError(f"Bundled Python contains incomplete or modified package files:\n{preview}{suffix}")
+
+
+def validate_python_runtime_apis(source: Path) -> None:
+    source = source.resolve()
+    python = source / "python.exe"
+    probe = r"""
+import pathlib
+
+import cv2
+import numpy
+from PIL import Image
+import psutil
+from PySide6 import (
+    QtCore,
+    QtGui,
+    QtNetwork,
+    QtQml,
+    QtQuick,
+    QtQuickControls2,
+    QtTest,
+    QtWebEngineQuick,
+    QtWidgets,
+)
+import shiboken6
+import win32api
+
+assert pathlib.Path(cv2.__file__).is_file()
+assert cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)).shape == (3, 3)
+pixels = numpy.zeros((2, 2, 3), dtype=numpy.uint8)
+encoded_ok, encoded = cv2.imencode(".png", pixels)
+assert encoded_ok and cv2.imdecode(encoded, cv2.IMREAD_COLOR).shape == pixels.shape
+assert Image.fromarray(pixels).size == (2, 2)
+assert psutil.Process().pid > 0
+assert shiboken6.__version__
+assert win32api.GetVersionEx()[0] >= 10
+app = QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
+image = QtGui.QImage(2, 2, QtGui.QImage.Format_RGBA8888)
+image.fill(QtGui.QColor("red"))
+assert not image.isNull() and QtCore.qVersion()
+print("KFPS bundled Python API probe passed.")
+"""
+    environment = _python_runtime_environment()
+    environment["QT_QPA_PLATFORM"] = "offscreen"
+    result = subprocess.run(
+        [str(python), "-c", probe], capture_output=True, text=True,
+        encoding="utf-8", errors="replace", env=environment,
+    )
+    if result.returncode != 0:
+        detail = (result.stdout + result.stderr).strip()
+        raise RuntimeError(f"Bundled Python API validation failed:\n{detail}")
+
+
 def validate_python_runtime(source: Path, requirements_lock: Path) -> None:
     source = source.resolve()
     python = source / "python.exe"
     if not python.is_file():
         raise RuntimeError(f"Bundled runtime is missing python.exe: {source}")
     subprocess.run(
-        [str(python), "-m", "pip", "check"], check=True,
+        [str(python), "-m", "pip", "--isolated", "check"], check=True,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=_python_runtime_environment(),
     )
     locked = locked_python_distributions(requirements_lock)
     installed = installed_python_distributions(source)
@@ -187,6 +324,8 @@ def validate_python_runtime(source: Path, requirements_lock: Path) -> None:
             "Bundled Python does not match requirements.lock.txt: "
             + json.dumps({"wrong_or_missing": wrong, "unexpected": extras}, sort_keys=True)
         )
+    validate_python_distribution_records(source)
+    validate_python_runtime_apis(source)
 
 
 def synchronize_python_runtime(source: Path, requirements_lock: Path) -> None:
@@ -195,12 +334,17 @@ def synchronize_python_runtime(source: Path, requirements_lock: Path) -> None:
     locked = locked_python_distributions(requirements_lock)
     installed = installed_python_distributions(source)
     extras = sorted(set(installed) - set(locked) - {"pip", "setuptools", "wheel"})
+    environment = _python_runtime_environment()
     if extras:
-        subprocess.run([str(python), "-m", "pip", "uninstall", "-y", *extras], check=True)
+        subprocess.run(
+            [str(python), "-m", "pip", "--isolated", "uninstall", "-y", *extras],
+            check=True, env=environment,
+        )
     subprocess.run([
-        str(python), "-m", "pip", "install", "--disable-pip-version-check",
-        "--no-warn-script-location", "-r", str(requirements_lock.resolve()),
-    ], check=True)
+        str(python), "-m", "pip", "--isolated", "install", "--disable-pip-version-check",
+        "--no-warn-script-location", "--upgrade", "--force-reinstall", "--no-deps",
+        "-r", str(requirements_lock.resolve()),
+    ], check=True, env=environment)
     validate_python_runtime(source, requirements_lock)
 
 
@@ -301,8 +445,11 @@ def build_one(
         if kind == "recommended":
             if python_source is None:
                 raise RuntimeError("The recommended bundle requires --python-source.")
-            validate_python_runtime(python_source, app_root / "requirements.lock.txt")
-            copy_python_runtime(python_source, app_root / "python")
+            sanitized_runtime = temporary_root / "python-runtime"
+            copy_python_runtime(python_source, sanitized_runtime)
+            synchronize_python_runtime(sanitized_runtime, app_root / "requirements.lock.txt")
+            copy_python_runtime(sanitized_runtime, app_root / "python")
+            validate_python_runtime(app_root / "python", app_root / "requirements.lock.txt")
 
         write_manifest(release_root, version=version, commit=commit, kind=kind, timestamp=timestamp)
         verify_manifest(release_root)

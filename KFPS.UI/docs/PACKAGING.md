@@ -37,6 +37,13 @@ The in-app updater closes `KFPS.exe` and invokes `03_update_from_github.bat`. Th
 
 Release archives must be made with `tools/release/build_release_bundles.py`, from the exact committed revision being published. The builder exports Git-tracked files from that immutable commit instead of copying the working directory. It refuses modified tracked files by default, blocks runtime/personal-state paths, preserves the established nested layout, and writes both `RELEASE-MANIFEST.json` and a SHA-256 file beside each archive.
 
+Recommended builds copy the supplied Python runtime into an isolated staging
+directory, remove packages outside `requirements.lock.txt`, and force-reinstall
+every locked dependency. The builder then verifies wheel `RECORD` sizes and
+hashes plus critical OpenCV, NumPy, Pillow, Qt, psutil, and pywin32 APIs. Package
+metadata and `pip check` alone are not accepted as proof that native modules are
+complete.
+
 ```powershell
 py -3.12 tools\release\build_release_bundles.py `
   --output-dir C:\path\to\release-output `
