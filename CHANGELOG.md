@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.56
+- Added live updater status for signed-channel checks, manifest verification, file inventory scans, downloads, backups, installation, and final verification.
+- Kept interactive updater failures open with the failed phase, reason, log path, and report path visible in the terminal.
+- Preserved non-interactive `--no-pause` behavior for automation and made successful in-app updates close only after KFPS relaunches.
+
 ## 3.1.55
 - Changed the startup splash headline to provide an obvious in-app update test marker.
 
