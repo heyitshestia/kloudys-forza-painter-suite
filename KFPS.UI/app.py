@@ -217,7 +217,7 @@ def run_startup_output_index(
         layout = QVBoxLayout(splash)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(10)
-        title = QLabel("PLEASE STAND BY: THE JSONS ARE PUTTING ON SHOES")
+        title = QLabel("KFPS UPDATE TEST: IF YOU CAN READ THIS, IT WORKED")
         title.setObjectName("Title")
         title.setWordWrap(True)
         detail = QLabel(bits[0])
