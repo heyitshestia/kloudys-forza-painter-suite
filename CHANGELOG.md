@@ -1,5 +1,8 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.55
+- Changed the startup splash headline to provide an obvious in-app update test marker.
+
 ## 3.1.54
 - Fixed Recommended bundle preparation leaving OpenCV package metadata installed while shared `cv2` files were missing.
 - Reinstall locked dependencies after runtime sanitization and reject incomplete wheel files before packaging.
