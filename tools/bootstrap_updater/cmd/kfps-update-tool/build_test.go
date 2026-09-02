@@ -122,6 +122,28 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 	}
 }
 
+func TestVersionFilePayloadAcceptsOneNativeLineEnding(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		valid   bool
+	}{
+		{name: "lf", payload: "3.1.54\n", valid: true},
+		{name: "crlf", payload: "3.1.54\r\n", valid: true},
+		{name: "missing line ending", payload: "3.1.54", valid: false},
+		{name: "extra line", payload: "3.1.54\n\n", valid: false},
+		{name: "leading whitespace", payload: " 3.1.54\n", valid: false},
+		{name: "trailing whitespace", payload: "3.1.54 \n", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := validVersionFilePayload([]byte(test.payload), "3.1.54"); actual != test.valid {
+				t.Fatalf("validVersionFilePayload(%q) = %v; want %v", test.payload, actual, test.valid)
+			}
+		})
+	}
+}
+
 func containsBuildString(values []string, expected string) bool {
 	for _, value := range values {
 		if strings.EqualFold(value, expected) {

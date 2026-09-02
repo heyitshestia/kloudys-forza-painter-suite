@@ -149,8 +149,8 @@ func buildPayload(arguments []string) error {
 	if requested := strings.TrimSpace(*versionArg); requested != "" && requested != version {
 		return fmt.Errorf("--version %s does not match packaged VERSION %s from the immutable snapshot", requested, version)
 	}
-	if string(versionPayload) != version+"\n" {
-		return fmt.Errorf("snapshotted VERSION must contain exactly %s followed by one LF; got %q", version, string(versionPayload))
+	if !validVersionFilePayload(versionPayload, version) {
+		return fmt.Errorf("snapshotted VERSION must contain exactly %s followed by one line ending; got %q", version, string(versionPayload))
 	}
 	privatePayload, err := os.ReadFile(*privateArg)
 	if err != nil {
@@ -304,6 +304,11 @@ func buildPayload(arguments []string) error {
 	fmt.Printf("Built signed KFPS %s update sequence %d with key %s\n", version, *sequence, bootstrap.KeyID(publicKey))
 	fmt.Printf("Application files: %d\nPython runtime files: %d\nLauncher files: %d\n", len(applicationRecords), len(pythonRecords), len(launcherRecords))
 	return nil
+}
+
+func validVersionFilePayload(payload []byte, version string) bool {
+	value := string(payload)
+	return value == version+"\n" || value == version+"\r\n"
 }
 
 func excludeRetiredApplicationFiles(files []payloadFile, retired []string) []payloadFile {
