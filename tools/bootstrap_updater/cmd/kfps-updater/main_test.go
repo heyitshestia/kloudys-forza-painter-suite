@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -77,6 +79,47 @@ func TestHandoffCarriesResolvedPackageContextAndParentPID(t *testing.T) {
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("handoff context mismatch:\nactual:   %#v\nexpected: %#v", actual, expected)
+	}
+}
+
+func TestInteractiveHandoffDoesNotForceNoPause(t *testing.T) {
+	layout := bootstrap.Layout{InstallRoot: `C:\KFPS Package`, AppRoot: `C:\KFPS Package\KloudysFH6Painter`}
+	actual := buildHandoffArguments([]string{"--relaunch"}, layout, `C:\State Path`, 1234, false, true)
+	if strings.Contains(strings.Join(actual, " "), "--no-pause") {
+		t.Fatalf("interactive handoff unexpectedly disabled failure pause: %#v", actual)
+	}
+}
+
+func TestArgumentPauseDetectionSurvivesInvalidOptions(t *testing.T) {
+	if !argumentsDisablePause([]string{"--not-real", "--no-pause"}) {
+		t.Fatal("explicit --no-pause was not detected")
+	}
+	if argumentsDisablePause([]string{"--not-real"}) {
+		t.Fatal("interactive invalid options unexpectedly disabled pause")
+	}
+}
+
+func TestRunFailureSummaryIsReadableWithoutOpeningTheLog(t *testing.T) {
+	var output bytes.Buffer
+	logger, err := bootstrap.NewLogger(t.TempDir(), "failure-summary", &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	layout := bootstrap.Layout{InstallRoot: `C:\KFPS`, AppRoot: `C:\KFPS\KloudysFH6Painter`}
+	summary := bootstrap.RunSummary{RunID: "run-123", Phase: "load-signed-channel"}
+	logRunFailure(logger, layout, summary, errors.New("network unavailable"))
+	text := output.String()
+	for _, expected := range []string{
+		"UPDATE FAILED",
+		"Phase: load-signed-channel",
+		"Reason: network unavailable",
+		"No unverified update was installed.",
+		`C:\KFPS\KloudysFH6Painter\runtime\update-reports\update-run-123.json`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("failure summary omitted %q:\n%s", expected, text)
+		}
 	}
 }
 

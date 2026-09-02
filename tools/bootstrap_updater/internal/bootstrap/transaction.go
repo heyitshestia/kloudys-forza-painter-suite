@@ -122,7 +122,7 @@ func (transaction *Transaction) Prepare() error {
 		return err
 	}
 	if backupBytes > 0 {
-		transaction.logger.Printf("Preparing rollback backup for %d existing file(s), %d bytes.", backupFiles, backupBytes)
+		transaction.logger.Printf("[BACKUP] Preserving %d existing file(s), %d bytes, for rollback.", backupFiles, backupBytes)
 	}
 	for index := range transaction.changes {
 		operation := &transaction.journal.Operations[index]
@@ -145,7 +145,11 @@ func (transaction *Transaction) Prepare() error {
 			return err
 		}
 	}
-	return transaction.writeJournal()
+	if err := transaction.writeJournal(); err != nil {
+		return err
+	}
+	transaction.logger.Printf("[OK] Rollback backup and transaction journal are ready.")
+	return nil
 }
 
 func (transaction *Transaction) AbandonPreparation() {
@@ -177,6 +181,7 @@ func (transaction *Transaction) Apply() error {
 	if err := transaction.writeJournal(); err != nil {
 		return err
 	}
+	total := len(transaction.changes)
 	for index, change := range transaction.changes {
 		operation := &transaction.journal.Operations[index]
 		if err := ensureSafeContainedPath(transaction.installRoot, operation.Destination); err != nil {
@@ -201,6 +206,10 @@ func (transaction *Transaction) Apply() error {
 			return fmt.Errorf("apply %s to %s: %w", change.Kind, change.Destination, err)
 		}
 		operation.Applied = true
+		completed := index + 1
+		if completed%250 == 0 || completed == total {
+			transaction.logger.Printf("[APPLY] %d/%d file operation(s) complete.", completed, total)
+		}
 	}
 	return nil
 }

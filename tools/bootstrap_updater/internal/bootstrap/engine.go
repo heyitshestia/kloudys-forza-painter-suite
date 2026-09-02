@@ -117,6 +117,7 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 		}
 	}()
 
+	engine.config.Logger.Printf("[STATE] Checking updater lock, saved state, and interrupted work.")
 	result.Summary.Phase = "acquire-lock"
 	lock, err := AcquireUpdateLock(engine.config.StateDir, 30*time.Second)
 	if err != nil {
@@ -144,13 +145,15 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 	if engine.config.ForceRecovery {
 		result.Summary.Mode = "recovery"
 		result.Summary.Phase = "prepare-recovery"
+		engine.config.Logger.Printf("[RECOVERY] Checking the pinned recovery package.")
 		if err = engine.ensureRecoveryEligible(); err == nil {
 			prepared, err = engine.prepareRecovery(ctx)
 		}
 	} else {
 		result.Summary.Mode = "signed-channel"
 		result.Summary.Phase = "load-signed-channel"
-		prepared, result.Handoff, err = engine.prepareChannel(ctx)
+		engine.config.Logger.Printf("[CHANNEL] Contacting and verifying the signed stable channel.")
+		prepared, result.Handoff, err = engine.prepareChannel(ctx, &result.Summary)
 		if result.Handoff.Path != "" {
 			engine.config.Logger.Printf("A verified bootstrap updater handoff is ready: %s", result.Handoff.Path)
 			return result, nil
@@ -194,11 +197,12 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 		result.Summary.Changes = append(result.Summary.Changes, record)
 	}
 	if engine.config.DryRun {
-		engine.config.Logger.Printf("Dry run complete; no installation files were changed.")
+		engine.config.Logger.Printf("[CHECK] Dry run complete; no installation files were changed.")
 		return result, nil
 	}
 	var transaction *Transaction
 	if len(prepared.Changes) > 0 {
+		engine.config.Logger.Printf("[APPLY] Installing %d verified file operation(s).", len(prepared.Changes))
 		result.Summary.Phase = "back-up-current-files"
 		transaction, err = NewTransaction(engine.config.StateDir, engine.runID, engine.config.Layout, prepared.Changes, engine.config.Logger)
 		if err != nil {
@@ -219,7 +223,7 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 			return result, err
 		}
 		result.Summary.Phase = "verify-installed-files"
-		if err := VerifyPreparedUpdate(prepared); err != nil {
+		if err := VerifyPreparedUpdateWithLogger(prepared, engine.config.Logger); err != nil {
 			result.Summary.Rollback = true
 			rollbackErr := transaction.Rollback()
 			if rollbackErr != nil {
@@ -228,9 +232,12 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 			result.Summary.RollbackSuccess = true
 			return result, err
 		}
+	} else {
+		engine.config.Logger.Printf("[OK] This installation already matches the signed release.")
 	}
 	var previousState stateSnapshot
 	if prepared.Sequence > 0 {
+		engine.config.Logger.Printf("[STATE] Recording signed release sequence %d.", prepared.Sequence)
 		previousState, err = engine.snapshotState()
 		if err != nil {
 			if transaction != nil {
@@ -263,7 +270,7 @@ func (engine *Engine) Run(ctx context.Context) (result EngineResult, runErr erro
 		result.Summary.FilesReplaced = result.Summary.FilesPlannedReplaced
 		result.Summary.FilesRemoved = result.Summary.FilesPlannedRemoved
 	}
-	engine.config.Logger.Printf("KFPS update verified: %s -> %s; %d replaced, %d removed.", result.Summary.FromVersion, prepared.Version, result.Summary.FilesReplaced, result.Summary.FilesRemoved)
+	engine.config.Logger.Printf("[OK] KFPS update verified: %s -> %s; %d replaced, %d removed.", result.Summary.FromVersion, prepared.Version, result.Summary.FilesReplaced, result.Summary.FilesRemoved)
 	return result, nil
 }
 
@@ -328,14 +335,18 @@ func (engine *Engine) recoveryHealth() (PreparedUpdate, bool, error) {
 	return RecoveryAlreadyHealthy(engine.config.Layout, engine.config.Recovery, engine.config.Logger)
 }
 
-func (engine *Engine) prepareChannel(ctx context.Context) (PreparedUpdate, HandoffArtifact, error) {
+func (engine *Engine) prepareChannel(ctx context.Context, summary *RunSummary) (PreparedUpdate, HandoffArtifact, error) {
 	if len(engine.config.TrustedKey) != ed25519.PublicKeySize {
 		return PreparedUpdate{}, HandoffArtifact{}, fmt.Errorf("the updater was not built with a valid production trust key")
 	}
+	summary.Phase = "verify-signed-channel"
 	channel, err := LoadChannel(ctx, engine.downloader, engine.config.ChannelURL, engine.config.ChannelSignature, engine.config.TrustedKey)
 	if err != nil {
 		return PreparedUpdate{}, HandoffArtifact{}, err
 	}
+	engine.config.Logger.Printf("[OK] Signed stable channel verified (sequence %d).", channel.Sequence)
+	engine.config.Logger.Printf("[TRUST] Checking accepted state and the bootstrap updater binary.")
+	summary.Phase = "validate-accepted-state"
 	state, err := engine.loadState()
 	if err != nil {
 		return PreparedUpdate{}, HandoffArtifact{}, err
@@ -353,6 +364,8 @@ func (engine *Engine) prepareChannel(ctx context.Context) (PreparedUpdate, Hando
 			return PreparedUpdate{}, HandoffArtifact{}, fmt.Errorf("signed sequence %d was republished with different content (manifest identity)", channel.Sequence)
 		}
 		if state.ChannelSHA256 == "" || state.ManifestSHA256 == "" {
+			engine.config.Logger.Printf("[MANIFEST] Downloading and verifying the signed release manifest.")
+			summary.Phase = "verify-update-manifest"
 			manifest, err = LoadUpdateManifest(ctx, engine.downloader, channel.Manifest, engine.config.TrustedKey, channel)
 			if err != nil {
 				return PreparedUpdate{}, HandoffArtifact{}, err
@@ -363,20 +376,25 @@ func (engine *Engine) prepareChannel(ctx context.Context) (PreparedUpdate, Hando
 			}
 		}
 	}
+	summary.Phase = "verify-bootstrap-updater"
 	handoff, err := engine.prepareSelfUpdate(ctx, channel)
 	if err != nil || handoff.Path != "" {
 		return PreparedUpdate{}, handoff, err
 	}
+	engine.config.Logger.Printf("[OK] Bootstrap updater %s passed its signed identity check.", engine.config.BootstrapVersion)
 	minimumComparison, err := compareVersions(engine.config.BootstrapVersion, channel.MinimumBootstrap)
 	if err != nil || minimumComparison < 0 {
 		return PreparedUpdate{}, HandoffArtifact{}, fmt.Errorf("running bootstrap %s does not satisfy signed minimum %s", engine.config.BootstrapVersion, channel.MinimumBootstrap)
 	}
 	if !manifestLoaded {
+		engine.config.Logger.Printf("[MANIFEST] Downloading and verifying the signed release manifest.")
+		summary.Phase = "verify-update-manifest"
 		manifest, err = LoadUpdateManifest(ctx, engine.downloader, channel.Manifest, engine.config.TrustedKey, channel)
 		if err != nil {
 			return PreparedUpdate{}, HandoffArtifact{}, err
 		}
 	}
+	engine.config.Logger.Printf("[OK] Signed KFPS %s manifest verified (%d components).", manifest.Version, len(manifest.Components))
 	if state.HighestSequence == channel.Sequence && state.HighestSequence > 0 && !engine.config.AllowSequenceReset {
 		if state.ChannelSHA256 != "" || state.ManifestSHA256 != "" {
 			if !strings.EqualFold(state.ChannelSHA256, channel.Identity) || !strings.EqualFold(state.ManifestSHA256, manifest.Identity) {
@@ -386,6 +404,7 @@ func (engine *Engine) prepareChannel(ctx context.Context) (PreparedUpdate, Hando
 			return PreparedUpdate{}, HandoffArtifact{}, fmt.Errorf("signed sequence %d lacks a matching persistent release identity", channel.Sequence)
 		}
 	}
+	summary.Phase = "inspect-installation"
 	prepared, err := PrepareComponentUpdate(ctx, engine.downloader, manifest, filepath.Join(engine.stageDir, "signed"), engine.config.Layout, engine.config.Logger)
 	prepared.ChannelSHA256 = channel.Identity
 	return prepared, HandoffArtifact{}, err

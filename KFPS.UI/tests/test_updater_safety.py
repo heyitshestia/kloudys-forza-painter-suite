@@ -70,7 +70,7 @@ class UpdaterSafetyTests(unittest.TestCase):
 
             self.assertEqual(
                 [
-                    str(updater), "--root", str(outer), "--relaunch", "--no-pause",
+                    str(updater), "--root", str(outer), "--relaunch",
                     "--wait-pid", str(os.getpid()),
                 ],
                 popen.call_args.args[0],
@@ -103,7 +103,7 @@ class UpdaterSafetyTests(unittest.TestCase):
 
             self.assertEqual(
                 [
-                    str(updater), "--root", str(outer), "--relaunch", "--no-pause",
+                    str(updater), "--root", str(outer), "--relaunch",
                     "--wait-pid", str(os.getpid()),
                 ],
                 popen.call_args.args[0],

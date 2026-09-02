@@ -1,5 +1,15 @@
 # Bootstrap Updater Validation
 
+## Bootstrap 1.0.2 terminal and handoff validation
+
+Bootstrap 1.0.2 adds live terminal phases and periodic inventory progress while
+keeping the signed update, path, transaction, and rollback contracts unchanged.
+Interactive failures wait for acknowledgement and show the failure phase,
+reason, log, and report locations. Explicit `--no-pause` automation remains
+non-interactive and the preference is preserved through verified self-update
+handoffs. Release validation covers both paths, a 1.0.1-to-1.0.2 self-replace,
+full KFPS application update, warm no-op, and relaunch behavior.
+
 Validation date: 2026-09-02
 
 Validation host:

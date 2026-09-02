@@ -1,4 +1,4 @@
-KFPS BOOTSTRAP UPDATER 1.0.1
+KFPS BOOTSTRAP UPDATER 1.0.2
 
 WHAT IT IS
 This is a self-contained Windows x64 updater and repair tool. It does not need
@@ -9,6 +9,11 @@ HOW TO USE IT
 2. Put KFPS-Updater.exe beside the outer KFPS.exe in the downloaded KFPS folder.
 3. Double-click KFPS-Updater.exe.
 4. Leave the window open until it reports success or a clear failure.
+
+The terminal reports each active phase and periodic file-check progress. A
+failure keeps an interactive window open and prints the failed phase, reason,
+log path, and JSON report path. Successful in-app updates close the updater
+after KFPS relaunches.
 
 The updater also recognizes a package when it is started from inside the
 KloudysFH6Painter folder. For an explicit location, run:
@@ -27,6 +32,7 @@ CHECK MODE
 For support or automation, --check never changes installation files. Exit 0
 means healthy, exit 3 means verified repairs are needed, exit 1 means the check
 failed, and exit 2 means the command or package location was invalid.
+Scripts can add --no-pause to retain immediate non-interactive exits.
 
 SELF-UPDATE STATUS
 For a normal update only, exit 4 means a verified updater child started and the

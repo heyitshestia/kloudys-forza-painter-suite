@@ -221,9 +221,11 @@ func ValidatePublishedContract(channel Channel, manifest UpdateManifest) error {
 }
 
 func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifest UpdateManifest, stagingRoot string, layout Layout, logger *Logger) (PreparedUpdate, error) {
+	logger.Printf("[FILES] Validating signed destinations and protected data boundaries.")
 	if err := preflightComponentDestinations(manifest, layout); err != nil {
 		return PreparedUpdate{}, err
 	}
+	logger.Printf("[FILES] Checking installed files against the signed inventory.")
 	prepared := PreparedUpdate{
 		Version: manifest.Version, Commit: manifest.Commit, Sequence: manifest.Sequence,
 		ManifestSHA256: manifest.Identity, Relaunch: manifest.Relaunch,
@@ -244,7 +246,9 @@ func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifes
 		if err != nil {
 			return PreparedUpdate{}, fmt.Errorf("component %s: %w", component.Name, err)
 		}
+		logger.Printf("[FILES] %s: checking %d file(s).", component.Name, len(records))
 		componentChanges := []Change{}
+		componentChecked := 0
 		for _, record := range records {
 			if err := validateComponentPath(component, record.Path); err != nil {
 				return PreparedUpdate{}, err
@@ -259,6 +263,7 @@ func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifes
 			}
 			seenDestinations[key] = true
 			prepared.FilesChecked++
+			componentChecked++
 			needsRepair, err := fileNeedsRepair(destination, record)
 			if err != nil {
 				return PreparedUpdate{}, err
@@ -266,8 +271,14 @@ func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifes
 			if needsRepair {
 				componentChanges = append(componentChanges, Change{Kind: ReplaceFile, Relative: record.Path, Destination: destination, Expected: record})
 			}
+			if componentChecked%1000 == 0 || componentChecked == len(records) {
+				logger.Printf("[FILES] %s: %d/%d checked.", component.Name, componentChecked, len(records))
+			}
 		}
 		removalSeen := map[string]bool{}
+		if len(component.ExactRoots) > 0 {
+			logger.Printf("[FILES] %s: checking for stale files in managed runtime folders.", component.Name)
+		}
 		exactRemovals, err := collectExactRootRemovals(root, component, records, removalSeen)
 		if err != nil {
 			return PreparedUpdate{}, err
@@ -326,7 +337,7 @@ func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifes
 		if needsArchive {
 			componentStage := filepath.Join(stagingRoot, "components", safeName(component.Name))
 			archivePath := filepath.Join(stagingRoot, "downloads", safeName(component.Name)+".zip")
-			logger.Printf("Downloading component %s.", component.Name)
+			logger.Printf("[DOWNLOAD] Fetching %s component (%d repair operation(s)).", component.Name, len(componentChanges))
 			if err := downloader.DownloadArtifact(ctx, component.Archive, archivePath); err != nil {
 				return PreparedUpdate{}, err
 			}
@@ -361,11 +372,13 @@ func PrepareComponentUpdate(ctx context.Context, downloader *Downloader, manifes
 				componentChanges[index].Staged = staged
 			}
 			inventory.Close()
+			logger.Printf("[OK] %s component downloaded and staged safely.", component.Name)
 		}
+		logger.Printf("[PLAN] %s: %d file operation(s) required.", component.Name, len(componentChanges))
 		prepared.Changes = append(prepared.Changes, componentChanges...)
 	}
 	sortChanges(prepared.Changes, layout.InstallRoot)
-	logger.Printf("Signed component inventory checked %d files and planned %d operation(s).", prepared.FilesChecked, len(prepared.Changes))
+	logger.Printf("[PLAN] Signed inventory checked %d files; %d operation(s) planned.", prepared.FilesChecked, len(prepared.Changes))
 	return prepared, nil
 }
 
@@ -453,6 +466,17 @@ func safeName(value string) string {
 }
 
 func VerifyPreparedUpdate(prepared PreparedUpdate) error {
+	return verifyPreparedUpdate(prepared, nil)
+}
+
+func VerifyPreparedUpdateWithLogger(prepared PreparedUpdate, logger *Logger) error {
+	return verifyPreparedUpdate(prepared, logger)
+}
+
+func verifyPreparedUpdate(prepared PreparedUpdate, logger *Logger) error {
+	if logger != nil {
+		logger.Printf("[VERIFY] Rechecking %d installed file operation(s).", len(prepared.Changes))
+	}
 	for _, change := range prepared.Changes {
 		switch change.Kind {
 		case ReplaceFile:
@@ -468,6 +492,9 @@ func VerifyPreparedUpdate(prepared PreparedUpdate) error {
 				return fmt.Errorf("retired file still exists: %s", change.Destination)
 			}
 		}
+	}
+	if logger != nil {
+		logger.Printf("[OK] Installed files passed final verification.")
 	}
 	return nil
 }

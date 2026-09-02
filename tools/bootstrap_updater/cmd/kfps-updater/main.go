@@ -53,13 +53,15 @@ type options struct {
 }
 
 func main() {
+	setConsoleTitle("KFPS Updater")
 	os.Exit(run(os.Args[1:]))
 }
 
 func run(arguments []string) int {
 	parsed, err := parseOptions(arguments)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Updater options are invalid:", err)
+		printStartupFailure("options", fmt.Errorf("updater options are invalid: %w", err))
+		pause(argumentsDisablePause(arguments))
 		return 2
 	}
 	if parsed.showVersion {
@@ -79,44 +81,54 @@ func run(arguments []string) int {
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not identify updater executable:", err)
+		printStartupFailure("executable", fmt.Errorf("could not identify updater executable: %w", err))
+		pause(parsed.noPause)
 		return 2
 	}
 	workingDirectory, _ := os.Getwd()
 	layout, err := bootstrap.ResolveLayout(parsed.root, executable, workingDirectory)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStartupFailure("locate-installation", err)
 		pause(parsed.noPause)
 		return 2
 	}
 	if parsed.stateDir == "" {
 		parsed.stateDir, err = bootstrap.DefaultStateDir(layout)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Could not locate updater state directory:", err)
+			printStartupFailure("locate-state", fmt.Errorf("could not locate updater state directory: %w", err))
+			pause(parsed.noPause)
 			return 2
 		}
 	}
 	parsed.stateDir, err = bootstrap.ValidateUpdaterStateDir(parsed.stateDir, layout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Updater state directory is unsafe:", err)
+		printStartupFailure("validate-state", fmt.Errorf("updater state directory is unsafe: %w", err))
+		pause(parsed.noPause)
 		return 2
 	}
 	logID := time.Now().UTC().Format("20060102-150405") + fmt.Sprintf("-%d", os.Getpid())
 	logger, err := bootstrap.NewLogger(filepath.Join(parsed.stateDir, "logs"), logID, os.Stdout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not create updater log:", err)
+		printStartupFailure("create-log", fmt.Errorf("could not create updater log: %w", err))
+		pause(parsed.noPause)
 		return 2
 	}
 	defer logger.Close()
-	logger.Printf("KFPS Bootstrap Updater %s", version)
+	logger.Printf("============================================================")
+	logger.Printf(" KFPS SECURE UPDATER %s", version)
+	logger.Printf(" Signed update, repair, and rollback protection")
+	logger.Printf("============================================================")
+	logger.Printf("")
 	logger.Printf("Install root: %s", layout.InstallRoot)
 	logger.Printf("Application root: %s", layout.AppRoot)
 	logger.Printf("Log file: %s", logger.Path)
+	logger.Printf("")
 	if err := bootstrap.WaitForProcessExit(parsed.waitPID, 60*time.Second, logger); err != nil {
-		logger.Printf("Update stopped: %v", err)
+		logEarlyFailure(logger, "wait-for-kfps", err)
 		pause(parsed.noPause)
 		return 1
 	}
+	logger.Printf("[START] KFPS is closed. Beginning update checks now.")
 
 	publicKey, keyErr := bootstrap.DecodePublicKey(trustedPublicKey)
 	if keyErr != nil {
@@ -156,14 +168,13 @@ func run(arguments []string) int {
 		},
 	})
 	if err != nil {
-		logger.Printf("Updater initialization failed: %v", err)
+		logEarlyFailure(logger, "initialization", err)
 		pause(parsed.noPause)
 		return 2
 	}
 	result, err := engine.Run(context.Background())
 	if err != nil {
-		logger.Printf("Update failed: %v", err)
-		logger.Printf("No unverified update was accepted. See the log and JSON report for details.")
+		logRunFailure(logger, layout, result.Summary, err)
 		pause(parsed.noPause)
 		return 1
 	}
@@ -202,11 +213,52 @@ func run(arguments []string) int {
 		command := exec.Command(launcher)
 		command.Dir = layout.InstallRoot
 		if err := command.Start(); err != nil {
-			logger.Printf("Update succeeded, but KFPS could not be relaunched: %v", err)
+			logger.Printf("")
+			logger.Printf("[ATTENTION] The update succeeded, but KFPS could not be reopened.")
+			logger.Printf("Reason: %v", err)
+			logger.Printf("Start KFPS.exe manually after closing this window.")
+			pause(parsed.noPause)
+			return 0
 		}
+		logger.Printf("[OK] KFPS was relaunched. This updater window can close.")
+		return 0
 	}
 	pause(parsed.noPause)
 	return 0
+}
+
+func printStartupFailure(phase string, err error) {
+	fmt.Fprintln(os.Stderr, "============================================================")
+	fmt.Fprintln(os.Stderr, " KFPS UPDATER COULD NOT START")
+	fmt.Fprintln(os.Stderr, "============================================================")
+	fmt.Fprintln(os.Stderr, "Phase:", phase)
+	fmt.Fprintln(os.Stderr, "Reason:", err)
+	fmt.Fprintln(os.Stderr, "No installation files were changed.")
+}
+
+func logEarlyFailure(logger *bootstrap.Logger, phase string, err error) {
+	logger.Printf("")
+	logger.Printf("============================================================")
+	logger.Printf(" UPDATE FAILED")
+	logger.Printf("============================================================")
+	logger.Printf("Phase: %s", phase)
+	logger.Printf("Reason: %v", err)
+	logger.Printf("No unverified update was installed.")
+	logger.Printf("Log: %s", logger.Path)
+}
+
+func logRunFailure(logger *bootstrap.Logger, layout bootstrap.Layout, summary bootstrap.RunSummary, err error) {
+	logger.Printf("")
+	logger.Printf("============================================================")
+	logger.Printf(" UPDATE FAILED")
+	logger.Printf("============================================================")
+	logger.Printf("Phase: %s", summary.Phase)
+	logger.Printf("Reason: %v", err)
+	logger.Printf("No unverified update was installed.")
+	logger.Printf("Log: %s", logger.Path)
+	if summary.RunID != "" {
+		logger.Printf("Report: %s", filepath.Join(layout.AppRoot, "runtime", "update-reports", "update-"+summary.RunID+".json"))
+	}
 }
 
 func checkExitCode(summary bootstrap.RunSummary) int {
@@ -258,6 +310,7 @@ func startHandoff(handoff bootstrap.HandoffArtifact, original []string, layout b
 
 func buildHandoffArguments(original []string, layout bootstrap.Layout, stateDir string, parentPID int, includeStateDir, waitForParent bool) []string {
 	arguments := make([]string, 0, len(original)+8)
+	noPause := false
 	for index := 0; index < len(original); index++ {
 		argument := original[index]
 		name := strings.SplitN(argument, "=", 2)[0]
@@ -268,6 +321,7 @@ func buildHandoffArguments(original []string, layout bootstrap.Layout, stateDir 
 			}
 			continue
 		case "--no-pause":
+			noPause = true
 			continue
 		}
 		arguments = append(arguments, argument)
@@ -279,14 +333,27 @@ func buildHandoffArguments(original []string, layout bootstrap.Layout, stateDir 
 	if waitForParent {
 		arguments = append(arguments, "--wait-pid", strconv.Itoa(parentPID))
 	}
-	arguments = append(arguments, "--no-pause")
+	if noPause {
+		arguments = append(arguments, "--no-pause")
+	}
 	return arguments
+}
+
+func argumentsDisablePause(arguments []string) bool {
+	for _, argument := range arguments {
+		if strings.SplitN(argument, "=", 2)[0] == "--no-pause" {
+			return true
+		}
+	}
+	return strings.EqualFold(os.Getenv("KFPS_UPDATER_NO_PAUSE"), "1")
 }
 
 func pause(disabled bool) {
 	if disabled || strings.EqualFold(os.Getenv("KFPS_UPDATER_NO_PAUSE"), "1") {
 		return
 	}
+	fmt.Println()
+	fmt.Println("This window is staying open so you can read the result.")
 	fmt.Print("Press Enter to close...")
 	_, _ = fmt.Scanln()
 }

@@ -1,5 +1,18 @@
 # KFPS Bootstrap Updater
 
+## Interactive terminal behavior
+
+Bootstrap 1.0.2 gives every long operation a visible status: process waiting,
+state recovery, channel and manifest trust checks, component file scans,
+downloads, rollback backup, file installation, and final verification. Large
+inventories report periodic checked-file counts and large downloads retain
+percentage and byte progress.
+
+An interactive failure prints a terminal summary containing the failed phase,
+reason, log path, and JSON report path, then waits for Enter. An in-app success
+closes only after KFPS relaunches. `--no-pause` remains the explicit automation
+contract and propagates through a verified updater self-handoff.
+
 ## Purpose
 
 `KFPS-Updater.exe` is the recovery floor for packaged KFPS installations. It is a self-contained Windows x64 executable and does not use Git, Python, Node.js, .NET, PowerShell, or the KFPS-bundled Python runtime to perform an update.
@@ -204,11 +217,11 @@ Example staging command:
   --private "$env:LOCALAPPDATA\KloudysFH6Painter\updater-signing\production-ed25519.private" `
   --public .\tools\bootstrap_updater\trust\production-ed25519.public `
   --output C:\verified-empty-staging-directory `
-  --base-url https://immutable.example.invalid/kfps/3.1.55-sequence-1 `
-  --version 3.1.55 `
+  --base-url https://immutable.example.invalid/kfps/3.1.56-sequence-3 `
+  --version 3.1.56 `
   --commit (git rev-parse HEAD) `
-  --bootstrap-version 1.0.1 `
-  --sequence 1
+  --bootstrap-version 1.0.2 `
+  --sequence 3
 ```
 
 The private key path is local machine state, not a suggested backup. Store an offline protected backup separately. Losing or compromising the private key requires shipping a new bootstrap updater with a new trusted public key.

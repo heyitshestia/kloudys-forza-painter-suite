@@ -43,6 +43,8 @@ KFPS-Updater.exe --root "C:\path\to\KFPS" --recover --recovery-archive "KFPS-3.1
 
 `--check` performs download and verification but does not modify the installation. It exits `0` when healthy, `3` when verified repairs are required, and `1` on failure. Invalid options or layouts exit `2`. A mutating self-update exits `4` after an authenticated child starts; final success or failure is written by that child. `--recover` explicitly selects the embedded 3.1.54 baseline, but it refuses to downgrade newer version or same-version/different-commit evidence from accepted state or the installed release manifest. A local recovery archive is accepted only when its exact size and SHA-256 match the values embedded in the executable.
 
+Interactive runs print live state, trust, manifest, file-inventory, download, backup, apply, and final-verification phases. Failures print the exact phase and reason plus the log and JSON report paths, then wait for Enter. Successful in-app updates close the updater only after KFPS has relaunched. `--no-pause` retains immediate exits for scripts and test automation, including verified self-update handoffs.
+
 Existing symlinks, junctions, and other Windows reparse points are rejected in installation, state, staging, download, backup, log, and report paths. The updater never follows one to repair or clean another location.
 
 Logs, reports, backups, staging state, and interruption journals are stored under `%LOCALAPPDATA%\KloudysFH6Painter\updater\installations\<installation-id>`. Each portable install has independent state. JSON reports are also copied to `KloudysFH6Painter\runtime\update-reports` when that directory can be created.

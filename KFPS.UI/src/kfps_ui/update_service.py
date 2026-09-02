@@ -35,7 +35,6 @@ class UpdateService(QObject):
                         "--root",
                         str(update_root),
                         "--relaunch",
-                        "--no-pause",
                         "--wait-pid",
                         str(os.getpid()),
                     ],

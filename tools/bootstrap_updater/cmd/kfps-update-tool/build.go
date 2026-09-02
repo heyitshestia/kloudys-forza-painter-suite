@@ -53,7 +53,7 @@ func buildPayload(arguments []string) error {
 	baseURLArg := flags.String("base-url", "", "HTTPS payload base URL")
 	versionArg := flags.String("version", "", "KFPS version; defaults to VERSION")
 	commitArg := flags.String("commit", "", "Git commit; defaults to HEAD")
-	bootstrapVersion := flags.String("bootstrap-version", "1.0.1", "bootstrap updater version")
+	bootstrapVersion := flags.String("bootstrap-version", "1.0.2", "bootstrap updater version")
 	sequence := flags.Uint64("sequence", 0, "monotonic stable-channel sequence")
 	publishedArg := flags.String("published-utc", "", "RFC3339 publication timestamp")
 	retired := repeatedFlag{

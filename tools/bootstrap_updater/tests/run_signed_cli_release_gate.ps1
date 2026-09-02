@@ -8,8 +8,8 @@ $RepoRoot = (Resolve-Path (Join-Path $ToolRoot "..\..")).Path
 $BuildRoot = Join-Path $ToolRoot "build"
 $RunRoot = Join-Path $BuildRoot ("signed-cli-" + [guid]::NewGuid().ToString("N"))
 $Publisher = Join-Path $BuildRoot "KFPS-Update-Publisher.exe"
-$TestUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.1.exe"
-$OldUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.0.exe"
+$TestUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.2.exe"
+$OldUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.1.exe"
 $PrivateKey = Join-Path $RunRoot "test.private"
 $PublicKey = Join-Path $RunRoot "test.public"
 $Payload = Join-Path $RunRoot "payload"
@@ -80,10 +80,10 @@ try {
         $public = [IO.File]::ReadAllText($PublicKey).Trim()
         $baseFlags = "-s -w -buildid="
         Invoke-Checked {
-            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.1 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $TestUpdater ./cmd/kfps-updater
+            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.2 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $TestUpdater ./cmd/kfps-updater
         } "Current test updater build failed"
         Invoke-Checked {
-            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.0 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $OldUpdater ./cmd/kfps-updater
+            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.1 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $OldUpdater ./cmd/kfps-updater
         } "Old test updater build failed"
     }
     finally {
@@ -114,7 +114,7 @@ try {
     Write-Utf8NoBom (Join-Path $Python "python.exe") "new-python"
     Write-Utf8NoBom (Join-Path $Python "Lib\site.py") "new-site"
     Invoke-Checked {
-        & $Publisher build --app-root $Source --python-root $Python --updater $TestUpdater --private $PrivateKey --public $PublicKey --output $Payload --base-url "https://updates.example.invalid/stable" --version 2.0.0 --commit $commit --bootstrap-version 1.0.1 --sequence 1 --published-utc "2026-09-01T12:00:00Z" --retired-file "retired.txt"
+        & $Publisher build --app-root $Source --python-root $Python --updater $TestUpdater --private $PrivateKey --public $PublicKey --output $Payload --base-url "https://updates.example.invalid/stable" --version 2.0.0 --commit $commit --bootstrap-version 1.0.2 --sequence 1 --published-utc "2026-09-01T12:00:00Z" --retired-file "retired.txt"
     } "Signed payload publication failed"
 
     $manifestPath = Join-Path $Payload "kfps-update-2.0.0.json"
