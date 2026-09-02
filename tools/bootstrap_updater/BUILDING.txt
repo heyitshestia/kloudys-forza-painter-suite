@@ -1,0 +1,17 @@
+KFPS BOOTSTRAP UPDATER BUILD REQUIREMENTS
+
+Minimum supported Go toolchain: Go 1.22.
+
+The module declares `go 1.22` and uses only the Go standard library. Production
+Windows x64 builds use CGO_ENABLED=0, GOOS=windows, and GOARCH=amd64 through:
+
+  .\tools\bootstrap_updater\build.ps1
+
+The script always runs updater unit tests and Go vet unless `-SkipTests` is
+explicitly supplied. In a complete KFPS repository it also runs the KFPS updater
+and release-builder integration tests. Those repository-level tests are not part
+of the standalone audit source archive, so the script reports and skips them
+when both files are absent; a partially present pair is treated as an error.
+
+Run the signed CLI and real recovery gates separately before publication as
+documented in docs\BOOTSTRAP_UPDATER_VALIDATION.md.

@@ -434,25 +434,30 @@ Other import/export sources are kept separate:
 
 ## Updating
 
-Use the native app's `Update` tab or run:
+Use the native app's `Update` tab. Packaged releases run the self-contained verified updater and reopen KFPS after success.
+
+If KFPS cannot open, run the outer updater directly:
+
+```text
+KFPS-Updater.exe
+```
+
+The legacy source-checkout fallback remains:
 
 ```text
 03_update_from_github.bat
 ```
 
-Close the app, editor, and generator before updating. If a generator process is still running, the updater may stop it before syncing files.
+Close the app, editor, and generator before updating. The verified updater stages and hashes required files, keeps rollback copies during the transaction, and repairs application or bundled Python components independently.
 
-Update logs are stored in:
-
-```text
-runtime/update-logs/
-```
-
-Backups are stored in:
+Updater logs and JSON reports are stored in:
 
 ```text
-runtime/update-backups/
+%LOCALAPPDATA%\KloudysFH6Painter\updater\installations\<installation-id>\
+KloudysFH6Painter\runtime\update-reports\
 ```
+
+See [Bootstrap Updater](docs/BOOTSTRAP_UPDATER.md) for recovery, preservation, and diagnostics details.
 
 ## Limitations
 

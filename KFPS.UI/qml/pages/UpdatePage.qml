@@ -423,7 +423,7 @@ Item {
     MessageDialog {
         id: confirm
         title: "Update KFPS?"
-        text: "KFPS will close, run the existing updater, and reopen automatically when the update succeeds."
+        text: "KFPS will close, run the verified updater, and reopen automatically after a successful update."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: updateService.startUpdate()
     }

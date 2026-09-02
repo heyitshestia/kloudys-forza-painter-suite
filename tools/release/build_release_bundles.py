@@ -440,6 +440,10 @@ def build_one(
         shutil.copytree(exported, app_root)
         (app_root / "BUILD_COMMIT").write_text(commit + "\n", encoding="ascii")
         shutil.copy2(app_root / "KFPS.exe", release_root / "KFPS.exe")
+        updater = app_root / "KFPS-Updater.exe"
+        if not updater.is_file():
+            raise RuntimeError("Release source is missing KFPS-Updater.exe.")
+        shutil.copy2(updater, release_root / "KFPS-Updater.exe")
         (release_root / "Images").mkdir()
 
         if kind == "recommended":

@@ -38,13 +38,17 @@ class ReleaseBuilderTests(unittest.TestCase):
         run("git", "config", "user.name", "Release Tests", cwd=repo)
         (repo / "VERSION").write_text("9.8.7\n", encoding="ascii")
         (repo / "KFPS.exe").write_bytes(b"launcher")
+        (repo / "KFPS-Updater.exe").write_bytes(b"updater")
         (repo / "app.py").write_text("print('KFPS')\n", encoding="ascii")
         logo = repo / "assets" / "app" / "KFPS Logo.json"
         logo.parent.mkdir(parents=True)
         logo.write_text('{"shapes": []}\n', encoding="ascii")
         (repo / "runtime").mkdir()
         (repo / "runtime" / "private.log").write_text("private", encoding="ascii")
-        run("git", "add", "VERSION", "KFPS.exe", "app.py", "assets/app/KFPS Logo.json", cwd=repo)
+        run(
+            "git", "add", "VERSION", "KFPS.exe", "KFPS-Updater.exe", "app.py",
+            "assets/app/KFPS Logo.json", cwd=repo,
+        )
         run("git", "commit", "-m", "fixture", cwd=repo)
         return repo, resolve_commit(repo, "HEAD")
 
@@ -79,8 +83,10 @@ class ReleaseBuilderTests(unittest.TestCase):
             with zipfile.ZipFile(first) as bundle:
                 names = set(bundle.namelist())
                 self.assertIn("KFPS-9.8.7/KFPS.exe", names)
+                self.assertIn("KFPS-9.8.7/KFPS-Updater.exe", names)
                 self.assertIn("KFPS-9.8.7/Images/", names)
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/KFPS.exe", names)
+                self.assertIn("KFPS-9.8.7/KloudysFH6Painter/KFPS-Updater.exe", names)
                 self.assertIn("KFPS-9.8.7/RELEASE-MANIFEST.json", names)
                 self.assertNotIn("KFPS-9.8.7/KloudysFH6Painter/runtime/private.log", names)
                 manifest = json.loads(bundle.read("KFPS-9.8.7/RELEASE-MANIFEST.json"))

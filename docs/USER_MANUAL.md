@@ -943,13 +943,18 @@ Reports are useful when asking for help because they show exactly what settings 
 
 Preferred update path:
 
-1. Close the painter app.
-2. Open launcher.
-3. Click `Update`.
-4. Wait for success.
-5. Launch app again.
+1. Open the KFPS `Update` page.
+2. Click `Update`.
+3. KFPS closes and starts the verified bootstrap updater.
+4. Wait for success. KFPS reopens automatically.
 
-Manual fallback:
+When the app cannot open, run the updater beside the outer launcher:
+
+```text
+KFPS-Updater.exe
+```
+
+Source-checkout fallback:
 
 ```text
 03_update_from_github.bat
@@ -957,22 +962,23 @@ Manual fallback:
 
 The updater:
 
-- syncs tracked app files from GitHub
+- verifies signed update metadata
+- repairs application, bundled Python, and native launcher components independently
+- stages and hashes files before installation
 - preserves generated/runtime output
-- creates update logs
-- creates backups
-- cleans old retired files
+- journals changes and rolls back failed or interrupted transactions
+- records file-level JSON reports and logs
 
-Backups:
+Reports:
 
 ```text
-runtime/update-backups/
+KloudysFH6Painter\runtime\update-reports\
 ```
 
 Logs:
 
 ```text
-runtime/update-logs/
+%LOCALAPPDATA%\KloudysFH6Painter\updater\installations\<installation-id>\logs\
 ```
 
 ## Troubleshooting
@@ -984,13 +990,15 @@ Do this in order:
 1. Open `KFPS.exe`.
 2. Open Settings if the app reports a runtime problem.
 3. Use the runtime check buttons to confirm the packaged or system Python and dependencies.
-4. Run `03_update_from_github.bat` only if the app itself cannot open far enough to update.
+4. Run the outer `KFPS-Updater.exe` if the app cannot open far enough to update.
 
 If KFPS will not open:
 
 ```text
-03_update_from_github.bat
+KFPS-Updater.exe
 ```
+
+Use `03_update_from_github.bat` only for a source checkout or when specifically directed to use the legacy fallback.
 
 ### No Usable Python 3.12 Found
 

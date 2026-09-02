@@ -18,6 +18,37 @@ class UpdateService(QObject):
 
     @Slot()
     def startUpdate(self):
+        packaged = self.paths.app_root.name.lower() == "kloudysfh6painter"
+        native_updaters = (
+            self.paths.app_root.parent / "KFPS-Updater.exe",
+            self.paths.app_root / "KFPS-Updater.exe",
+        ) if packaged else ()
+        update_root = self.paths.app_root.parent
+        for native_updater in (path for path in native_updaters if path.is_file()):
+            try:
+                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                )
+                subprocess.Popen(
+                    [
+                        str(native_updater),
+                        "--root",
+                        str(update_root),
+                        "--relaunch",
+                        "--no-pause",
+                        "--wait-pid",
+                        str(os.getpid()),
+                    ],
+                    cwd=update_root,
+                    creationflags=flags,
+                    close_fds=True,
+                )
+                self.log.append("Verified bootstrap updater started. Closing KFPS.")
+                QCoreApplication.quit()
+                return
+            except Exception as exc:
+                self.log.append(f"Could not start {native_updater.name}: {exc}", "warning")
+
         batch = self.paths.app_root / "03_update_from_github.bat"
         if not batch.is_file():
             self.log.append(f"Updater is missing: {batch}", "error")

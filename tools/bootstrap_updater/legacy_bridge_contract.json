@@ -1,0 +1,17 @@
+{
+  "schema": "kfps.legacy-bootstrap-bridge.v1",
+  "launcher_sha256": "e602689bc6840ed492632abd509302efcac1bf0f8a8081c44d9e7a4aee24ec10",
+  "bootstrap_delivery_path": "KFPS-Updater.exe",
+  "legacy_releases": [
+    {
+      "version": "3.1.28",
+      "bundle": "KFPS-3.1.28-bundled.zip",
+      "batch_sha256": "e5c99a92cb449d0f35eb84e0fea3db39a0e0c92d25d7e0fd67f5d671ccc4e0c4"
+    },
+    {
+      "version": "3.1.52",
+      "bundle": "KFPS-3.1.52-bundled.zip",
+      "batch_sha256": "94c52d8d3c11db2ddf887ed1e53ed9b43aa80d5c58acdb9f5f5f96abc41341a7"
+    }
+  ]
+}

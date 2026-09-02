@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -19,6 +21,164 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class UpdaterSafetyTests(unittest.TestCase):
+    def test_legacy_bootstrap_bridge_contract_matches_shipped_launcher_and_ui(self):
+        contract = json.loads(
+            (ROOT / "tools" / "bootstrap_updater" / "legacy_bridge_contract.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual("kfps.legacy-bootstrap-bridge.v1", contract["schema"])
+        self.assertEqual(
+            contract["launcher_sha256"],
+            hashlib.sha256((ROOT / "KFPS.exe").read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            {"3.1.28", "3.1.52"},
+            {release["version"] for release in contract["legacy_releases"]},
+        )
+        self.assertTrue((ROOT / contract["bootstrap_delivery_path"]).is_file())
+        self.assertTrue((ROOT / "03_update_from_github.bat").is_file())
+        service = (ROOT / "KFPS.UI" / "src" / "kfps_ui" / "update_service.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('self.paths.app_root.parent / "KFPS-Updater.exe"', service)
+        self.assertIn('self.paths.app_root / "KFPS-Updater.exe"', service)
+
+    def test_update_service_prefers_native_bootstrap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            outer = Path(temporary)
+            app_root = outer / "KloudysFH6Painter"
+            app_root.mkdir()
+            updater = outer / "KFPS-Updater.exe"
+            updater.write_bytes(b"updater")
+            paths = AppPaths(
+                app_root,
+                UI_ROOT,
+                UI_ROOT / "qml",
+                UI_ROOT / "assets",
+                app_root / "runtime",
+                app_root / "python" / "python.exe",
+            )
+            messages = []
+            log = type("Log", (), {"append": lambda self, message, level="info": messages.append((message, level))})()
+            service = UpdateService(paths, log)
+
+            with patch("kfps_ui.update_service.subprocess.Popen") as popen, patch(
+                "kfps_ui.update_service.QCoreApplication.quit"
+            ) as quit_app:
+                service.startUpdate()
+
+            self.assertEqual(
+                [
+                    str(updater), "--root", str(outer), "--relaunch", "--no-pause",
+                    "--wait-pid", str(os.getpid()),
+                ],
+                popen.call_args.args[0],
+            )
+            self.assertEqual(outer, popen.call_args.kwargs["cwd"])
+            quit_app.assert_called_once_with()
+
+    def test_update_service_uses_inner_bootstrap_when_outer_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            outer = Path(temporary)
+            app_root = outer / "KloudysFH6Painter"
+            app_root.mkdir()
+            updater = app_root / "KFPS-Updater.exe"
+            updater.write_bytes(b"updater")
+            paths = AppPaths(
+                app_root,
+                UI_ROOT,
+                UI_ROOT / "qml",
+                UI_ROOT / "assets",
+                app_root / "runtime",
+                app_root / "python" / "python.exe",
+            )
+            log = type("Log", (), {"append": lambda self, message, level="info": None})()
+            service = UpdateService(paths, log)
+
+            with patch("kfps_ui.update_service.subprocess.Popen") as popen, patch(
+                "kfps_ui.update_service.QCoreApplication.quit"
+            ) as quit_app:
+                service.startUpdate()
+
+            self.assertEqual(
+                [
+                    str(updater), "--root", str(outer), "--relaunch", "--no-pause",
+                    "--wait-pid", str(os.getpid()),
+                ],
+                popen.call_args.args[0],
+            )
+            quit_app.assert_called_once_with()
+
+    def test_update_service_uses_inner_bootstrap_when_outer_cannot_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            outer = Path(temporary)
+            app_root = outer / "KloudysFH6Painter"
+            app_root.mkdir()
+            outer_updater = outer / "KFPS-Updater.exe"
+            inner_updater = app_root / "KFPS-Updater.exe"
+            outer_updater.write_bytes(b"broken")
+            inner_updater.write_bytes(b"working")
+            paths = AppPaths(
+                app_root,
+                UI_ROOT,
+                UI_ROOT / "qml",
+                UI_ROOT / "assets",
+                app_root / "runtime",
+                app_root / "python" / "python.exe",
+            )
+            messages = []
+            log = type("Log", (), {"append": lambda self, message, level="info": messages.append((message, level))})()
+            service = UpdateService(paths, log)
+
+            with patch(
+                "kfps_ui.update_service.subprocess.Popen",
+                side_effect=[OSError("bad executable"), object()],
+            ) as popen, patch("kfps_ui.update_service.QCoreApplication.quit") as quit_app:
+                service.startUpdate()
+
+            self.assertEqual(2, popen.call_count)
+            self.assertEqual(str(outer_updater), popen.call_args_list[0].args[0][0])
+            self.assertEqual(str(inner_updater), popen.call_args_list[1].args[0][0])
+            self.assertTrue(any(level == "warning" for _, level in messages))
+            quit_app.assert_called_once_with()
+
+    @unittest.skipUnless(os.name == "nt", "Bootstrap wrapper fallback is Windows-specific")
+    def test_bootstrap_wrapper_retries_inner_copy_when_outer_is_broken(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            outer = Path(temporary)
+            app_root = outer / "KloudysFH6Painter"
+            app_root.mkdir()
+            shutil.copy2(ROOT / "update_from_github.bat", app_root / "update_from_github.bat")
+            shutil.copy2(ROOT / "KFPS-Updater.exe", app_root / "KFPS-Updater.exe")
+            (outer / "KFPS-Updater.exe").write_bytes(b"not a Windows executable")
+
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", str(app_root / "update_from_github.bat"), "--version"],
+                cwd=app_root,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+
+            output = result.stdout + result.stderr
+            self.assertEqual(0, result.returncode, output)
+            self.assertIn("retrying the independently repairable inner copy", output)
+            self.assertIn("KFPS Bootstrap Updater", output)
+
+            failed = subprocess.run(
+                [
+                    "cmd.exe", "/d", "/c", str(app_root / "update_from_github.bat"),
+                    "--not-a-real-updater-option",
+                ],
+                cwd=app_root,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(2, failed.returncode, failed.stdout + failed.stderr)
+
     def test_git_checkout_cleanup_preserves_ignored_local_state(self):
         text = (ROOT / "03_update_from_github.bat").read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -54,6 +214,7 @@ class UpdaterSafetyTests(unittest.TestCase):
     def test_updater_executes_only_the_shipped_local_batch(self):
         with tempfile.TemporaryDirectory() as temporary:
             app_root = Path(temporary)
+            (app_root / "KFPS-Updater.exe").write_bytes(b"source-checkout-updater")
             batch = app_root / "03_update_from_github.bat"
             batch.write_text("@echo off\nexit /b 0\n", encoding="ascii")
             paths = AppPaths(
