@@ -1,8 +1,8 @@
 {
   "schema": "kfps.update-channel.v1",
   "channel": "stable",
-  "sequence": 3,
-  "published_utc": "2026-09-02T16:05:36Z",
+  "sequence": 4,
+  "published_utc": "2026-09-03T19:33:09Z",
   "minimum_bootstrap": "1.0.2",
   "updater": {
     "version": "1.0.2",
@@ -11,9 +11,9 @@
     "size": 7314944
   },
   "manifest": {
-    "url": "https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/download/v3.1.56/kfps-update-3.1.56.json",
-    "sha256": "297cd0127110e287e77b0dd161dd5caddf1c5190180641af20c49e172d3f3b34",
-    "size": 2199056,
-    "signature_url": "https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/download/v3.1.56/kfps-update-3.1.56.json.sig"
+    "url": "https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/download/kfps-update-data-v3.1.56-s4/kfps-update-3.1.56-s4.json",
+    "sha256": "2709534b78891304e8282155213379f2eb90ece174c3f221bfc4f362257270e8",
+    "size": 2249166,
+    "signature_url": "https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/download/kfps-update-data-v3.1.56-s4/kfps-update-3.1.56-s4.json.sig"
   }
 }
