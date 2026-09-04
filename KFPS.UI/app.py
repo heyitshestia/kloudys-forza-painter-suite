@@ -20,7 +20,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWebEngineQuick import QtWebEngineQuick
-from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication
 
 from fh6_rtti_registry import refresh_runtime_registry
 from kfps_ui.app_controller import AppController
@@ -46,6 +46,7 @@ from kfps_ui.runtime_service import RuntimeService
 from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
+from kfps_ui.startup_splash import StartupSplash
 from kfps_ui.supporter_service import SupporterService
 from kfps_ui.theme_catalog import (
     DEFAULT_THEME,
@@ -165,85 +166,25 @@ def run_startup_output_index(
     thumbnail_seconds: float = 45.0,
 ) -> None:
     splash = None
-    title = None
-    detail = None
-    bar = None
     splash_started = time.monotonic()
     bits = [
-        "Counting rectangles with a clipboard held upside down.",
-        "Asking the JSON pile to stand in one suspiciously straight line.",
+        "Counting rectangles with the clipboard upside down.",
+        "Asking the JSON pile to stand in a straight line.",
         "Putting tiny name tags on vinyl files.",
         "Checking under the sofa for missing layer counts.",
         "Polishing the progress bar with a napkin.",
     ]
 
     if show_splash:
-        splash = QWidget()
-        splash.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        splash.setFixedSize(520, 220)
-        splash.setStyleSheet("""
-            QWidget {
-                background: #190516;
-                border: 3px solid #ff4bac;
-                color: #ffd6ee;
-                font-family: Segoe UI;
-            }
-            QLabel#Title {
-                color: #ff5fba;
-                font-size: 23px;
-                font-weight: 800;
-            }
-            QLabel#Detail {
-                color: #ffeaf6;
-                font-size: 12px;
-            }
-            QLabel#Footnote {
-                color: #c68aaa;
-                font-size: 10px;
-            }
-            QProgressBar {
-                border: 2px solid #713055;
-                border-radius: 0px;
-                background: #080208;
-                color: #ffffff;
-                text-align: center;
-                height: 22px;
-                font-weight: 700;
-            }
-            QProgressBar::chunk {
-                background: #ff3da6;
-            }
-        """)
-        layout = QVBoxLayout(splash)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(10)
-        title = QLabel("KFPS UPDATE TEST: IF YOU CAN READ THIS, IT WORKED")
-        title.setObjectName("Title")
-        title.setWordWrap(True)
-        detail = QLabel(bits[0])
-        detail.setObjectName("Detail")
-        detail.setWordWrap(True)
-        bar = QProgressBar()
-        bar.setRange(0, 100)
-        bar.setValue(3)
-        foot = QLabel("Crude loading rectangle v1. It has one job and a questionable attitude.")
-        foot.setObjectName("Footnote")
-        foot.setWordWrap(True)
-        layout.addWidget(title)
-        layout.addWidget(detail)
-        layout.addWidget(bar)
-        layout.addWidget(foot)
+        splash = StartupSplash(paths.asset_root)
         splash.show()
         app.processEvents()
 
     def progress(message: str, done: int, total: int):
         if not splash:
             return
-        pct = int(max(0, min(100, (float(done) / max(1, float(total))) * 100.0)))
-        if detail:
-            detail.setText(f"{message}\n{bits[done % len(bits)]}")
-        if bar:
-            bar.setValue(max(3, pct))
+        splash.set_status(message, bits[done % len(bits)])
+        splash.set_progress(done, total)
         app.processEvents()
 
     try:
