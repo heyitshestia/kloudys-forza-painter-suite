@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.57
+- Reworked FH6 full-livery decoding and rendering for nested and mirrored groups, masks, windows, side-specific projection, and multiple source format generations.
+- Added deterministic chassis projection fitting, stricter renderer resource cleanup, and revised caches for stable repeated car switching.
+- Hardened exact-car package qualification so incomplete or foreign-owned source data remains blocked while valid owned liveries retain complete export diagnostics.
+
 ## 3.1.56
 - Added live updater status for signed-channel checks, manifest verification, file inventory scans, downloads, backups, installation, and final verification.
 - Kept interactive updater failures open with the failed phase, reason, log path, and report path visible in the terminal.
