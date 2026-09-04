@@ -11,6 +11,8 @@
 /KFPS.UI/qml/pages/LiveryPage.qml text eol=lf
 /KFPS.UI/qml/shell/Sidebar.qml text eol=lf
 /docs/manifests/*.json text eol=lf
+/updates/stable/channel.json text eol=lf
+/updates/stable/channel.json.sig text eol=lf
 /tools/livery-inspector/** text eol=lf
 /tools/livery/chassis-converter/** text eol=lf
 /tools/livery/chassis-converter/bin/win-x64/Kfps.ChassisConverter.exe -text
