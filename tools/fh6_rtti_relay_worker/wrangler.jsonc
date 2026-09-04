@@ -6,7 +6,7 @@
   "workers_dev": true,
   "preview_urls": false,
   "secrets": {
-    "required": ["ADMIN_HMAC_SECRET"]
+    "required": ["ADMIN_HMAC_SECRET", "GITHUB_RTTI_SYNC_TOKEN"]
   },
   "d1_databases": [
     {

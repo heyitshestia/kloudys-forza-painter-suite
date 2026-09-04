@@ -13,8 +13,10 @@ The sync deliberately:
 - produces no file change when the normalized profile content is unchanged;
 - uses no Cloudflare administrator secret or calibrator credential.
 
-GitHub runs it every five minutes and on manual dispatch through
-`.github/workflows/sync-fh6-rtti.yml`. A normal local verification is read-only:
+The Cloudflare relay dispatches this workflow when it accepts new normalized
+registry content. GitHub also runs one daily safety sync and supports manual
+dispatch through `.github/workflows/sync-fh6-rtti.yml`. A normal local
+verification is read-only:
 
 ```powershell
 python tools\fh6_rtti_sync\sync_registry.py --dry-run
@@ -22,4 +24,5 @@ python tools\fh6_rtti_sync\sync_registry.py --dry-run
 
 The Cloudflare relay remains the application's primary runtime source. The
 checked-in file is synchronized so raw GitHub, release bundles, and offline
-fallbacks do not remain permanently stale.
+fallbacks do not remain permanently stale. An `RTTI.dat`-only mirror commit does
+not start the full KFPS quality and updater publication pipeline.

@@ -1,10 +1,12 @@
 import { authenticateAdmin } from "./admin_auth";
+import { dispatchPendingGithubSync, prepareGithubSyncOutbox } from "./github_sync";
 import { randomToken, sha256Hex } from "./protocol";
 import { MAX_PROFILES, normalizeProfile, normalizeRegistry, REGISTRY_FORMAT, type NormalizedProfile } from "./registry";
 
 interface Env {
   DB: D1Database;
   ADMIN_HMAC_SECRET: string;
+  GITHUB_RTTI_SYNC_TOKEN?: string;
 }
 
 interface HelperRow {
@@ -193,7 +195,7 @@ async function recordRejection(env: Env, helper: HelperRow, reason: string): Pro
   ]);
 }
 
-async function submitProfile(env: Env, request: Request): Promise<Response> {
+async function submitProfile(env: Env, request: Request, context: ExecutionContext): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = parseObject(await bodyText(request));
@@ -222,7 +224,8 @@ async function submitProfile(env: Env, request: Request): Promise<Response> {
     return json({ error: reason }, 400);
   }
   const now = new Date().toISOString();
-  await env.DB.batch([
+  const sync = await prepareGithubSyncOutbox(env, profile, profile.profile_id, now);
+  const results = await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO profiles(profile_id, profile_json, helper_id, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?4)
@@ -239,8 +242,18 @@ async function submitProfile(env: Env, request: Request): Promise<Response> {
       `INSERT INTO registry_state(singleton, updated_at) VALUES (1, ?1)
        ON CONFLICT(singleton) DO UPDATE SET updated_at = excluded.updated_at`,
     ).bind(now),
+    sync.statement,
   ]);
-  return json({ accepted: true, profile_id: profile.profile_id, updated_utc: now });
+  const queued = results[4].meta.changes === 1;
+  if (queued && env.GITHUB_RTTI_SYNC_TOKEN) {
+    context.waitUntil(dispatchPendingGithubSync(env));
+  }
+  return json({
+    accepted: true,
+    profile_id: profile.profile_id,
+    updated_utc: now,
+    github_sync: queued ? "queued" : "unchanged",
+  });
 }
 
 async function authenticateAdminRequest(env: Env, request: Request, rawBody: string): Promise<{ requestId: string } | Response> {
@@ -291,6 +304,14 @@ async function adminRoute(env: Env, request: Request, path: string): Promise<Res
        ORDER BY submissions.created_at DESC LIMIT ?1`,
     ).bind(limit).all();
     return json({ submissions: result.results });
+  }
+  if (request.method === "GET" && path === "/v1/admin/github-sync") {
+    const result = await env.DB.prepare(
+      `SELECT event_id, registry_fingerprint, profile_id, status, attempt_count,
+              last_attempt_at, delivered_at, last_error, created_at
+       FROM github_sync_outbox ORDER BY created_at DESC LIMIT 100`,
+    ).all();
+    return json({ configured: Boolean(env.GITHUB_RTTI_SYNC_TOKEN), events: result.results });
   }
 
   let body: Record<string, unknown>;
@@ -420,7 +441,7 @@ async function adminRoute(env: Env, request: Request, path: string): Promise<Res
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     try {
@@ -431,7 +452,7 @@ export default {
         return registryResponse(env, request);
       }
       if (request.method === "POST" && path === "/v1/enroll") return enroll(env, request);
-      if (request.method === "POST" && path === "/v1/submit") return submitProfile(env, request);
+      if (request.method === "POST" && path === "/v1/submit") return submitProfile(env, request, context);
       if (path.startsWith("/v1/admin/")) return adminRoute(env, request, path);
       return json({ error: "not found" }, 404);
     } catch (error) {

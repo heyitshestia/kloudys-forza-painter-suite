@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAdminSignatureForTesting } from "../src/admin_auth";
+import { dispatchPendingGithubSync } from "../src/github_sync";
 
 const ADMIN_SECRET = "test-rtti-admin-secret-that-is-longer-than-thirty-two-characters";
 
@@ -57,6 +58,7 @@ async function createAndEnroll(name = "Trusted Helper") {
 
 beforeEach(async () => {
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM github_sync_outbox"),
     env.DB.prepare("DELETE FROM submissions"),
     env.DB.prepare("DELETE FROM profiles"),
     env.DB.prepare("DELETE FROM helpers"),
@@ -98,6 +100,92 @@ describe("FH6 RTTI relay", () => {
     expect(registry.profiles).toHaveLength(1);
     expect(registry.profiles[0]).not.toHaveProperty("pid");
     expect(registry.profiles[0]).not.toHaveProperty("path");
+  });
+
+  it("queues one GitHub sync for new registry content and suppresses exact duplicates", async () => {
+    const helper = await createAndEnroll();
+    const publish = () => SELF.fetch("https://rtti.test/v1/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${helper.credential}` },
+      body: JSON.stringify({ protocol: 1, device_id: helper.deviceId, profile: validProfile() }),
+    });
+
+    expect(await (await publish()).json()).toEqual(expect.objectContaining({ github_sync: "queued" }));
+    expect(await (await publish()).json()).toEqual(expect.objectContaining({ github_sync: "unchanged" }));
+    const queued = await env.DB.prepare("SELECT COUNT(*) AS count FROM github_sync_outbox").first<{ count: number }>();
+    expect(queued?.count).toBe(1);
+    const diagnostics = await adminFetch("/v1/admin/github-sync");
+    expect(await diagnostics.json()).toEqual({
+      configured: false,
+      events: [expect.objectContaining({ profile_id: "fh6-4cc182a67116f120ea47", status: "pending" })],
+    });
+
+    let requestUrl = "";
+    let requestInit: RequestInit | undefined;
+    const result = await dispatchPendingGithubSync({
+      DB: env.DB,
+      GITHUB_RTTI_SYNC_TOKEN: "github-test-token",
+    }, async (input, init) => {
+      requestUrl = String(input);
+      requestInit = init;
+      return new Response(null, { status: 204 });
+    });
+
+    expect(result).toEqual({ configured: true, delivered: 1, failed: 0, pending: 0 });
+    expect(requestUrl).toBe("https://api.github.com/repos/heyitshestia/kloudys-forza-painter-suite/dispatches");
+    expect(requestInit?.headers).toEqual(expect.objectContaining({ Authorization: "Bearer github-test-token" }));
+    expect(JSON.parse(String(requestInit?.body))).toEqual(expect.objectContaining({
+      event_type: "fh6-rtti-registry-updated",
+      client_payload: expect.objectContaining({ profile_id: "fh6-4cc182a67116f120ea47" }),
+    }));
+    const delivered = await env.DB.prepare(
+      "SELECT status, attempt_count, last_error FROM github_sync_outbox",
+    ).first<{ status: string; attempt_count: number; last_error: string }>();
+    expect(delivered).toEqual({ status: "delivered", attempt_count: 1, last_error: "" });
+  });
+
+  it("coalesces multiple pending registry changes into one GitHub dispatch", async () => {
+    const helper = await createAndEnroll();
+    const publish = (profile: Record<string, unknown>) => SELF.fetch("https://rtti.test/v1/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${helper.credential}` },
+      body: JSON.stringify({ protocol: 1, device_id: helper.deviceId, profile }),
+    });
+    expect((await publish(validProfile())).status).toBe(200);
+    expect((await publish({ ...validProfile(), game_build: "3.399.1.0" })).status).toBe(200);
+
+    let dispatches = 0;
+    const result = await dispatchPendingGithubSync({
+      DB: env.DB,
+      GITHUB_RTTI_SYNC_TOKEN: "github-test-token",
+    }, async () => {
+      dispatches += 1;
+      return new Response(null, { status: 204 });
+    });
+    expect(dispatches).toBe(1);
+    expect(result).toEqual({ configured: true, delivered: 2, failed: 0, pending: 0 });
+  });
+
+  it("keeps failed GitHub notifications for a bounded retry without rejecting the profile", async () => {
+    const helper = await createAndEnroll();
+    const submitted = await SELF.fetch("https://rtti.test/v1/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${helper.credential}` },
+      body: JSON.stringify({ protocol: 1, device_id: helper.deviceId, profile: validProfile() }),
+    });
+    expect(submitted.status).toBe(200);
+
+    expect(await dispatchPendingGithubSync({ DB: env.DB }))
+      .toEqual({ configured: false, delivered: 0, failed: 0, pending: 1 });
+    const syncEnv = { DB: env.DB, GITHUB_RTTI_SYNC_TOKEN: "github-test-token" };
+    expect(await dispatchPendingGithubSync(syncEnv, async () => new Response(null, { status: 503 })))
+      .toEqual({ configured: true, delivered: 0, failed: 1, pending: 1 });
+    expect(await dispatchPendingGithubSync(syncEnv, async () => new Response(null, { status: 204 })))
+      .toEqual({ configured: true, delivered: 1, failed: 0, pending: 0 });
+    const retried = await env.DB.prepare(
+      "SELECT status, attempt_count, last_error FROM github_sync_outbox",
+    ).first<{ status: string; attempt_count: number; last_error: string }>();
+    expect(retried).toEqual({ status: "delivered", attempt_count: 2, last_error: "" });
   });
 
   it("allows only one winner when the same one-time enrollment is raced", async () => {

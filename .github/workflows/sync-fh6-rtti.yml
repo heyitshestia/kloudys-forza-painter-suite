@@ -2,7 +2,10 @@ name: Sync FH6 RTTI fallback
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17 3 * * *"
+  repository_dispatch:
+    types:
+      - fh6-rtti-registry-updated
   workflow_dispatch:
   push:
     branches:
