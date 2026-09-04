@@ -2,5 +2,5 @@
   "schema": "kfps.detached-signature.v1",
   "algorithm": "ed25519",
   "key_id": "a1ded23c6c64b25b",
-  "signature": "PvPFCZKootxFIFh34SDAZKMQ7FHMW/z4hr7jsfTZUitFprDEZv/UZbA/zMCtq6peu8OF6ZYs/IySEqy43yUlCg=="
+  "signature": "Moy0NfoCEpym2vbnZ/7RgiLFT4Fi5yRIHH068T99pXBp/7fVj3K/7Cc7fYz4nfc7hcsCIBslMxi5fQ3Xl+ZHDA=="
 }
