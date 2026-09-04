@@ -1,5 +1,9 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.58
+- Replaced the rectangular startup message with a circular Mini Kloudy splash using a white, pink, and purple palette sampled from the supplied artwork.
+- Added opposing animated progress and accent rings that run only while the startup splash is visible.
+
 ## 3.1.57
 - Reworked FH6 full-livery decoding and rendering for nested and mirrored groups, masks, windows, side-specific projection, and multiple source format generations.
 - Added deterministic chassis projection fitting, stricter renderer resource cleanup, and revised caches for stable repeated car switching.
