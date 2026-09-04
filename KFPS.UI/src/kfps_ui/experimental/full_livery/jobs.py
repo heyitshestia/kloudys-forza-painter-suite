@@ -13,6 +13,8 @@ from typing import Any
 import psutil
 
 from tools.cgroup.forza_source_decoder import (
+    LIVERY_SECTION_NAMES,
+    build_livery_sections,
     extract_livery_payload,
     inspect_clivery_privacy,
     unwrap_forza_container,
@@ -30,6 +32,7 @@ from tools.livery import (
     validate_livery_inspection_artifact,
 )
 from tools.livery.portable_mesh_converter import (
+    LOCAL_CHASSIS_FORMAT_REVISION,
     PortableMeshConverterError,
     convert_vehicle_model_to_glb,
     validate_local_chassis_glb,
@@ -45,9 +48,9 @@ from .catalog import FullLiveryCatalog
 from .paths import CACHE_REVISION
 
 
-SOURCE_INDEX_REVISION = 1
+SOURCE_INDEX_REVISION = 2
 SOURCE_PREVIEW_CACHE_REVISION = 3
-INSPECTION_MESH_CACHE_REVISION = 11
+INSPECTION_MESH_CACHE_REVISION = LOCAL_CHASSIS_FORMAT_REVISION
 
 
 @dataclass(frozen=True)
@@ -178,6 +181,22 @@ def _visible_source_row(row: dict[str, Any]) -> dict[str, Any] | None:
     return {key: value for key, value in row.items() if not key.startswith("_")}
 
 
+def _source_block_counts(rows: list[dict[str, Any]]) -> tuple[int, int]:
+    foreign = 0
+    incomplete = 0
+    for row in rows:
+        if not row.get("_sourceOwned"):
+            continue
+        if row.get("_sourceComplete") is False:
+            incomplete += 1
+        if row.get("_containsForeignGroups") is True:
+            foreign += 1
+        elif "_containsForeignGroups" not in row and "_sourceComplete" not in row:
+            # Revision-1 cache records used exportable=false only for foreign groups.
+            foreign += not bool(row.get("exportable"))
+    return foreign, incomplete
+
+
 def refresh_packages(paths: JobPaths, _payload: dict[str, Any], _cancel_event) -> dict[str, Any]:
     catalog = FullLiveryCatalog(paths.catalog_file, paths.quarantine)
     snapshot = catalog.package_snapshot()
@@ -269,6 +288,7 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
     catalog = FullLiveryCatalog(paths.catalog_file, paths.quarantine)
     if not roots:
         indexed_rows = [row for row in catalog.source_rows() if row.get("_visible")]
+        foreign_blocked, incomplete_blocked = _source_block_counts(indexed_rows)
         return {
             "rows": [visible for row in indexed_rows if (visible := _visible_source_row(row)) is not None],
             "fingerprints": {
@@ -280,7 +300,8 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
             "inspected": 0,
             "rejected": 0,
             "locked": 0,
-            "foreign_blocked": sum(not bool(row.get("exportable")) for row in indexed_rows),
+            "foreign_blocked": foreign_blocked,
+            "incomplete_blocked": incomplete_blocked,
             "empty": 0,
             "cache_hits": len(indexed_rows),
             "removed": 0,
@@ -347,9 +368,9 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
                         else:
                             privacy = inspect_clivery_privacy(decoded)
                             source_owned = bool(privacy["source_owned"])
-                            exportable = source_owned and not privacy["contains_foreign_groups"]
+                            contains_foreign_groups = bool(privacy["contains_foreign_groups"])
                             car_id = struct.unpack_from("<I", decoded, 0x10)[0]
-                            _, counts, _ = extract_livery_payload(decoded)
+                            body, counts, _ = extract_livery_payload(decoded)
                             placement_count = sum(counts)
                             if placement_count <= 0:
                                 row = {
@@ -359,12 +380,54 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
                                     "path": str(path.resolve()),
                                 }
                             else:
+                                layers, _ = build_livery_sections(body, counts)
+                                decoded_counts = [
+                                    sum(layer.get("section") == section for layer in layers)
+                                    for section in LIVERY_SECTION_NAMES
+                                ]
+                                section_mismatches = [
+                                    {
+                                        "section": section,
+                                        "declared": int(declared),
+                                        "decoded": int(actual),
+                                    }
+                                    for section, declared, actual in zip(
+                                        LIVERY_SECTION_NAMES,
+                                        counts,
+                                        decoded_counts,
+                                    )
+                                    if int(declared) != int(actual)
+                                ]
+                                decoded_placement_count = sum(decoded_counts)
+                                # Protected foreign groups are intentionally opaque to the
+                                # renderer and already fail the ownership gate. Their source
+                                # completeness is unknown, rather than damaged.
+                                source_complete = (
+                                    None if contains_foreign_groups else not section_mismatches
+                                )
+                                exportable = (
+                                    source_owned
+                                    and not contains_foreign_groups
+                                    and source_complete is True
+                                )
+                                privacy_reasons = []
+                                if contains_foreign_groups:
+                                    privacy_reasons.append(
+                                        "Remove every foreign vinyl group in FH6 and save the livery again."
+                                    )
+                                if source_complete is False:
+                                    privacy_reasons.append(
+                                        f"KFPS decoded {decoded_placement_count:,} of "
+                                        f"{placement_count:,} declared placements."
+                                    )
                                 asset = vehicle_index.get(car_id)
                                 row = {
                                     "_visible": True,
                                     "_reason": "",
                                     "_contentHash": content_hash,
                                     "_sourceOwned": source_owned,
+                                    "_sourceComplete": source_complete,
+                                    "_containsForeignGroups": contains_foreign_groups,
                                     "_mtimeNs": int(stat.st_mtime_ns),
                                     "_priority": 1 if "\\current\\" in str(path).casefold() else 0,
                                     "title": _header_title(path) or path.parent.name,
@@ -372,21 +435,26 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
                                     "carId": car_id,
                                     "modelCode": asset.model_code if asset else "Unresolved car",
                                     "placementCount": placement_count,
+                                    "decodedPlacementCount": decoded_placement_count,
+                                    "sourceComplete": source_complete,
                                     "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                                     "detail": (
-                                        "Link the local FH6 folder to preview or export"
+                                        "Preview only · contains vinyls created by another player"
+                                        if contains_foreign_groups
+                                        else "Unsupported livery data · no standard shapes decoded"
+                                        if decoded_placement_count <= 0
+                                        else "Preview only · source data is incomplete"
+                                        if source_complete is False
+                                        else "Link the local FH6 folder to preview or export"
                                         if not vehicle_index
                                         else "This car ID is not present in the linked FH6 installation"
                                         if asset is None
                                         else "Ready to export"
-                                        if exportable
-                                        else "Preview only · contains vinyls created by another player"
                                     ),
                                     "hasHeader": (path.parent / "header").is_file(),
                                     "exportable": exportable,
                                     "privacyDetail": (
-                                        "" if exportable else
-                                        "Export unavailable. Remove every foreign vinyl group in FH6 and save the livery again."
+                                        "" if exportable else "Export unavailable. " + " ".join(privacy_reasons)
                                     ),
                                 }
                     catalog_records.append({
@@ -443,9 +511,7 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
         key=lambda item: (int(item.get("_mtimeNs") or 0), str(item.get("title") or "").casefold()),
         reverse=True,
     )
-    foreign_blocked = sum(
-        bool(row.get("_sourceOwned")) and not bool(row.get("exportable")) for row in indexed_rows
-    )
+    foreign_blocked, incomplete_blocked = _source_block_counts(indexed_rows)
     rows = [visible for row in indexed_rows if (visible := _visible_source_row(row)) is not None]
     return {
         "rows": rows,
@@ -459,6 +525,7 @@ def scan_saves(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[s
         "rejected": rejected,
         "locked": hidden,
         "foreign_blocked": foreign_blocked,
+        "incomplete_blocked": incomplete_blocked,
         "empty": empty,
         "cache_hits": cache_hits,
         "removed": removed,
@@ -708,7 +775,12 @@ def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict
         raise InterruptedError("Local chassis preparation was cancelled.")
     package_key = _file_hash(package_path)[:24]
     render_root = paths.render_cache / f"{package_key}-{asset.archive_mtime_ns}"
-    render_contract = build_local_livery_atlases(package_path, asset, render_root)
+    render_contract = build_local_livery_atlases(
+        package_path,
+        asset,
+        render_root,
+        mesh_path=mesh_path,
+    )
     catalog = FullLiveryCatalog(paths.catalog_file, paths.quarantine)
     catalog.record_cache_entry(
         f"mesh:{asset.model_code}:{asset.archive_mtime_ns}",

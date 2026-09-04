@@ -42,11 +42,15 @@ FLS_SECTION_FILES = {
     "LeftWindow": "leftWindow.png",
     "RightWindow": "rightWindow.png",
 }
+COMPARISON_REVISION = 2
 
 
 def _canonical_shape_word(value: Any) -> int:
     word = int(value or 0) & 0xFFFF
-    return 0x07D1 if word == 0x07D0 else word
+    return {
+        0x07D0: 0x07D1,
+        0x0BB8: 0x0BB9,
+    }.get(word, word)
 
 
 def _kfps_world_matrix(layer: dict[str, Any]) -> list[float]:
@@ -203,6 +207,7 @@ def _run_fls(
     source: Path,
     output: Path,
     semantic: bool,
+    timeout_seconds: float,
 ) -> str:
     environment = os.environ.copy()
     if qt_bin is not None:
@@ -216,15 +221,23 @@ def _run_fls(
     command = [str(executable), str(source), str(output), "2048", "1024"]
     if semantic:
         command.append("--semantic")
-    completed = subprocess.run(
-        command,
-        cwd=fls_root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=fls_root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
+        raise RuntimeError(
+            f"Reference renderer timed out after {timeout_seconds:g} seconds.\n"
+            f"stdout:\n{stdout or ''}\nstderr:\n{stderr or ''}"
+        ) from exc
     if completed.returncode != 0:
         raise RuntimeError(
             f"FLS oracle failed with exit code {completed.returncode}:\n"
@@ -236,7 +249,7 @@ def _run_fls(
 def _render_kfps(source: Path, game_folder: Path, output: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = unwrap_forza_container(source)
     contract, decode_report, counts, _ = _decode_livery_contract(payload)
-    rendered, raster_verified = _render_livery_sections(
+    rendered, raster_verified, unresolved_raster_ids = _render_livery_sections(
         contract["layers"],
         game_folder=game_folder,
         strict_assets=True,
@@ -249,6 +262,7 @@ def _render_kfps(source: Path, game_folder: Path, output: Path) -> tuple[dict[st
         "decoded_layer_count": len(contract["layers"]),
         "decode_warnings": decode_report.get("warnings") or [],
         "raster_verified": raster_verified,
+        "unresolved_raster_ids": unresolved_raster_ids,
     }
 
 
@@ -279,9 +293,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--semantic", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--reference-timeout", type=float, default=180.0)
     args = parser.parse_args()
     if not args.all and not args.title:
         parser.error("choose at least one --title or use --all")
+    if not math.isfinite(args.reference_timeout) or args.reference_timeout <= 0:
+        parser.error("--reference-timeout must be a positive finite number")
     return args
 
 
@@ -311,19 +328,47 @@ def main() -> int:
 
         report_path = result_root / "report.json"
         if args.resume and report_path.is_file():
-            results.append(json.loads(report_path.read_text(encoding="utf-8")))
-            continue
+            cached = json.loads(report_path.read_text(encoding="utf-8"))
+            if int(cached.get("comparison_revision") or 0) == COMPARISON_REVISION:
+                results.append(cached)
+                continue
 
-        fls_log = _run_fls(
-            executable=args.fls_renderer,
-            fls_root=args.fls_root,
-            qt_bin=args.qt_bin,
-            source=source,
-            output=fls_output,
-            semantic=args.semantic,
-        )
-        contract, kfps_report = _render_kfps(source, args.game_folder, kfps_output)
-        fls_manifest = json.loads((fls_output / "manifest.json").read_text(encoding="utf-8"))
+        stage = "reference_render"
+        try:
+            fls_log = _run_fls(
+                executable=args.fls_renderer,
+                fls_root=args.fls_root,
+                qt_bin=args.qt_bin,
+                source=source,
+                output=fls_output,
+                semantic=args.semantic,
+                timeout_seconds=args.reference_timeout,
+            )
+            stage = "kfps_render"
+            contract, kfps_report = _render_kfps(source, args.game_folder, kfps_output)
+            stage = "reference_manifest"
+            fls_manifest = json.loads(
+                (fls_output / "manifest.json").read_text(encoding="utf-8")
+            )
+        except Exception as exc:
+            result = {
+                "comparison_revision": COMPARISON_REVISION,
+                "status": "error",
+                "stage": stage,
+                "title": title,
+                "source_path": str(source),
+                "source_sha256": source_hash,
+                "car_id": record.get("car_id"),
+                "source_owned": bool(record.get("source_owned")),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            report_path.write_text(
+                json.dumps(result, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+            )
+            results.append(result)
+            print(f"  failed stage={stage}: {exc}", flush=True)
+            continue
         fls_counts = {
             str(section["name"]): int(section["logical_leaf_count"])
             for section in fls_manifest["sections"]
@@ -357,6 +402,14 @@ def main() -> int:
             section: {"fls": fls_counts.get(section, 0), "kfps": kfps_counts.get(section, 0)}
             for section in LIVERY_SECTION_NAMES
             if fls_counts.get(section, 0) != kfps_counts.get(section, 0)
+        }
+        declared_count_mismatches = {
+            section: {
+                "declared": int(kfps_report["declared_counts"].get(section, 0)),
+                "decoded": kfps_counts.get(section, 0),
+            }
+            for section in LIVERY_SECTION_NAMES
+            if int(kfps_report["declared_counts"].get(section, 0)) != kfps_counts.get(section, 0)
         }
         semantic_differences: dict[str, Any] = {}
         if args.semantic:
@@ -421,6 +474,8 @@ def main() -> int:
                         "draw_index_mismatches": draw_index_mismatches,
                     }
         result = {
+            "comparison_revision": COMPARISON_REVISION,
+            "status": "incomplete_source" if declared_count_mismatches else "ok",
             "title": title,
             "source_path": str(source),
             "source_sha256": source_hash,
@@ -430,6 +485,7 @@ def main() -> int:
             "fls_logical_leaf_count": int(fls_manifest["logical_leaf_count"]),
             "kfps_decoded_layer_count": len(contract["layers"]),
             "count_mismatches": count_mismatches,
+            "declared_count_mismatches": declared_count_mismatches,
             "semantic_differences": semantic_differences,
             "kfps_report": kfps_report,
             "sections": section_results,
@@ -440,15 +496,27 @@ def main() -> int:
         results.append(result)
 
     aggregate = {
-        "format": "kfps_fls_livery_render_differential_v1",
+        "format": "kfps_fls_livery_render_differential_v2",
+        "comparison_revision": COMPARISON_REVISION,
+        "source_manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest(),
+        "reference_renderer_sha256": hashlib.sha256(args.fls_renderer.read_bytes()).hexdigest(),
+        "semantic": bool(args.semantic),
+        "reference_timeout_seconds": args.reference_timeout,
         "record_count": len(results),
+        "success_count": sum(result.get("status") == "ok" for result in results),
+        "failure_count": sum(result.get("status") != "ok" for result in results),
+        "complete": len(results) == len(records),
         "records": results,
     }
     (args.output / "manifest.json").write_text(
         json.dumps(aggregate, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
     )
-    print(f"complete records={len(results)} output={args.output}")
-    return 0
+    print(
+        "complete "
+        f"records={len(results)} successes={aggregate['success_count']} "
+        f"failures={aggregate['failure_count']} output={args.output}"
+    )
+    return 1 if aggregate["failure_count"] else 0
 
 
 if __name__ == "__main__":

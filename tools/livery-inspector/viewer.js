@@ -43,6 +43,7 @@ let renderHeight = 0;
 let renderPixelRatio = 0;
 let renderRequests = 0;
 let renderedFrames = 0;
+let modelBounds = null;
 
 function trackTexture(texture) {
   if (!texture?.isTexture) return texture;
@@ -374,6 +375,7 @@ function sectionAwareMaterial(
       void main() {
         vec3 normalValue = normalize(worldNormalValue);
         float bestCoverage = 0.0;
+        float bestFacing = -1.0;
         int bestSlot = -1;
         vec2 bestAtlasUv = atlasUv;
         for (int slot = 0; slot < ${SECTION_COUNT}; ++slot) {
@@ -408,15 +410,21 @@ function sectionAwareMaterial(
           vec4 page1 = texture2D(maskMap1, candidateUv);
           vec4 page2 = texture2D(maskMap2, candidateUv);
           float candidate = slotCoverage(slot, page0, page1, page2);
-          if (candidate > bestCoverage) {
+          if (candidate <= 0.5) continue;
+          float facing = dot(sideFacing[slot], normalValue);
+          bool better = useDirectUv >= 0.5
+            ? candidate > bestCoverage
+            : facing >= bestFacing;
+          if (better) {
             bestCoverage = candidate;
+            bestFacing = facing;
             bestSlot = slot;
             bestAtlasUv = candidateUv;
           }
         }
 
         vec4 decal = vec4(0.0);
-        if (bestSlot >= 0 && bestCoverage > 0.0) {
+        if (bestSlot >= 0 && bestCoverage > 0.5) {
           vec4 source = sourceRegions[bestSlot];
           vec2 sourceSize = source.zw - source.xy;
           if (sourceSize.x > 0.000001 && sourceSize.y > 0.000001) {
@@ -455,6 +463,23 @@ function calculateProjectionBounds(model, contract) {
     minimum: new THREE.Vector2(Infinity, Infinity),
     maximum: new THREE.Vector2(-Infinity, -Infinity),
   }));
+  for (const section of sections) {
+    const slot = Number(section.slot_index);
+    const minimum = section.projection_minimum || [];
+    const maximum = section.projection_maximum || [];
+    if (
+      !Number.isInteger(slot)
+      || slot < 0
+      || slot >= SECTION_COUNT
+      || minimum.length !== 2
+      || maximum.length !== 2
+      || ![...minimum, ...maximum].map(Number).every(Number.isFinite)
+    ) continue;
+    bounds[slot].minimum.set(Number(minimum[0]), Number(minimum[1]));
+    bounds[slot].maximum.set(Number(maximum[0]), Number(maximum[1]));
+    bounds[slot].valid = bounds[slot].maximum.x > bounds[slot].minimum.x
+      && bounds[slot].maximum.y > bounds[slot].minimum.y;
+  }
   model.updateMatrixWorld(true);
   model.traverse(mesh => {
     if (!mesh.isMesh || mesh.geometry?.getAttribute('uv3')) return;
@@ -468,12 +493,13 @@ function calculateProjectionBounds(model, contract) {
       if ((projectionSides & (1 << geometrySide)) === 0) continue;
       const axis = sectionBySlot.get(slot)?.projection_axis || [];
       if (axis.length !== 4) continue;
+      const target = bounds[slot];
+      if (target.valid) continue;
       const axisX = Number(axis[0]);
       const axisY = Number(axis[1]);
       const scaleX = Number(axis[2]);
       const scaleY = Number(axis[3]);
       if (![axisX, axisY, scaleX, scaleY].every(Number.isFinite)) continue;
-      const target = bounds[slot];
       const axisMinimumX = axisX === 0 ? worldBounds.min.x : axisX === 1 ? worldBounds.min.y : worldBounds.min.z;
       const axisMaximumX = axisX === 0 ? worldBounds.max.x : axisX === 1 ? worldBounds.max.y : worldBounds.max.z;
       const axisMinimumY = axisY === 0 ? worldBounds.min.x : axisY === 1 ? worldBounds.min.y : worldBounds.min.z;
@@ -496,7 +522,11 @@ function calculateProjectionBounds(model, contract) {
   if (Array.isArray(front) && Array.isArray(rear)) {
     for (const slot of [2, 3, 4]) {
       const axis = sectionBySlot.get(slot)?.projection_axis || [];
-      if (Number(axis[0]) !== 2 || !bounds[slot].valid) continue;
+      if (
+        Number(axis[0]) !== 2
+        || !bounds[slot].valid
+        || sectionBySlot.get(slot)?.projection_minimum
+      ) continue;
       const first = Number(front[2]) * Number(axis[2]);
       const second = Number(rear[2]) * Number(axis[2]);
       if (Number.isFinite(first) && Number.isFinite(second) && Math.abs(first - second) >= 0.5) {
@@ -535,17 +565,47 @@ function inspectionFloorY(assembly, fallback) {
     : fallback;
 }
 
-function frameModel(bounds) {
+function frameModel(bounds, preferredDirection = null) {
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  const radius = Math.max(size.x, size.y, size.z);
+  const extent = Math.max(size.x, size.y, size.z);
+  const direction = preferredDirection?.clone() || new THREE.Vector3(1.08, 0.58, 1.32);
+  if (direction.lengthSq() < 1e-8) direction.set(1.08, 0.58, 1.32);
+  direction.normalize();
   controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(radius * 1.08, radius * 0.58, radius * 1.32));
-  camera.near = Math.max(0.01, radius / 250);
-  camera.far = Math.max(100, radius * 50);
+  camera.near = Math.max(0.01, extent / 250);
+  camera.far = Math.max(100, extent * 50);
   camera.updateProjectionMatrix();
-  controls.minDistance = radius * 0.45;
-  controls.maxDistance = radius * 6;
+
+  const corners = [];
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) corners.push(new THREE.Vector3(x, y, z));
+    }
+  }
+  const fits = distance => {
+    camera.position.copy(center).addScaledVector(direction, distance);
+    camera.lookAt(center);
+    camera.updateMatrixWorld(true);
+    let maxX = 0;
+    let maxY = 0;
+    for (const corner of corners) {
+      const projected = corner.clone().project(camera);
+      maxX = Math.max(maxX, Math.abs(projected.x));
+      maxY = Math.max(maxY, Math.abs(projected.y));
+    }
+    return maxX <= 0.9 && maxY <= 0.78;
+  };
+  let lower = extent * 0.5;
+  let upper = extent * 20;
+  for (let iteration = 0; iteration < 28; iteration += 1) {
+    const middle = (lower + upper) * 0.5;
+    if (fits(middle)) upper = middle;
+    else lower = middle;
+  }
+  camera.position.copy(center).addScaledVector(direction, upper * 1.03);
+  controls.minDistance = extent * 0.45;
+  controls.maxDistance = extent * 20;
   controls.update();
   homeCamera = camera.position.clone();
   homeTarget = controls.target.clone();
@@ -786,9 +846,9 @@ async function loadPackage() {
     const wheelCount = addInspectionWheels(renderContract.assembly);
     scene.add(model);
     model.updateMatrixWorld(true);
-    const bounds = stableInspectionBounds(model);
-    floor.position.y = inspectionFloorY(renderContract.assembly, bounds.min.y) - 0.018;
-    frameModel(bounds);
+    modelBounds = stableInspectionBounds(model);
+    floor.position.y = inspectionFloorY(renderContract.assembly, modelBounds.min.y) - 0.018;
+    frameModel(modelBounds);
     setSectionFilter('all');
     setStatus('');
     console.info(
@@ -836,6 +896,10 @@ function resize() {
   const height = Math.max(1, viewport.clientHeight);
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   if (width === renderWidth && height === renderHeight && pixelRatio === renderPixelRatio) return;
+  const cameraWasHome = modelBounds !== null
+    && camera.position.distanceToSquared(homeCamera) < 1e-8
+    && controls.target.distanceToSquared(homeTarget) < 1e-8;
+  const homeDirection = homeCamera.clone().sub(homeTarget);
   renderWidth = width;
   renderHeight = height;
   renderPixelRatio = pixelRatio;
@@ -843,6 +907,7 @@ function resize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  if (cameraWasHome) frameModel(modelBounds, homeDirection);
 }
 
 function renderFrame() {
@@ -911,6 +976,7 @@ function disposeViewer(releaseContext = true) {
     trackedTextures.clear();
     scene.clear();
     model = null;
+    modelBounds = null;
     paintMaterials = [];
     glassMaterials = [];
   }

@@ -143,7 +143,7 @@ def livery_payload(
     return bytes(payload)
 
 
-def raster_livery_payload(*, raster_id: int, car_id: int = 3304) -> bytes:
+def raster_livery_payload(*, raster_id: int, car_id: int = 3304, state: int = 0) -> bytes:
     shape = bytearray(32)
     shape[:2] = b"\x00\x02"
     struct.pack_into("<H", shape, 2, 0x8000 | int(raster_id))
@@ -156,7 +156,7 @@ def raster_livery_payload(*, raster_id: int, car_id: int = 3304) -> bytes:
     payload = bytearray(0x40)
     payload[:4] = b"vlrc"
     struct.pack_into("<I", payload, 4, 1)
-    struct.pack_into("<I", payload, 8, 0)
+    struct.pack_into("<I", payload, 8, state)
     struct.pack_into("<I", payload, 0x10, car_id)
     payload.extend(b"gyvl" + bytes(0x11) + body + b"yrvl")
     payload.extend(b"".join(struct.pack("<I", value) for value in counts))
@@ -1119,8 +1119,20 @@ class FullLiveryPackageTests(unittest.TestCase):
             locked = save_root / "Livery_locked" / "C_livery"
             protected = save_root / "Livery_protected" / "C_livery"
             empty = save_root / "Livery_empty" / "C_livery"
-            build_livery_source(shareable, state=0)
-            build_livery_source(locked, state=1)
+            shareable_payload = raster_livery_payload(raster_id=20314)
+            shareable_compressed = zlib.compress(shareable_payload)
+            shareable.parent.mkdir(parents=True)
+            shareable.write_bytes(
+                struct.pack("<II", len(shareable_compressed), len(shareable_payload))
+                + shareable_compressed
+            )
+            locked_payload = raster_livery_payload(raster_id=20314, state=1)
+            locked_compressed = zlib.compress(locked_payload)
+            locked.parent.mkdir(parents=True)
+            locked.write_bytes(
+                struct.pack("<II", len(locked_compressed), len(locked_payload))
+                + locked_compressed
+            )
             build_livery_source(empty, state=0, placement_count=0)
             payload = livery_payload(foreign_group=True)
             compressed = zlib.compress(payload)
@@ -1143,6 +1155,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertEqual(1, result["locked"])
             self.assertEqual(0, result["rejected"])
             self.assertEqual(1, result["foreign_blocked"])
+            self.assertEqual(0, result["incomplete_blocked"])
             self.assertEqual(1, result["empty"])
             self.assertFalse(result["game_assets_ready"])
             rows = {row["path"]: row for row in result["rows"]}
@@ -1151,9 +1164,78 @@ class FullLiveryPackageTests(unittest.TestCase):
                 set(rows),
             )
             self.assertTrue(rows[str(shareable.resolve())]["exportable"])
+            self.assertTrue(rows[str(shareable.resolve())]["sourceComplete"])
+            self.assertEqual(1, rows[str(shareable.resolve())]["decodedPlacementCount"])
             self.assertFalse(rows[str(protected.resolve())]["exportable"])
             self.assertIn("Link the local FH6 folder", rows[str(shareable.resolve())]["detail"])
             self.assertIn("Remove every foreign vinyl group", rows[str(protected.resolve())]["privacyDetail"])
+
+    def test_save_scan_marks_incomplete_owned_source_preview_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            save_root = root / "saves"
+            incomplete = save_root / "Livery_incomplete" / "C_livery"
+            build_livery_source(incomplete, state=0, placement_count=1)
+            paths = AppPaths(
+                app_root=root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=root / "runtime",
+                bundled_python=root / "python" / "python.exe",
+            )
+
+            result = full_livery_jobs.scan_saves(
+                full_livery_job_paths(paths),
+                {"game_folder": "", "save_root": str(save_root)},
+                threading.Event(),
+            )
+
+            self.assertEqual(0, result["foreign_blocked"])
+            self.assertEqual(1, result["incomplete_blocked"])
+            self.assertEqual(1, len(result["rows"]))
+            row = result["rows"][0]
+            self.assertFalse(row["exportable"])
+            self.assertFalse(row["sourceComplete"])
+            self.assertEqual(1, row["placementCount"])
+            self.assertEqual(0, row["decodedPlacementCount"])
+            self.assertIn("no standard shapes decoded", row["detail"])
+            self.assertIn("decoded 0 of 1 declared placements", row["privacyDetail"])
+
+    def test_save_scan_summary_separates_foreign_and_incomplete_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = AppPaths(
+                app_root=root,
+                ui_root=UI,
+                qml_root=UI / "qml",
+                asset_root=UI / "assets",
+                runtime_root=root / "runtime",
+                bundled_python=root / "python" / "python.exe",
+            )
+            with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
+                service = FullLiveryService(paths, LogService(), supporter=None, demo=True)
+            try:
+                service._apply_result(
+                    {
+                        "ok": True,
+                        "kind": "scan",
+                        "payload": {
+                            "rows": [{"path": "C:/save/C_livery", "exportable": False}],
+                            "fingerprints": {},
+                            "inspected": 3,
+                            "locked": 0,
+                            "foreign_blocked": 1,
+                            "incomplete_blocked": 1,
+                            "empty": 0,
+                            "game_assets_ready": True,
+                        },
+                    }
+                )
+                self.assertIn("1 requires foreign vinyls", service.summary)
+                self.assertIn("1 contains incomplete or unsupported source data", service.summary)
+            finally:
+                service.close()
 
     def test_local_marker_cannot_enable_unowned_liveries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1161,8 +1243,19 @@ class FullLiveryPackageTests(unittest.TestCase):
             save_root = root / "saves"
             owned = save_root / "Livery_owned" / "C_livery"
             comparison = save_root / "Livery_comparison" / "C_livery"
-            build_livery_source(owned, state=0)
-            build_livery_source(comparison, state=1)
+            owned_payload = raster_livery_payload(raster_id=20314)
+            owned_compressed = zlib.compress(owned_payload)
+            owned.parent.mkdir(parents=True)
+            owned.write_bytes(
+                struct.pack("<II", len(owned_compressed), len(owned_payload)) + owned_compressed
+            )
+            comparison_payload = raster_livery_payload(raster_id=20314, state=1)
+            comparison_compressed = zlib.compress(comparison_payload)
+            comparison.parent.mkdir(parents=True)
+            comparison.write_bytes(
+                struct.pack("<II", len(comparison_compressed), len(comparison_payload))
+                + comparison_compressed
+            )
             paths = AppPaths(
                 app_root=root,
                 ui_root=UI,
@@ -1182,6 +1275,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             )
             rows = {row["path"]: row for row in result["rows"]}
             self.assertEqual(0, result["foreign_blocked"])
+            self.assertEqual(0, result["incomplete_blocked"])
             self.assertEqual(1, result["locked"])
             self.assertEqual({str(owned.resolve())}, set(rows))
             self.assertTrue(rows[str(owned.resolve())]["exportable"])

@@ -6,10 +6,16 @@ import hashlib
 import json
 import os
 import struct
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from tools.cgroup.forza_source_decoder import (
     extract_livery_payload,
@@ -18,6 +24,7 @@ from tools.cgroup.forza_source_decoder import (
 )
 from tools.livery.package import create_local_livery_preview
 from tools.livery.portable_mesh_converter import (
+    LOCAL_CHASSIS_FORMAT_REVISION,
     convert_vehicle_model_to_glb,
     validate_local_chassis_glb,
 )
@@ -26,7 +33,7 @@ from tools.livery.vehicle_assets import load_or_build_vehicle_asset_index
 
 
 FORMAT = "kfps_fh6_local_livery_catalog_validation_v1"
-INSPECTION_MESH_CACHE_REVISION = 10
+INSPECTION_MESH_CACHE_REVISION = LOCAL_CHASSIS_FORMAT_REVISION
 
 
 def _sha256(data: bytes) -> str:
@@ -154,20 +161,32 @@ def _preview_record(
     package = output_root / "previews" / f"{digest[:24]}.kfpspreview"
     render_root = output_root / "renders" / digest[:24]
     started = time.monotonic()
+    manifest: dict[str, Any] | None = None
     try:
-        create_local_livery_preview(
+        manifest = create_local_livery_preview(
             row["source_path"],
             package,
             game_folder=Path(asset.archive_path).parents[2],
             vehicle_index_cache=vehicle_index_cache,
             _allow_unowned_private_preview=not bool(row["source_owned"]),
         )
-        contract = build_local_livery_atlases(package, asset, render_root)
+        mesh_path = output_root / "meshes" / (
+            f"{asset.model_code}-{asset.archive_mtime_ns}.local-chassis-v{INSPECTION_MESH_CACHE_REVISION}.glb"
+        )
+        contract = build_local_livery_atlases(
+            package,
+            asset,
+            render_root,
+            mesh_path=mesh_path,
+        )
         return {
             "status": "ok",
             "package_path": str(package.resolve()),
             "render_root": str(render_root.resolve()),
             "seconds": round(time.monotonic() - started, 3),
+            "decoded_layer_count": int(manifest["livery"]["decoded_layer_count"]),
+            "source_complete": bool(manifest["livery"]["preview_complete"]),
+            "section_count_mismatches": manifest["livery"]["section_count_mismatches"],
             "sections": [item["section"] for item in contract.get("sections") or []],
             "visible_pixels": {
                 item["section"]: int(item.get("visible_pixels") or 0)
@@ -176,11 +195,18 @@ def _preview_record(
         }
     except Exception as exc:
         package.unlink(missing_ok=True)
-        return {
+        failure = {
             "status": "error",
             "seconds": round(time.monotonic() - started, 3),
             "error": str(exc),
         }
+        if manifest is not None:
+            failure.update({
+                "decoded_layer_count": int(manifest["livery"]["decoded_layer_count"]),
+                "source_complete": bool(manifest["livery"]["preview_complete"]),
+                "section_count_mismatches": manifest["livery"]["section_count_mismatches"],
+            })
+        return failure
 
 
 def main() -> int:
@@ -258,6 +284,12 @@ def main() -> int:
                 "car_errors": sum(item.get("status") != "ok" for item in manifest["cars"]),
                 "preview_errors": sum(
                     (item.get("preview") or {}).get("status") != "ok" for item in manifest["liveries"]
+                )
+                if not args.skip_previews
+                else None,
+                "source_incomplete": sum(
+                    (item.get("preview") or {}).get("source_complete") is False
+                    for item in manifest["liveries"]
                 )
                 if not args.skip_previews
                 else None,

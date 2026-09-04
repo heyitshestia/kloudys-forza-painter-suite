@@ -11,10 +11,11 @@ for unowned sources and foreign vinyl groups.
 
 The implementation is maintained in the main KFPS source tree. Reference
 checkouts, validation outputs, and local game data remain ignored and are never
-shipped. Forza Livery Studio 1.2.0 at commit
-`09cf1137ac441fd38af8751a6ff64cc31308bd1b` is an AGPL-3.0 behavioral reference
-under the ignored `runtime/livery-reference/` tree. No FLS source was copied
-into KFPS.
+shipped. The current Forza Livery Studio checkout at commit
+`70429375159a1c2f052bc91c29c9e1c4eb1d27fd` is an AGPL-3.0 behavioral reference
+used only from a temporary build. No FLS source was copied into KFPS. The latest
+evidence and remaining release gate are recorded in
+[`FULL_LIVERY_PRODUCTION_READINESS_2026-09-03.md`](FULL_LIVERY_PRODUCTION_READINESS_2026-09-03.md).
 
 ## Independent renderer contract
 
@@ -46,79 +47,41 @@ into KFPS.
 renders, packages, reopens, and validates the complete local save corpus. Its
 outputs are ignored local evidence and must not be distributed.
 
-The 2026-08-18 corpus contains:
+The 2026-09-03 corpus contains 77 files, one byte-identical duplicate, 17 empty
+records, and 59 unique nonempty records across 47 exact-car chassis. Six records
+are locally owned, 53 are unowned, and seven contain foreign groups. Five pass
+the privacy prefilter; four pass complete package export, while one unsupported
+custom-shape experiment is rejected for incomplete source data. All 47 chassis
+converted successfully. Fifty-eight
+records built usable private render contracts; the remaining 39-placement GR86
+record came from the retired custom-mesh experiment and contains no standard
+shapes after the modified game archive is removed.
 
-- 144 `C_livery` files;
-- 56 byte-identical duplicates;
-- 32 unique empty records, which remain hidden;
-- 56 unique nonempty liveries across 46 distinct cars;
-- 4 locally owned and 52 unowned records;
-- 2 owned records containing foreign groups.
+## Differential rendering oracle
 
-The v10 run at
-`runtime/full-livery/validation/2026-08-18-private-preview-v10/` converted 46 of
-46 cars and produced 56 of 56 private previews with zero conversion or preview
-errors. The v8, v9, and v10 runs are retained as frozen comparisons.
+A diagnostic-only helper built against the current reference checkout renders
+each `C_livery` section through its native nested scene renderer at 2048 by 1024.
+It preserves child order, mask blend mode, native per-vertex alpha, raster decal
+textures, and complete world transforms. The helper is not part of KFPS and is
+never shipped.
 
-The material audit recovered 87 direct-UV livery canvas meshes on 11 cars that
-the previous name-only classifier discarded as trim. This includes doors,
-fenders, hoods, trunks, bumpers, wings, mirrors, and side skirts. The cache
-revision is 10 so older GLBs cannot conceal the corrected classification.
+`tools/livery/compare_fls_renders.py` runs the same source through that helper
+and the real KFPS decoder/section renderer. It records input hashes, logical
+placement counts, exact leaf semantics, missing outputs, alpha overlap,
+orientation checks, color/alpha error, and three-panel comparison images. A
+timeout or failure is isolated to its record and does not discard a long run.
 
-## FLS differential rendering oracle
+The current run covers 59 records, 333,071 recoverable leaves, and 359 populated
+sections. KFPS has zero count or semantic differences and every section selects
+the identity orientation. Mean checker-space error is 0.501 on a 0-255 scale.
+Visual inspection of the largest deltas shows matching artwork with raster-edge
+and antialiasing differences. Very small, nearly transparent sections can have
+low alpha-overlap ratios while differing by only a few faint edge pixels, so
+that metric never overrides exact semantic evidence.
 
-The successful v10 corpus run proves that KFPS can decode every locally
-available record, prepare every required chassis, and finish every preview. It
-does not prove that the 2D livery composition exactly matches FLS. Layer order,
-nested mask inheritance, native gradient alpha, raster decals, and skipped
-binary records can all produce a complete but visually wrong preview.
-
-Forza Livery Studio 1.2.0 is therefore used as a private behavioral oracle. A
-diagnostic-only target in the ignored FLS checkout renders each imported
-`C_livery` section through FLS's own nested scene renderer at 2048 by 1024. The
-helper preserves FLS child order, mask blend mode, native per-vertex alpha, and
-raster decal textures. It is not part of KFPS and is never shipped.
-
-`tools/livery/compare_fls_renders.py` runs the same local source through that
-oracle and the real KFPS decoder/section renderer. It records logical placement
-counts, missing outputs, alpha intersection-over-union, orientation checks,
-alpha error, visible-pixel color error, and three-panel comparison images.
-Results belong under ignored `runtime/full-livery/differential/` directories.
-
-The first owned 10,224-placement sample accounted for all placements in both
-renderers. Its six populated sections selected the identity orientation over
-horizontal flip, vertical flip, and 180-degree rotation. Alpha coverage IoU was
-95.7 to 99.0 percent. This is a useful control, not proof of parity: the full
-counterexample set below supplies the mask-heavy, partial-alpha-heavy,
-raster-heavy, window-heavy, asymmetric, and physically incomplete coverage
-needed before changing the production renderer.
-
-The completed semantic-contract run is retained at
-`runtime/full-livery/differential/2026-08-19-full-semantic-contract-v3/`. It
-independently rebuilt all KFPS and FLS renders for 56 unique nonempty liveries,
-353 populated sections, 46 cars, and 331,804 logical leaves. KFPS matched FLS
-exactly on all 331,804 leaves with zero record-count or semantic mismatches. The
-contract compares source order, section, native shape identity, raster identity,
-mask state, BGRA color, and complete world transform; all sections also selected
-the identity orientation. This is the source-of-truth gate for missing pieces,
-side assignment, layer order, nested masks, fades, and group transforms.
-
-The remaining PNG differences are raster-edge and antialiasing differences
-between the two independent rasterizers. Across all 353 sections, mean checker
-space error is 0.496 on a 0-255 scale. Visual inspection of the largest deltas
-shows the same artwork and coverage with thin edge differences, including the
-dense black-on-silver stress case. Very small or nearly transparent sections can
-produce weak alpha-IoU ratios despite differing by only a few edge pixels, so
-they are not used to override the exact semantic result.
-
-The parser correction was representation-level, not car-specific: artwork
-group transforms now follow FLS's strict scene grammar, while ownership/privacy
-recognition remains a separate fail-closed scanner. No car IDs, livery names, or
-per-car transform exceptions were introduced. Package compiler revision 9
-invalidates and rebuilds cached section images made with the older grammar. The
-local FLS diagnostic helper also receives its Qt plugin path from the harness,
-preventing the standalone oracle's platform-plugin startup warning without
-adding a Qt dependency to KFPS.
+The parser corrections are representation-level, not car-specific. No car IDs,
+livery names, or per-car transform exceptions were introduced. Package compiler
+revision 11 invalidates and rebuilds derived sections made with the old grammar.
 
 Visual browser checks compare the renderer with the save's own `bigThumb.webp`
 for representative cases. The retained screenshots are under
@@ -146,9 +109,9 @@ for representative cases. The retained screenshots are under
 - Shareable package creation independently rejects unowned sources, foreign
   groups, logical/physical count mismatches, incomplete raster references, and
   incomplete section decoding.
-- Four unowned records have logical section counts that exceed recoverable
-  physical placements. Private preview records those mismatches and renders the
-  recoverable placements; export remains blocked.
+- Two records have logical section counts that exceed recoverable standard
+  placements. Private preview records those mismatches and renders recoverable
+  placements where any exist; export remains blocked.
 - Three referenced raster IDs are absent from the local FH6 decal archive. They
   are omitted with explicit private-preview warnings and remain a hard failure
   for shareable packages.

@@ -12,6 +12,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from .portable_mesh_converter import read_local_chassis_projection_meshes
+from .projection_alignment import build_aligned_projection_bounds
 from .vehicle_assets import VehicleAsset, read_vehicle_assembly_metadata
 
 
@@ -21,7 +23,7 @@ TXCH_TAG = 0x54584348
 UNSIGNED_BC4 = 3
 ATLAS_SIZE = (2048, 1024)
 RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v3"
-RENDER_CONTRACT_REVISION = 8
+RENDER_CONTRACT_REVISION = 9
 MASK_PAGE_COUNT = 3
 MASK_CHANNELS = 4
 PAINT_ATLAS_WIDTH = 2048
@@ -310,7 +312,7 @@ def _masked_atlas_layer(
     rgba[..., 3] = (
         (rgba[..., 3].astype(np.uint16) * mask_values + 127) // 255
     ).astype(np.uint8)
-    return Image.fromarray(rgba, mode="RGBA")
+    return Image.fromarray(rgba)
 
 
 def _archive_masks(asset: VehicleAsset) -> dict[str, tuple[Image.Image, dict[str, Any], str]]:
@@ -343,7 +345,7 @@ def _archive_masks(asset: VehicleAsset) -> dict[str, tuple[Image.Image, dict[str
                 texture["height"],
             )
             result[slot] = (
-                Image.fromarray(mask, mode="L"),
+                Image.fromarray(mask),
                 projection,
                 hashlib.sha256(data).hexdigest(),
             )
@@ -405,6 +407,8 @@ def build_local_livery_atlases(
     package_path: Path | str,
     asset: VehicleAsset,
     output_dir: Path | str,
+    *,
+    mesh_path: Path | str | None = None,
 ) -> dict[str, Any]:
     package = Path(package_path).resolve()
     output = Path(output_dir).resolve()
@@ -416,6 +420,13 @@ def build_local_livery_atlases(
         "archive_mtime_ns": asset.archive_mtime_ns,
         "model_code": asset.model_code,
     }
+    local_mesh = Path(mesh_path).resolve() if mesh_path else None
+    if local_mesh is not None:
+        mesh_stat = local_mesh.stat()
+        signature.update({
+            "mesh_size": mesh_stat.st_size,
+            "mesh_mtime_ns": mesh_stat.st_mtime_ns,
+        })
     index_path = output / "index.json"
     if index_path.is_file():
         try:
@@ -434,12 +445,19 @@ def build_local_livery_atlases(
             pass
 
     masks = _archive_masks(asset)
+    assembly = read_vehicle_assembly_metadata(asset)
+    projection_meshes = (
+        read_local_chassis_projection_meshes(local_mesh)
+        if local_mesh is not None
+        else []
+    )
     mask_pages = [
         np.zeros((ATLAS_SIZE[1], ATLAS_SIZE[0], MASK_CHANNELS), dtype=np.uint8)
         for _ in range(MASK_PAGE_COUNT)
     ]
     paint_tiles: list[dict[str, Any]] = []
     pending_records: list[dict[str, Any]] = []
+    alignment_masks: dict[int, np.ndarray] = {}
     with zipfile.ZipFile(package) as bundle:
         available = {name.casefold(): name for name in bundle.namelist()}
         for section, slot in SECTION_TO_SLOT.items():
@@ -459,6 +477,7 @@ def build_local_livery_atlases(
             mask_pages[mask_page][..., mask_channel] = mask_values
             if mask.getbbox() is None:
                 continue
+            alignment_masks[slot_index] = mask_values
             source_bounds = _projection_pixel_bounds(projection)
             axis_x, axis_x_scale = _projection_axis(projection, "xAxis", "xScale")
             axis_y, axis_y_scale = _projection_axis(projection, "yAxis", "yScale")
@@ -495,6 +514,16 @@ def build_local_livery_atlases(
 
     if not paint_tiles:
         raise LiveryRenderContractError("The package and local car masks have no shared livery sections.")
+    aligned_bounds = (
+        build_aligned_projection_bounds(
+            projection_meshes,
+            pending_records,
+            alignment_masks,
+            assembly,
+        )
+        if projection_meshes
+        else {}
+    )
     paint_atlas, placements = _pack_paint_tiles(paint_tiles)
     paint_filename = "section-paint.png"
     _save_png(paint_atlas, output / paint_filename)
@@ -506,6 +535,11 @@ def build_local_livery_atlases(
 
     records: list[dict[str, Any]] = []
     for record in pending_records:
+        aligned = aligned_bounds.get(int(record["slot_index"]))
+        if aligned is not None:
+            record["projection_minimum"] = aligned["minimum"]
+            record["projection_maximum"] = aligned["maximum"]
+            record["projection_alignment"] = aligned["alignment"]
         left, top, width, height = placements[record["section"]]
         source_left, source_top, source_right, source_bottom = record.pop("source_bounds")
         record["source_region"] = [
@@ -533,7 +567,14 @@ def build_local_livery_atlases(
             "flip_v": False,
             "world_projection_fallback": True,
         },
-        "assembly": read_vehicle_assembly_metadata(asset),
+        "assembly": assembly,
+        "projection_bounds_source": (
+            "local-chassis-mask-alignment-v1"
+            if projection_meshes
+            else "direct-uv-only"
+            if local_mesh is not None
+            else "viewer-legacy-bounds"
+        ),
         "paint_size": list(paint_atlas.size),
         "mask_size": list(ATLAS_SIZE),
         "filters": [

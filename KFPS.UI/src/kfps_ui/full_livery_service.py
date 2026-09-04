@@ -888,6 +888,7 @@ class FullLiveryService(QObject):
             inspected = int(payload.get("inspected") or 0)
             locked = int(payload.get("locked") or 0)
             foreign_blocked = int(payload.get("foreign_blocked") or 0)
+            incomplete_blocked = int(payload.get("incomplete_blocked") or 0)
             empty = int(payload.get("empty") or 0)
             game_assets_ready = bool(payload.get("game_assets_ready"))
             stale_index = bool(payload.get("stale_index"))
@@ -908,10 +909,15 @@ class FullLiveryService(QObject):
                 self._status = "Showing last complete livery index"
                 self._summary = str(payload.get("warning") or "The configured FH6 save folder is unavailable.")
             elif rows:
+                livery_label = "livery" if len(rows) == 1 else "liveries"
+                foreign_verb = "requires" if foreign_blocked == 1 else "require"
+                incomplete_verb = "contains" if incomplete_blocked == 1 else "contain"
+                excluded_label = "livery" if locked == 1 else "liveries"
                 scan_summary = (
-                    f"Found {len(rows):,} owned full-car liveries from {inspected:,} local records. "
-                    f"{foreign_blocked:,} require foreign vinyls to be removed before export. "
-                    f"Excluded {locked:,} liveries owned by other players and {empty:,} empty records."
+                    f"Found {len(rows):,} owned full-car {livery_label} from {inspected:,} local records. "
+                    f"{foreign_blocked:,} {foreign_verb} foreign vinyls to be removed before export. "
+                    f"{incomplete_blocked:,} {incomplete_verb} incomplete or unsupported source data. "
+                    f"Excluded {locked:,} {excluded_label} owned by other players and {empty:,} empty records."
                 )
                 if game_assets_ready:
                     self._summary = scan_summary

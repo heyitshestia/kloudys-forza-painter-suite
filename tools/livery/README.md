@@ -154,6 +154,17 @@ The embedded inspector is local-only:
   contract. KFPS then uses section masks, per-side axes, local projection bounds,
   and wheel/bumper anchors for a constrained world-space fallback. Unclassified
   geometry is rejected rather than guessed into the livery route.
+- World-projected surfaces are fitted once while the render contract is built.
+  The fitter rasterizes only the correct-facing triangles, compares their edge
+  field with the car's exact section mask, and accepts only a bounded fit that
+  measurably improves alignment. The animation loop never performs fitting.
+- Direct-UV surfaces choose the strongest valid mask sample. Projected surfaces
+  choose the most front-facing valid section, and mask coverage must exceed 50
+  percent. This prevents overlapping section rectangles from bleeding across
+  the opposite body side or glass panel.
+- Camera framing uses the stable body/glass bounds and the actual viewport
+  aspect ratio. Resizing reframes only an untouched home view, so mobile layouts
+  keep the complete car visible without overriding a user's orbit or pan.
 - A new package selection cancels an obsolete conversion. Corrupt cached GLBs
   are rejected and rebuilt from the local game archive.
 
@@ -161,20 +172,27 @@ The embedded inspector is local-only:
 
 - This milestone exports, receives, validates, catalogs, inspects, and installs
   packages for the exact same FH6 car only.
-- The section-aware contract has been structurally exercised on all 56 unique
-  nonempty local liveries across 46 cars. Representative visual comparisons
-  cover recovered livery-panel geometry, asymmetric body sides, top/front/back,
-  front/rear/side windows, mask-heavy artwork, and high-suspension grounding.
+- The current section-aware contract has been exercised on 59 unique nonempty
+  local records across 47 cars. All 47 chassis conversions passed. Fifty-eight
+  records built a complete private preview; the remaining record is the known
+  39-placement custom-mesh experiment, which neither current parser recognizes
+  as standard FH6 shape data and which KFPS rejects instead of exporting.
+- A current-reference differential run compared 333,071 recoverable leaves in
+  359 populated sections. It found zero differences in leaf count, draw order,
+  transform, shape/raster identity, color, mask state, side assignment, or
+  orientation. Mean checker-space pixel error was 0.501 on a 0-255 scale; visual
+  inspection confirmed the remaining deltas are raster-edge differences.
 - A structural conversion audit covered all 660 car archives in the tested FH6
   installation. All 652 livery-capable archives produced validated scenes;
   eight traffic-only archives had no usable livery-bearing paint and are
-  intentionally unsupported. The complete local save corpus then converted 46
-  distinct cars and rendered all 56 unique nonempty liveries successfully,
-  exercising both direct UV3 and constrained projected surfaces. This proves
-  catalog-wide structural compatibility and the observed local workflows, not
-  pixel-perfect visual validation of every possible car and option combination.
-  More user-verified cars with unusual wings, mirrors, windows, and
-  all-eleven-section coverage remain useful.
+  intentionally unsupported. This proves compatibility with the tested local
+  catalog, not every FH6 car, option combination, store build, or graphics
+  driver. Steam plus repeated AMD, NVIDIA, and Intel runs remain release-gate
+  evidence rather than assumptions.
+- Two source records are intrinsically incomplete. One downloaded livery
+  declares 8,029 placements but both current parsers recover 6,130; the custom
+  shape experiment declares 39 and recovers zero. Preview-only recovery remains
+  possible where visible data exists, while shareable export fails closed.
 - The neutral wheels make the current inspector coherent but are not a faithful
   reconstruction of each car's installed wheel, tire, brake, or suspension
   configuration. Selectable scene-authored body options are supported, but the

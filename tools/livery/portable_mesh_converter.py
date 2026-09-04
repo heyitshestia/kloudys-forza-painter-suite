@@ -11,8 +11,10 @@ import subprocess
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import psutil
 
 from .vehicle_assets import VehicleAsset, inspection_carbin_entry, inspection_model_entries
@@ -28,11 +30,22 @@ class ChassisConversionCancelled(PortableMeshConverterError):
 
 MAX_LOCAL_CHASSIS_BYTES = 256 * 1024 * 1024
 MAX_CONVERTER_RESIDENT_BYTES = 2 * 1024 * 1024 * 1024
+LOCAL_CHASSIS_FORMAT_REVISION = 11
 GLB_JSON_CHUNK = 0x4E4F534A
 GLB_BINARY_CHUNK = 0x004E4942
 ROLE_NAMES = {"paint", "glass", "hidden", "dark", "trim"}
 ACCESSOR_COMPONENT_BYTES = {5121: 1, 5123: 2, 5125: 4, 5126: 4}
 ACCESSOR_COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+
+
+@dataclass(frozen=True)
+class LocalProjectionMesh:
+    name: str
+    role: str
+    projection_sides: int
+    positions: np.ndarray
+    normals: np.ndarray
+    indices: np.ndarray
 
 
 def bundled_converter_path() -> Path:
@@ -160,6 +173,98 @@ def _actual_index_max(document: dict, binary: bytes, accessor_index: object) -> 
         return max(value[0] for value in struct.iter_unpack(f"<{format_code}", binary[start:end]))
     unpack = struct.Struct(f"<{format_code}").unpack_from
     return max(unpack(binary, start + offset * stride)[0] for offset in range(count))
+
+
+def _accessor_array(
+    document: dict,
+    binary: bytes,
+    accessor_index: object,
+    *,
+    component_type: int,
+    value_type: str,
+) -> np.ndarray:
+    accessor = _validate_accessor(document, binary, accessor_index)
+    if int(accessor.get("componentType") or 0) != component_type or accessor.get("type") != value_type:
+        raise PortableMeshConverterError("The converted chassis geometry accessor has an unexpected type.")
+    accessors = _document_array(document, "accessors")
+    views = _document_array(document, "bufferViews")
+    index = _array_index(accessor_index, accessors, "accessor")
+    accessor = accessors[index]
+    view = views[_array_index(accessor["bufferView"], views, "bufferView")]
+    component_count = ACCESSOR_COMPONENTS[value_type]
+    component_size = ACCESSOR_COMPONENT_BYTES[component_type]
+    item_size = component_count * component_size
+    count = int(accessor["count"])
+    stride = int(view.get("byteStride") or item_size)
+    start = int(view.get("byteOffset") or 0) + int(accessor.get("byteOffset") or 0)
+    dtype = np.dtype("<f4" if component_type == 5126 else "<u2" if component_type == 5123 else "<u4")
+    if stride == item_size:
+        values = np.frombuffer(binary, dtype=dtype, count=count * component_count, offset=start)
+        return values.reshape(count, component_count) if component_count > 1 else values
+
+    output = np.empty((count, component_count), dtype=dtype)
+    for row in range(count):
+        output[row] = np.frombuffer(
+            binary,
+            dtype=dtype,
+            count=component_count,
+            offset=start + row * stride,
+        )
+    return output if component_count > 1 else output[:, 0]
+
+
+def read_local_chassis_projection_meshes(path: Path | str) -> list[LocalProjectionMesh]:
+    """Read the world-space meshes used only by the local mask-alignment pass."""
+
+    glb_path = Path(path)
+    validate_local_chassis_glb(glb_path)
+    document, binary = _glb_payloads(glb_path)
+    meshes = _document_array(document, "meshes")
+    result: list[LocalProjectionMesh] = []
+    for mesh_index, mesh in enumerate(meshes):
+        if not isinstance(mesh, dict):
+            raise PortableMeshConverterError("The converted chassis has an invalid mesh record.")
+        extras = mesh.get("extras") or {}
+        role = str(extras.get("kfps_role") or "")
+        projection_sides = int(extras.get("kfps_projection_sides") or 0)
+        if role not in {"paint", "glass"} or projection_sides == 0:
+            continue
+        for primitive_index, primitive in enumerate(mesh.get("primitives") or []):
+            attributes = primitive.get("attributes") or {}
+            if "TEXCOORD_3" in attributes:
+                continue
+            positions = _accessor_array(
+                document,
+                binary,
+                attributes["POSITION"],
+                component_type=5126,
+                value_type="VEC3",
+            )
+            normals = _accessor_array(
+                document,
+                binary,
+                attributes["NORMAL"],
+                component_type=5126,
+                value_type="VEC3",
+            )
+            index_accessor = _validate_accessor(document, binary, primitive["indices"])
+            index_component = int(index_accessor.get("componentType") or 0)
+            indices = _accessor_array(
+                document,
+                binary,
+                primitive["indices"],
+                component_type=index_component,
+                value_type="SCALAR",
+            ).astype(np.int64, copy=False)
+            result.append(LocalProjectionMesh(
+                name=f"{mesh.get('name') or f'mesh-{mesh_index}'}:{primitive_index}",
+                role=role,
+                projection_sides=projection_sides,
+                positions=positions,
+                normals=normals,
+                indices=indices,
+            ))
+    return result
 
 
 def validate_local_chassis_glb(path: Path | str) -> dict[str, int]:

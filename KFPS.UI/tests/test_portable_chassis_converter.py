@@ -18,6 +18,7 @@ from tools.livery.portable_mesh_converter import (
     ChassisConversionCancelled,
     PortableMeshConverterError,
     convert_vehicle_model_to_glb,
+    read_local_chassis_projection_meshes,
     validate_local_chassis_glb,
 )
 from tools.livery.vehicle_assets import VehicleAsset, load_or_build_vehicle_asset_index
@@ -181,6 +182,12 @@ class PortableChassisConverterTests(unittest.TestCase):
             report = validate_local_chassis_glb(path)
             self.assertEqual(0, report["direct_uv3_meshes"])
             self.assertEqual(1, report["projected_livery_meshes"])
+            meshes = read_local_chassis_projection_meshes(path)
+            self.assertEqual(1, len(meshes))
+            self.assertEqual("paint", meshes[0].role)
+            self.assertEqual(0x1F, meshes[0].projection_sides)
+            self.assertEqual((3, 3), meshes[0].positions.shape)
+            self.assertEqual([0, 1, 2], meshes[0].indices.tolist())
 
     def test_validator_accepts_role_appropriate_livery_sides_and_rejects_invalid_masks(self):
         with tempfile.TemporaryDirectory() as temp:

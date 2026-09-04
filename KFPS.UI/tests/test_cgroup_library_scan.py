@@ -30,6 +30,7 @@ from tools.cgroup.forza_source_decoder import (
     is_unsupported_shape_record_at,
     is_valid_shape_at,
     livery_transform_marker_sizes,
+    layers_to_kfps_json_layers,
     mark_previous_direct_shape_as_mask,
     mark_previous_terminal_shape_as_mask,
     probe_forza_source_kind,
@@ -52,12 +53,49 @@ class CGroupLibraryScanTests(unittest.TestCase):
         return ShapeNode(0x0066, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, color, 0)
 
     @staticmethod
-    def _framed_shape(shape_id: int, *, sy: float = 1.0) -> bytes:
+    def _framed_shape(shape_id: int, *, sy: float = 1.0, marker: int = 0x02) -> bytes:
         return (
-            b"\x00\x02"
+            bytes((0x00, marker))
             + struct.pack("<Hffffff", shape_id, 0.0, 1.0, 2.0, 1.0, sy, 0.0)
             + bytes((255, 255, 255, 255))
         )
+
+    @staticmethod
+    def _unframed_shape(shape_id: int, *, marker: int = 0x02) -> bytes:
+        return (
+            bytes((marker,))
+            + struct.pack("<Hffffff", shape_id, 0.0, 1.0, 2.0, 1.0, 1.0, 0.0)
+            + bytes((255, 255, 255, 255))
+        )
+
+    @classmethod
+    def _generation_payload(
+        cls,
+        generation: int,
+        shape_marker: int,
+        transform_terminator: int,
+        *,
+        framed_second: bool,
+        terminal_flag: bool,
+    ) -> bytes:
+        payload = bytearray(b"gyvl" + struct.pack("<II", 1, 0))
+        payload.extend(bytes((generation,)))
+        payload.extend(struct.pack("<ffff", 0.0, 0.0, 1.0, 0.0))
+        payload.extend(b"\x20" + struct.pack("<H", 2) + b"\x01" + bytes(3))
+        payload.extend(bytes((0x00 if framed_second else 0x02,)))
+        payload.extend(cls._unframed_shape(0x0066, marker=shape_marker))
+        if framed_second:
+            payload.extend(bytes((0x01,)) + cls._unframed_shape(0x0067, marker=shape_marker))
+        else:
+            payload.extend(bytes((0x01, transform_terminator)))
+            payload.extend(struct.pack("<ffff", 32.0, -16.0, 1.0, 0.0))
+            payload.extend(
+                b"\x20" + struct.pack("<HH", 1, 1) + bytes(3)
+                + cls._unframed_shape(0x0067, marker=shape_marker)
+            )
+        if terminal_flag:
+            payload.extend(b"\x01")
+        return bytes(payload)
 
     def test_livery_extended_transform_header_is_not_decoded_as_shape_word_0100(self):
         record = (
@@ -69,6 +107,22 @@ class CGroupLibraryScanTests(unittest.TestCase):
         self.assertTrue(is_extended_livery_transform_at(record, 0, len(record)))
         self.assertFalse(is_valid_shape_at(record, 0, len(record)))
         self.assertEqual(8, livery_transform_marker_sizes(record, 0, len(record))[0])
+
+    def test_ambiguous_shape_identity_warning_is_deduplicated(self):
+        layer = {
+            "shape_id": 0x0066,
+            "data": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
+            "color_rgba": [255, 255, 255, 255],
+        }
+        with patch(
+            "tools.cgroup.forza_source_decoder._load_word_lookup",
+            return_value={0x0066: [("basic", 1, "Circle"), ("legacy", 2, "Circle")]},
+        ):
+            converted, warnings = layers_to_kfps_json_layers([layer, layer])
+
+        self.assertEqual(2, len(converted))
+        self.assertEqual(1, len(warnings))
+        self.assertIn("2 resource matches", warnings[0])
 
     def test_livery_parent_bitmap_wins_over_ambiguous_extended_transform(self):
         child_group = (
@@ -98,7 +152,7 @@ class CGroupLibraryScanTests(unittest.TestCase):
         self.assertIsInstance(parent.items[0], GroupNode)
         self.assertEqual(2, parent.items[0].expected_children)
 
-    def test_livery_protected_wrapper_is_not_consumed_as_section_group_transform(self):
+    def test_livery_mirrored_transform_trailer_is_consumed_structurally(self):
         child_group = (
             b"\x20"
             + struct.pack("<HH", 1, 1)
@@ -119,11 +173,90 @@ class CGroupLibraryScanTests(unittest.TestCase):
             + child_group
         )
 
-        self.assertIsNone(
-            valid_markerless_group_at(
-                section_lead, 0, len(section_lead), allow_count_one=True, livery=True
-            )
+        decoded = valid_markerless_group_at(
+            section_lead, 0, len(section_lead), allow_count_one=True, livery=True
         )
+
+        self.assertIsNotNone(decoded)
+        self.assertTrue(decoded.inline_for_first_child)
+        self.assertAlmostEqual(0.47, decoded.inline_transform.sy, places=5)
+
+    def test_generation_1_markerless_root_and_legacy_shapes_decode(self):
+        payload = bytearray(b"gyvl" + struct.pack("<II", 1, 0))
+        payload.extend(b"\x01" + struct.pack("<ffff", 0.0, 0.0, 1.0, 0.0))
+        payload.extend(b"\x00" + struct.pack("<H", 2) + b"\x01" + bytes(3) + b"\x00")
+        payload.extend(self._unframed_shape(0x0066, marker=0x01))
+        payload.extend(self._unframed_shape(0x0067, marker=0x01))
+
+        layers, report = cgroup_to_layers(bytes(payload), game="fh6")
+
+        self.assertEqual([0x0066, 0x0067], [layer["shape_id"] for layer in layers])
+        self.assertEqual(37, report["layer_data_start"])
+        self.assertEqual("generation_1", report["record_generation"])
+        self.assertTrue(report["markerless_root_header"])
+
+    def test_generation_2_framing_does_not_create_masks(self):
+        payload = self._generation_payload(
+            0x02,
+            0x01,
+            0x02,
+            framed_second=True,
+            terminal_flag=True,
+        )
+
+        layers, report = cgroup_to_layers(payload, game="fh6")
+
+        self.assertEqual(2, len(layers))
+        self.assertEqual([False, False], [layer["mask"] for layer in layers])
+        self.assertEqual("generation_2", report["record_generation"])
+
+    def test_current_generation_preserves_trailing_masks(self):
+        payload = self._generation_payload(
+            0x03,
+            0x02,
+            0x03,
+            framed_second=True,
+            terminal_flag=True,
+        )
+
+        layers, report = cgroup_to_layers(payload, game="fh6")
+
+        self.assertEqual(2, len(layers))
+        self.assertEqual([True, True], [layer["mask"] for layer in layers])
+        self.assertEqual("current", report["record_generation"])
+
+    def test_standalone_transform_trailer_precedes_markerless_group(self):
+        payload = bytearray(b"gyvl" + struct.pack("<II", 1, 0))
+        payload.extend(b"\x03" + struct.pack("<ffff", 0.0, 0.0, 1.0, 0.0))
+        payload.extend(b"\x20" + struct.pack("<H", 1) + b"\x01" + bytes(3) + b"\x01")
+        payload.extend(b"\x01\x03" + struct.pack("<ffff", 32.0, -16.0, 1.0, 0.0))
+        payload.extend(bytes.fromhex("21949fe18af9010900"))
+        payload.extend(struct.pack("<HH", 2, 1) + bytes(3))
+        payload.extend(self._unframed_shape(0x0066))
+        payload.extend(self._unframed_shape(0x0067))
+
+        layers, report = cgroup_to_layers(bytes(payload), game="fh6")
+
+        self.assertEqual(2, len(layers))
+        self.assertEqual([], report["warnings"])
+        self.assertAlmostEqual(33.0, layers[0]["data"][0], places=5)
+
+    def test_livery_transform_trailer_carries_mask_and_mirrored_scale(self):
+        child_group = (
+            b"\x20" + struct.pack("<HH", 1, 1) + bytes(3)
+            + self._framed_shape(0x0066)
+        )
+        record = (
+            b"\x00" + struct.pack("<ffff", 10.0, -20.0, -2.0, 25.0)
+            + b"\x71" + bytes.fromhex("1122334455667788") + struct.pack("<f", 3.0)
+            + child_group
+        )
+
+        decoded = read_livery_transform(record, 0, len(record))
+
+        self.assertIsNotNone(decoded)
+        self.assertEqual(0x40, decoded[3])
+        self.assertAlmostEqual(3.0, decoded[1].sy, places=5)
 
     def test_counted_group_does_not_capture_zero_led_child_transform(self):
         leaf_group = (
@@ -347,7 +480,7 @@ class CGroupLibraryScanTests(unittest.TestCase):
         self.assertFalse(layers[1]["mask"])
 
     def test_unsupported_livery_record_occupies_child_without_shifting_next_section(self):
-        unsupported = self._framed_shape(0x0BB8)
+        unsupported = self._framed_shape(0x1000)
         front_shape = self._framed_shape(0x0066)
         back_shape = self._framed_shape(0x0067)
         front = (
@@ -367,6 +500,16 @@ class CGroupLibraryScanTests(unittest.TestCase):
             [("Front", 0x0066), ("Back", 0x0067)],
         )
         self.assertEqual(warnings, ["Front: decoded 1 layer(s), stats target is 2"])
+
+    def test_fh6_impact_lowercase_a_wire_alias_is_rendered(self):
+        aliased_shape = self._framed_shape(0x0BB8)
+        body = aliased_shape + bytes(18 + 23 * 10)
+
+        self.assertFalse(is_unsupported_shape_record_at(aliased_shape, 0, len(aliased_shape)))
+        layers, warnings = build_livery_sections(body, [1] + [0] * 10)
+
+        self.assertEqual(warnings, [])
+        self.assertEqual([layer["shape_id"] for layer in layers], [0x0BB9])
 
     def test_fh5_wgs_discovers_opaque_direct_and_wrapped_groups(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -8,6 +8,9 @@ stage and shows the existing WIP notice once per application session.
 
 The implementation and validation state completed on 2026-08-23 is recorded in
 [`FULL_LIVERY_IMPLEMENTATION_RECORD_2026-08-23.md`](FULL_LIVERY_IMPLEMENTATION_RECORD_2026-08-23.md).
+The renderer/parser production-candidate pass completed on 2026-09-03 is
+recorded in
+[`../../docs/FULL_LIVERY_PRODUCTION_READINESS_2026-09-03.md`](../../docs/FULL_LIVERY_PRODUCTION_READINESS_2026-09-03.md).
 
 The experiment may be marked stable only when the checked qualification matrix
 matches the current KFPS version, package compiler revision, and cache revision.
@@ -120,3 +123,9 @@ Developer evidence is maintained with:
 
 Failed checks remain failed. Evidence is not carried across KFPS versions or
 cache/package revisions without explicit revalidation.
+
+The 2026-09-03 local evidence covers 59 nonempty save records, 47 exact-car
+chassis conversions, 333,071 recoverable leaves, 359 populated sections, an
+isolated copied-save package round trip, and repeated browser resource-lifecycle
+checks. It does not satisfy the store/GPU matrix by itself; the subsystem stays
+at `candidate` until those external checks are recorded.

@@ -34,6 +34,13 @@ except ImportError:  # pragma: no cover - direct script execution fallback
 
 
 MAX_SHAPE_ID = 0x2000
+GENERATION_1_ROOT_MARKER = 0x01
+GENERATION_1_TRANSFORM_MARKER = 0x01
+GENERATION_2_ROOT_MARKER = 0x02
+LEGACY_SHAPE_MARKER = 0x01
+GENERATION_2_TRANSFORM_MARKER = 0x02
+CURRENT_SHAPE_MARKER = 0x02
+CURRENT_TRANSFORM_MARKER = 0x03
 LIVERY_SECTION_NAMES = [
     "Front",
     "Back",
@@ -110,6 +117,13 @@ class GroupInfo:
     inline_for_first_child: bool = False
     child_bitmap: bytes = b""
     control_bytes: bytes = b""
+
+
+@dataclass(frozen=True)
+class TransformTrailer:
+    size: int
+    sy: float | None = None
+    flags: int = 0
 
 
 @dataclass
@@ -334,10 +348,14 @@ def is_extended_livery_transform_at(data: bytes, pos: int, end: int) -> bool:
 
 
 def canonical_shape_id(shape_id: int) -> int:
-    """Normalize the one FH wire alias used by the shared shape registry."""
+    """Normalize FH wire aliases used by the shared shape registry."""
 
     value = int(shape_id) & 0xFFFF
-    return 0x07D1 if value == 0x07D0 else value
+    if value == 0x07D0:
+        return 0x07D1
+    if value == 0x0BB8:
+        return 0x0BB9
+    return value
 
 
 def is_known_shape_id(shape_id: int) -> bool:
@@ -351,30 +369,41 @@ def is_known_shape_id(shape_id: int) -> bool:
     return False
 
 
-def is_valid_shape_at(data: bytes, pos: int, end: int) -> bool:
+def shape_record_size_at(
+    data: bytes,
+    pos: int,
+    end: int,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+) -> int:
     if pos < 0 or pos >= end or pos >= len(data):
-        return False
-    if is_extended_livery_transform_at(data, pos, end):
-        return False
-    if bytes_at(data, pos, b"\x00\x02", end) or bytes_at(data, pos, b"\x01\x02", end):
+        return 0
+    if shape_marker == CURRENT_SHAPE_MARKER and is_extended_livery_transform_at(data, pos, end):
+        return 0
+    if (
+        pos + 1 < end
+        and data[pos] in (0x00, 0x01)
+        and data[pos + 1] == shape_marker
+    ):
         if pos + 32 > end:
-            return False
+            return 0
         shape_id = read_u16(data, pos + 2)
         offset = 0
-    elif data[pos] == 0x02:
+        size = 32
+    elif data[pos] == shape_marker:
         if pos + 31 > end:
-            return False
+            return 0
         shape_id = read_u16(data, pos + 1)
         offset = -1
+        size = 31
     else:
-        return False
+        return 0
     rotation = read_f32(data, pos + 4 + offset)
     x = read_f32(data, pos + 8 + offset)
     y = read_f32(data, pos + 12 + offset)
     sx = read_f32(data, pos + 16 + offset)
     sy = read_f32(data, pos + 20 + offset)
     skew = read_f32(data, pos + 24 + offset)
-    return (
+    valid = (
         is_known_shape_id(shape_id)
         and math.isfinite(rotation)
         and abs(rotation) <= 10000.0
@@ -389,6 +418,16 @@ def is_valid_shape_at(data: bytes, pos: int, end: int) -> bool:
         and math.isfinite(skew)
         and abs(skew) < 200.0
     )
+    return size if valid else 0
+
+
+def is_valid_shape_at(
+    data: bytes,
+    pos: int,
+    end: int,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+) -> bool:
+    return shape_record_size_at(data, pos, end, shape_marker) > 0
 
 
 def is_fm8_legacy_shape_at(data: bytes, pos: int, end: int) -> bool:
@@ -430,7 +469,7 @@ def decode_fm8_legacy_shape_at(
 ) -> ShapeNode:
     b, g, r, a = data[pos + 27 : pos + 31]
     return ShapeNode(
-        shape_id=read_u16(data, pos + 1),
+        shape_id=canonical_shape_id(read_u16(data, pos + 1)),
         rotation=read_f32(data, pos + 3),
         x=read_f32(data, pos + 7),
         y=read_f32(data, pos + 11),
@@ -446,7 +485,12 @@ def decode_fm8_legacy_shape_at(
     )
 
 
-def is_unsupported_shape_record_at(data: bytes, pos: int, end: int) -> bool:
+def is_unsupported_shape_record_at(
+    data: bytes,
+    pos: int,
+    end: int,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+) -> bool:
     """Recognize an unknown framed record that still occupies a group child slot."""
 
     if (
@@ -454,7 +498,7 @@ def is_unsupported_shape_record_at(data: bytes, pos: int, end: int) -> bool:
         or pos + 32 > end
         or pos + 32 > len(data)
         or data[pos] not in (0x00, 0x01)
-        or data[pos + 1] != 0x02
+        or data[pos + 1] != shape_marker
     ):
         return False
     shape_id = canonical_shape_id(read_u16(data, pos + 2))
@@ -529,15 +573,22 @@ def is_livery_logo_at(data: bytes, pos: int, end: int) -> bool:
     return livery_logo_record_size_at(data, pos, end) > 0
 
 
-def decode_shape_at(data: bytes, pos: int, is_mask: bool = False, flags: int = 0) -> ShapeNode:
+def decode_shape_at(
+    data: bytes,
+    pos: int,
+    is_mask: bool = False,
+    flags: int = 0,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+) -> ShapeNode:
     first = data[pos]
-    off = 0 if first in (0x00, 0x01) else -1
+    framed = first in (0x00, 0x01) and data[pos + 1] == shape_marker
+    off = 0 if framed else -1
     marker_len = 2 if off == 0 else 1
     if off == 0 and flags == 0:
         flags = first
     b, g, r, a = data[pos + 28 + off : pos + 32 + off]
     return ShapeNode(
-        shape_id=read_u16(data, pos + 2 + off),
+        shape_id=canonical_shape_id(read_u16(data, pos + 2 + off)),
         rotation=read_f32(data, pos + 4 + off),
         x=read_f32(data, pos + 8 + off),
         y=read_f32(data, pos + 12 + off),
@@ -566,11 +617,12 @@ def transform_markers_at(
     end: int,
     livery: bool = False,
     game: str | None = None,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
 ) -> list[bytes]:
     if pos >= end:
         return []
     markers: list[bytes] = []
-    term = 0x01 if livery else 0x03
+    term = 0x01 if livery else transform_terminator
     game_key = normalize_game_key(game)
     if not livery and game_key == "fm8" and data[pos] == 0x02:
         markers.append(b"\x02")
@@ -580,29 +632,21 @@ def transform_markers_at(
             cursor += 1
         if cursor < end and data[cursor] == term:
             markers.append(data[pos : cursor + 1])
-    if pos + 1 < end and (data[pos] & 0x01) and data[pos + 1] == term:
+    lead = data[pos]
+    if lead & 0x01:
+        if (
+            pos + 2 < end
+            and data[pos + 1] == transform_terminator
+            and data[pos + 2] == term
+        ):
+            markers.append(data[pos : pos + 3])
+        if pos + 1 < end and data[pos + 1] == term:
+            markers.append(data[pos : pos + 2])
+    if lead == term and pos + 1 < end and data[pos + 1] == term:
         markers.append(data[pos : pos + 2])
-    std_markers = [
-        b"\x00\x01\x01\x03",
-        b"\x00\x01\x03",
-        b"\xdf\x03\x03",
-        b"\x03\x03",
-        b"\x3f\x03",
-        b"\x2f\x03",
-        b"\x1f\x03",
-        b"\x0f\x03",
-        b"\x0d\x03",
-        b"\x07\x03",
-        b"\x01\x03",
-        b"\x00\x03",
-        b"\x03",
-    ]
-    for marker in std_markers:
-        if livery and marker[0] == 0x00:
-            continue
-        candidate = marker[:-1] + bytes([0x01]) if livery else marker
-        if data[pos : pos + len(candidate)] == candidate and candidate not in markers:
-            markers.append(candidate)
+    if lead == term:
+        markers.append(data[pos : pos + 1])
+    markers = list(dict.fromkeys(markers))
     markers.sort(key=len, reverse=True)
     return markers
 
@@ -613,8 +657,17 @@ def read_transform_record(
     end: int,
     livery: bool = False,
     game: str | None = None,
-) -> tuple[int, Transform, bytes] | None:
-    for marker in transform_markers_at(data, pos, end, livery=livery, game=game):
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+) -> tuple[int, Transform, bytes, int] | None:
+    for marker in transform_markers_at(
+        data,
+        pos,
+        end,
+        livery=livery,
+        game=game,
+        transform_terminator=transform_terminator,
+    ):
         transform = read_transform_payload(data, pos + len(marker), end)
         if not transform:
             continue
@@ -625,7 +678,21 @@ def read_transform_record(
             if 0.0001 <= abs(sy) <= 5000.0:
                 transform.sy = sy
                 size += 5
-        return size, transform, marker
+        flags = 0
+        trailer = livery_transform_trailer(data, pos + size, end)
+        if trailer and group_at_or_after_control_byte(
+            data,
+            pos + size + trailer.size,
+            end,
+            False,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        ):
+            size += trailer.size
+            flags |= trailer.flags
+            if trailer.sy is not None:
+                transform.sy = trailer.sy
+        return size, transform, marker, flags
     return None
 
 
@@ -635,46 +702,39 @@ LIVERY_TRANSFORM_MIRROR_TRAILER_SIZE = 13
 
 def livery_transform_trailer(
     data: bytes, pos: int, end: int
-) -> tuple[int, float | None] | None:
+) -> TransformTrailer | None:
     if (
         pos < 0
         or pos + LIVERY_TRANSFORM_TRAILER_SIZE > end
-        or data[pos] not in (0x21, 0x31)
-        or data[pos + 7] != 0x09
-        or data[pos + 8] != 0x00
     ):
         return None
-    if data[pos] == 0x21:
-        return LIVERY_TRANSFORM_TRAILER_SIZE, None
-    if pos + LIVERY_TRANSFORM_MIRROR_TRAILER_SIZE > end:
+
+    lead = data[pos]
+    if (lead & ~0x50) != 0x21:
         return None
-    sy = read_f32(data, pos + LIVERY_TRANSFORM_TRAILER_SIZE)
-    if not (0.0001 <= abs(sy) <= 5000.0):
-        return None
-    return LIVERY_TRANSFORM_MIRROR_TRAILER_SIZE, sy
+
+    size = LIVERY_TRANSFORM_TRAILER_SIZE
+    sy = None
+    if lead & 0x10:
+        if pos + LIVERY_TRANSFORM_MIRROR_TRAILER_SIZE > end:
+            return None
+        sy = read_f32(data, pos + LIVERY_TRANSFORM_TRAILER_SIZE)
+        if not (math.isfinite(sy) and 0.0001 <= abs(sy) <= 5000.0):
+            return None
+        size = LIVERY_TRANSFORM_MIRROR_TRAILER_SIZE
+    return TransformTrailer(size=size, sy=sy, flags=lead & 0x40)
 
 
 def parser_livery_transform_trailer(
     data: bytes, pos: int, end: int
-) -> tuple[int, float | None] | None:
-    """Return the transform trailer used by the FH6 livery tree grammar.
+) -> TransformTrailer | None:
+    """Return a structurally valid FH6 transform trailer.
 
-    The privacy scanner deliberately recognizes the broader 0x31 protected
-    wrapper above. In the artwork grammar, however, only the fixed nine-byte
-    0x21 trailer belongs to a transform. Treating 0x31 as an artwork trailer
-    turns section-leading control bytes into a false group header and applies
-    a frame that the game/FLS scene importer does not use.
+    Trailer payload bytes are opaque. A caller must additionally prove that a
+    group starts immediately after the reported trailer before consuming it.
     """
 
-    if (
-        pos < 0
-        or pos + LIVERY_TRANSFORM_TRAILER_SIZE > end
-        or data[pos] != 0x21
-        or data[pos + 7] != 0x09
-        or data[pos + 8] != 0x00
-    ):
-        return None
-    return LIVERY_TRANSFORM_TRAILER_SIZE, None
+    return livery_transform_trailer(data, pos, end)
 
 
 def livery_transform_marker_sizes(data: bytes, pos: int, end: int) -> list[int]:
@@ -696,43 +756,76 @@ def livery_transform_trailer_at(data: bytes, pos: int, end: int) -> bool:
 
 def _livery_group_after_transform(
     data: bytes, pos: int, end: int
-) -> tuple[GroupInfo, int, int, float | None] | None:
+) -> tuple[GroupInfo, int, int, float | None, int] | None:
     group = valid_counted_group_at(data, pos, end, livery=True) or valid_markerless_group_at(
         data, pos, end, True, True
     )
     if group:
-        return group, pos, 0, None
+        return group, pos, 0, None, 0
     if pos + 1 < end and not is_valid_shape_at(data, pos, end) and not is_livery_logo_at(data, pos, end):
         group = valid_counted_group_at(
             data, pos + 1, end, livery=True
         ) or valid_markerless_group_at(data, pos + 1, end, True, True)
         if group:
-            return group, pos + 1, 0, None
+            return group, pos + 1, 0, None, 0
     trailer = parser_livery_transform_trailer(data, pos, end)
     if trailer:
-        trailer_size, trailing_sy = trailer
-        group_pos = pos + trailer_size
+        group_pos = pos + trailer.size
         group = valid_counted_group_at(
             data, group_pos, end, livery=True
         ) or valid_markerless_group_at(data, group_pos, end, True, True)
         if group:
-            return group, group_pos, trailer_size, trailing_sy
+            return group, group_pos, trailer.size, trailer.sy, trailer.flags
     return None
 
 
-def group_at_or_after_control_byte(data: bytes, pos: int, end: int, livery: bool) -> bool:
-    if valid_counted_group_at(data, pos, end, livery) or valid_markerless_group_at(
-        data, pos, end, False, livery
+def group_at_or_after_control_byte(
+    data: bytes,
+    pos: int,
+    end: int,
+    livery: bool,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+) -> bool:
+    if valid_counted_group_at(
+        data,
+        pos,
+        end,
+        livery,
+        shape_marker=shape_marker,
+        transform_terminator=transform_terminator,
+    ) or valid_markerless_group_at(
+        data,
+        pos,
+        end,
+        False,
+        livery,
+        shape_marker=shape_marker,
+        transform_terminator=transform_terminator,
     ):
         return True
     return bool(
-        livery
-        and pos + 1 < end
-        and not is_valid_shape_at(data, pos, end)
+        pos + 1 < end
+        and not is_valid_shape_at(data, pos, end, shape_marker)
         and not is_livery_logo_at(data, pos, end)
         and (
-            valid_counted_group_at(data, pos + 1, end, True)
-            or valid_markerless_group_at(data, pos + 1, end, False, True)
+            valid_counted_group_at(
+                data,
+                pos + 1,
+                end,
+                livery,
+                shape_marker=shape_marker,
+                transform_terminator=transform_terminator,
+            )
+            or valid_markerless_group_at(
+                data,
+                pos + 1,
+                end,
+                False,
+                livery,
+                shape_marker=shape_marker,
+                transform_terminator=transform_terminator,
+            )
         )
     )
 
@@ -743,7 +836,7 @@ def read_livery_transform(
     end: int,
     *,
     invert_odd_rotation: bool = True,
-) -> tuple[int, Transform, bytes] | None:
+) -> tuple[int, Transform, bytes, int] | None:
     if pos >= end or (
         data[pos] != 0x00
         and (is_valid_shape_at(data, pos + 1, end) or is_livery_logo_at(data, pos + 1, end))
@@ -763,7 +856,7 @@ def read_livery_transform(
         successor = _livery_group_after_transform(data, pos + size, end)
         if successor is None:
             continue
-        group, _, trailer_size, trailing_sy = successor
+        group, _, trailer_size, trailing_sy, trailing_flags = successor
         if trailing_sy is not None:
             transform.sy = trailing_sy
         marker = data[pos : pos + marker_size]
@@ -784,23 +877,36 @@ def read_livery_transform(
             and scaled_first_child
         ):
             transform.rotation = -transform.rotation
-        return size + trailer_size, transform, marker
+        return size + trailer_size, transform, marker, trailing_flags
     return None
 
 
-def _read_inline_transform(data: bytes, extra: int, end: int, livery: bool) -> tuple[int, Transform, bytes] | None:
+def _read_inline_transform(
+    data: bytes,
+    extra: int,
+    end: int,
+    livery: bool,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+    first_child_is_shape: bool = False,
+) -> tuple[int, Transform, bytes, bool] | None:
     # A framed livery shape starts with the same zero byte accepted by the
     # transform marker grammar. Child records win at an established group
     # boundary; otherwise the shape payload can be swallowed as a 17-byte
     # inline transform and the section drifts into the following slot.
-    if livery and (is_valid_shape_at(data, extra, end) or is_livery_logo_at(data, extra, end)):
+    if first_child_is_shape and (
+        is_valid_shape_at(data, extra, end, shape_marker)
+        or (livery and is_livery_logo_at(data, extra, end))
+    ):
         return None
-    markers = transform_markers_at(data, extra, end, livery=livery)
+    markers = transform_markers_at(
+        data,
+        extra,
+        end,
+        livery=livery,
+        transform_terminator=transform_terminator,
+    )
     for marker in markers:
-        if livery and marker[-1] == 0x01 and (
-            is_valid_shape_at(data, extra + 1, end) or is_livery_logo_at(data, extra + 1, end)
-        ):
-            continue
         transform = read_transform_payload(data, extra + len(marker), end)
         if not transform:
             continue
@@ -813,7 +919,15 @@ def _read_inline_transform(data: bytes, extra: int, end: int, livery: bool) -> t
             if 0.0001 <= abs(sy) <= 5000.0:
                 transform.sy = sy
                 size += 5
-        return size, transform, marker
+        transform_for_first_child = group_at_or_after_control_byte(
+            data,
+            extra + size,
+            end,
+            livery,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        )
+        return size, transform, marker, transform_for_first_child
     return None
 
 
@@ -865,7 +979,7 @@ def _livery_child_boundary_score(data: bytes, pos: int, end: int) -> int:
         return 6
     trailer = livery_transform_trailer(data, pos, end)
     if trailer:
-        return max(0, _livery_child_boundary_score(data, pos + trailer[0], end) - 1)
+        return max(0, _livery_child_boundary_score(data, pos + trailer.size, end) - 1)
     if pos + 1 < end and data[pos] in (0x01, 0x02, 0x03, 0x0F, 0xFF):
         return max(0, _livery_child_boundary_score(data, pos + 1, end) - 2)
     return 0
@@ -901,12 +1015,18 @@ def _livery_markerless_candidate(
         child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
         control_bytes=data[control_start:bitmap_start],
     )
-    inline = _read_inline_transform(data, pos + base_size, end, True)
+    inline = _read_inline_transform(
+        data,
+        pos + base_size,
+        end,
+        True,
+        first_child_is_shape=not bool(info.child_bitmap and info.child_bitmap[0] & 0x01),
+    )
     if inline:
-        size, transform, marker = inline
+        size, transform, marker, transform_for_first_child = inline
         info.size += size
         info.inline_transform = transform
-        info.inline_for_first_child = group_at_or_after_control_byte(data, pos + info.size, end, True)
+        info.inline_for_first_child = transform_for_first_child
         info.marker = marker
     elif info.child_bitmap and (info.child_bitmap[0] & 0x01):
         extra = pos + base_size
@@ -922,11 +1042,10 @@ def _livery_markerless_candidate(
                     child += 5
             trailer = parser_livery_transform_trailer(data, child, end)
             if trailer:
-                trailer_size, trailing_sy = trailer
-                transform_size += trailer_size
-                child += trailer_size
-                if trailing_sy is not None:
-                    transform.sy = trailing_sy
+                transform_size += trailer.size
+                child += trailer.size
+                if trailer.sy is not None:
+                    transform.sy = trailer.sy
             if group_at_or_after_control_byte(data, child, end, True):
                 info.inline_transform = transform
                 info.inline_for_first_child = True
@@ -945,6 +1064,8 @@ def valid_markerless_group_at(
     end: int,
     allow_count_one: bool = False,
     livery: bool = False,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
 ) -> GroupInfo | None:
     if livery:
         min_count = 1 if allow_count_one else 2
@@ -979,42 +1100,100 @@ def valid_markerless_group_at(
     if pos + 3 > end:
         return None
     count = read_u16(data, pos)
-    child_blocks = data[pos + 2]
+    child_blocks = (count + 7) // 8
     min_count = 1 if allow_count_one else 2
-    if count < min_count or child_blocks <= 0 or child_blocks != (count + 7) // 8:
+    if count < min_count or child_blocks <= 0:
         return None
-    base_size = 3 + child_blocks + 2
-    if pos + base_size > end:
-        return None
-    info = GroupInfo(count=count, child_blocks=child_blocks, size=base_size, marker=b"")
-    extra = pos + base_size
-    inline = _read_inline_transform(data, extra, end, livery)
-    if inline:
-        size, transform, marker = inline
-        info.size += size
-        info.inline_transform = transform
-        info.marker = marker
-        return info
-    child_here = is_valid_shape_at(data, extra, end) or (
-        livery and is_livery_logo_at(data, extra, end)
-    ) or valid_counted_group_at(data, extra, end, livery) or (
-        livery and livery_transform_then_child_at(data, extra, end)
-    )
-    if child_here:
-        return info
-    if extra + 1 < end and (
-        is_valid_shape_at(data, extra + 1, end)
-        or (livery and is_livery_logo_at(data, extra + 1, end))
-        or valid_counted_group_at(data, extra + 1, end, livery)
-        or (livery and livery_transform_then_child_at(data, extra + 1, end))
-    ):
-        info.flags |= data[extra] & ~0x40
-        info.size += 1
-        return info
+
+    candidates: list[GroupInfo] = []
+    if pos + 4 <= end and read_u16(data, pos + 2) == child_blocks:
+        control_start = pos + 4
+        bitmap_start = control_start + 2
+        base_size = 4 + 2 + child_blocks
+        if pos + base_size <= end:
+            candidates.append(
+                GroupInfo(
+                    count=count,
+                    child_blocks=child_blocks,
+                    size=base_size,
+                    marker=b"",
+                    child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
+                    control_bytes=data[control_start:bitmap_start],
+                )
+            )
+    if data[pos + 2] == child_blocks:
+        control_start = pos + 3
+        bitmap_start = control_start + 2
+        base_size = 3 + 2 + child_blocks
+        if pos + base_size <= end:
+            candidates.append(
+                GroupInfo(
+                    count=count,
+                    child_blocks=child_blocks,
+                    size=base_size,
+                    marker=b"",
+                    child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
+                    control_bytes=data[control_start:bitmap_start],
+                )
+            )
+
+    for info in candidates:
+        extra = pos + info.size
+        first_child_is_shape = not bool(info.child_bitmap and info.child_bitmap[0] & 0x01)
+        inline = _read_inline_transform(
+            data,
+            extra,
+            end,
+            False,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+            first_child_is_shape=first_child_is_shape,
+        )
+        if inline:
+            size, transform, marker, transform_for_first_child = inline
+            info.size += size
+            info.inline_transform = transform
+            info.inline_for_first_child = transform_for_first_child
+            info.marker = marker
+            return info
+        child_here = (
+            is_valid_shape_at(data, extra, end, shape_marker)
+            or valid_counted_group_at(
+                data,
+                extra,
+                end,
+                False,
+                shape_marker=shape_marker,
+                transform_terminator=transform_terminator,
+            )
+        )
+        if child_here or extra == end:
+            return info
+        if extra + 1 < end and (
+            is_valid_shape_at(data, extra + 1, end, shape_marker)
+            or valid_counted_group_at(
+                data,
+                extra + 1,
+                end,
+                False,
+                shape_marker=shape_marker,
+                transform_terminator=transform_terminator,
+            )
+        ):
+            info.flags |= data[extra] & ~0x40
+            info.size += 1
+            return info
     return None
 
 
-def valid_counted_group_at(data: bytes, pos: int, end: int, livery: bool = False) -> GroupInfo | None:
+def valid_counted_group_at(
+    data: bytes,
+    pos: int,
+    end: int,
+    livery: bool = False,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+) -> GroupInfo | None:
     if livery:
         if pos + 5 > end or data[pos] not in (0x20, 0x60):
             return None
@@ -1038,12 +1217,18 @@ def valid_counted_group_at(data: bytes, pos: int, end: int, livery: bool = False
             control_bytes=data[control_start:bitmap_start],
         )
         extra = pos + base_size
-        inline = _read_inline_transform(data, extra, end, True)
+        inline = _read_inline_transform(
+            data,
+            extra,
+            end,
+            True,
+            first_child_is_shape=not bool(info.child_bitmap and info.child_bitmap[0] & 0x01),
+        )
         if inline:
-            size, transform, marker = inline
+            size, transform, marker, transform_for_first_child = inline
             info.size += size
             info.inline_transform = transform
-            info.inline_for_first_child = group_at_or_after_control_byte(data, pos + info.size, end, True)
+            info.inline_for_first_child = transform_for_first_child
             info.marker = marker
             return info
         if extra < end and data[extra] in (0x02, 0x03, 0xFF):
@@ -1062,37 +1247,68 @@ def valid_counted_group_at(data: bytes, pos: int, end: int, livery: bool = False
     if pos + 4 > end or data[pos] not in (0x20, 0x60):
         return None
     count = read_u16(data, pos + 1)
-    child_blocks = data[pos + 3]
-    if count <= 0 or child_blocks <= 0 or child_blocks != (count + 7) // 8:
+    child_blocks = (count + 7) // 8
+    if count <= 0 or child_blocks <= 0:
         return None
-    base_size = 4 + child_blocks + 2
-    if pos + base_size > end:
-        return None
-    info = GroupInfo(
-        count=count,
-        child_blocks=child_blocks,
-        size=base_size,
-        flags=0x40 if data[pos] == 0x60 else 0,
-        marker=data[pos : pos + 1],
-    )
-    extra = pos + base_size
-    inline = _read_inline_transform(data, extra, end, livery)
-    if inline:
-        size, transform, marker = inline
-        info.size += size
-        info.inline_transform = transform
-        info.marker = marker
-        return info
-    if extra < end and data[extra] in (0x02, 0x03, 0xFF):
-        info.flags |= data[extra] & ~0x40
-        info.size += 1
-    elif livery and extra + 1 < end and data[extra] == 0x01 and not is_valid_shape_at(data, extra, end):
-        if is_valid_shape_at(data, extra + 1, end) or is_livery_logo_at(
-            data, extra + 1, end
-        ) or valid_counted_group_at(data, extra + 1, end, True):
-            info.flags |= 0x01
+
+    candidates: list[GroupInfo] = []
+    if pos + 5 <= end and read_u16(data, pos + 3) == child_blocks:
+        control_start = pos + 5
+        bitmap_start = control_start + 2
+        base_size = 5 + 2 + child_blocks
+        if pos + base_size <= end:
+            candidates.append(
+                GroupInfo(
+                    count=count,
+                    child_blocks=child_blocks,
+                    size=base_size,
+                    flags=0x40 if data[pos] == 0x60 else 0,
+                    marker=data[pos : pos + 1],
+                    child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
+                    control_bytes=data[control_start:bitmap_start],
+                )
+            )
+    if data[pos + 3] == child_blocks:
+        control_start = pos + 4
+        bitmap_start = control_start + 2
+        base_size = 4 + 2 + child_blocks
+        if pos + base_size <= end:
+            candidates.append(
+                GroupInfo(
+                    count=count,
+                    child_blocks=child_blocks,
+                    size=base_size,
+                    flags=0x40 if data[pos] == 0x60 else 0,
+                    marker=data[pos : pos + 1],
+                    child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
+                    control_bytes=data[control_start:bitmap_start],
+                )
+            )
+
+    for info in candidates:
+        extra = pos + info.size
+        first_child_is_shape = not bool(info.child_bitmap and info.child_bitmap[0] & 0x01)
+        inline = _read_inline_transform(
+            data,
+            extra,
+            end,
+            False,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+            first_child_is_shape=first_child_is_shape,
+        )
+        if inline:
+            size, transform, marker, transform_for_first_child = inline
+            info.size += size
+            info.inline_transform = transform
+            info.inline_for_first_child = transform_for_first_child
+            info.marker = marker
+            return info
+        if extra < end and not is_valid_shape_at(data, extra, end, shape_marker) and data[extra] in (0x02, 0x03, 0xFF):
+            info.flags |= data[extra] & ~0x40
             info.size += 1
-    return info
+        return info
+    return None
 
 
 def inline_transform_for_first_child(marker: bytes) -> bool:
@@ -1181,27 +1397,30 @@ def mark_previous_terminal_shape_as_mask(state: WalkState, authoritative: bool =
     return True
 
 
-def consume_root_close_suffix(data: bytes, pos: int, state: WalkState) -> bool:
+def consume_root_close_suffix(
+    data: bytes,
+    pos: int,
+    state: WalkState,
+    *,
+    preserve_mask: bool = True,
+) -> bool:
     """Consume an exact FH root close sequence and preserve its final mask bit."""
     if not state.stack or not group_complete(state.stack[0]):
         return False
     suffix = data[pos:]
+    if suffix == b"\x01":
+        if preserve_mask:
+            mark_previous_terminal_shape_as_mask(state, authoritative=True)
+        return True
     if len(suffix) < 2 or suffix[0] not in (0x00, 0x01) or any(byte != 0x01 for byte in suffix[1:]):
         return False
-    if suffix[0] & 0x01:
+    if preserve_mask and suffix[0] & 0x01:
         mark_previous_terminal_shape_as_mask(state, authoritative=True)
     return True
 
 
 def push_markerless_group(data: bytes, pos: int, end: int, info: GroupInfo, state: WalkState, livery: bool = False) -> int:
-    inline_for_first = bool(
-        info.inline_transform
-        and (
-            info.inline_for_first_child
-            if livery
-            else inline_transform_for_first_child(info.marker)
-        )
-    )
+    inline_for_first = bool(info.inline_transform and info.inline_for_first_child)
     node = GroupNode(offset=pos)
     apply_group_record(
         node,
@@ -1236,6 +1455,9 @@ def walk_step(
     livery: bool = False,
     game: str | None = None,
     livery_invert_odd_rotation: bool = True,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+    trailing_mask_state: bool = True,
 ) -> int:
     game_key = normalize_game_key(game)
     expected_group = next_child_is_group(state.stack[-1])
@@ -1243,23 +1465,35 @@ def walk_step(
     may_decode_shape = expected_group is None or not expected_group
 
     markerless = (
-        valid_markerless_group_at(data, pos, end, False, livery)
-        if state.pending_transform and may_decode_group
+        valid_markerless_group_at(
+            data,
+            pos,
+            end,
+            False,
+            livery,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        )
+        if (state.pending_transform or expected_group is True) and may_decode_group
         else None
     )
     if markerless:
         return push_markerless_group(data, pos, end, markerless, state, livery)
 
-    counted = valid_counted_group_at(data, pos, end, livery) if may_decode_group else None
-    if counted:
-        inline_for_first = bool(
-            counted.inline_transform
-            and (
-                counted.inline_for_first_child
-                if livery
-                else inline_transform_for_first_child(counted.marker)
-            )
+    counted = (
+        valid_counted_group_at(
+            data,
+            pos,
+            end,
+            livery,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
         )
+        if may_decode_group
+        else None
+    )
+    if counted:
+        inline_for_first = bool(counted.inline_transform and counted.inline_for_first_child)
         node = GroupNode(offset=pos, child_bitmap=counted.child_bitmap)
         apply_group_record(
             node,
@@ -1294,7 +1528,7 @@ def walk_step(
         livery
         and expected_group is True
         and pos + 1 < end
-        and not is_valid_shape_at(data, pos, end)
+        and not is_valid_shape_at(data, pos, end, shape_marker)
         and not is_livery_logo_at(data, pos, end)
         and (
             valid_counted_group_at(data, pos + 1, end, True)
@@ -1319,8 +1553,12 @@ def walk_step(
         state.pending_prefix = b""
         return pos + logo_record_size
 
-    if may_decode_shape and is_valid_shape_at(data, pos, end):
-        if bytes_at(data, pos, b"\x01\x02", end):
+    shape_record_size = (
+        shape_record_size_at(data, pos, end, shape_marker) if may_decode_shape else 0
+    )
+    if shape_record_size:
+        control_shape = data[pos] == 0x01 and shape_record_size == 32
+        if trailing_mask_state and control_shape:
             # In livery streams the previous drawable can be the terminal
             # descendant of a just-closed group rather than a direct sibling.
             if livery:
@@ -1347,16 +1585,22 @@ def walk_step(
             state.pending_flags = 0
             state.pending_mask = False
         flags = state.pending_flags
-        if bytes_at(data, pos, b"\x01\x02", end):
+        if control_shape:
             flags |= 0x01
-        shape = decode_shape_at(data, pos, is_mask=state.pending_mask, flags=flags)
+        shape = decode_shape_at(
+            data,
+            pos,
+            is_mask=state.pending_mask,
+            flags=flags,
+            shape_marker=shape_marker,
+        )
         state.stack[-1].items.append(shape)
         state.decoded_shapes += 1
         state.pending_flags = 0
         state.pending_mask = False
         state.pending_marker = b""
         state.pending_prefix = b""
-        return pos + (32 if bytes_at(data, pos, b"\x00\x02", end) or bytes_at(data, pos, b"\x01\x02", end) else 31)
+        return pos + shape_record_size
 
     if game_key == "fm8" and may_decode_shape and is_fm8_legacy_shape_at(data, pos, end):
         if state.pending_transform:
@@ -1399,32 +1643,44 @@ def walk_step(
             data, pos, end, invert_odd_rotation=livery_invert_odd_rotation
         )
         if livery_transform:
-            size, transform, marker = livery_transform
+            size, transform, marker, trailing_flags = livery_transform
             if marker and marker[0] & 0x01:
                 mark_previous_terminal_shape_as_mask(state)
             state.pending_transform = transform
             state.pending_marker = marker
             state.pending_prefix = b""
+            state.pending_flags |= trailing_flags
+            state.pending_mask = state.pending_mask or bool(trailing_flags & 0x40)
             return pos + size
 
     transform_record = (
-        read_transform_record(data, pos, end, livery=False, game=game)
+        read_transform_record(
+            data,
+            pos,
+            end,
+            livery=False,
+            game=game,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        )
         if not state.pending_transform and may_decode_group
         else None
     )
     if transform_record:
-        size, transform, marker = transform_record
-        if marker and marker[0] & 0x01:
+        size, transform, marker, trailing_flags = transform_record
+        if trailing_mask_state and marker and marker[0] & 0x01:
             mark_previous_terminal_shape_as_mask(state)
         state.pending_transform = transform
         state.pending_marker = state.pending_prefix + marker
         state.pending_prefix = b""
+        state.pending_flags |= trailing_flags
+        state.pending_mask = state.pending_mask or bool(trailing_flags & 0x40)
         return pos + size
 
     if (
         not state.pending_transform
         and may_decode_shape
-        and is_unsupported_shape_record_at(data, pos, end)
+        and is_unsupported_shape_record_at(data, pos, end, shape_marker)
     ):
         state.stack[-1].skipped_children += 1
         state.decoded_shapes += 1
@@ -1447,12 +1703,41 @@ def walk_step(
     return pos + 1
 
 
-def get_cgroup_layer_data(payload: bytes) -> tuple[bytes, int]:
+def has_markerless_root_header(payload: bytes) -> bool:
+    if len(payload) <= 0x24 or payload[0x1D] != 0x00:
+        return False
+    count = read_u16(payload, 0x1E)
+    child_blocks = payload[0x20]
+    start = 0x24 + child_blocks
+    return count > 0 and child_blocks == (count + 7) // 8 and start < len(payload)
+
+
+def cgroup_record_dialect(
+    payload: bytes,
+    game: str | None = "fh6",
+) -> tuple[str, int, int, bool]:
+    game_key = normalize_game_key(game)
+    root_marker = payload[0x0C] if len(payload) > 0x0C else 0
+    is_native_group = payload.startswith(b"gyvl") and game_key != "fm8"
+    if is_native_group and root_marker == GENERATION_1_ROOT_MARKER:
+        return "generation_1", LEGACY_SHAPE_MARKER, GENERATION_1_TRANSFORM_MARKER, False
+    if is_native_group and root_marker == GENERATION_2_ROOT_MARKER:
+        return "generation_2", LEGACY_SHAPE_MARKER, GENERATION_2_TRANSFORM_MARKER, False
+    return "current", CURRENT_SHAPE_MARKER, CURRENT_TRANSFORM_MARKER, True
+
+
+def get_cgroup_layer_data(
+    payload: bytes,
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+) -> tuple[bytes, int]:
+    if has_markerless_root_header(payload):
+        start = 0x24 + payload[0x20]
+        return payload[start:], start
     if len(payload) > 0x24 and payload[0x1D] in (0x20, 0x60):
         start = 0x24 + payload[0x20]
         if start < len(payload):
             return payload[start:], start
-    if len(payload) > 69 and payload[37] == 0x02 and is_valid_shape_at(payload, 37, len(payload)):
+    if len(payload) > 68 and is_valid_shape_at(payload, 37, len(payload), shape_marker):
         return payload[37:], 37
     return payload[38:], 38
 
@@ -1460,31 +1745,66 @@ def get_cgroup_layer_data(payload: bytes) -> tuple[bytes, int]:
 def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNode, int, list[str], dict[str, Any]]:
     warnings: list[str] = []
     game_key = normalize_game_key(game)
+    record_generation, shape_marker, transform_terminator, trailing_mask_state = cgroup_record_dialect(
+        payload, game=game_key
+    )
+    decoder_payload = bytearray(payload)
+    markerless_root = has_markerless_root_header(payload)
+    if markerless_root:
+        decoder_payload[0x1D] = 0x20
+    decoder_bytes = bytes(decoder_payload)
     root = GroupNode(source="root")
-    transform = read_transform_payload(payload, 13, len(payload))
+    transform = read_transform_payload(decoder_bytes, 13, len(decoder_bytes))
     if transform:
         root.transform = transform
-    if len(payload) > 0x20 and payload[0x1D] in (0x20, 0x60):
-        header_end = min(len(payload), 0x1D + 4 + payload[0x20] + 2)
-        group = valid_counted_group_at(payload, 0x1D, header_end)
+    if len(decoder_bytes) > 0x20 and decoder_bytes[0x1D] in (0x20, 0x60):
+        child_blocks = (read_u16(decoder_bytes, 0x1E) + 7) // 8
+        header_end = min(len(decoder_bytes), 0x1D + 7 + child_blocks)
+        group = valid_counted_group_at(
+            decoder_bytes,
+            0x1D,
+            header_end,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        )
         if group:
             apply_group_record(root, group, "root")
-            bitmap_start = 0x1D + 7
-            root.child_bitmap = payload[bitmap_start : bitmap_start + payload[0x20]]
-    layer_data, layer_start = get_cgroup_layer_data(payload)
+            root.child_bitmap = group.child_bitmap
+    layer_data, layer_start = get_cgroup_layer_data(payload, shape_marker)
     state = WalkState(stack=[root])
     pos = 0
     guard = 0
-    initial = read_initial_child_transform(layer_data, pos, len(layer_data), game=game_key)
+    initial = read_initial_child_transform(
+        layer_data,
+        pos,
+        len(layer_data),
+        game=game_key,
+        shape_marker=shape_marker,
+        transform_terminator=transform_terminator,
+    )
     if initial:
         pos, state.pending_transform, state.pending_marker = initial
     while pos < len(layer_data) and guard < len(layer_data) + 4096:
         guard += 1
         close_complete_stack(state.stack)
-        if consume_root_close_suffix(layer_data, pos, state):
+        if consume_root_close_suffix(
+            layer_data,
+            pos,
+            state,
+            preserve_mask=trailing_mask_state,
+        ):
             pos = len(layer_data)
             break
-        next_pos = walk_step(layer_data, pos, len(layer_data), state, game=game_key)
+        next_pos = walk_step(
+            layer_data,
+            pos,
+            len(layer_data),
+            state,
+            game=game_key,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+            trailing_mask_state=trailing_mask_state,
+        )
         if next_pos <= pos:
             warnings.append(f"decoder made no progress at layer-data offset 0x{pos:x}")
             break
@@ -1492,6 +1812,10 @@ def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNo
     if pos < len(layer_data):
         warnings.append(f"decoder stopped before end: 0x{pos:x}/0x{len(layer_data):x}")
     stats = cgroup_tree_stats(root)
+    stats["record_generation"] = record_generation
+    stats["shape_marker"] = shape_marker
+    stats["transform_terminator"] = transform_terminator
+    stats["markerless_root_header"] = markerless_root
     if game_key == "fm8":
         stats["fm8_pre_group_transform_records"] = count_fm8_pre_group_transform_records(layer_data)
         stats["fm8_legacy_shape_records"] = state.fm8_legacy_shapes
@@ -1506,14 +1830,36 @@ def read_initial_child_transform(
     pos: int,
     end: int,
     game: str | None = "fh6",
+    shape_marker: int = CURRENT_SHAPE_MARKER,
+    transform_terminator: int = CURRENT_TRANSFORM_MARKER,
 ) -> tuple[int, Transform, bytes] | None:
     for candidate in range(pos, min(end, pos + 8)):
-        record = read_transform_record(data, candidate, end, livery=False, game=game)
+        record = read_transform_record(
+            data,
+            candidate,
+            end,
+            livery=False,
+            game=game,
+            shape_marker=shape_marker,
+            transform_terminator=transform_terminator,
+        )
         if record:
-            size, transform, marker = record
-            if valid_counted_group_at(data, candidate + size, end):
+            size, transform, marker, _flags = record
+            if valid_counted_group_at(
+                data,
+                candidate + size,
+                end,
+                shape_marker=shape_marker,
+                transform_terminator=transform_terminator,
+            ):
                 return candidate + size, transform, marker
-    if pos + 16 <= end and valid_counted_group_at(data, pos + 16, end):
+    if pos + 16 <= end and valid_counted_group_at(
+        data,
+        pos + 16,
+        end,
+        shape_marker=shape_marker,
+        transform_terminator=transform_terminator,
+    ):
         transform = read_transform_payload(data, pos, end)
         if transform:
             return pos + 16, transform, b""
@@ -1744,8 +2090,7 @@ def _protected_livery_group_at(data: bytes, pos: int, end: int) -> tuple[int, Gr
     trailer = livery_transform_trailer(data, pos, end)
     if trailer is None:
         return None
-    trailer_size, _ = trailer
-    group_pos = pos + trailer_size
+    group_pos = pos + trailer.size
     group = _privacy_markerless_group_at(data, group_pos, end)
     if group is None:
         return None
@@ -1761,7 +2106,7 @@ def _protected_livery_group_at(data: bytes, pos: int, end: int) -> tuple[int, Gr
     )
     if not direct_transform and not scaled_transform:
         return None
-    return trailer_size, group
+    return trailer.size, group
 
 
 def inspect_clivery_privacy(payload: bytes) -> dict[str, Any]:
@@ -1919,6 +2264,7 @@ def layers_to_kfps_json_layers(layers: Iterable[dict[str, Any]], game: str | Non
     lookup = _load_word_lookup()
     game_key = normalize_game_key(game)
     warnings: list[str] = []
+    warned_ambiguous_words: set[int] = set()
     output: list[dict[str, Any]] = []
     for index, layer in enumerate(layers, 1):
         raw_word = int(layer["shape_id"]) & 0xFFFF
@@ -1969,7 +2315,12 @@ def layers_to_kfps_json_layers(layers: Iterable[dict[str, Any]], game: str | Non
             if name:
                 shape["display_name"] = name
         elif len(matches) > 1:
-            warnings.append(f"shape word {word} has {len(matches)} resource matches; leaving resource identity unset")
+            if word not in warned_ambiguous_words:
+                warnings.append(
+                    f"shape word {word} has {len(matches)} resource matches; "
+                    "leaving resource identity unset"
+                )
+                warned_ambiguous_words.add(word)
             shape["shape_word_ambiguous_resources"] = [
                 {"family": family, "index": slot, "name": name} for family, slot, name in matches[:8]
             ]
