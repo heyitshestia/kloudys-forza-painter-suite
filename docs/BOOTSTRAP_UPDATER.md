@@ -207,6 +207,20 @@ Production publication order is deliberately atomic:
 
 Never replace an artifact at a published URL. Publish a new immutable URL and a higher channel sequence instead.
 
+Normal version bumps on `main` are published automatically by the final jobs in
+`quality.yml`. The publisher runs only after the Windows application, Worker, and
+Community end-to-end gates pass. It verifies the currently signed channel and
+manifest, reuses that manifest's verified Python runtime as publication input,
+creates a new immutable update-data prerelease, downloads and hashes every
+uploaded asset, publishes the prerelease, and commits the new signed channel
+last. Public KFPS releases and downloadable bundles remain a separate manual
+operation.
+
+The `updater-production` GitHub environment is restricted to `main` and contains
+the `KFPS_UPDATER_PRIVATE_KEY` secret. The old BAT updater is not used to publish
+or install current updates; it remains only as the authenticated bridge for
+historical 3.1.28 and 3.1.52 installations.
+
 Example staging command:
 
 ```powershell

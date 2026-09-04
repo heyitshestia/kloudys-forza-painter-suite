@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ from .qt_utils import is_remote_newer
 class VersionService(QObject):
     changed = Signal()
 
-    URL = "https://raw.githubusercontent.com/heyitshestia/kloudys-forza-painter-suite/main/VERSION"
+    URL = "https://raw.githubusercontent.com/heyitshestia/kloudys-forza-painter-suite/main/updates/stable/channel.json"
 
     def __init__(self, version_file: Path, demo=False, parent=None):
         super().__init__(parent)
@@ -76,17 +77,27 @@ class VersionService(QObject):
                 self._check_succeeded = False
                 self._check_status = f"Update check failed: {reply.errorString()}"
                 return
-            remote = bytes(reply.readAll()).decode("utf-8").strip()
-            match = re.fullmatch(r"v?(\d+(?:\.\d+){1,3})", remote, flags=re.IGNORECASE)
+            channel = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            if not isinstance(channel, dict) or channel.get("schema") != "kfps.update-channel.v1":
+                raise ValueError("GitHub returned an invalid update channel")
+            if channel.get("channel") != "stable" or int(channel.get("sequence") or 0) < 1:
+                raise ValueError("GitHub returned an invalid stable channel")
+            manifest = channel.get("manifest")
+            manifest_url = str(manifest.get("url") or "") if isinstance(manifest, dict) else ""
+            match = re.search(
+                r"/kfps-update-(\d+(?:\.\d+){1,3})(?:-[A-Za-z0-9._-]+)?\.json(?:\?.*)?$",
+                manifest_url,
+                flags=re.IGNORECASE,
+            )
             if not match:
-                raise ValueError("GitHub returned an invalid version file")
+                raise ValueError("The stable channel does not identify an installable KFPS version")
             self._latest = match.group(1)
             self._available = is_remote_newer(self._local, self._latest)
             self._check_succeeded = True
             self._check_status = (
                 f"Update v{self._latest} is available."
                 if self._available
-                else f"Up to date with GitHub main (v{self._latest})."
+                else f"Up to date with the stable update channel (v{self._latest})."
             )
         except Exception as exc:
             self._check_succeeded = False

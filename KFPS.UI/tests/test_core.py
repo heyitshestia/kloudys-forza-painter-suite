@@ -43,9 +43,12 @@ class CoreTests(unittest.TestCase):
    svc=VersionService(path,demo=True)
    try:
     self.assertIn("raw.githubusercontent.com",svc.URL)
-    svc._checking=True;success=FakeNetworkReply(b"3.0.100\n");svc._finished(success)
+    channel={"schema":"kfps.update-channel.v1","channel":"stable","sequence":9,"manifest":{"url":"https://github.com/example/releases/download/kfps-update-data-v3.0.100-s9/kfps-update-3.0.100-s9.json"}}
+    svc._checking=True;success=FakeNetworkReply(json.dumps(channel).encode("utf-8"));svc._finished(success)
     self.assertTrue(success.deleted);self.assertFalse(svc.checking);self.assertTrue(svc.checkSucceeded);self.assertEqual(svc.latestVersion,"3.0.100");self.assertTrue(svc.updateAvailable)
     self.assertIn("available",svc.checkStatus.lower())
+    svc._checking=True;invalid=FakeNetworkReply(b'{"schema":"kfps.update-channel.v1","channel":"stable","sequence":9,"manifest":{"url":"https://example.invalid/not-an-update.json"}}');svc._finished(invalid)
+    self.assertTrue(invalid.deleted);self.assertFalse(svc.checkSucceeded);self.assertIn("installable",svc.checkStatus.lower())
     svc._checking=True;failure=FakeNetworkReply(error=QNetworkReply.NetworkError.ContentAccessDenied,error_string="HTTP 403")
     svc._finished(failure)
     self.assertTrue(failure.deleted);self.assertFalse(svc.checkSucceeded);self.assertIn("HTTP 403",svc.checkStatus)

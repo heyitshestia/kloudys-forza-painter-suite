@@ -4,6 +4,7 @@
 - Reworked FH6 full-livery decoding and rendering for nested and mirrored groups, masks, windows, side-specific projection, and multiple source format generations.
 - Added deterministic chassis projection fitting, stricter renderer resource cleanup, and revised caches for stable repeated car switching.
 - Hardened exact-car package qualification so incomplete or foreign-owned source data remains blocked while valid owned liveries retain complete export diagnostics.
+- Made update availability follow the signed stable channel and added gated publication of an installable update after each validated version bump.
 
 ## 3.1.56
 - Added live updater status for signed-channel checks, manifest verification, file inventory scans, downloads, backups, installation, and final verification.
