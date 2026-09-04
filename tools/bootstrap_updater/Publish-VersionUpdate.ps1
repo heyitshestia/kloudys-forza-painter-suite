@@ -207,7 +207,13 @@ try {
         if ($staged.Count -ne 2 -or $staged -notcontains 'updates/stable/channel.json' -or $staged -notcontains 'updates/stable/channel.json.sig') {
             throw "Channel publication staged an unexpected file set: $($staged -join ', ')"
         }
-        Invoke-Checked { git commit -m "Publish KFPS $version updater channel" } "Channel commit failed"
+        Invoke-Checked {
+            git `
+                -c user.name='github-actions[bot]' `
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' `
+                -c commit.gpgsign=false `
+                commit -m "Publish KFPS $version updater channel"
+        } "Channel commit failed"
         Invoke-Checked { git push origin HEAD:main } "Channel push failed"
         $channelPushed = $true
         Write-Host "Published KFPS $version as signed stable sequence $sequence."
