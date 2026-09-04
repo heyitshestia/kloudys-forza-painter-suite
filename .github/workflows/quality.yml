@@ -250,12 +250,19 @@ jobs:
     environment: updater-production
     permissions:
       contents: write
+    env:
+      TEMP: ${{ github.workspace }}\runtime\publish-temp
+      TMP: ${{ github.workspace }}\runtime\publish-temp
 
     steps:
       - name: Check out the validated commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Prepare stable Windows temporary path
+        shell: pwsh
+        run: New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 
       - name: Set up Go
         uses: actions/setup-go@v5
