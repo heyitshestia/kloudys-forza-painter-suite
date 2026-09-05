@@ -476,7 +476,7 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('property: "pageActive"', host)
         self.assertIn("value: liveriesLoader.visible", host)
         self.assertIn("property bool pageActive: true", livery)
-        self.assertIn("active: root.pageActive && fullLiveryService.viewerUrl.length > 0", livery)
+        self.assertIn("active: root.pageActive && root.viewerSessionUrl.length > 0", livery)
 
     def test_create_manual_overrides_are_prefilled_from_the_selected_preset(self):
         create = self.read("pages/CreatePage.qml")

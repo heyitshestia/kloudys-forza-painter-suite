@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.60
+- Added Standard and High livery preview quality, with sharper native-vector textures and faster reuse of validated car and texture caches.
+- Improved car-switch loading transitions, reduced repeated rendering and material allocations, and added bounded memory usage, cancellation, and graphics-failure diagnostics.
+- Fixed valid received livery packages being rejected by minor preview-render differences between installations while preserving source, ownership, and integrity validation.
+- Made Saved packages Add failures visible beside the package list and retained duplicate-add protection.
+
 ## 3.1.59
 - Fixed skewed-shape side resizing changing edge directions and Shift-corner drags jumping or resetting existing skew.
 - Fixed selection outlines remaining after layer reordering, deletion, and project reloads.

@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signa
 from .diagnostics import prune_sessions, recover_abandoned_sessions
 from .paths import FullLiveryPaths
 from .protocol import PROTOCOL_VERSION, new_request_id, write_json_atomic
+from .resource_policy import LiveryMemoryBudget
 
 
 _TIMEOUT_SECONDS = {
@@ -115,6 +116,7 @@ def _resident_process_tree(pid: int) -> int:
 class FullLiveryTaskSupervisor(QObject):
     completed = Signal(object)
     stateChanged = Signal()
+    progress = Signal(object)
 
     def __init__(self, app_paths, experiment_paths: FullLiveryPaths, log, parent=None):
         super().__init__(parent)
@@ -139,6 +141,7 @@ class FullLiveryTaskSupervisor(QObject):
         self._cancel_deadline = 0.0
         self._cancel_reason = ""
         self._peak_bytes = 0
+        self._last_progress = ""
         self.paths.ensure()
         recover_abandoned_sessions(self.paths.sessions, self.paths.recovery)
         prune_sessions(self.paths.sessions)
@@ -207,6 +210,8 @@ class FullLiveryTaskSupervisor(QObject):
         self._cancel_deadline = 0.0
         self._cancel_reason = ""
         self._peak_bytes = 0
+        memory = psutil.virtual_memory()
+        self._memory_budget = LiveryMemoryBudget.for_memory(memory.total, memory.available)
         self._process.start(program, arguments)
         self._monitor.start()
         self.stateChanged.emit()
@@ -230,8 +235,12 @@ class FullLiveryTaskSupervisor(QObject):
         if not self._closed:
             self.completed.emit(result)
 
-    def cancel(self, reason: str = "cancelled") -> None:
+    def cancel(self, reason: str = "cancelled", *, clear_pending: bool = False) -> None:
+        if clear_pending:
+            self._pending = None
         if not self.running:
+            return
+        if self._cancel_deadline:
             return
         self._cancel_reason = str(reason)
         if self._cancel_file is not None:
@@ -241,11 +250,20 @@ class FullLiveryTaskSupervisor(QObject):
     def _monitor_process(self) -> None:
         if not self.running:
             return
+        if self._session is not None:
+            try:
+                progress = json.loads((self._session / "progress.json").read_text(encoding="utf-8"))
+                message = str(progress.get("message") or "")[:160]
+                if progress.get("request_id") == (self._request or {}).get("request_id") and message != self._last_progress:
+                    self._last_progress = message
+                    self.progress.emit({"message": message, **dict((self._request or {}).get("metadata") or {})})
+            except (OSError, ValueError, AttributeError):
+                pass
         pid = int(self._process.processId() or 0)
         resident = _resident_process_tree(pid)
         self._peak_bytes = max(self._peak_bytes, resident)
         now = time.monotonic()
-        if self._peak_bytes > 6 * 1024 * 1024 * 1024 and not self._cancel_deadline:
+        if self._peak_bytes > self._memory_budget.worker_limit(self.current_operation) and not self._cancel_deadline:
             self.cancel("memory limit exceeded")
         if now >= self._deadline and not self._cancel_deadline:
             self.cancel("time limit exceeded")
@@ -276,6 +294,7 @@ class FullLiveryTaskSupervisor(QObject):
             "operation": request.get("operation") or response.get("operation") or "",
             "request_id": request.get("request_id") or response.get("request_id") or "",
             "peak_resident_bytes": self._peak_bytes,
+            "memory_budget_bytes": self._memory_budget.worker_limit(self.current_operation),
             **dict(request.get("metadata") or {}),
         }
         self._reset()
@@ -296,6 +315,7 @@ class FullLiveryTaskSupervisor(QObject):
         self._started = self._deadline = self._cancel_deadline = 0.0
         self._cancel_reason = ""
         self._peak_bytes = 0
+        self._last_progress = ""
         self.stateChanged.emit()
 
     def close(self) -> None:
@@ -339,6 +359,19 @@ class FullLiveryInspectorSupervisor(QObject):
         self._stop_timer = QTimer(self)
         self._stop_timer.setSingleShot(True)
         self._stop_timer.timeout.connect(self._force_stop)
+        self._startup_deadline = 0.0
+
+    def record_viewer_event(self, event: dict[str, Any]) -> None:
+        if self._session is None:
+            return
+        value = {"time": time.time(), **event}
+        try:
+            write_json_atomic(self._session / "viewer-latest.json", value)
+            if event.get("event") != "sample":
+                with (self._session / "viewer-events.jsonl").open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(value, ensure_ascii=True) + "\n")
+        except OSError:
+            pass
 
     @property
     def running(self) -> bool:
@@ -387,6 +420,7 @@ class FullLiveryInspectorSupervisor(QObject):
         self._reported_ready = False
         self._stopping = False
         self._failure_reported = False
+        self._startup_deadline = time.monotonic() + 30.0
         self._process.start(program, arguments)
         self._poll.start()
 
@@ -397,9 +431,17 @@ class FullLiveryInspectorSupervisor(QObject):
             and not self._failure_reported
         ):
             self._failure_reported = True
+            self._poll.stop()
             self.failed.emit(self._process.errorString() or "The isolated 3D viewer did not start.")
 
     def _poll_ready(self) -> None:
+        if self._closed or self._stopping or self._failure_reported:
+            return
+        if not self._reported_ready and time.monotonic() >= self._startup_deadline:
+            self._failure_reported = True
+            self.failed.emit("The local viewer server did not start within 30 seconds.")
+            self.stop()
+            return
         if self._reported_ready or self._ready_file is None or not self._ready_file.is_file():
             return
         try:
@@ -418,12 +460,10 @@ class FullLiveryInspectorSupervisor(QObject):
         self._stop_timer.stop()
         if (
             not self._closed
-            and not self._reported_ready
             and not self._stopping
             and not self._failure_reported
-            and exit_code
         ):
-            detail = "The isolated 3D viewer stopped before it was ready."
+            detail = f"The local viewer server stopped unexpectedly (exit {exit_code})."
             if self._session is not None:
                 error_file = self._session / "error.txt"
                 if error_file.is_file():
@@ -449,7 +489,8 @@ class FullLiveryInspectorSupervisor(QObject):
             self._stopping = True
             if self._stop_file is not None:
                 self._stop_file.touch(exist_ok=True)
-            self._stop_timer.start(1500)
+            if not self._stop_timer.isActive():
+                self._stop_timer.start(1500)
             return
         self._session = self._ready_file = self._stop_file = None
         self._reported_ready = False

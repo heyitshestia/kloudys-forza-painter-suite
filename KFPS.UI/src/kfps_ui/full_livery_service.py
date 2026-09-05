@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from .experimental.full_livery.diagnostics import export_diagnostic_bundle
 from .experimental.full_livery.feature_gate import FullLiveryFeatureGate
 from .experimental.full_livery.paths import FullLiveryPaths
 from .experimental.full_livery.protocol import write_json_atomic
+from .experimental.full_livery.resource_policy import LiveryMemoryBudget
 from .experimental.full_livery.supervisor import (
     FullLiveryInspectorSupervisor,
     FullLiveryTaskSupervisor,
@@ -79,6 +82,7 @@ class FullLiveryService(QObject):
         self._running = False
         self._status = "Experimental · " + self._gate.stage.title()
         self._summary = self._gate.describe()
+        self._package_add_error = ""
         self._selected_source = ""
         self._active_source_preview = ""
         self._active_source_fingerprint = ""
@@ -86,6 +90,7 @@ class FullLiveryService(QObject):
         self._source_privacy: dict[str, dict[str, Any]] = {}
         self._selected_package = str(self._settings.get("last_package") or "")
         self._viewer_url = ""
+        self._viewer_quality = 2 if self._settings.get("viewer_quality", 2) == 2 else 1
         self._current_manifest: dict[str, Any] = {}
         self._sources = DictListModel(self.SOURCE_ROLES, self)
         self._packages = DictListModel(self.PACKAGE_ROLES, self)
@@ -100,14 +105,22 @@ class FullLiveryService(QObject):
         self._tasks = FullLiveryTaskSupervisor(paths, self._experiment_paths, log, self)
         self._tasks.completed.connect(self._route_worker_result)
         self._tasks.stateChanged.connect(self._sync_task_state)
+        self._tasks.progress.connect(self._viewer_preparation_progress)
         self._inspector = FullLiveryInspectorSupervisor(paths, self._experiment_paths, self)
         self._inspector.ready.connect(self._inspector_ready)
         self._inspector.failed.connect(self._inspector_failed)
         self._viewer_memory_timer = QTimer(self)
         self._viewer_memory_timer.setInterval(1000)
         self._viewer_memory_timer.timeout.connect(self._monitor_viewer_memory)
-        self._viewer_memory_baseline = 0
         self._viewer_memory_peak = 0
+        self._viewer_ready = False
+        self._viewer_started_at = 0.0
+        self._viewer_pid = 0
+        self._viewer_processes: dict[int, float] = {}
+        self._viewer_stats: dict[str, Any] = {}
+        self._gpu_memory_baselines: dict[int, int] = {}
+        memory = psutil.virtual_memory()
+        self._viewer_budget = LiveryMemoryBudget.for_memory(memory.total, memory.available)
         self._resultReady.connect(self._apply_result)
         self._meshResultReady.connect(self._apply_mesh_result)
         self._load_catalog_models()
@@ -123,6 +136,10 @@ class FullLiveryService(QObject):
     @Property(str, notify=changed)
     def summary(self):
         return self._summary
+
+    @Property(str, notify=changed)
+    def packageAddError(self):
+        return self._package_add_error
 
     @Property(QObject, constant=True)
     def sourceModel(self):
@@ -171,6 +188,29 @@ class FullLiveryService(QObject):
     @Property(str, notify=changed)
     def viewerUrl(self):
         return self._viewer_url
+
+    @Property(bool, notify=changed)
+    def viewerReady(self):
+        return self._viewer_ready
+
+    @Property(int, notify=changed)
+    def viewerQuality(self):
+        return self._viewer_quality
+
+    @Slot(int)
+    def setViewerQuality(self, value: int) -> None:
+        value = 2 if value == 2 else 1
+        if value == self._viewer_quality:
+            return
+        self._viewer_quality = value
+        self._settings["viewer_quality"] = value
+        self._save_settings()
+        if self._active and self._selected_package and self._current_manifest:
+            self._viewer_url = ""
+            self._stop_viewer_memory_guard()
+            self._inspector.stop()
+            self._prepare_local_mesh(self._current_manifest, self._selected_package)
+        self.changed.emit()
 
     @Property(str, notify=changed)
     def gameFolder(self):
@@ -266,9 +306,16 @@ class FullLiveryService(QObject):
 
     @Slot()
     def _sync_task_state(self) -> None:
-        running = self._tasks.running
+        running = self._tasks.running or bool(self._viewer_url and not self._viewer_ready)
         if running != self._running:
             self._running = running
+            self.changed.emit()
+
+    @Slot(object)
+    def _viewer_preparation_progress(self, event: dict) -> None:
+        if (self._active and event.get("package_path") == self._selected_package
+                and event.get("request_serial") == self._mesh_serial):
+            self._status = str(event.get("message") or "Preparing preview")
             self.changed.emit()
 
     @Slot()
@@ -306,7 +353,7 @@ class FullLiveryService(QObject):
         self._viewer_url = ""
         self._stop_viewer_memory_guard()
         self._inspector.stop()
-        self._tasks.cancel("livery page closed")
+        self._tasks.cancel("livery page closed", clear_pending=True)
         self._running = self._tasks.running
         self._status = "Experimental workspace paused"
         self._summary = "The livery worker and 3D viewer have been released. Cached indexes remain ready for next time."
@@ -337,65 +384,144 @@ class FullLiveryService(QObject):
             self._inspector.stop()
             return
         self._viewer_url = url
-        self._viewer_memory_baseline = self._process_tree_memory()
-        self._viewer_memory_peak = self._viewer_memory_baseline
+        self._viewer_memory_peak = 0
+        self._viewer_ready = False
+        self._viewer_pid = 0
+        self._viewer_stats = {}
+        self._viewer_started_at = time.monotonic()
+        memory = psutil.virtual_memory()
+        self._viewer_budget = LiveryMemoryBudget.for_memory(memory.total, memory.available)
+        self._viewer_process_memory()
         self._viewer_memory_timer.start()
-        self._running = False
-        self._status = "Local livery preview ready"
-        self._summary = "The isolated 3D viewer is ready. Leaving this page releases it completely."
+        self._running = True
+        self._status = "Loading car and livery textures"
+        self._summary = "Waiting for the first complete 3D frame."
         self.changed.emit()
+
+    @Slot(str, int)
+    def viewerProcess(self, url: str, pid: int) -> None:
+        if url != self._viewer_url or not url or pid <= 0:
+            return
+        try:
+            process = psutil.Process(pid)
+            if any(parent.pid == os.getpid() for parent in process.parents()):
+                self._viewer_pid = pid
+                self._viewer_processes[pid] = process.create_time()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    @Slot(str, str)
+    def viewerEvent(self, url: str, message: str) -> None:
+        if not url or url != self._viewer_url or not self._active or len(message) > 65536:
+            return
+        try:
+            event = json.loads(message)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(event, dict) or event.get("event") not in {
+            "phase", "ready", "error", "context-lost", "sample", "disposed",
+        }:
+            return
+        self._viewer_stats = event
+        self._inspector.record_viewer_event({
+            **event, "renderer_pid": self._viewer_pid,
+            "package": Path(self._selected_package).name,
+            "memory_budget_bytes": self._viewer_budget.viewer_bytes,
+        })
+        kind = event["event"]
+        if kind in {"error", "context-lost"}:
+            self._inspector_failed(str(event.get("message") or "The graphics context was lost."))
+        elif kind == "ready" and not self._viewer_ready:
+            self._viewer_ready = True
+            self._running = self._tasks.running
+            self._status = "Local livery preview ready"
+            self._summary = "Car and livery textures rendered successfully."
+            diagnostics = event.get("diagnostics")
+            quality = diagnostics.get("quality") if isinstance(diagnostics, dict) else None
+            if self._viewer_quality == 2 and isinstance(quality, dict) and quality.get("scale") == 1:
+                self._summary += " Standard resolution is in use for this preview."
+            elif isinstance(quality, dict) and quality.get("source") == "mixed-original-and-vector":
+                self._summary += " Some sections retain their original resolution; see Diagnostics for details."
+            self.changed.emit()
+        elif kind == "phase" and not self._viewer_ready:
+            self._status = str(event.get("message") or "Loading 3D preview")[:160]
+            self.changed.emit()
+
+    @Slot(str, str)
+    def viewerFailed(self, url: str, message: str) -> None:
+        if url and url == self._viewer_url:
+            self.viewerEvent(url, json.dumps({"event": "error", "message": message[:1000]}))
 
     @Slot(str)
     def _inspector_failed(self, message: str) -> None:
         self._viewer_url = ""
         self._stop_viewer_memory_guard()
+        self._inspector.stop()
         self._running = False
         self._status = "3D viewer failed"
         self._summary = str(message or "The isolated 3D viewer stopped before it was ready.")
         self.changed.emit()
 
-    @staticmethod
-    def _process_tree_memory() -> int:
-        try:
-            root = psutil.Process(os.getpid())
-            processes = [root, *root.children(recursive=True)]
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
-            return 0
-        total = 0
-        for process in processes:
-            try:
-                total += int(process.memory_info().rss)
-            except (psutil.AccessDenied, psutil.NoSuchProcess):
-                continue
-        return total
-
     def _stop_viewer_memory_guard(self) -> None:
         self._viewer_memory_timer.stop()
-        self._viewer_memory_baseline = 0
+        self._viewer_ready = False
+        self._viewer_pid = 0
         self._viewer_memory_peak = 0
+
+    def _viewer_process_memory(self) -> tuple[int, int]:
+        resident = gpu_growth = 0
+        try:
+            processes = psutil.Process(os.getpid()).children(recursive=True)
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            return 0, 0
+        for process in processes:
+            try:
+                if self._viewer_processes.get(process.pid) == process.create_time():
+                    resident += int(process.memory_info().rss)
+                elif "--type=gpu-process" in process.cmdline():
+                    size = int(process.memory_info().rss)
+                    # Keep this baseline across car switches: leaked shared GPU
+                    # allocations must not become the next viewer's allowance.
+                    baseline = self._gpu_memory_baselines.setdefault(process.pid, size)
+                    gpu_growth += max(0, size - baseline)
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                continue
+        active_pids = {process.pid for process in processes}
+        self._gpu_memory_baselines = {
+            pid: size for pid, size in self._gpu_memory_baselines.items() if pid in active_pids
+        }
+        self._viewer_processes = {
+            pid: created for pid, created in self._viewer_processes.items() if pid in active_pids
+        }
+        return resident, gpu_growth
 
     @Slot()
     def _monitor_viewer_memory(self) -> None:
         if not self._viewer_url or not self._active:
             self._stop_viewer_memory_guard()
             return
-        current = self._process_tree_memory()
-        if current <= 0:
-            return
+        resident, gpu_growth = self._viewer_process_memory()
+        memory = psutil.virtual_memory()
+        reason = self._viewer_budget.viewer_failure(resident, gpu_growth, memory.available)
+        current = resident + gpu_growth
         self._viewer_memory_peak = max(self._viewer_memory_peak, current)
-        growth = max(0, current - self._viewer_memory_baseline)
-        if growth <= 4 * 1024 * 1024 * 1024:
+        if not self._viewer_ready and time.monotonic() - self._viewer_started_at > 90:
+            reason = "first-frame timeout (90 seconds)"
+        if not reason:
             return
+        event = {
+            "event": "guard-stop", "time": datetime.now().isoformat(), "reason": reason,
+            "renderer_pid": self._viewer_pid, "renderer_bytes": resident,
+            "gpu_growth_bytes": gpu_growth, "peak_bytes": self._viewer_memory_peak,
+            "available_bytes": memory.available, "budget_bytes": self._viewer_budget.viewer_bytes,
+            "selected_package": Path(self._selected_package).name,
+            "last_viewer_event": self._viewer_stats,
+        }
+        self._inspector.record_viewer_event(event)
         try:
             write_json_atomic(
                 self._experiment_paths.diagnostics / "viewer-memory-guard.json",
-                {
-                    "time": datetime.now().isoformat(),
-                    "baseline_bytes": self._viewer_memory_baseline,
-                    "peak_bytes": self._viewer_memory_peak,
-                    "growth_bytes": growth,
-                    "selected_package": Path(self._selected_package).name,
-                },
+                event,
             )
         except OSError:
             pass
@@ -405,7 +531,7 @@ class FullLiveryService(QObject):
         self._running = False
         self._status = "3D preview stopped safely"
         self._summary = (
-            "The livery viewer used an abnormal amount of memory and was closed before it could affect KFPS. "
+            f"The preview was closed: {reason}. "
             "Export Diagnostics from this page before trying that car again."
         )
         self.changed.emit()
@@ -508,7 +634,7 @@ class FullLiveryService(QObject):
             resolved_source = str(source.resolve())
             same_source_is_active = (
                 resolved_source == self._selected_source
-                and (self._tasks.running or self._active_source_preview == resolved_source)
+                and (self._tasks.running or self._inspector.running or bool(self._viewer_url))
             )
             if same_source_is_active:
                 return
@@ -538,6 +664,9 @@ class FullLiveryService(QObject):
     def selectPackage(self, path: str):
         if not self._gate.can_preview:
             return
+        if (str(Path(path).resolve()) == self._selected_package
+                and (self._tasks.running or self._inspector.running or self._viewer_url)):
+            return
         self._selected_source = ""
         self._cancel_source_preview()
         self._cancel_mesh_preparation()
@@ -561,7 +690,7 @@ class FullLiveryService(QObject):
             "open-package",
             self._worker_payload(path=selected, remember=True),
             kind="open-package",
-            metadata={"package_path": selected},
+            metadata={"package_path": selected, "selection_serial": self._selection_serial},
             supersede=True,
         )
 
@@ -590,7 +719,7 @@ class FullLiveryService(QObject):
             "open-package",
             self._worker_payload(path=selected, remember=remember),
             kind="open-package",
-            metadata={"package_path": selected},
+            metadata={"package_path": selected, "selection_serial": self._selection_serial},
             supersede=True,
         )
 
@@ -665,7 +794,7 @@ class FullLiveryService(QObject):
         )
         if not selected:
             return
-        self._start_add_package(selected)
+        self.addPackage(selected)
 
     def _start_add_package(self, selected: str) -> None:
         if self._running or not self._gate.enabled:
@@ -673,6 +802,7 @@ class FullLiveryService(QObject):
             self.changed.emit()
             return
         self._cancel_mesh_preparation()
+        self._package_add_error = ""
         self._running = True
         self._status = "Verifying full-livery package"
         self._summary = "Checking the package against its embedded FH6 source before adding it."
@@ -694,6 +824,7 @@ class FullLiveryService(QObject):
         ):
             self._status = "Package not added"
             self._summary = "Choose an existing KFPS full-livery package after the current task finishes."
+            self._package_add_error = self._summary
             self.changed.emit()
             return False
         self._start_add_package(str(path.resolve()))
@@ -844,6 +975,8 @@ class FullLiveryService(QObject):
                 expected_model_code=str(vehicle.get("model_code") or ""),
                 expected_archive_sha256=str(vehicle.get("archive_sha256") or ""),
                 package_path=package_path,
+                quality_scale=self._viewer_quality,
+                source_path=self._active_source_preview,
             ),
             kind="mesh",
             metadata={"package_path": package_path, "request_serial": request_serial},
@@ -860,6 +993,10 @@ class FullLiveryService(QObject):
         if self._closed:
             return
         kind = result.get("kind")
+        if kind == "open-package" and str(result.get("package_path") or "") != self._selected_package:
+            return
+        if kind == "open-package" and result.get("selection_serial", self._selection_serial) != self._selection_serial:
+            return
         if kind == "preview":
             if int(result.get("request_serial") or -1) != self._source_preview_serial:
                 return
@@ -875,6 +1012,9 @@ class FullLiveryService(QObject):
         if not result.get("ok"):
             self._status = "Full-livery task failed"
             self._summary = str(result.get("error") or "Unknown error")
+            if kind == "add-package":
+                self._status = "Package add failed"
+                self._package_add_error = self._summary
             self.log.append(f"Full-livery task failed: {self._summary}", "error")
             self.changed.emit()
             return
@@ -986,12 +1126,12 @@ class FullLiveryService(QObject):
         elif kind == "preview":
             preview_path = str(payload.get("path") or "")
             manifest = payload.get("manifest") or {}
-            self._accept_open_package(preview_path, manifest, remember=False)
             self._active_source_preview = str(result.get("source_path") or "")
             self._active_source_fingerprint = self._source_fingerprints.get(
                 self._active_source_preview,
                 "",
             )
+            self._accept_open_package(preview_path, manifest, remember=False)
         elif kind == "add-package":
             self._complete_added_package(payload)
         elif kind == "open-package":

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import shutil
 import time
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -415,7 +416,8 @@ class FullLiveryCatalog:
         revision: int,
     ) -> None:
         candidate = Path(path)
-        size = candidate.stat().st_size if candidate.is_file() else 0
+        size = (candidate.stat().st_size if candidate.is_file() else
+                sum(item.stat().st_size for item in candidate.rglob("*") if item.is_file()))
         with self.transaction() as connection:
             connection.execute(
                 """
@@ -432,6 +434,57 @@ class FullLiveryCatalog:
                     int(revision), int(size), time.time(),
                 ),
             )
+
+    def prune_derived_cache(self, root: Path, *, protected: Iterable[Path], max_bytes: int = 2 * 1024**3) -> dict:
+        root = root.resolve()
+        protected_paths = {path.resolve() for path in protected}
+        with closing(self._connect()) as connection:
+            access = {row[0]: float(row[1]) for row in connection.execute("SELECT path,last_access FROM cache_entries")}
+        entries = []
+        for name in ("meshes", "atlases", "previews"):
+            parent = root / name
+            if not parent.is_dir() or parent.is_symlink() or os.path.isjunction(parent):
+                continue
+            for item in parent.iterdir():
+                if item.is_symlink() or os.path.isjunction(item) or item.name.endswith(".validated.json"):
+                    continue
+                path = item.resolve()
+                if path.parent != parent or path in protected_paths:
+                    # Protected entries still count towards the disk budget.
+                    pinned = True
+                else:
+                    pinned = False
+                files = list(path.rglob("*")) if path.is_dir() else [path, path.with_suffix(path.suffix + ".validated.json")]
+                if any(file.is_symlink() or os.path.isjunction(file) for file in files):
+                    continue
+                size = sum(file.stat().st_size for file in files if file.is_file())
+                touched = access.get(self._canonical(path), path.stat().st_mtime)
+                entries.append((touched, path, size, pinned))
+        total = sum(entry[2] for entry in entries)
+        removed = 0
+        for touched, path, size, pinned in sorted(entries):
+            if total <= max_bytes:
+                break
+            if pinned or time.time() - touched < 60:
+                continue
+            try:
+                # Only immediate children of these three disposable cache roots
+                # are eligible; packages, state, saves and links are excluded.
+                path.relative_to(root)
+                if path.parent.name not in {"meshes", "atlases", "previews"} or path.parent.parent != root:
+                    continue
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink(missing_ok=True)
+                    path.with_suffix(path.suffix + ".validated.json").unlink(missing_ok=True)
+                with self.transaction() as connection:
+                    connection.execute("DELETE FROM cache_entries WHERE path=?", (self._canonical(path),))
+                total -= size
+                removed += size
+            except OSError:
+                continue
+        return {"bytes": total, "removed_bytes": removed, "budget_bytes": max_bytes}
 
     def invalidate_cache(self) -> None:
         with self.transaction() as connection:

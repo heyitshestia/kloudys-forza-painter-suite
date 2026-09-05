@@ -16,6 +16,9 @@ Item {
     readonly property bool compactHeight: Theme.logical(height) < 760
     property bool pageActive: true
     property bool wipNoticeAcknowledged: false
+    // WebEngine treats a repeated URL assignment as navigation. This string
+    // changes only for a new session, unlike the service's shared status signal.
+    readonly property string viewerSessionUrl: fullLiveryService.viewerUrl
     signal wipNoticeAccepted()
 
     function dismissWipNotice() {
@@ -61,6 +64,17 @@ Item {
                     Layout.fillWidth: true
                     title: "Full Livery Workshop"
                     subtitle: fullLiveryService.summary
+                }
+
+                KfpsComboBox {
+                    dense: true
+                    Layout.preferredWidth: Theme.px(130)
+                    model: ["Standard", "High"]
+                    currentIndex: fullLiveryService.viewerQuality - 1
+                    enabled: fullLiveryService.featureEnabled
+                    onActivated: fullLiveryService.setViewerQuality(currentIndex + 1)
+                    toolTipText: "3D texture quality"
+                    Accessible.name: "3D texture quality"
                 }
 
                 GhostButton {
@@ -260,6 +274,7 @@ Item {
                             font.weight: Font.DemiBold
                         }
                         GhostButton {
+                            objectName: "addFullLiveryPackageButton"
                             dense: true
                             text: "Add"
                             iconName: "folder"
@@ -267,6 +282,23 @@ Item {
                             toolTipText: "Validate and add a received .kfpslivery package to this KFPS instance."
                             onClicked: fullLiveryService.choosePackage()
                         }
+                    }
+
+                    Text {
+                        objectName: "fullLiveryPackageAddError"
+                        Layout.fillWidth: true
+                        visible: fullLiveryService.packageAddError.length > 0
+                        text: "Package not added: " + fullLiveryService.packageAddError
+                        textFormat: Text.PlainText
+                        color: Theme.danger
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.px(11)
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 5
+                        elide: Text.ElideRight
+                        HoverHandler { id: packageAddErrorHover }
+                        ToolTip.visible: visible && packageAddErrorHover.hovered
+                        ToolTip.text: text
                     }
 
                     FastListView {
@@ -338,14 +370,42 @@ Item {
                     id: inspectorLoader
                     anchors.fill: parent
                     anchors.margins: Math.max(1, Theme.px(1))
-                    active: root.pageActive && fullLiveryService.viewerUrl.length > 0
+                    active: root.pageActive && root.viewerSessionUrl.length > 0
                     sourceComponent: Component {
                         WebEngineView {
-                            url: fullLiveryService.viewerUrl
+                            id: carView
+                            url: root.viewerSessionUrl
                             backgroundColor: "#090b0e"
                             settings.localContentCanAccessRemoteUrls: false
                             settings.localContentCanAccessFileUrls: false
                             settings.javascriptCanOpenWindows: false
+                            onRenderProcessPidChanged: fullLiveryService.viewerProcess(url.toString(), renderProcessPid)
+                            onRenderProcessTerminated: function(terminationStatus, exitCode) {
+                                fullLiveryService.viewerFailed(url.toString(), "The graphics renderer stopped (status " + terminationStatus + ", exit " + exitCode + ").")
+                            }
+                            onLoadingChanged: function(request) {
+                                if (request.status === WebEngineView.LoadFailedStatus)
+                                    fullLiveryService.viewerFailed(url.toString(), request.errorString)
+                            }
+                            onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceId) {
+                                if (message.indexOf("KFPS_VIEWER:") === 0) {
+                                    fullLiveryService.viewerProcess(url.toString(), renderProcessPid)
+                                    fullLiveryService.viewerEvent(url.toString(), message.slice(12))
+                                }
+                            }
+                            Timer {
+                                interval: 5000
+                                repeat: true
+                                running: root.pageActive && root.viewerSessionUrl.length > 0
+                                onTriggered: {
+                                    const sessionUrl = carView.url.toString()
+                                    fullLiveryService.viewerProcess(sessionUrl, carView.renderProcessPid)
+                                    carView.runJavaScript("JSON.stringify({event:'sample',diagnostics:window.__kfpsViewerDiagnostics?.()})", function(result) {
+                                        if (typeof result === "string")
+                                            fullLiveryService.viewerEvent(sessionUrl, result)
+                                    })
+                                }
+                            }
                             Component.onDestruction: {
                                 stop()
                                 url = "about:blank"
@@ -354,15 +414,23 @@ Item {
                     }
                 }
 
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#090b0e"
+                    opacity: fullLiveryService.viewerReady ? 0 : 1
+                    visible: opacity > 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.reducedMotion ? 0 : 160 } }
+                }
+
                 EmptyState {
                     anchors.centerIn: parent
                     width: Math.min(parent.width - Theme.px(40), Theme.px(460))
-                    visible: fullLiveryService.viewerUrl.length === 0
+                    visible: !fullLiveryService.viewerReady
                     iconName: "monitor"
-                    title: fullLiveryService.selectedPackage.length > 0
+                    title: fullLiveryService.running || fullLiveryService.selectedPackage.length > 0
                            ? fullLiveryService.status
                            : "Open a full-livery package"
-                    message: fullLiveryService.selectedPackage.length > 0
+                    message: fullLiveryService.running || fullLiveryService.selectedPackage.length > 0
                              ? fullLiveryService.summary
                              : "Select a saved package to inspect the resolved car, turn it freely, zoom in, and isolate projected livery sections."
                 }

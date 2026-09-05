@@ -1790,7 +1790,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             render_contract = {"root": str(worker_paths.render_cache / "fixture")}
             with (
                 patch.object(full_livery_jobs, "load_or_build_vehicle_asset_index", return_value={1: asset}),
-                patch.object(full_livery_jobs, "validate_local_chassis_glb"),
+                patch.object(full_livery_jobs, "validated_derived_file", return_value={}),
                 patch.object(full_livery_jobs, "build_local_livery_atlases", return_value=render_contract),
             ):
                 result = full_livery_jobs.prepare_mesh(
@@ -2200,6 +2200,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                     service._apply_result({
                         "ok": True,
                         "kind": "open-package",
+                        "package_path": str(package.resolve()),
                         "payload": {
                             "path": str(package.resolve()),
                             "manifest": manifest,
@@ -2276,13 +2277,14 @@ class FullLiveryPackageTests(unittest.TestCase):
             "window.addEventListener('pagehide', disposeViewer)",
             "document.addEventListener('visibilitychange', handleVisibilityChange)",
             "window.__kfpsViewerDiagnostics = viewerDiagnostics",
-            "Promise.allSettled",
+            "loadAbort.abort()",
+            "Promise.all",
         ):
             self.assertIn(contract, source)
         self.assertIn("if (controls.autoRotate) requestRender()", source)
         self.assertNotIn("function animate()", source)
         self.assertNotIn("requestAnimationFrame(animate)", source)
-        self.assertIn('active: root.pageActive && fullLiveryService.viewerUrl.length > 0', page)
+        self.assertIn('active: root.pageActive && root.viewerSessionUrl.length > 0', page)
         self.assertIn('sourceComponent: Component', page)
         self.assertNotIn(': "about:blank"', page)
 

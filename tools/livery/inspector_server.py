@@ -108,6 +108,8 @@ class LiveryInspectorServer:
                 "mask_size",
                 "filters",
                 "sections",
+                "quality_scale",
+                "quality_source",
             )
             if key in contract
         }

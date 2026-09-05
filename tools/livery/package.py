@@ -128,8 +128,13 @@ def _render_livery_sections(
     warnings: list[str] | None = None,
     strict_assets: bool = True,
     cancel_event=None,
+    canvas_size: tuple[int, int] = (2048, 1024),
+    world_bounds: tuple[float, float, float, float] = (-1024.0, -512.0, 1024.0, 512.0),
 ) -> tuple[dict[str, bytes], bool, list[int]]:
     from json_preview_renderer import render_typecode_layers_canvas
+
+    if any(not isinstance(value, int) or value < 1 or value > 8192 for value in canvas_size):
+        raise FullLiveryPackageError("The local section render dimensions are invalid.")
 
     section_map = _section_layers(layers)
     raster_ids = {
@@ -183,6 +188,7 @@ def _render_livery_sections(
             try:
                 rendered = render_typecode_layers_canvas(
                     current,
+                    width=canvas_size[0], height=canvas_size[1], world_bounds=world_bounds,
                     raster_resolver=raster_resolver,
                     cancel_event=cancel_event,
                     strict_assets=strict_assets,
@@ -193,13 +199,13 @@ def _render_livery_sections(
                 raise FullLiveryPackageError(f"Could not render the {section} livery section: {exc}") from exc
         else:
             buffer = io.BytesIO()
-            Image.new("RGBA", (2048, 1024), (0, 0, 0, 0)).save(buffer, format="PNG")
+            Image.new("RGBA", canvas_size, (0, 0, 0, 0)).save(buffer, format="PNG")
             rendered = buffer.getvalue()
         if not rendered:
             raise FullLiveryPackageError(f"The {section} livery section produced no preview.")
         try:
             with Image.open(io.BytesIO(rendered)) as image:
-                if image.size != (2048, 1024) or image.format != "PNG":
+                if image.size != canvas_size or image.format != "PNG":
                     raise FullLiveryPackageError(
                         f"The {section} livery section preview has an invalid image contract."
                     )
@@ -940,6 +946,12 @@ def validate_full_livery_package(
     game_folder: Path | str | None = None,
     verify_previews: bool = False,
 ) -> dict[str, Any]:
+    """Validate the portable source contract and every packaged member.
+
+    ``verify_previews`` additionally tests a local compiler's reproducibility.
+    Use it when creating a package, not when receiving one: rasterizer versions
+    and local game artwork can differ without changing the preserved livery.
+    """
     return _validate_livery_artifact(
         path,
         allow_private_preview=False,
@@ -979,11 +991,7 @@ def migrate_full_livery_package(
     )
     revision = int(manifest.get("compiler_revision") or 0)
     if revision == PACKAGE_COMPILER_REVISION:
-        current = validate_full_livery_package(
-            source_path,
-            game_folder=game_folder,
-            verify_previews=bool(game_folder),
-        )
+        current = validate_full_livery_package(source_path)
         target = Path(output).resolve() if output else source_path
         if target != source_path:
             target.parent.mkdir(parents=True, exist_ok=True)

@@ -22,6 +22,14 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
+const gl = renderer.getContext();
+const debugRenderer = gl.getExtension('WEBGL_debug_renderer_info');
+const graphicsDevice = {
+  renderer: gl.getParameter(debugRenderer ? debugRenderer.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+  vendor: gl.getParameter(debugRenderer ? debugRenderer.UNMASKED_VENDOR_WEBGL : gl.VENDOR),
+  maxTextureSize: renderer.capabilities.maxTextureSize,
+  anisotropy: Math.min(4, renderer.capabilities.getMaxAnisotropy()),
+};
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x090b0e);
@@ -44,6 +52,55 @@ let renderPixelRatio = 0;
 let renderRequests = 0;
 let renderedFrames = 0;
 let modelBounds = null;
+const startedAt = performance.now();
+const loadAbort = new AbortController();
+const loadTimeout = window.setTimeout(() => failViewer('Loading the car exceeded 60 seconds.'), 60000);
+const timings = {};
+let modelReady = false;
+let firstFrameReady = false;
+let frameTime = 0;
+let lastFrameAt = 0;
+let frameTimeTotal = 0;
+let frameTimePeak = 0;
+const gpuBudgetBytes = Math.min(512, Math.max(192, (navigator.deviceMemory || 4) * 64)) * 1024 * 1024;
+let modelResourceBytes = 0;
+
+function viewerEvent(event, message = '') {
+  console.info('KFPS_VIEWER:' + JSON.stringify({event, message, diagnostics: viewerDiagnostics()}));
+}
+
+function phase(name, message) {
+  timings[name] = Math.round(performance.now() - startedAt);
+  setStatus(message);
+  viewerEvent('phase', message);
+}
+
+function failViewer(message) {
+  if (viewerDisposed) return;
+  setStatus(message, true);
+  viewerEvent('error', message);
+  disposeViewer();
+}
+
+function resourceBytes() {
+  const buffers = new Set();
+  for (const geometry of trackedGeometries) {
+    for (const attribute of [...Object.values(geometry.attributes), geometry.index]) {
+      const buffer = (attribute?.array || attribute?.data?.array)?.buffer;
+      if (buffer) buffers.add(buffer);
+    }
+  }
+  let geometryBytes = 0;
+  buffers.forEach(buffer => { geometryBytes += buffer.byteLength; });
+  let textureBytes = 0;
+  trackedTextures.forEach(texture => {
+    const image = texture.image;
+    textureBytes += (image?.width || 0) * (image?.height || 0) * 4 * (texture.generateMipmaps ? 4 / 3 : 1);
+  });
+  const framebuffers = viewerDisposed ? 0 : Math.ceil(renderWidth * renderHeight * renderPixelRatio ** 2 * 40);
+  return {geometry: geometryBytes, textures: Math.ceil(textureBytes), framebuffers,
+    estimatedGpu: Math.ceil(geometryBytes + textureBytes + framebuffers), budget: gpuBudgetBytes};
+}
 
 function trackTexture(texture) {
   if (!texture?.isTexture) return texture;
@@ -234,13 +291,25 @@ function preparePartControls(options) {
 }
 
 async function loadTexture(url, color = false) {
-  const texture = trackTexture(await new THREE.TextureLoader().loadAsync(url));
+  const response = await fetch(url, {signal: loadAbort.signal});
+  if (!response.ok) throw new Error(`Texture load failed (${response.status}).`);
+  const bitmap = await createImageBitmap(await response.blob(), {
+    premultiplyAlpha: 'none', colorSpaceConversion: 'none',
+  });
+  if (viewerDisposed) { bitmap.close(); throw new Error('Viewer closed.'); }
+  if (Math.max(bitmap.width, bitmap.height) > renderer.capabilities.maxTextureSize) {
+    bitmap.close();
+    throw new Error('This graphics device cannot load the selected texture resolution.');
+  }
+  const texture = trackTexture(new THREE.Texture(bitmap));
   texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   texture.flipY = false;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = color ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
+  texture.needsUpdate = true;
   return texture;
 }
 
@@ -378,6 +447,9 @@ function sectionAwareMaterial(
         float bestFacing = -1.0;
         int bestSlot = -1;
         vec2 bestAtlasUv = atlasUv;
+        ${directUv ? `vec4 directPage0 = texture2D(maskMap0, atlasUv);
+        vec4 directPage1 = texture2D(maskMap1, atlasUv);
+        vec4 directPage2 = texture2D(maskMap2, atlasUv);` : ''}
         for (int slot = 0; slot < ${SECTION_COUNT}; ++slot) {
           if (
             enabledSlots[slot] < 0.5
@@ -406,9 +478,9 @@ function sectionAwareMaterial(
             candidateUv.x < 0.0 || candidateUv.x > 1.0
             || candidateUv.y < 0.0 || candidateUv.y > 1.0
           ) continue;
-          vec4 page0 = texture2D(maskMap0, candidateUv);
-          vec4 page1 = texture2D(maskMap1, candidateUv);
-          vec4 page2 = texture2D(maskMap2, candidateUv);
+          vec4 page0 = ${directUv ? 'directPage0' : 'texture2D(maskMap0, candidateUv)'};
+          vec4 page1 = ${directUv ? 'directPage1' : 'texture2D(maskMap1, candidateUv)'};
+          vec4 page2 = ${directUv ? 'directPage2' : 'texture2D(maskMap2, candidateUv)'};
           float candidate = slotCoverage(slot, page0, page1, page2);
           if (candidate <= 0.5) continue;
           float facing = dot(sideFacing[slot], normalValue);
@@ -443,7 +515,9 @@ function sectionAwareMaterial(
           3.0
         );
         vec3 lit = colorValue * diffuse + vec3(0.06, 0.11, 0.14) * edge;
-        gl_FragColor = vec4(lit, ${transparent ? '0.82' : '1.0'});
+        gl_FragColor = vec4(lit, ${transparent ? 'mix(0.82, 1.0, decal.a)' : '1.0'});
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
     transparent,
@@ -721,7 +795,8 @@ function setSectionFilter(filterName) {
 
 async function loadPackage() {
   try {
-    const response = await fetch('./api/manifest', { cache: 'no-store' });
+    phase('manifest', 'Opening livery preview');
+    const response = await fetch('./api/manifest', { cache: 'no-store', signal: loadAbort.signal });
     if (!response.ok) throw new Error(await response.text());
     const manifest = await response.json();
     title.textContent = manifest.livery?.title || 'Untitled full livery';
@@ -742,21 +817,30 @@ async function loadPackage() {
       button.disabled = !availableFilters.has(button.dataset.section);
     });
 
-    setStatus('Loading the exact local car mesh, paint regions, and section masks...');
-    const loadResults = await Promise.allSettled([
+    phase('assets', 'Loading car and livery textures');
+    const loadResults = await Promise.all([
       loadTexture('./api/local-render/paint', true),
       loadTexture('./api/local-render/mask/0'),
       loadTexture('./api/local-render/mask/1'),
       loadTexture('./api/local-render/mask/2'),
-      new GLTFLoader().loadAsync('./api/local-mesh').then(item => {
+      fetch('./api/local-mesh', {signal: loadAbort.signal}).then(response => {
+        if (!response.ok) throw new Error(`Car mesh load failed (${response.status}).`);
+        return response.arrayBuffer();
+      }).then(buffer => {
+        if (viewerDisposed) throw new Error('Viewer closed.');
+        return new GLTFLoader().parseAsync(buffer, '');
+      }).then(item => {
         trackObjectResources(item.scene);
         return item;
       }),
     ]);
-    const failedLoad = loadResults.find(result => result.status === 'rejected');
-    if (failedLoad) throw failedLoad.reason;
     if (viewerDisposed) return;
-    const [paintTexture, mask0, mask1, mask2, gltf] = loadResults.map(result => result.value);
+    const assetBytes = resourceBytes();
+    modelResourceBytes = assetBytes.geometry + assetBytes.textures;
+    resize();
+    if (resourceBytes().estimatedGpu > gpuBudgetBytes) throw new Error('The car exceeds the preview graphics memory budget.');
+    phase('materials', 'Preparing car surfaces');
+    const [paintTexture, mask0, mask1, mask2, gltf] = loadResults;
     model = gltf.scene;
     preparePartControls(model.userData?.kfps_part_options);
     model.traverse(child => {
@@ -792,10 +876,17 @@ async function loadPackage() {
     let paintCount = 0;
     let glassCount = 0;
     let meshCount = 0;
+    const neutralMaterials = new Map();
+    const oldMaterials = new Set();
     model.traverse(child => {
       if (!child.isMesh) return;
       meshCount += 1;
       const category = meshCategory(child);
+      if (category !== 'hidden') {
+        for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+          if (material) oldMaterials.add(material);
+        }
+      }
       if (category === 'paint') {
         const directUv = Boolean(child.geometry.getAttribute('uv3'));
         child.material = liveryMaterial(
@@ -818,12 +909,23 @@ async function loadPackage() {
       } else if (category === 'hidden') {
         child.visible = false;
       } else {
-        child.material = trackMaterial(new THREE.MeshStandardMaterial({
-          color: category === 'dark' ? 0x11161b : 0x4b555d,
-          roughness: 0.68,
-          metalness: 0.15,
-        }));
+        if (!neutralMaterials.has(category)) {
+          neutralMaterials.set(category, trackMaterial(new THREE.MeshStandardMaterial({
+            color: category === 'dark' ? 0x11161b : 0x4b555d,
+            roughness: 0.68, metalness: 0.15,
+          })));
+        }
+        child.material = neutralMaterials.get(category);
       }
+    });
+    const retainedMaterials = new Set();
+    model.traverse(child => {
+      for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+        if (material) retainedMaterials.add(material);
+      }
+    });
+    oldMaterials.forEach(material => {
+      if (!retainedMaterials.has(material)) { material.dispose(); trackedMaterials.delete(material); }
     });
     const refreshPartSelection = () => {
       model.traverse(child => {
@@ -850,7 +952,8 @@ async function loadPackage() {
     floor.position.y = inspectionFloorY(renderContract.assembly, modelBounds.min.y) - 0.018;
     frameModel(modelBounds);
     setSectionFilter('all');
-    setStatus('');
+    phase('scene', 'Rendering first frame');
+    modelReady = true;
     console.info(
       `KFPS section-aware inspector: ${paintCount} paint, ${glassCount} glass, `
       + `${meshCount} local meshes, ${wheelCount} neutral inspection wheels, `
@@ -858,16 +961,22 @@ async function loadPackage() {
     );
     requestRender();
   } catch (error) {
-    console.error(error);
-    setStatus(error?.message || String(error), true);
-    disposeViewer();
+    failViewer(error?.message || String(error));
   }
 }
 
 function resetView() {
+  const damping = controls.enableDamping;
+  const rotating = controls.autoRotate;
+  // Flush residual motion before restoring the saved camera pose.
+  controls.enableDamping = false;
+  controls.autoRotate = false;
+  controls.update();
   camera.position.copy(homeCamera);
   controls.target.copy(homeTarget);
   controls.update();
+  controls.enableDamping = damping;
+  controls.autoRotate = rotating;
   requestRender();
 }
 
@@ -894,7 +1003,11 @@ controls.addEventListener('change', requestRender);
 function resize() {
   const width = Math.max(1, viewport.clientWidth);
   const height = Math.max(1, viewport.clientHeight);
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelBudget = Math.min(
+    (navigator.deviceMemory || 4) >= 8 ? 8388608 : 4194304,
+    Math.max(1, (gpuBudgetBytes - modelResourceBytes) * .9 / 40),
+  );
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(pixelBudget / (width * height)));
   if (width === renderWidth && height === renderHeight && pixelRatio === renderPixelRatio) return;
   const cameraWasHome = modelBounds !== null
     && camera.position.distanceToSquared(homeCamera) < 1e-8
@@ -910,13 +1023,33 @@ function resize() {
   if (cameraWasHome) frameModel(modelBounds, homeDirection);
 }
 
-function renderFrame() {
+function renderFrame(timestamp) {
   animationFrameId = 0;
   if (viewerDisposed || document.hidden) return;
+  // Limit continuous animation to 60 Hz, including on high-refresh displays.
+  if (lastFrameAt && timestamp - lastFrameAt < 15) { requestRender(); return; }
+  const delta = lastFrameAt ? Math.min((timestamp - lastFrameAt) / 1000, .1) : 1 / 60;
+  lastFrameAt = timestamp;
+  const frameStart = performance.now();
   resize();
-  controls.update();
-  renderer.render(scene, camera);
+  controls.update(delta);
+  try {
+    renderer.render(scene, camera);
+  } catch (error) {
+    failViewer(error?.message || String(error));
+    return;
+  }
   renderedFrames += 1;
+  frameTime = performance.now() - frameStart;
+  frameTimeTotal += frameTime;
+  frameTimePeak = Math.max(frameTimePeak, frameTime);
+  if (modelReady && !firstFrameReady) {
+    firstFrameReady = true;
+    timings.firstFrame = Math.round(performance.now() - startedAt);
+    window.clearTimeout(loadTimeout);
+    setStatus('');
+    viewerEvent('ready');
+  }
   if (controls.autoRotate) requestRender();
 }
 
@@ -933,6 +1066,7 @@ function handleResize() {
 }
 
 function handleVisibilityChange() {
+  lastFrameAt = 0;
   if (document.hidden && animationFrameId) {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = 0;
@@ -953,6 +1087,8 @@ function releaseRendererContext() {
 function disposeViewer(releaseContext = true) {
   if (!viewerDisposed) {
     viewerDisposed = true;
+    window.clearTimeout(loadTimeout);
+    loadAbort.abort();
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     animationFrameId = 0;
     controls.removeEventListener('change', requestRender);
@@ -963,6 +1099,10 @@ function disposeViewer(releaseContext = true) {
     window.removeEventListener('dblclick', resetFromDoubleClick);
     window.removeEventListener('resize', handleResize);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
+    canvas.removeEventListener('webglcontextlost', handleContextLost);
+    partControls.replaceChildren();
+    selectedPartOptions.clear();
+    selectablePartGroups.clear();
     trackedSkeletons.forEach(skeleton => skeleton.dispose());
     trackedGeometries.forEach(geometry => geometry.dispose());
     trackedMaterials.forEach(material => material.dispose());
@@ -989,6 +1129,15 @@ function viewerDiagnostics() {
     disposed: viewerDisposed,
     contextReleased: rendererContextReleased,
     animationActive: Boolean(animationFrameId),
+    ready: firstFrameReady,
+    timings: {...timings},
+    bytes: resourceBytes(),
+    device: {
+      ...graphicsDevice,
+      pixelRatio: renderPixelRatio,
+    },
+    quality: {scale: renderContract?.quality_scale || 1, source: renderContract?.quality_source || '',
+      paintSize: renderContract?.paint_size || []},
     tracked: {
       geometries: trackedGeometries.size,
       materials: trackedMaterials.size,
@@ -1003,9 +1152,24 @@ function viewerDiagnostics() {
     rendering: {
       requests: renderRequests,
       frames: renderedFrames,
+      cpuFrameMs: frameTime,
+      meanCpuFrameMs: renderedFrames ? frameTimeTotal / renderedFrames : 0,
+      peakCpuFrameMs: frameTimePeak,
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
     },
   };
 }
+
+function handleContextLost(event) {
+  event.preventDefault();
+  if (viewerDisposed) return;
+  viewerEvent('context-lost', 'The graphics device lost the 3D preview. Reopen this livery to retry.');
+  disposeViewer(false);
+}
+
+renderer.debug.onShaderError = () => { throw new Error('The graphics device could not compile the livery shader.'); };
+canvas.addEventListener('webglcontextlost', handleContextLost);
 
 window.addEventListener('dblclick', resetFromDoubleClick);
 window.addEventListener('resize', handleResize);

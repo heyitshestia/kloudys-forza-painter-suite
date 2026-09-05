@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import struct
 import time
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +39,9 @@ from tools.livery.portable_mesh_converter import (
     convert_vehicle_model_to_glb,
     validate_local_chassis_glb,
 )
-from tools.livery.render_contract import build_local_livery_atlases
+from tools.livery.render_contract import RENDER_CONTRACT_REVISION, build_local_livery_atlases
+from tools.livery.derived_cache import validated_derived_file
+from tools.livery.package import _decode_livery_contract
 from tools.livery.vehicle_assets import (
     normalize_fh6_game_folder,
     load_or_build_vehicle_asset_index,
@@ -642,7 +646,10 @@ def add_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[
                 )
                 source = migration
         else:
-            validate_full_livery_package(source, game_folder=game_folder or None, verify_previews=bool(game_folder))
+            # Received previews are derived artwork, not a portable renderer
+            # fingerprint. Validate bytes, source, ownership and canonical layers;
+            # exact local rerender checks belong to package creation only.
+            validate_full_livery_package(source)
         if cancel_event.is_set():
             raise InterruptedError("Package import was cancelled.")
         manifest = validate_full_livery_package(source, game_folder=game_folder or None, verify_previews=False)
@@ -745,7 +752,18 @@ def install_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> d
     }
 
 
-def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[str, Any]:
+def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event, progress=None) -> dict[str, Any]:
+    started = time.perf_counter()
+    timings = {}
+
+    def phase(name: str, message: str) -> None:
+        if cancel_event.is_set():
+            raise InterruptedError("Local preview preparation was cancelled.")
+        timings[name] = round(time.perf_counter() - started, 4)
+        if progress is not None:
+            progress(message)
+
+    phase("vehicle_index", "Checking local car assets")
     game_folder = str(payload.get("game_folder") or "")
     car_id = int(payload.get("car_id") or 0)
     package_path = Path(str(payload.get("package_path") or "")).resolve()
@@ -764,23 +782,53 @@ def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict
         f"{asset.model_code}-{asset.archive_mtime_ns}.local-chassis-v{INSPECTION_MESH_CACHE_REVISION}.glb"
     )
     mesh_cache_hit = True
+    phase("mesh", "Checking cached car geometry")
     try:
-        validate_local_chassis_glb(mesh_path)
+        mesh_validation = validated_derived_file(mesh_path, validate_local_chassis_glb, INSPECTION_MESH_CACHE_REVISION)
     except (OSError, PortableMeshConverterError):
         mesh_cache_hit = False
         mesh_path.unlink(missing_ok=True)
         mesh_path.parent.mkdir(parents=True, exist_ok=True)
         convert_vehicle_model_to_glb(asset, mesh_path, cancel_event=cancel_event)
+        mesh_validation = validated_derived_file(mesh_path, validate_local_chassis_glb, INSPECTION_MESH_CACHE_REVISION)
     if cancel_event.is_set():
         raise InterruptedError("Local chassis preparation was cancelled.")
     package_key = _file_hash(package_path)[:24]
-    render_root = paths.render_cache / f"{package_key}-{asset.archive_mtime_ns}"
+    quality_scale = 2 if payload.get("quality_scale") == 2 else 1
+    if quality_scale == 2 and psutil.virtual_memory().available < 2 * 1024**3:
+        quality_scale = 1
+        warnings.append("Standard preview quality used because less than 2 GB of RAM was available")
+    render_root = paths.render_cache / f"{package_key}-{asset.archive_mtime_ns}-r{RENDER_CONTRACT_REVISION}-q{quality_scale}"
+
+    def local_layers():
+        validate_livery_inspection_artifact(package_path)
+        if package_path.suffix.casefold() == ".kfpspreview":
+            source = Path(str(payload.get("source_path") or "")).resolve()
+            expected, _ = _preview_target(paths, source, game_folder)
+            if expected.resolve() != package_path:
+                raise FullLiveryPackageError("The local livery changed. Scan saves and reopen it before rendering High quality.")
+            decoded = unwrap_forza_container(source)
+            if not inspect_clivery_privacy(decoded)["source_owned"]:
+                raise FullLiveryPackageError("This full livery belongs to another player and cannot be opened by KFPS.")
+            return _decode_livery_contract(decoded)[0]["layers"]
+        with zipfile.ZipFile(package_path) as bundle:
+            return json.loads(bundle.read("livery/layers.json"))["layers"]
+
+    can_rerender = package_path.suffix.casefold() == ".kfpslivery" or bool(payload.get("source_path"))
+    phase("textures", "Preparing livery textures")
     render_contract = build_local_livery_atlases(
         package_path,
         asset,
         render_root,
         mesh_path=mesh_path,
+        mesh_validation=mesh_validation,
+        cancel_event=cancel_event,
+        progress=progress,
+        quality_scale=quality_scale,
+        layer_provider=local_layers if can_rerender else None,
+        game_folder=game_folder,
     )
+    warnings.extend(render_contract.get("quality_notes") or [])
     catalog = FullLiveryCatalog(paths.catalog_file, paths.quarantine)
     catalog.record_cache_entry(
         f"mesh:{asset.model_code}:{asset.archive_mtime_ns}",
@@ -789,6 +837,15 @@ def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict
         source_fingerprint=str(asset.archive_mtime_ns),
         revision=INSPECTION_MESH_CACHE_REVISION,
     )
+    catalog.record_cache_entry(
+        f"atlas:{render_root.name}", kind="atlas", path=render_root,
+        source_fingerprint=package_key, revision=RENDER_CONTRACT_REVISION,
+    )
+    try:
+        cache_usage = catalog.prune_derived_cache(paths.cache, protected=[mesh_path, render_root, package_path])
+    except OSError as exc:
+        cache_usage = {"cleanup_error": str(exc)}
+    phase("complete", "Starting 3D preview")
     return {
         "package_id": str(payload.get("package_id") or ""),
         "package_path": str(package_path),
@@ -798,6 +855,8 @@ def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict
         "model_code": asset.model_code,
         "revision_warning": "; ".join(warnings),
         "mesh_cache_hit": mesh_cache_hit,
+        "timings_seconds": timings,
+        "cache_usage": cache_usage,
     }
 
 
@@ -835,8 +894,10 @@ OPERATIONS = {
 }
 
 
-def execute_operation(request: dict[str, Any], cancel_event) -> dict[str, Any]:
+def execute_operation(request: dict[str, Any], cancel_event, progress=None) -> dict[str, Any]:
     paths = JobPaths.from_request(request)
     paths.ensure()
     operation = str(request["operation"])
+    if operation == "prepare-mesh":
+        return prepare_mesh(paths, dict(request.get("payload") or {}), cancel_event, progress=progress)
     return OPERATIONS[operation](paths, dict(request.get("payload") or {}), cancel_event)

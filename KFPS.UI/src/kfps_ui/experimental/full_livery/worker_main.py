@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import concurrent.futures
+
 import argparse
 import json
 import os
@@ -43,7 +45,11 @@ def run_request(request_file: str | Path, result_file: str | Path, parent_pid: i
     started = time.monotonic()
     try:
         diagnostic.event("operation_started")
-        value = execute_operation(request, cancel_event)
+        def progress(message: str) -> None:
+            write_json_atomic(session_dir / "progress.json", {"request_id": request_id, "message": message})
+            diagnostic.event("progress", message=message)
+
+        value = execute_operation(request, cancel_event, progress=progress)
         if cancel_event.is_set():
             raise InterruptedError("The full-livery task was cancelled.")
         response = {
@@ -63,7 +69,7 @@ def run_request(request_file: str | Path, result_file: str | Path, parent_pid: i
             "request_id": request_id,
             "operation": operation,
             "ok": False,
-            "cancelled": isinstance(exc, (InterruptedError, KeyboardInterrupt)),
+            "cancelled": isinstance(exc, (InterruptedError, KeyboardInterrupt, concurrent.futures.CancelledError)),
             "elapsed_seconds": time.monotonic() - started,
             "error_type": type(exc).__name__,
             "error": str(exc),

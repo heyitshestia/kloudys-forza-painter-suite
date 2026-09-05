@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import struct
@@ -15,6 +16,8 @@ from PIL import Image
 from .portable_mesh_converter import read_local_chassis_projection_meshes
 from .projection_alignment import build_aligned_projection_bounds
 from .vehicle_assets import VehicleAsset, read_vehicle_assembly_metadata
+from .derived_cache import file_sha256
+from .package import _render_livery_sections
 
 
 GRUB_TAG = 0x47727562
@@ -23,11 +26,11 @@ TXCH_TAG = 0x54584348
 UNSIGNED_BC4 = 3
 ATLAS_SIZE = (2048, 1024)
 RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v3"
-RENDER_CONTRACT_REVISION = 9
+RENDER_CONTRACT_REVISION = 11
 MASK_PAGE_COUNT = 3
 MASK_CHANNELS = 4
 PAINT_ATLAS_WIDTH = 2048
-PAINT_PADDING = 2
+PAINT_PADDING = 8
 
 SECTION_TO_SLOT = {
     "Front": "front",
@@ -354,12 +357,13 @@ def _archive_masks(asset: VehicleAsset) -> dict[str, tuple[Image.Image, dict[str
 
 def _save_png(image: Image.Image, path: Path) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    image.save(temporary, format="PNG", optimize=True)
+    image.save(temporary, format="PNG", compress_level=3)
     os.replace(temporary, path)
 
 
 def _pack_paint_tiles(
     tiles: list[dict[str, Any]],
+    *, width: int = PAINT_ATLAS_WIDTH,
 ) -> tuple[Image.Image, dict[str, tuple[int, int, int, int]]]:
     """Pack cropped section paint into deterministic padded shelves."""
 
@@ -378,11 +382,11 @@ def _pack_paint_tiles(
     max_bottom = PAINT_PADDING
     for item in ordered:
         image: Image.Image = item["image"]
-        if image.width + PAINT_PADDING * 2 > PAINT_ATLAS_WIDTH:
+        if image.width + PAINT_PADDING * 2 > width:
             raise LiveryRenderContractError(
                 f"The {item['section']} paint region is too wide for the local texture atlas."
             )
-        if x + image.width + PAINT_PADDING > PAINT_ATLAS_WIDTH:
+        if x + image.width + PAINT_PADDING > width:
             x = PAINT_PADDING
             y += row_height + PAINT_PADDING * 2
             row_height = 0
@@ -392,15 +396,61 @@ def _pack_paint_tiles(
         max_bottom = max(max_bottom, y + image.height + PAINT_PADDING)
 
     height = max(1, max_bottom)
-    if height > 8192:
+    if height > 8192 or width * height > 24 * 1024 * 1024:
         raise LiveryRenderContractError(
-            f"The local section paint atlas would be {PAINT_ATLAS_WIDTH} x {height} pixels."
+            f"The local section paint atlas would be {width} x {height} pixels; use Standard preview quality."
         )
-    atlas = Image.new("RGBA", (PAINT_ATLAS_WIDTH, height), (0, 0, 0, 0))
+    atlas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     for item in ordered:
         left, top, _, _ = placements[item["section"]]
         atlas.alpha_composite(item["image"], (left, top))
+        image = item["image"]
+        # Extruded edges protect bilinear/mipmap sampling from neighbouring tiles.
+        for box, target, size in (
+            ((0, 0, 1, image.height), (left - PAINT_PADDING, top), (PAINT_PADDING, image.height)),
+            ((image.width - 1, 0, image.width, image.height), (left + image.width, top), (PAINT_PADDING, image.height)),
+            ((0, 0, image.width, 1), (left, top - PAINT_PADDING), (image.width, PAINT_PADDING)),
+            ((0, image.height - 1, image.width, image.height), (left, top + image.height), (image.width, PAINT_PADDING)),
+        ):
+            atlas.paste(image.crop(box).resize(size, Image.Resampling.NEAREST), target)
     return atlas, placements
+
+
+def _vector_paint_tile(layers, section, slot, projection, bounds, scale, game_folder, cancel_event):
+    left, top, right, bottom = bounds
+    a, b, c, d, e, f = _atlas_to_local_affine(
+        slot, *ATLAS_SIZE, float(projection.get("xorigin", 0)), float(projection.get("yorigin", 0))
+    )
+    corners = [(a*x+b*y+c, d*x+e*y+f) for x in (left, right) for y in (top, bottom)]
+    min_x, max_x = min(p[0] for p in corners), max(p[0] for p in corners)
+    min_y, max_y = min(p[1] for p in corners), max(p[1] for p in corners)
+    size = (round((max_x-min_x)*scale), round((max_y-min_y)*scale))
+    rendered, references_verified, _ = _render_livery_sections(
+        layers, game_folder=game_folder, strict_assets=False, cancel_event=cancel_event,
+        canvas_size=size, world_bounds=(min_x-1024, 512-max_y, max_x-1024, 512-min_y),
+    )
+    if not references_verified:
+        return None
+    data = rendered.get(section)
+    if data is None:
+        return Image.new("RGBA", ((right-left)*scale, (bottom-top)*scale))
+    with Image.open(io.BytesIO(data)) as source:
+        artwork = source.convert("RGBA")
+    # The native section canvas clips artwork outside these coordinates.
+    for box in (
+        (0, 0, max(0, round(-min_x*scale)), size[1]),
+        (min(size[0], round((2048-min_x)*scale)), 0, size[0], size[1]),
+        (0, 0, size[0], max(0, round(-min_y*scale))),
+        (0, min(size[1], round((1024-min_y)*scale)), size[0], size[1]),
+    ):
+        clipped = (max(0, box[0]), max(0, box[1]), min(size[0], box[2]), min(size[1], box[3]))
+        if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
+            artwork.paste((0, 0, 0, 0), clipped)
+    return artwork.transform(
+        ((right-left)*scale, (bottom-top)*scale), Image.Transform.AFFINE,
+        (a, b, (a*left+b*top+c-min_x)*scale, d, e, (d*left+e*top+f-min_y)*scale),
+        resample=Image.Resampling.BILINEAR,
+    )
 
 
 def build_local_livery_atlases(
@@ -409,16 +459,24 @@ def build_local_livery_atlases(
     output_dir: Path | str,
     *,
     mesh_path: Path | str | None = None,
+    mesh_validation: dict | None = None,
+    cancel_event=None,
+    progress=None,
+    quality_scale: int = 1,
+    layer_provider=None,
+    game_folder: str | Path | None = None,
 ) -> dict[str, Any]:
     package = Path(package_path).resolve()
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    scale = 2 if quality_scale == 2 and layer_provider is not None else 1
     signature = {
         "contract_revision": RENDER_CONTRACT_REVISION,
-        "package_sha256": hashlib.sha256(package.read_bytes()).hexdigest(),
+        "package_sha256": file_sha256(package),
         "archive_size": asset.archive_size,
         "archive_mtime_ns": asset.archive_mtime_ns,
         "model_code": asset.model_code,
+        "quality_scale": scale,
     }
     local_mesh = Path(mesh_path).resolve() if mesh_path else None
     if local_mesh is not None:
@@ -438,17 +496,24 @@ def build_local_livery_atlases(
                 cached.get("format") == RENDER_CONTRACT_FORMAT
                 and cached.get("signature") == signature
                 and len(cached_names) == MASK_PAGE_COUNT + 1
-                and all(name and (output / name).is_file() for name in cached_names)
+                and all(name and Path(name).name == name and (output / name).is_file()
+                        and file_sha256(output / name) == (cached.get("file_sha256") or {}).get(name)
+                        for name in cached_names)
             ):
-                return {**cached, "root": str(output)}
-        except (OSError, ValueError, TypeError):
+                return {**cached, "root": str(output), "cache_hit": True}
+        except (OSError, ValueError, TypeError, AttributeError):
             pass
 
     masks = _archive_masks(asset)
+    section_layers = {}
+    quality_notes = []
+    if scale > 1:
+        for layer in layer_provider():
+            section_layers.setdefault(str(layer.get("source_section") or ""), []).append(layer)
     assembly = read_vehicle_assembly_metadata(asset)
     projection_meshes = (
         read_local_chassis_projection_meshes(local_mesh)
-        if local_mesh is not None
+        if local_mesh is not None and (mesh_validation is None or mesh_validation.get("projected_livery_meshes", 1) > 0)
         else []
     )
     mask_pages = [
@@ -461,10 +526,14 @@ def build_local_livery_atlases(
     with zipfile.ZipFile(package) as bundle:
         available = {name.casefold(): name for name in bundle.namelist()}
         for section, slot in SECTION_TO_SLOT.items():
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Livery texture preparation was cancelled.")
             member = available.get(f"projection/rendered/{section}.png".casefold())
             mask_record = masks.get(slot)
             if not member or mask_record is None:
                 continue
+            if progress is not None:
+                progress(f"Preparing {section.lower()} livery texture")
             mask, projection, mask_hash = mask_record
             if mask.size != ATLAS_SIZE:
                 raise LiveryRenderContractError(
@@ -481,12 +550,21 @@ def build_local_livery_atlases(
             source_bounds = _projection_pixel_bounds(projection)
             axis_x, axis_x_scale = _projection_axis(projection, "xAxis", "xScale")
             axis_y, axis_y_scale = _projection_axis(projection, "yAxis", "yScale")
-            with bundle.open(member) as source, Image.open(source) as artwork:
-                warped = _warped_uv_layer(artwork, slot, projection)
-                tile = warped.crop(source_bounds)
+            tile = None
+            if scale > 1:
+                tile = _vector_paint_tile(section_layers.get(section, []), section, slot, projection,
+                                          source_bounds, scale, game_folder, cancel_event)
+                if tile is None:
+                    quality_notes.append(f"{section}: retained original resolution because referenced artwork is unavailable locally")
+            if tile is None:
+                with bundle.open(member) as source, Image.open(source) as artwork:
+                    warped = _warped_uv_layer(artwork, slot, projection)
+                    tile = warped.crop(source_bounds)
             kind = "glass" if slot.startswith("glass_") else "body"
             filter_name = SECTION_FILTER[section]
-            tile_alpha = np.asarray(tile.getchannel("A"), dtype=np.uint8)
+            native_tile = tile if scale == 1 else tile.resize(
+                (source_bounds[2]-source_bounds[0], source_bounds[3]-source_bounds[1]), Image.Resampling.BOX)
+            tile_alpha = np.asarray(native_tile.getchannel("A"), dtype=np.uint8)
             mask_crop = mask_values[
                 source_bounds[1] : source_bounds[3], source_bounds[0] : source_bounds[2]
             ]
@@ -524,7 +602,8 @@ def build_local_livery_atlases(
         if projection_meshes
         else {}
     )
-    paint_atlas, placements = _pack_paint_tiles(paint_tiles)
+    atlas_width = max(PAINT_ATLAS_WIDTH * scale, max(item["image"].width + PAINT_PADDING * 2 for item in paint_tiles))
+    paint_atlas, placements = _pack_paint_tiles(paint_tiles, width=atlas_width)
     paint_filename = "section-paint.png"
     _save_png(paint_atlas, output / paint_filename)
     mask_filenames: list[str] = []
@@ -576,6 +655,10 @@ def build_local_livery_atlases(
             else "viewer-legacy-bounds"
         ),
         "paint_size": list(paint_atlas.size),
+        "quality_scale": scale,
+        "quality_source": ("mixed-original-and-vector" if quality_notes else
+                           "native-vector-crops" if scale > 1 else "package-section-images"),
+        "quality_notes": quality_notes,
         "mask_size": list(ATLAS_SIZE),
         "filters": [
             name
@@ -583,9 +666,10 @@ def build_local_livery_atlases(
             if name == "all" or any(record["filter"] == name for record in records)
         ],
         "files": files,
+        "file_sha256": {name: file_sha256(output / name) for name in [paint_filename, *mask_filenames]},
         "sections": records,
     }
     temporary = index_path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, index_path)
-    return {**index, "root": str(output)}
+    return {**index, "root": str(output), "cache_hit": False}

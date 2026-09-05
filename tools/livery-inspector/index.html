@@ -18,15 +18,19 @@
 <body>
   <main id="viewport" aria-label="Interactive full livery inspection view">
     <canvas id="canvas"></canvas>
-    <div class="hud hud-left">
-      <strong id="title">Loading livery</strong>
-      <span id="vehicle">Reading package metadata...</span>
+    <div class="top-hud">
+      <div class="hud hud-left">
+        <strong id="title">Loading livery</strong>
+        <span id="vehicle">Reading package metadata...</span>
+      </div>
+      <div class="viewer-tools">
+        <div class="hud hud-right" role="toolbar" aria-label="Inspection controls">
+          <button id="reset" type="button" title="Reset the camera">Reset view</button>
+          <button id="rotate" type="button" title="Toggle slow automatic rotation" aria-pressed="false">Auto rotate</button>
+        </div>
+        <div id="parts" class="part-controls hidden" aria-label="Displayed car parts"></div>
+      </div>
     </div>
-    <div class="hud hud-right" role="toolbar" aria-label="Inspection controls">
-      <button id="reset" type="button" title="Reset the camera">Reset view</button>
-      <button id="rotate" type="button" title="Toggle slow automatic rotation" aria-pressed="false">Auto rotate</button>
-    </div>
-    <div id="parts" class="part-controls hidden" aria-label="Displayed car parts"></div>
     <div class="section-strip" role="toolbar" aria-label="Visible livery sections">
       <button type="button" class="active" data-section="all">All</button>
       <button type="button" data-section="top">Top</button>
@@ -40,12 +44,20 @@
   </main>
   <script>
     window.__kfpsViewerBooted = false;
-    window.__kfpsViewerBootTimer = window.setTimeout(() => {
-      if (window.__kfpsViewerBooted) return;
+    function reportViewerBootFailure(message) {
       const status = document.querySelector('#status');
-      status.textContent = 'The local 3D viewer could not start. A required viewer file is missing or unreadable.';
+      status.textContent = message;
       status.classList.remove('hidden');
       status.classList.add('error');
+      console.info('KFPS_VIEWER:' + JSON.stringify({event: 'error', message}));
+    }
+    window.addEventListener('error', event => {
+      reportViewerBootFailure(String(event.message || 'The 3D viewer could not start.'));
+      window.__kfpsDisposeViewer?.();
+    });
+    window.__kfpsViewerBootTimer = window.setTimeout(() => {
+      if (window.__kfpsViewerBooted) return;
+      reportViewerBootFailure('The local 3D viewer could not start. A required viewer file is missing or unreadable.');
     }, 4000);
   </script>
   <script type="module" src="viewer.js"></script>
