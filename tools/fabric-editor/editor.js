@@ -1299,10 +1299,20 @@ function syncSelectionOutlineHelper(object, helper) {
 
 function syncSelectionOutlineHelpers(selectedSet) {
   if (!canvas) return;
-  selectedShapeOutlineHelpers.forEach((helper, object) => {
-    if (!selectedSet.has(object) || !canvas.getObjects().includes(object)) {
+  const canvasObjects = new Set(canvas.getObjects());
+  selectedSet = new Set([...selectedSet].filter((object) => canvasObjects.has(object)));
+  // Older layer-order operations could reinsert helpers after their map entry
+  // was removed. Sweep those too, including when reopening a project in-place.
+  canvasObjects.forEach((helper) => {
+    if (helper.kloudySelectionOutlineHelper
+      && selectedShapeOutlineHelpers.get(helper.kloudySelectionOutlineOwner) !== helper) {
       canvas.remove(helper);
+    }
+  });
+  selectedShapeOutlineHelpers.forEach((helper, object) => {
+    if (!selectedSet.has(object)) {
       selectedShapeOutlineHelpers.delete(object);
+      canvas.remove(helper);
     }
   });
   selectedSet.forEach((object) => {
@@ -1367,12 +1377,79 @@ function styleActiveTransformControls() {
 }
 
 function editorCornerTransformHandler(eventData, transform, x, y) {
-  if (!eventData?.shiftKey && fabric?.controlsUtils?.scalingEqually) {
-    return fabric.controlsUtils.scalingEqually(eventData, transform, x, y);
+  const target = interactiveVinylTarget(transform.target);
+  if (!target?.kloudy && !isActiveSelectionObject(target)) {
+    return eventData?.shiftKey
+      ? fabric.controlsUtils.skewHandlerX(eventData, transform, x, y)
+      : fabric.controlsUtils.scalingEqually(eventData, transform, x, y);
   }
-  if (!fabric?.controlsUtils?.skewHandlerX) return false;
-  return fabric.controlsUtils.skewHandlerX(eventData, transform, x, y);
+  const mode = eventData?.shiftKey ? "skewX" : "scale";
+  const object = transform.target;
+  const centered = Boolean(object.centeredScaling || object.canvas?.centeredScaling)
+    !== Boolean(eventData?.[object.canvas?.centeredKey || "altKey"]);
+  let start = transform.kloudyCornerGesture;
+  if (!start || start.mode !== mode || start.centered !== centered) {
+    // Handles are deliberately drawn outside the geometry. Rebase from the
+    // grabbed pointer, never from that absolute position or an old gesture mode.
+    const previous = start;
+    start = transform.kloudyCornerGesture = {
+      mode, centered,
+      pointerX: previous?.lastX ?? transform.ex, pointerY: previous?.lastY ?? transform.ey,
+      matrix: object.calcOwnMatrix().slice(),
+      scaleX: object.scaleX, scaleY: object.scaleY,
+      skewX: Math.tan(fabric.util.degreesToRadians(object.skewX || 0)),
+      skewY: Math.tan(fabric.util.degreesToRadians(object.skewY || 0)),
+      flipX: object.flipX, flipY: object.flipY, angle: object.angle || 0,
+    };
+  }
+  start.lastX = x;
+  start.lastY = y;
+  transform.action = mode;
+  if (mode === "skewX" ? object.lockSkewingX : (object.lockScalingX || object.lockScalingY)) return false;
+  return (mode === "skewX" ? editorCornerSkew : editorCornerScale)(eventData, transform, x, y);
 }
+
+function transformCornerFromPointer(_eventData, transform, x, y) {
+  const object = transform.target;
+  const start = transform.kloudyCornerGesture;
+  const dx = x - start.pointerX;
+  const dy = y - start.pointerY;
+  const before = object.calcOwnMatrix().slice();
+  const sideX = (transform.corner.endsWith("r") ? 1 : -1) * (start.flipX ? -1 : 1);
+  const sideY = (transform.corner.startsWith("b") ? 1 : -1) * (start.flipY ? -1 : 1);
+  const grabbed = new fabric.Point(sideX * object.width / 2, sideY * object.height / 2);
+  const anchor = start.centered ? new fabric.Point(0, 0) : new fabric.Point(
+    start.mode === "skewX" ? grabbed.x : -grabbed.x, -grabbed.y,
+  );
+  if (start.mode === "skewX") {
+    const angle = fabric.util.degreesToRadians(start.angle);
+    const span = start.skewY * (grabbed.x - anchor.x) + grabbed.y - anchor.y;
+    const denominator = start.scaleX * (start.flipX ? -1 : 1) * span;
+    if (Math.abs(denominator) < 1e-9) return false;
+    const increment = (dx * Math.cos(angle) + dy * Math.sin(angle)) / denominator;
+    object.set("skewX", fabric.util.radiansToDegrees(Math.atan(start.skewX + increment)));
+  } else {
+    const direction = fabric.util.transformPoint(grabbed.subtract(anchor), start.matrix, true);
+    const lengthSquared = direction.x ** 2 + direction.y ** 2;
+    if (lengthSquared < 1e-12) return false;
+    let factor = 1 + (dx * direction.x + dy * direction.y) / lengthSquared;
+    const minimum = Math.max(0.0001, object.minScaleLimit || 0) / Math.min(start.scaleX, start.scaleY);
+    if (object.lockScalingFlip) factor = Math.max(minimum, factor);
+    else if (Math.abs(factor) < minimum) factor = factor < 0 ? -minimum : minimum;
+    object.set({
+      scaleX: start.scaleX * Math.abs(factor), scaleY: start.scaleY * Math.abs(factor),
+      flipX: start.flipX !== (factor < 0), flipY: start.flipY !== (factor < 0),
+    });
+  }
+  const fixed = fabric.util.transformPoint(anchor, start.matrix);
+  const moved = fabric.util.transformPoint(anchor, object.calcOwnMatrix());
+  const center = object.getRelativeCenterPoint?.() || object.getCenterPoint();
+  object.setPositionByOrigin(new fabric.Point(center.x + fixed.x - moved.x, center.y + fixed.y - moved.y), "center", "center");
+  return object.calcOwnMatrix().some((value, index) => Math.abs(value - before[index]) > 1e-9);
+}
+
+const editorCornerSkew = fabric.controlsUtils.wrapWithFireEvent("skewing", transformCornerFromPointer);
+const editorCornerScale = fabric.controlsUtils.wrapWithFireEvent("scaling", transformCornerFromPointer);
 
 function editorCornerTransformActionName(eventData) {
   return eventData?.shiftKey ? "skewX" : "scale";
@@ -1385,6 +1462,67 @@ function editorCornerTransformCursorStyleHandler(eventData, control) {
 
 function editorSideScaleCursorStyleHandler(_eventData, control) {
   return control?.x ? "ew-resize" : "ns-resize";
+}
+
+function editorSideScaleHandler(axis) {
+  const fallback = axis === "x" ? fabric.controlsUtils.scalingX : fabric.controlsUtils.scalingY;
+  const resize = fabric.controlsUtils.wrapWithFireEvent("scaling", (eventData, transform, x, y) => {
+    const target = transform.target;
+    if (axis === "x" ? target.lockScalingX : target.lockScalingY) return false;
+    let start = transform.kloudySideResize;
+    if (!start) {
+      const matrix = target.calcOwnMatrix();
+      if (Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2]) < 1e-12) return false;
+      start = transform.kloudySideResize = {
+        matrix, inverse: fabric.util.invertTransform(matrix),
+        scaleX: target.scaleX, scaleY: target.scaleY,
+        skewX: Math.tan(fabric.util.degreesToRadians(target.skewX || 0)),
+        skewY: Math.tan(fabric.util.degreesToRadians(target.skewY || 0)),
+        flipX: target.flipX, flipY: target.flipY,
+        pointer: new fabric.Point(transform.ex, transform.ey),
+      };
+    }
+    const horizontal = axis === "x";
+    const dimension = horizontal ? target.width : target.height;
+    if (!(dimension > 0)) return false;
+    const flipped = horizontal ? start.flipX : start.flipY;
+    const side = (["mr", "mb"].includes(transform.corner) ? 1 : -1) * (flipped ? -1 : 1);
+    const centered = (horizontal ? transform.originX : transform.originY) === "center";
+    const delta = fabric.util.transformPoint(
+      new fabric.Point(x - start.pointer.x, y - start.pointer.y), start.inverse, true,
+    );
+    let factor = 1 + (horizontal ? delta.x : delta.y) * side * (centered ? 2 : 1) / dimension;
+    const originalScale = horizontal ? start.scaleX : start.scaleY;
+    const minimum = Math.max(0.0001, target.minScaleLimit || 0) / originalScale;
+    if (target.lockScalingFlip) factor = Math.max(minimum, factor);
+    else if (Math.abs(factor) < minimum) factor = factor < 0 ? -minimum : minimum;
+    const fx = horizontal ? factor : 1;
+    const fy = horizontal ? 1 : factor;
+    const anchor = new fabric.Point(
+      horizontal && !centered ? -side * target.width / 2 : 0,
+      !horizontal && !centered ? -side * target.height / 2 : 0,
+    );
+    const fixed = fabric.util.transformPoint(anchor, start.matrix);
+    const before = target.calcOwnMatrix().slice();
+    // Resize in the shape's basis, not the enclosing box: keep both edge
+    // directions while changing one extent, including mirrored/skewed shapes.
+    target.set({
+      scaleX: start.scaleX * Math.abs(fx), scaleY: start.scaleY * Math.abs(fy),
+      flipX: start.flipX !== (fx < 0), flipY: start.flipY !== (fy < 0),
+      skewX: fabric.util.radiansToDegrees(Math.atan(start.skewX * fy / fx)),
+      skewY: fabric.util.radiansToDegrees(Math.atan(start.skewY * fx / fy)),
+    });
+    const moved = fabric.util.transformPoint(anchor, target.calcOwnMatrix());
+    const center = target.getRelativeCenterPoint?.() || target.getCenterPoint();
+    target.setPositionByOrigin(new fabric.Point(center.x + fixed.x - moved.x, center.y + fixed.y - moved.y), "center", "center");
+    return target.calcOwnMatrix().some((value, index) => Math.abs(value - before[index]) > 1e-9);
+  });
+  return (eventData, transform, x, y) => {
+    const target = interactiveVinylTarget(transform.target);
+    return target?.kloudy || isActiveSelectionObject(target)
+      ? resize(eventData, transform, x, y)
+      : fallback(eventData, transform, x, y);
+  };
 }
 
 function roundedRectPath(ctx, x, y, width, height, radius) {
@@ -1476,7 +1614,7 @@ function configureEditorTransformControls() {
     ...generousHitArea,
     positionHandler: figmaControlPositionHandler("ml"),
     cursorStyleHandler: editorSideScaleCursorStyleHandler,
-    actionHandler: fabric.controlsUtils.scalingX,
+    actionHandler: editorSideScaleHandler("x"),
     actionName: "scaleX",
     render: renderFigmaSideControl("ml"),
   });
@@ -1486,7 +1624,7 @@ function configureEditorTransformControls() {
     ...generousHitArea,
     positionHandler: figmaControlPositionHandler("mr"),
     cursorStyleHandler: editorSideScaleCursorStyleHandler,
-    actionHandler: fabric.controlsUtils.scalingX,
+    actionHandler: editorSideScaleHandler("x"),
     actionName: "scaleX",
     render: renderFigmaSideControl("mr"),
   });
@@ -1496,7 +1634,7 @@ function configureEditorTransformControls() {
     ...generousHitArea,
     positionHandler: figmaControlPositionHandler("mt"),
     cursorStyleHandler: editorSideScaleCursorStyleHandler,
-    actionHandler: fabric.controlsUtils.scalingY,
+    actionHandler: editorSideScaleHandler("y"),
     actionName: "scaleY",
     render: renderFigmaSideControl("mt"),
   });
@@ -1506,7 +1644,7 @@ function configureEditorTransformControls() {
     ...generousHitArea,
     positionHandler: figmaControlPositionHandler("mb"),
     cursorStyleHandler: editorSideScaleCursorStyleHandler,
-    actionHandler: fabric.controlsUtils.scalingY,
+    actionHandler: editorSideScaleHandler("y"),
     actionName: "scaleY",
     render: renderFigmaSideControl("mb"),
   });
@@ -4065,6 +4203,7 @@ function applyHistoryShapeToObject(object, shape) {
 }
 
 async function restoreEditorState(snapshot) {
+  cancelEditorTransform();
   const state = Array.isArray(snapshot)
     ? { shapes: snapshot, editor_guides: null, editor_collapsed_groups: [] }
     : (snapshot && typeof snapshot === "object" ? snapshot : {});
@@ -4419,8 +4558,31 @@ async function drainEditorMutationQueue() {
   }
 }
 
+function cancelEditorTransform() {
+  const transform = KfpsFabricAdapter.cancelObjectTransform(canvas);
+  if (!transform) return null;
+  const target = interactiveVinylTarget(transform.target);
+  const objects = isActiveSelectionObject(target) ? target.getObjects().map(interactiveVinylTarget) : [target];
+  // The history reference describes the last committed state, not this
+  // in-flight transform. Force restoration even when the snapshot is reused.
+  objects.forEach((object) => { if (object) delete object.__kloudyHistoryShape; });
+  transformAnchorSnapshot = null;
+  dragAxisSnapshot = null;
+  clearDragAxisLock();
+  clearSnapOverlay();
+  endHybridRenderNow();
+  return transform;
+}
+
 async function undoNow() {
   flushPendingNudgeHistory();
+  const interrupted = cancelEditorTransform();
+  if (interrupted?.actionPerformed && currentHistoryState()) {
+    await restoreEditorState(currentHistoryState());
+    updateDocumentState();
+    setStatus("Current drag cancelled.");
+    return;
+  }
   const floor = Math.max(0, protectedHistoryIndex);
   if (historyIndex <= floor) {
     setStatus(protectedHistoryIndex >= 0 ? "Undo stopped at loaded source." : "Nothing to undo.");
@@ -4440,6 +4602,11 @@ function undo() {
 
 async function redoNow() {
   flushPendingNudgeHistory();
+  const interrupted = cancelEditorTransform();
+  if (interrupted?.actionPerformed && currentHistoryState()) {
+    await restoreEditorState(currentHistoryState());
+    updateDocumentState();
+  }
   if (historyIndex >= history.length - 1) return;
   lastHistoryReason = "";
   historyIndex++;
@@ -4564,6 +4731,7 @@ function initCanvas() {
     if (event.target?.kloudyGuide) guideObjectRegistry.invalidate();
     if (event.target?.kloudy) {
       invalidateVinylObjectRegistry();
+      removeVinylObjectHelpers(event.target);
       if (hybridRenderActive) requestHybridRender();
     }
   });
@@ -6952,8 +7120,20 @@ async function loadPayload(payload) {
   clearBusy(`Loaded ${builtObjects.length}/${normalized.length} editable FH6 layer(s).${failed ? ` Failed: ${failed}.` : ""}`);
 }
 
+function removeVinylObjectHelpers(object) {
+  restoreSelectionOutline(object);
+  selectedShapeOutlineObjects.delete(object);
+  [selectedShapeOutlineHelpers, maskPreviewOutlines, maskPreviewCutouts].forEach((helpers) => {
+    const helper = helpers.get(object);
+    helpers.delete(object);
+    if (helper) canvas.remove(helper);
+  });
+}
+
 function clearVinylObjects(options = {}) {
+  cancelEditorTransform();
   endHybridRenderNow();
+  canvas.discardActiveObject();
   selectedShapeOutlineObjects.forEach(restoreSelectionOutline);
   selectedShapeOutlineObjects.clear();
   selectedShapeOutlineHelpers.forEach((helper) => canvas.remove(helper));
@@ -6962,6 +7142,8 @@ function clearVinylObjects(options = {}) {
   maskPreviewOutlines.clear();
   maskPreviewCutouts.forEach((cutout) => canvas.remove(cutout));
   maskPreviewCutouts.clear();
+  canvas.getObjects().filter((object) => object.kloudySelectionOutlineHelper
+    || object.kloudyMaskOutline || object.kloudyMaskCutout).forEach((helper) => canvas.remove(helper));
   vinylObjects().forEach((obj) => canvas.remove(obj));
   invalidateLayerStats();
   if (!options.preserveCollapsed) collapsedLayerGroups.clear();
@@ -11008,6 +11190,7 @@ function deleteSelected() {
     setStatus("Selected layers are locked. Unlock them before deleting.");
     return;
   }
+  cancelEditorTransform();
   objects.forEach((obj) => canvas.remove(obj));
   syncMaskPreviewOutlines();
   canvas.discardActiveObject();
@@ -11055,7 +11238,6 @@ function moveSelectedToEdge(front) {
 
 function setVinylStackOrder(order) {
   if (!canvas) return;
-  const currentObjects = canvas.getObjects();
   const currentVinyl = vinylObjects();
   const currentVinylSet = new Set(currentVinyl);
   const nextVinyl = [];
@@ -11072,8 +11254,10 @@ function setVinylStackOrder(order) {
   });
   if (nextVinyl.length !== currentVinyl.length) return;
   const restoreSelection = selectedVinylObjects().filter((obj) => currentVinylSet.has(obj));
-  const nonVinyl = currentObjects.filter((obj) => !currentVinylSet.has(obj));
   if (restoreSelection.length) canvas.discardActiveObject();
+  // Discarding selection removes its outline. Take the stack afterwards so
+  // a detached helper cannot be reintroduced as a permanent canvas object.
+  const nonVinyl = canvas.getObjects().filter((obj) => !currentVinylSet.has(obj));
   KfpsFabricAdapter.replaceObjectStack(canvas, nonVinyl.concat(nextVinyl));
   invalidateVinylObjectRegistry();
   nextVinyl.forEach((obj) => {

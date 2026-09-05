@@ -119,9 +119,12 @@ The `Place` selector controls new shapes and duplicates:
 
 - Mouse wheel: zoom.
 - Middle- or right-drag: pan.
-- Side handles: resize one axis.
-- Corner handles: skew.
-- Shift with a corner handle: uniform scale.
+- Side handles: change width or height along the shape's own axes. Skewed edge
+  directions stay unchanged and the opposite edge stays anchored.
+- Corner handles: uniform scale.
+- Shift with a corner handle: skew.
+- Corner gestures start from the point grabbed, without resetting existing skew.
+  Pressing or releasing Shift during a drag switches mode without jumping.
 - Arrow keys: nudge by the configured amount.
 - Shift+Arrow: nudge ten times farther.
 - Hold X or Y during a drag: constrain movement to that axis.
@@ -150,6 +153,14 @@ History records meaningful editing states, shows the active state, and marks the
 last explicit save. Click a history entry to jump to it. The loaded source is a
 protected boundary so an accidental Undo cannot erase the entire imported
 design.
+
+Undo while dragging cancels that unfinished move/resize and returns to the last
+committed state. Releasing the mouse afterward does not reapply the cancelled
+gesture. A subsequent Undo steps back through committed history normally.
+
+Selection outlines and mask previews are temporary canvas helpers, not vinyl
+layers. They are removed with their owners and when switching projects; old orphan
+selection outlines are also cleaned up when selection is synchronized.
 
 The recovery copy updates after edits and reference changes. On the next start,
 the editor offers to restore it when appropriate. Saving a project clears the
@@ -232,6 +243,14 @@ The dependency-free geometry and ordering tests live in
 node tools/fabric-editor/tests/editor-core.node.js
 node tools/fabric-editor/tests/editor-shell.node.js
 ```
+
+`tests/editor-transforms.browser.js` runs through Playwright CLI's `run-code
+--filename` against an already opened editor. Use an isolated local editor server
+and disposable project/autosave directories: the test saves a synthetic project.
+It covers real side/corner-handle drags, continuous Shift-mode changes, skew/flip
+matrix invariants, drag cancellation
+with Undo, selection and mask helper cleanup, late outline loading, a 3,000-layer
+document, and a saved-project reload. It does not interact with a running game.
 
 The KFPS Python suite also covers editor project discovery and local server
 reuse:

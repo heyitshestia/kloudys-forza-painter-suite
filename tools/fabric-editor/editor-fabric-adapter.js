@@ -63,6 +63,21 @@
     return true;
   }
 
+  function cancelObjectTransform(canvas) {
+    const transform = canvas?._currentTransform;
+    if (!transform) return null;
+    // Do not finalize: that would emit object:modified and record the partial
+    // drag while history is restoring an earlier state.
+    canvas._currentTransform = null;
+    canvas._groupSelector = null;
+    if (transform.target) {
+      transform.target.isMoving = false;
+      transform.target._scaling = false;
+      transform.target.__corner = 0;
+    }
+    return transform;
+  }
+
   // KFPS never imports or serializes SVG through Fabric. Keep that boundary
   // explicit while the supported Fabric migration remains performance-gated.
   function unsupportedSvgOperation() {
@@ -77,6 +92,7 @@
 
   global.KfpsFabricAdapter = Object.freeze({
     bringObjectToFront,
+    cancelObjectTransform,
     major,
     moveObjectTo,
     replaceObjectStack,

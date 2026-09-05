@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.59
+- Fixed skewed-shape side resizing changing edge directions and Shift-corner drags jumping or resetting existing skew.
+- Fixed selection outlines remaining after layer reordering, deletion, and project reloads.
+- Fixed Undo during an active drag reapplying the cancelled move, resize, or skew when the mouse was released.
+
 ## 3.1.58
 - Replaced the rectangular startup message with a circular Mini Kloudy splash using a white, pink, and purple palette sampled from the supplied artwork.
 - Added opposing animated progress and accent rings that run only while the startup splash is visible.
