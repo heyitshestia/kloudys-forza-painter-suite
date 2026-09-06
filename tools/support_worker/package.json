@@ -1,0 +1,11 @@
+{
+  "name": "kfps-support-reporting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "node ../community_worker/node_modules/wrangler/bin/wrangler.js dev --port 8796",
+    "deploy": "node ../community_worker/node_modules/wrangler/bin/wrangler.js deploy"
+  }
+}

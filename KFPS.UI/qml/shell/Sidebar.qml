@@ -347,16 +347,18 @@ Item {
 
         GlassPanel {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(root.compact ? 48 : (root.denseNavigation ? 104 : 116))
+            Layout.preferredHeight: footerContent.implicitHeight + Theme.px(root.compact ? 12 : 22)
+            Layout.minimumHeight: Layout.preferredHeight
             soft: true
 
             Column {
-                visible: !root.compact
+                id: footerContent
                 anchors.fill: parent
-                anchors.margins: Theme.px(11)
+                anchors.margins: Theme.px(root.compact ? 6 : 11)
                 spacing: Theme.px(6)
 
                 Text {
+                    visible: !root.compact
                     width: parent.width
                     text: Theme.supporterSignatureVisible
                           ? Theme.supporterSignatureText
@@ -378,7 +380,7 @@ Item {
                 }
 
                 Text {
-                    visible: Theme.supporterSignatureVisible
+                    visible: !root.compact && Theme.supporterSignatureVisible
                     width: parent.width
                     text: Theme.activeThemeName
                     color: Theme.subtle
@@ -390,31 +392,23 @@ Item {
                 }
 
                 GhostButton {
+                    objectName: "SidebarCreditsButton"
                     anchors.horizontalCenter: parent.horizontalCenter
                     dense: true
                     text: "Credits"
-                    iconName: "heart"
+                    iconName: root.compact ? "" : "heart"
                     accentText: appController.currentPage === "credits"
-                    minimumWidth: Theme.px(88)
-                    maximumTextWidth: Theme.px(64)
+                    minimumWidth: Math.min(parent.width, Theme.px(root.compact ? 78 : 88))
+                    maximumTextWidth: Theme.px(root.compact ? 58 : 64)
                     textPixelSize: Theme.px(9.6)
                     toolTipText: "Open the full credits and acknowledgements page."
                     onClicked: root.creditsRequested()
                 }
-            }
 
-            GhostButton {
-                visible: root.compact
-                anchors.centerIn: parent
-                dense: true
-                text: "Credits"
-                iconName: "heart"
-                accentText: appController.currentPage === "credits"
-                minimumWidth: Theme.px(78)
-                maximumTextWidth: Theme.px(58)
-                textPixelSize: Theme.px(9.3)
-                toolTipText: "Open the full credits and acknowledgements page."
-                onClicked: root.creditsRequested()
+                SupportReportButton {
+                    width: parent.width
+                    compact: root.compact
+                }
             }
         }
     }

@@ -1,0 +1,20 @@
+{
+  "name": "kfps-support-staging",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-08-22",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": true },
+  "vars": {
+    "PUBLIC_ORIGIN": "https://kfps-support-staging.hestia-cummings.workers.dev",
+    "DISCORD_CLIENT_ID": "1546176354834190336",
+    "DISCORD_GUILD_ID": "1546144079778283552",
+    "SUPPORT_CHANNEL_ID": "1546148987696979988",
+    "PRIVATE_CHANNEL_ID": "1546150927084298391",
+    "DISCORD_JOIN_URL": "https://discord.gg/XT8dG8bDKy",
+    "DELIVERY_ENABLED": "1"
+  },
+  "durable_objects": { "bindings": [{ "name": "REPORTS", "class_name": "ReportStore" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ReportStore"] }],
+  "observability": { "enabled": false }
+}

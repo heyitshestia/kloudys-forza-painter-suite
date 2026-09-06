@@ -407,6 +407,11 @@ def main():
     reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
     controller = AppController()
+    reports.bind_support_context({
+        "transfer": transfer, "generator": generation, "editor": editor,
+        "liveries": full_livery, "offline": cgroup_library, "outputs": jsons,
+        "community": community, "updater": updates, "runtime": runtime,
+    })
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md", auto_refresh=not args.demo)
 
     engine = QQmlApplicationEngine()
@@ -533,6 +538,7 @@ def main():
         app, window, controller, community, settings, jsons, args,
     )
     shutdown_order = [
+        reports,
         editor,
         transfer,
         generation,

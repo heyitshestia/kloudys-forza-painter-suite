@@ -144,6 +144,10 @@ jobs:
         if: matrix.name == 'Community service'
         run: python tools/community_worker/tools/check_deployment_contract.py
 
+      - name: Test support reporting and actual Worker runtime
+        if: matrix.name == 'Community service'
+        run: node --test tools/support_worker/test/*.test.mjs
+
   community-e2e:
     name: Disposable Community end-to-end
     runs-on: windows-2022

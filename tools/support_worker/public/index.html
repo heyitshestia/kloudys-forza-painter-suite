@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>KFPS Support</title><link rel="icon" href="/kfps-logo.png"><link rel="stylesheet" href="/style.css"><script type="module" src="/form.js"></script></head>
+<body>
+<header><a class="brand" href="/"><img src="/kfps-logo.png" alt=""><span>KFPS <strong>Support</strong></span></a><span class="stage">Issue reports</span><a id="discord" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Discord</a></header>
+<main>
+  <div class="heading"><div><p class="eyebrow">REPORT A PROBLEM</p><h1>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button">Sign in with Discord</button><button id="logout" type="button" hidden>Sign out</button></div></div>
+  <div id="notice" role="status" aria-live="polite">Checking reporting service...</div>
+  <form id="report-form">
+    <div id="report-visibility" class="public-note" role="note" aria-label="Who can see your report">
+      <p>Reports go to the KFPS Support Discord server, created specifically for reporting and resolving KFPS issues. Permanent invite: <a id="support-invite" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Join the support server</a>.</p>
+      <p><strong>Your post will be publicly visible in the KFPS Support Discord server.</strong> This includes your Discord display name, post title, affected area, issue description, expected result, KFPS version, and report ID.</p>
+      <p><strong>The remaining technical details stay private.</strong> Any additional technical details you choose to include are visible only to Kloudy and authorized KFPS support staff.</p>
+    </div>
+    <div class="columns">
+      <section aria-label="Problem details">
+        <label for="feature">Affected area</label><select id="feature"><option>Generator</option><option>Editor</option><option>Import and export</option><option>Liveries</option><option>Community</option><option>Updater</option><option selected>Other</option></select>
+        <label for="description">What happened? <span>Required</span></label><textarea id="description" rows="7" maxlength="3000" minlength="5" required placeholder="For example: Export stopped after I selected my grouped vinyl."></textarea>
+        <label for="expected">What did you expect? <span>Optional</span></label><textarea id="expected" rows="3" maxlength="1500"></textarea>
+        <details open><summary>Post title</summary><label for="title">Title</label><input id="title" maxlength="90"></details>
+      </section>
+      <aside aria-label="Technical details">
+        <div class="section-title"><h2>Technical context</h2><span id="source">Browser report</span></div>
+        <dl id="facts"></dl>
+        <label class="check"><input id="include" type="checkbox" checked><span>Include technical details privately for staff</span></label>
+        <p class="privacy">Includes the context shown below. Artwork, game saves, and screenshots are not attached. Review the text before sending; automatic cleanup cannot identify every personal detail.</p>
+        <details><summary>Review technical details</summary><pre id="technical" tabindex="0"></pre></details>
+        <details><summary>Add a saved KFPS report</summary><label for="report-file">KFPS support report.json</label><input id="report-file" type="file" accept="application/json,.json"><p class="privacy">Only KFPS support reports are accepted, not artwork or save files.</p></details>
+        <details><summary>Missing context</summary><label for="version">KFPS version</label><input id="version" maxlength="30" placeholder="Unknown"><label for="game">Game</label><select id="game"><option value="">Unknown / not applicable</option><option>FH4</option><option>FH5</option><option>FH6</option><option>FM8</option></select><label for="store">Store</label><select id="store"><option value="unknown">Unknown / not applicable</option><option value="steam">Steam</option><option value="microsoft_xbox">Xbox / Microsoft Store</option></select></details>
+      </aside>
+    </div>
+    <footer><div><span id="report-id"></span><p>Nothing is sent until you confirm below. Discord sign-in requests identity only.</p></div><button id="send" class="primary" type="submit" disabled>Send report</button></footer>
+  </form>
+  <section id="receipt" hidden aria-label="Report result"><h2 id="result-title">Report status</h2><p id="result-text"></p><code id="receipt-id"></code><div class="actions"><a id="post-link" class="primary" target="_blank" rel="noreferrer" hidden>Open support post</a><button id="check" type="button">Check status</button><button id="retry" type="button" hidden>Retry same report</button><button id="new-report" type="button" hidden>New report</button></div></section>
+  <div class="data-note">The reporting service keeps delivery receipts for up to 30 days, not copies of your technical report. Discord posts and attachments remain until staff delete them. Contact server staff with your report ID for removal. No email address or access to your messages is requested.</div>
+</main></body></html>

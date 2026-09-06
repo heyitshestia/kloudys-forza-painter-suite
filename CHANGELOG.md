@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.61
+- Added Report a problem beneath Credits, with automatically prepared diagnostic context and review in the system default browser.
+- Added Discord sign-in and support reporting with public issue posts, optional private technical details, and a permanent support-server invitation.
+- Preserved local reports and drafts on failures, prevented duplicate submissions, and added automated privacy, delivery, and interface checks.
+
 ## 3.1.60
 - Added Standard and High livery preview quality, with sharper native-vector textures and faster reuse of validated car and texture caches.
 - Improved car-switch loading transitions, reduced repeated rendering and material allocations, and added bounded memory usage, cancellation, and graphics-failure diagnostics.
