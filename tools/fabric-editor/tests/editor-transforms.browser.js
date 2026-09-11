@@ -336,7 +336,8 @@ async (page) => {
   await page.locator('#saveProject').click();
   await page.locator('#textPromptInput').fill(`editor-regression-${Date.now()}`);
   await page.locator('#textPromptConfirm').click();
-  await page.waitForFunction(() => !projectSaveInProgress && Boolean(currentProjectName));
+  await page.waitForFunction(() => !projectSaveInProgress && Boolean(currentProjectName) && !documentDirty);
+  await page.evaluate(() => flushPendingAutosave());
   const saved = await page.evaluate(async () => {
     const listing = await (await fetch(PROJECT_BROWSER_API)).json();
     return { listing, title: currentProjectName };
@@ -356,6 +357,7 @@ async (page) => {
   await page.setViewportSize({ width: 1100, height: 800 });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.screenshot({ path: 'editor-regression-compact.png' });
+  await page.evaluate(() => flushPendingAutosave());
   if (errors.length) throw new Error(errors.join('\n'));
   return { matrixCases, cornerCases, pointerCases, cornerDrags, interruptedDrags, lifecycle, reopened, errors };
 }

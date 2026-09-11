@@ -217,6 +217,7 @@
             <button class="dockTab" data-panel="guidesPane" title="Draw editor-only guides and configure snapping.">Guides</button>
             <button class="dockTab" data-panel="overlayPane" title="Load and position a tracing reference image.">Reference</button>
             <button class="dockTab" data-panel="historyPane" title="Review and restore earlier editing states.">History</button>
+            <button class="dockTab" data-panel="performancePane" title="View live editor timings and recovery status.">Performance</button>
             <button class="dockTab" data-panel="exportCheckPane" title="Review blocking errors and export warnings.">Export</button>
           </div>
 
@@ -525,6 +526,23 @@
             <div class="historyList" id="historyList"></div>
           </section>
 
+          <section id="performancePane" class="dockPane" hidden>
+            <div class="panelHeader"><h2>Live Performance</h2></div>
+            <dl class="diagnosticReadout">
+              <dt>Frame interval (p95)</dt><dd id="perfFrame">-</dd>
+              <dt>Worst interval in sample</dt><dd id="perfWorst">-</dd>
+              <dt>Frame gaps over 100 ms</dt><dd id="perfStalls">0</dd>
+              <dt>Long tasks this session</dt><dd id="perfTasks">0</dd>
+              <dt>Layers / selected</dt><dd id="perfLayers">0 / 0</dd>
+              <dt>Reference pixels</dt><dd id="perfReference">-</dd>
+              <dt>Renderer</dt><dd id="perfRenderer">-</dd>
+              <dt>JavaScript memory</dt><dd id="perfMemory">-</dd>
+              <dt>App recovery confirmed</dt><dd id="perfRecoveryApp">-</dd>
+              <dt>Browser recovery confirmed</dt><dd id="perfRecoveryBrowser">-</dd>
+              <dt>Local log</dt><dd id="perfLog">-</dd>
+              <dt>Dropped diagnostic events</dt><dd id="perfDrops">0</dd>
+            </dl>
+          </section>
           <section id="exportCheckPane" class="dockPane" hidden>
             <div class="panelHeader">
               <div>
@@ -652,6 +670,9 @@
         <ul>
           <li>Guides are editor-only alignment helpers. They do not export.</li>
           <li>Select <b>Guides</b>, then left-drag on the canvas to draw a guide line.</li>
+          <li>You can also click the start point, zoom or pan to another area, then click the endpoint. Escape cancels an unfinished guide.</li>
+          <li>Hold Shift for 45-degree steps when drawing a free line. Horizontal and vertical modes keep their fixed direction. Angle snapping takes priority over endpoint grid snapping.</li>
+          <li>In Guides, hold Space and move the pointer to pan without losing the start point. A custom shortcut assigned to Space takes priority.</li>
           <li>Right-drag or middle-drag pans the canvas without leaving guide mode.</li>
           <li>Choose <b>Free line</b>, <b>X axis / horizontal</b>, or <b>Y axis / vertical</b> for guide drawing.</li>
           <li>Enable the grid when you need repeated spacing or coarse layout checks.</li>
@@ -988,6 +1009,7 @@
   <script src="editor-assets.js?locale=1"></script>
   <script src="editor-preferences.js?locale=1"></script>
   <script src="editor-persistence.js?v=1"></script>
+  <script src="editor-diagnostics.js?v=1"></script>
   <script>KfpsEditorPreferences.loadEditor("editor.js?engine=editor-2.5&locale=1");</script>
 </body>
 </html>

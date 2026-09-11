@@ -30,8 +30,11 @@ FEATURES = {
 }
 _SECRET_LINE = re.compile(
     r"(?im)^.*\b(?:authorization|cookie|password|secret|bearer|api[ _-]?key|"
-    r"activation[ _-]?key|access[ _-]?token|refresh[ _-]?token|receipt)\b.*$"
+    r"activation[ _-]?key|access[ _-]?token|refresh[ _-]?token|session[ _-]?token|"
+    r"client[ _-]?secret|token|receipt)\b.*$"
 )
+_BLOB = re.compile(r"data:[^\s<>\"']+|[A-Za-z0-9+/=_-]{160,}", re.I)
+_PAYLOAD_LINE = re.compile(r'(?im)^.*["\x27](?:shapes|objects|svg|dataUrl|source_path|imageData|pixels)["\x27]\s*:.*$')
 _URL = re.compile(r"https?://[^\s<>\"']+", re.I)
 _WIN_PATH = re.compile(r"(?i)\b[a-z]:[\\/][^\r\n\"'<>|]*")
 _UNC_PATH = re.compile(r"\\\\[^\r\n\"'<>|]+")
@@ -46,6 +49,8 @@ _ERROR = re.compile(r"\b(?:error|failed|failure|refused|exception|unavailable|de
 def redact(value: object, limit: int = 1600) -> str:
     text = str(value or "")[:60000]
     text = _SECRET_LINE.sub("[sensitive line removed]", text)
+    text = _PAYLOAD_LINE.sub("[artwork data removed]", text)
+    text = _BLOB.sub("[encoded data removed]", text)
     text = _URL.sub("[url removed]", text)
     text = _WIN_PATH.sub("[local path removed]", text)
     text = _UNC_PATH.sub("[network path removed]", text)
@@ -161,18 +166,30 @@ def build_support_report(root: Path, context: dict, *, since: float, collect=col
         "page": page, "uptime_seconds": max(0, int(now - since)),
     }
     technical["states"] = states
+    if page == "editor":
+        from tools.fabric_editor_diagnostics import read_support_diagnostics
+        technical["editor"] = read_support_diagnostics(root)
     if page == "outputs":
         technical["locator"] = recent_locator_summary(root, since=max(since, now - 3600), now=now)
-    technical["logs"] = logs
+    from .support_logs import collect_worker_logs
+    disk_logs, warnings = collect_worker_logs(root, since=since, now=now, redact=redact)
+    technical["log_collection"] = {"lookback_days": 7, "warnings": warnings}
+    # Put editor evidence first, including for older forms that keep only five logs.
+    logs = sorted(disk_logs, key=lambda entry: entry["source"] != "editor-desktop") + logs
+    technical["logs"] = logs[:16]
     report = {
         "schema": SCHEMA, "id": str(uuid.uuid4()),
         "created_at": datetime.now(timezone.utc).isoformat(), "source": "kfps",
         "feature": feature, "title": redact(last_error or f"{feature} issue", 100),
         "description": redact(last_error, 1600), "technical": technical,
     }
-    if len(json.dumps(report).encode()) > MAX_REPORT_BYTES:
-        report["technical"]["logs"] = []
-        report["technical"]["collection_warning"] = "Log excerpt omitted to keep this report bounded."
+    # Retain the newest lines from every source instead of dropping all logs.
+    while len(json.dumps(report).encode()) > MAX_REPORT_BYTES and any(entry["text"] for entry in technical["logs"]):
+        entry = max(technical["logs"], key=lambda item: len(json.dumps(item["text"]).encode()))
+        text = entry["text"]
+        entry["text"] = text[len(text) // 2:] if len(text) > 128 else ""
+        entry["truncated"] = True
+        technical["collection_warning"] = "Log excerpts shortened to keep the report within its size limit."
     if len(json.dumps(report).encode()) > MAX_REPORT_BYTES:
         raise ValueError("The support report exceeds its size limit.")
     return report

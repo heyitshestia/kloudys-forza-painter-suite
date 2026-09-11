@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -82,13 +83,16 @@ class EditorPage(QWebEnginePage):
         return None
 
     def javaScriptConsoleMessage(self, level, message, line, source):
-        if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
-            # pythonw has no console; Windows console encodings may reject Korean.
-            try:
-                with (self.parent().runtime / "desktop.log").open("a", encoding="utf-8") as log:
-                    log.write(f"Editor JavaScript error {line}: {message[:16384]}\n")
-            except (OSError, AttributeError):
-                pass
+        severity = {QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel: "console-error",
+                    QWebEnginePage.JavaScriptConsoleMessageLevel.WarningMessageLevel: "console-warning"}.get(level)
+        host = self.parent()
+        if severity and getattr(host, "server", None):
+            # Console text can contain filenames or artwork metadata. Keep error
+            # class and a known script/line, never arbitrary messages or URLs.
+            from tools.fabric_editor_diagnostics import ASSETS
+            path = QUrl(source).path().removeprefix("/tools/fabric-editor/")
+            error = next((name for name in ("TypeError", "RangeError", "ReferenceError", "SyntaxError", "SecurityError", "QuotaExceededError") if name in message[:200]), "unknown")
+            host.server.diagnostics().record(severity, line=int(line), source=path if path in ASSETS else "unknown", error=error)
 
 
 class EditorBridge(QObject):
@@ -158,6 +162,11 @@ class EditorDesktop(QMainWindow):
         self.startup_timer.setInterval(60000)
         self.startup_timer.timeout.connect(lambda: self._show_failure(
             "The editor could not finish starting. Reopen Editor to retry without reopening the selected project. Saved projects and recovery files are unchanged."))
+        self.diagnostic_timer = QTimer(self)
+        self.diagnostic_timer.setInterval(2000)
+        self.diagnostic_timer.timeout.connect(self._diagnostic_tick)
+        self._last_diagnostic_tick = time.monotonic()
+        self._heartbeat_stale = False
 
     def start(self, request: dict) -> bool:
         request = validate_request(request)
@@ -172,6 +181,7 @@ class EditorDesktop(QMainWindow):
             raise RuntimeError(f"Could not start the editor launcher connection: {self.instance.errorString()}")
         self.module = load_editor_server(self.app_root, self.runtime)
         self.server = start_local_server(self.module, self.runtime)
+        self.server.diagnostics().record("native-start", source="native")
         self.server_thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.1}, name="kfps-editor-local", daemon=True)
         self.server_thread.start()
         port = self.server.server_address[1]
@@ -186,6 +196,9 @@ class EditorDesktop(QMainWindow):
         self.profile = QWebEngineProfile("KFPS-Editor", self)
         self.profile.setPersistentStoragePath(str(self.runtime / "web-profile"))
         self.profile.setCachePath(str(self.runtime / "web-cache"))
+        # Keep durable user storage, but never reuse executable assets from an
+        # earlier process/update. Resources can still be cached within a session.
+        self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
         self.profile.setHttpCacheMaximumSize(64 * 1024 * 1024)
         self.profile.downloadRequested.connect(self._download)
         self.page = EditorPage(self.profile, self.url, self)
@@ -222,7 +235,24 @@ class EditorDesktop(QMainWindow):
             self._queued_requests.append({"mode": "tutorial", "project": ""})
         self.startup_timer.start()
         self.page.load(startup_url)
+        self.diagnostic_timer.start()
         return True
+
+    def _diagnostic_tick(self):
+        if self._stopped or not self.server:
+            return
+        now = time.monotonic()
+        diagnostics = self.server.diagnostics()
+        visible = self.isVisible() and not self.isMinimized()
+        diagnostics.native_tick(ready=self._ready, visible=visible, focused=self.isActiveWindow(),
+                                minimized=self.isMinimized(), uiLag=max(0, (now - self._last_diagnostic_tick) * 1000 - 2000),
+                                rendererPid=int(self.page.renderProcessPid()) if self.page else 0)
+        self._last_diagnostic_tick = now
+        received = diagnostics.snapshot().get("page_received", 0)
+        stale = self._ready and visible and (not received or time.time() - received > 10)
+        if stale and not self._heartbeat_stale:
+            diagnostics.record("heartbeat-stale", source="native")
+        self._heartbeat_stale = stale
 
     def _write_state(self, state, error=""):
         if self.module:
@@ -318,6 +348,7 @@ class EditorDesktop(QMainWindow):
                 self._show_failure(str(exc))
                 return
             self._ready = True
+            self.server.diagnostics().record("native-ready", source="native")
             self._dispatch_open()
         self.page.runJavaScript("JSON.stringify({ready: Boolean(window.KfpsDesktop?.ready && window.KfpsDesktopBridge), error: window.KfpsDesktop?.error || ''})", checked)
 
@@ -375,9 +406,12 @@ class EditorDesktop(QMainWindow):
 
     def _renderer_stopped(self, status, exit_code):
         if not self._stopped:
+            self.server.diagnostics().record("renderer-stopped", code=int(exit_code), source="native")
             self._show_failure(f"The editor renderer stopped (code {exit_code}). Reopen the editor to check for recoverable work. Saved projects are unchanged.")
 
     def _show_failure(self, message):
+        if self.server:
+            self.server.diagnostics().record("native-failed", source="native")
         self._ready = False
         self._failed = True
         self._closing = False
@@ -395,6 +429,7 @@ class EditorDesktop(QMainWindow):
     def reload_editor(self):
         if self._stopped or not self.page:
             return
+        self.server.diagnostics().record("native-reload", source="native")
         self._failed = False
         self._ready = False
         self._checking_ready = False
@@ -448,6 +483,7 @@ class EditorDesktop(QMainWindow):
         self.command("close", {"action": action}, self._close_prepared)
 
     def _close_timed_out(self):
+        self.server.diagnostics().record("close-timeout", source="native")
         choice = self._message_box("warning", "Editor is not responding", "The editor has not responded to the close request. Keep it open to give it more time, or close anyway. Unsaved changes may be lost.", QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if choice == QMessageBox.StandardButton.Close:
             self._allow_close = True
@@ -474,6 +510,9 @@ class EditorDesktop(QMainWindow):
         if self._stopped:
             return
         self._stopped = True
+        self.diagnostic_timer.stop()
+        if self.server:
+            self.server.diagnostics().record("native-close", source="native")
         self.ready_timer.stop()
         self.startup_timer.stop()
         self.close_timer.stop()

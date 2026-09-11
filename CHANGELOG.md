@@ -1,5 +1,32 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.77
+
+### Smoother Editor Interaction
+- Reduced pauses when selecting, rotating, moving and zooming around shapes with a reference image loaded, including large vinyls with 3,000 layers.
+- Improved picking of small or narrow shapes' resize handles, where overlapping handles could select the wrong action.
+- Fixed framing selected shapes inside groups when using the Fit controls.
+- Editor restarts now load fresh program files instead of reusing old cached code. Saved projects, recovery data, favorites and preferences are preserved.
+- Improved the fallback to the normal canvas if accelerated preview rendering fails. The reported black-canvas issue has not been reliably reproduced, so this is additional protection, not a claim that every cause is resolved.
+
+### Easier Guide Drawing
+- Place a guide with two clicks or by dragging. You can zoom and pan while positioning its endpoint without losing the starting point.
+- Hold Shift for 45-degree steps. Middle/right dragging or Space lets you pan while drawing.
+- Improved selecting angled guides, cancelling unfinished lines, touch drawing, and returning keyboard focus to the canvas after changing guide settings.
+
+### Saving and Troubleshooting
+- Fixed saving a project containing only a reference image leaving it marked as unsaved.
+- Switching the reference image above or below the artwork now marks the project as changed and schedules recovery saving.
+- Added a Performance panel with recent frame timings, layer/reference information, recovery-save status and local logging health.
+- Added bounded background diagnostic logs for editor actions, rendering failures, recovery acknowledgments and native-window events.
+- Report a Problem can now include recent editor and relevant worker log excerpts. You can review the technical details or exclude them before sending; reports are not sent automatically.
+- Updated English and Korean editor text for the new guide controls and diagnostics.
+
+### Verification and Limits
+- Tested immediate rotation-to-movement and zoom-to-movement sequences with 1,000, 2,000 and 3,000 visible layers, plus repeated group editing, undo/redo, save/reopen and rendering-failure checks.
+- A 21-minute dense editing run did not reproduce the reported half-second gesture freeze. This does not guarantee pause-free operation on every computer: very large references, complex work and background operations can still cause interruptions.
+- The rotation snap ring is unchanged in this update.
+
 ## 3.1.76
 
 ### New Free Theme

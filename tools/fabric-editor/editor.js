@@ -321,6 +321,11 @@ let collapsedLayerGroups = new Set();
 let dropperPreservedActiveObject = null;
 let guideState = defaultGuideState();
 let guideDraft = null;
+let guideDraftObject = null;
+let guideDraftPress = null;
+let guidePointer = null;
+let guidePanButton = null;
+let guideSpacePan = false;
 let selectedGuideId = null;
 let guideRenderQueued = false;
 let lastSnapMessageAt = 0;
@@ -1476,7 +1481,6 @@ function syncSelectedShapeOutlines(selected = selectedVinylObjects(), options = 
     obj.set({
       shadow: null,
     });
-    obj.dirty = true;
   });
   selectedShapeOutlineObjects = next;
   syncSelectionOutlineHelpers(next);
@@ -2221,7 +2225,9 @@ function bindDockSplitter() {
 }
 
 function setToolRailMode(mode, label = null) {
+  if (activeToolMode === "guides" && mode !== "guides") cancelGuideInteraction();
   activeToolMode = mode || "select";
+  if (activeToolMode === "guides") endHybridRenderNow();
   document.querySelectorAll(".toolButton").forEach((tool) => {
     const active = tool.dataset.toolMode === activeToolMode;
     tool.classList.toggle("active", active);
@@ -2260,7 +2266,7 @@ function setActiveTool(button) {
   if (mode === "shapeLibrary") setStatus(KfpsI18n.t("Shape Library open. Click a shape tile to place it in the current viewport."));
   if (mode === "text") setStatus(KfpsI18n.t("Text builder open. Text is built from editable native Forza letter shapes."));
   if (mode === "pixelArt") setStatus(KfpsI18n.t("Pixel Art builder open. Adjacent same-color pixels are merged to save layers."));
-  if (mode === "guides") setStatus(KfpsI18n.t("Guides mode. Drag on the canvas to create editor-only guide lines. Hold Control while moving vinyl layers to snap."));
+  if (mode === "guides") setStatus(KfpsI18n.t("Guides mode. Click the start and endpoint, or drag. Wheel zooms; middle/right drag or Space pans. Shift snaps to 45 degrees."));
   if (mode === "overlay") setStatus(KfpsI18n.t("Reference controls open. Reference images are editor-only and never exported."));
   if (mode === "source") setStatus(overlayImage ? KfpsI18n.t("Move Reference mode. Drag only the reference image; vinyl layers and guides are ignored. Hold Control to snap it to the grid or guides.") : KfpsI18n.t("Move Reference needs an image first. Add one in Reference controls."));
 }
@@ -2850,6 +2856,7 @@ function initHybridRenderer() {
   if (!element.__kloudyContextListeners) {
     element.__kloudyContextListeners = true;
     element.addEventListener("webglcontextlost", (event) => {
+      window.KfpsEditorDiagnostics?.record("webgl-lost");
       event.preventDefault();
       endHybridRenderNow();
       if (hybridRenderFrame) cancelAnimationFrame(hybridRenderFrame);
@@ -2862,6 +2869,7 @@ function initHybridRenderer() {
       canvas?.requestRenderAll?.();
     });
     element.addEventListener("webglcontextrestored", () => {
+      window.KfpsEditorDiagnostics?.record("webgl-restored");
       hybridDisabledReason = "";
       initHybridRenderer();
       canvas?.requestRenderAll?.();
@@ -2875,6 +2883,7 @@ function initHybridRenderer() {
     preserveDrawingBuffer: true,
   });
   if (!gl) {
+    window.KfpsEditorDiagnostics?.record("preview-fallback", { code: 0 });
     hybridDisabledReason = KfpsI18n.t("WebGL unavailable");
     return null;
   }
@@ -2921,6 +2930,7 @@ function initHybridRenderer() {
     };
   } catch (err) {
     hybridDisabledReason = err?.message || String(err);
+    window.KfpsEditorDiagnostics?.record("preview-fallback", { code: 1 });
     console.warn(KfpsI18n.t("Hybrid renderer disabled."), err);
     hybridRenderer = null;
   }
@@ -3099,7 +3109,7 @@ function hybridSetFabricLowerVisible(visible) {
     hybridLowerVisibility = "";
     return;
   }
-  if (!hybridRenderActive) hybridLowerVisibility = canvas.lowerCanvasEl.style.visibility || "";
+  if (canvas.lowerCanvasEl.style.visibility !== "hidden") hybridLowerVisibility = canvas.lowerCanvasEl.style.visibility || "";
   canvas.lowerCanvasEl.style.visibility = "hidden";
 }
 
@@ -3321,10 +3331,11 @@ function drawHybridOverlay(renderer, viewMatrix) {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      // Allocation failures set a WebGL error rather than throwing. Check only
+      // after uploads, never on every pointer frame (which can stall the GPU).
+      const uploadError = gl.getError();
+      if (uploadError !== gl.NO_ERROR) throw new Error(`Reference texture upload failed (WebGL ${uploadError}).`);
       overlay.source = source;
-    } catch (err) {
-      console.warn(KfpsI18n.t("GPU source overlay upload skipped."), err);
-      return false;
     } finally {
       if (uploadCanvas) uploadCanvas.width = uploadCanvas.height = 1;
     }
@@ -3357,41 +3368,62 @@ function hybridCanvasBackgroundColor(renderer) {
 }
 
 function hybridRenderNow() {
-  if (!resizeHybridRenderer()) return false;
-  const objects = vinylObjects();
-  if (!hybridShouldUse(objects)) return false;
-  const renderer = hybridRenderer;
-  const gl = renderer.gl;
-  gl.viewport(0, 0, renderer.element.width, renderer.element.height);
-  const background = hybridCanvasBackgroundColor(renderer);
-  gl.clearColor(background[0] / 255, background[1] / 255, background[2] / 255, 1);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  const viewMatrix = hybridMat3FromFabric(canvas.viewportTransform, renderer.viewMatrix);
-  if (overlayLayerMode === "below") drawHybridOverlay(renderer, viewMatrix);
-  drawHybridShapePass(renderer, objects, viewMatrix, false);
-  if (overlayLayerMode === "above") drawHybridOverlay(renderer, viewMatrix);
-  drawHybridShapePass(renderer, objects, viewMatrix, true);
-  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  return true;
+  try {
+    if (!resizeHybridRenderer() || !hybridShouldUse()) {
+      endHybridRenderNow();
+      return false;
+    }
+    const objects = vinylObjects();
+    const renderer = hybridRenderer;
+    const gl = renderer.gl;
+    gl.viewport(0, 0, renderer.element.width, renderer.element.height);
+    const background = hybridCanvasBackgroundColor(renderer);
+    gl.clearColor(background[0] / 255, background[1] / 255, background[2] / 255, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const viewMatrix = hybridMat3FromFabric(canvas.viewportTransform, renderer.viewMatrix);
+    const drawReference = () => {
+      const required = overlayImage?.visible !== false && (overlayImage?.opacity ?? 0) > 0;
+      if (!drawHybridOverlay(renderer, viewMatrix) && required) throw new Error("Reference preview unavailable.");
+    };
+    if (overlayLayerMode === "below") drawReference();
+    drawHybridShapePass(renderer, objects, viewMatrix, false);
+    if (overlayLayerMode === "above") drawReference();
+    drawHybridShapePass(renderer, objects, viewMatrix, true);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    return true;
+  } catch (error) {
+    hybridDisabledReason = error?.message || String(error);
+    endHybridRenderNow();
+    releaseHybridOverlay();
+    if (hybridRenderer?.element) hybridRenderer.element.hidden = true;
+    canvas?.requestRenderAll?.();
+    window.KfpsEditorDiagnostics?.record("preview-fallback", { code: 2 });
+    console.error("Editor GPU preview disabled; using Fabric:", hybridDisabledReason);
+    return false;
+  }
 }
 
 function requestHybridRender() {
   if (hybridRenderFrame) return;
   hybridRenderFrame = requestAnimationFrame(() => {
     hybridRenderFrame = null;
-    hybridRenderNow();
-    canvas?.renderTop?.();
+    if (!hybridRenderActive) return;
+    if (hybridRenderNow()) {
+      // Keep the last complete Fabric frame visible until the preview succeeds.
+      hybridSetFabricLowerVisible(false);
+      hybridRenderer.element.hidden = false;
+      canvas?.renderTop?.();
+    }
   });
 }
 
 function beginHybridRender(reason = "interaction") {
+  if (activeToolMode === "guides") return false;
   const objects = vinylObjects();
   if (!hybridShouldUse(objects)) return false;
   clearTimeout(hybridRenderSettleTimer);
   hybridRenderSettleTimer = null;
-  hybridSetFabricLowerVisible(false);
   hybridRenderActive = true;
-  hybridRenderer.element.hidden = false;
   hideHybridFabricBulkObjects(objects);
   requestHybridRender();
   setText("hudMode", KfpsI18n.t("{0} / GPU preview", currentHudMode(selectedVinylObjects().length)));
@@ -3401,6 +3433,8 @@ function beginHybridRender(reason = "interaction") {
 function endHybridRenderNow() {
   clearTimeout(hybridRenderSettleTimer);
   hybridRenderSettleTimer = null;
+  if (hybridRenderFrame) cancelAnimationFrame(hybridRenderFrame);
+  hybridRenderFrame = null;
   if (!hybridRenderActive) return;
   hybridRenderActive = false;
   hybridSetFabricLowerVisible(true);
@@ -4542,6 +4576,7 @@ function recoveryRevision(payload) {
 }
 
 function reportAutosaveResult(operation, browserOk, serverOk, error) {
+  window.KfpsEditorDiagnostics?.recovery(operation.recovery_revision, browserOk, serverOk);
   if (operation.recovery_revision !== autosaveRevision) return;
   const ok = browserOk || serverOk;
   autosaveStatus = { state: ok ? "saved" : "failed", revision: autosaveRevision, browserOk, serverOk, error };
@@ -4639,6 +4674,7 @@ function writeAutosavePayload(payload) {
   const revision = nextAutosaveRevision();
   pendingAutosavePayload = { ...payload, recovery_revision: revision };
   autosaveStatus = { state: "pending", revision };
+  window.KfpsEditorDiagnostics?.queued(revision);
   clearTimeout(autosaveRetryTimer);
   autosaveRetryTimer = null;
   autosaveRetryDelay = 2000;
@@ -4818,6 +4854,7 @@ function markCurrentHistorySaved(projectName) {
 }
 
 function markOverlayChanged(reason = "reference image changed") {
+  window.KfpsEditorDiagnostics?.pulse("reference");
   overlayRevision += 1;
   const state = currentHistoryState() || snapshotEditorState();
   writeAutosavePayload(autosavePayloadFromState(state));
@@ -5045,6 +5082,7 @@ function initCanvas() {
     selection: true,
     selectionKey: "shiftKey",
     fireRightClick: true,
+    fireMiddleClick: true,
     stopContextMenu: true,
     backgroundColor: canvasBg,
     renderOnAddRemove: false,
@@ -5060,6 +5098,9 @@ function initCanvas() {
   KfpsFabricAdapter.installSceneRenderGate(canvas, () => hybridRenderActive
     && canvas.lowerCanvasEl.style.visibility === "hidden"
     && !hybridDisabledReason);
+  KfpsFabricAdapter.installCpuPixelPicking(canvas);
+  KfpsFabricAdapter.installNearestControlPicking(canvas);
+  window.KfpsEditorDiagnostics?.bindCanvas(canvas);
   initHybridRenderer();
   styleAllTransformControls();
   resizeCanvas();
@@ -5184,12 +5225,14 @@ function initCanvas() {
     if (hybridRenderActive) requestHybridRender();
   });
   canvas.on("mouse:wheel", (opt) => {
+    window.KfpsEditorDiagnostics?.pulse("zoom");
     const delta = opt.e.deltaY;
     let zoom = canvas.getZoom();
     zoom *= 0.999 ** delta;
     zoom = Math.min(Math.max(zoom, 0.04), 8);
     beginHybridRender("zoom");
     canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+    if (activeToolMode === "guides" && guideDraft && !isPanning) updateGuideDraft(opt);
     styleActiveTransformControls();
     syncSelectedShapeOutlines();
     scheduleVisualGridLayerUpdate();
@@ -5212,27 +5255,18 @@ function initCanvas() {
       return;
     }
     if (activeToolMode === "guides") {
-      opt.e.preventDefault();
-      opt.e.stopPropagation();
-      cancelFabricGroupSelection();
-      if (opt.e.button === 1 || opt.e.button === 2) {
-        guideDraft = null;
-        isPanning = true;
-        lastPan = { x: opt.e.clientX, y: opt.e.clientY };
-        canvas.selection = false;
-        canvas.skipTargetFind = true;
-        transformAnchorSnapshot = null;
-        setGuideStatus(KfpsI18n.t("Guide mode: panning canvas. Left-drag still draws guide lines."));
-        return;
+      // Fabric owns touch events; desktop mouse gestures use the capture path.
+      if (opt.e.type?.startsWith("touch")) {
+        cancelFabricGroupSelection();
+        if (!selectGuideObject(opt.target)) beginGuideDraft(opt);
       }
-      if (selectGuideObject(opt.target)) return;
-      beginGuideDraft(opt);
       return;
     }
     if (activeToolMode === "source") {
       opt.e.preventDefault();
       opt.e.stopPropagation();
       if (opt.e.button === 1 || opt.e.button === 2) {
+        window.KfpsEditorDiagnostics?.action("pan");
         isPanning = true;
         lastPan = { x: opt.e.clientX, y: opt.e.clientY };
         canvas.selection = false;
@@ -5261,6 +5295,7 @@ function initCanvas() {
       return;
     }
     if (opt.e.button === 1 || opt.e.button === 2) {
+      window.KfpsEditorDiagnostics?.action("pan");
       isPanning = true;
       lastPan = { x: opt.e.clientX, y: opt.e.clientY };
       canvas.selection = false;
@@ -5303,10 +5338,8 @@ function initCanvas() {
       schedulePointerHud(KfpsFabricAdapter.scenePoint(canvas, opt.e), opt.target);
     }
   });
-  canvas.on("mouse:up", () => {
-    if (guideDraft && activeToolMode === "guides") {
-      finishGuideDraft();
-    }
+  canvas.on("mouse:up", (opt) => {
+    if (activeToolMode === "guides" && guideDraft && opt?.e?.type?.startsWith("touch")) finishGuideDraft();
     if (activeToolMode === "guides") canvas._groupSelector = null;
     transformAnchorSnapshot = null;
     dragAxisSnapshot = null;
@@ -5321,6 +5354,7 @@ function initCanvas() {
     canvas.hoverCursor = vBoxSelectActive ? "crosshair" : "default";
     updateHud();
   });
+  installGuidePointerNavigation();
 }
 
 function resizeCanvas() {
@@ -5421,6 +5455,10 @@ function savedGuideState() {
 }
 
 function applySavedGuideState(saved = null) {
+  if (activeToolMode === "guides") endGuidePan();
+  guideDraft = null;
+  guideDraftPress = null;
+  guidePointer = null;
   const next = defaultGuideState();
   if (saved && typeof saved === "object") {
     next.gridEnabled = Boolean(saved.gridEnabled);
@@ -5563,6 +5601,7 @@ function scheduleVisualGridLayerUpdate() {
 
 function renderGuideObjects() {
   if (!canvas) return;
+  guideDraftObject = null;
   canvas.getObjects().filter((obj) => obj.kloudyGuide).forEach((obj) => canvas.remove(obj));
   snapOverlayObjects = [];
   const objects = [];
@@ -5571,13 +5610,15 @@ function renderGuideObjects() {
     guideState.guides.forEach((guide) => objects.push(makeGuideLine(guide)));
   }
   if (guideDraft) {
-    objects.push(makeGuideLine({ ...guideDraft, id: "__draft__" }, {
+    guideDraftObject = makeGuideLine({ ...guideDraft, id: "__draft__" }, {
       stroke: cssColorVar("--editor-guide-draft", "rgba(42, 26, 36, 0.96)"),
       strokeWidth: 2,
       strokeDashArray: [3, 3],
       selectable: false,
       evented: false,
-    }));
+      objectCaching: false,
+    });
+    objects.push(guideDraftObject);
   }
   objects.forEach((obj) => canvas.add(obj));
   layerEditorHelpers();
@@ -5783,7 +5824,7 @@ function snapSourceOverlayToGuides(event = null) {
 function updateGuideUi() {
   setText("guideCountBadge", KfpsI18n.t("{0} guide{1}", guideState.guides.length, guideState.guides.length === 1 ? "" : "s"));
   setText("guideModeLabel", activeToolMode === "guides"
-    ? (selectedGuideId ? KfpsI18n.t("Guide selected. Delete it or draw another line.") : KfpsI18n.t("Drag on canvas to draw a guide."))
+    ? (selectedGuideId ? KfpsI18n.t("Guide selected. Delete it or draw another line.") : KfpsI18n.t("Click or drag to draw a guide."))
     : KfpsI18n.t("Select the Guides tool to draw lines."));
 }
 
@@ -5802,10 +5843,7 @@ function snapPointToGrid(point) {
 }
 
 function constrainedGuideEnd(anchor, pointer, event = null) {
-  let constraint = guideState.guideConstraint;
-  if (event?.shiftKey && constraint === "free") {
-    constraint = Math.abs(pointer.x - anchor.x) >= Math.abs(pointer.y - anchor.y) ? "horizontal" : "vertical";
-  }
+  const constraint = guideState.guideConstraint;
   const end = { ...pointer };
   if (guideState.snapGuideEnd) {
     const snapped = snapPointToGrid(end);
@@ -5814,11 +5852,114 @@ function constrainedGuideEnd(anchor, pointer, event = null) {
   }
   if (constraint === "horizontal") end.y = anchor.y;
   if (constraint === "vertical") end.x = anchor.x;
+  if (event?.shiftKey && constraint === "free") {
+    // Project onto the nearest 45-degree ray. Angle lock takes precedence over
+    // endpoint-grid snapping when the anchor itself is not on the grid.
+    const angle = Math.round(Math.atan2(pointer.y - anchor.y, pointer.x - anchor.x) / (Math.PI / 4)) * Math.PI / 4;
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const distance = (end.x - anchor.x) * dx + (end.y - anchor.y) * dy;
+    end.x = anchor.x + distance * dx;
+    end.y = anchor.y + distance * dy;
+  }
   return end;
 }
 
+function guideScenePoint(event) {
+  // Fabric caches the pre-zoom pointer for the duration of its wheel event.
+  const pointer = event.changedTouches?.[0] || event.touches?.[0] || event;
+  const rect = canvas.upperCanvasEl.getBoundingClientRect();
+  const point = new fabric.Point((pointer.clientX - rect.left) * canvas.width / rect.width,
+    (pointer.clientY - rect.top) * canvas.height / rect.height);
+  return fabric.util.transformPoint(point, fabric.util.invertTransform(canvas.viewportTransform));
+}
+
+function endGuidePan() {
+  if (isPanning) finishCanvasPan();
+  isPanning = false;
+  lastPan = null;
+  guidePanButton = null;
+  guideSpacePan = false;
+  guideDraftPress = null;
+  if (canvas) { canvas.defaultCursor = "crosshair"; canvas.setCursor("crosshair"); }
+}
+
+function cancelGuideInteraction() {
+  if (activeToolMode !== "guides" && !guideDraft) return;
+  endGuidePan();
+  guideDraft = null;
+  guidePointer = null;
+  if (canvas) renderGuideObjects();
+}
+
+function installGuidePointerNavigation() {
+  const surface = canvas.upperCanvasEl;
+  if (!surface.hasAttribute("tabindex")) surface.tabIndex = -1;
+  // Own guide gestures before Fabric can start a selection/transform or drop
+  // document listeners on an intermediate mouse-button release.
+  surface.addEventListener("mousedown", event => {
+    if (activeToolMode !== "guides") return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    // Preventing the pointer default also prevents focus leaving guide inputs.
+    surface.focus({ preventScroll: true });
+    guidePointer = event;
+    if (event.button === 1 || event.button === 2 || guideSpacePan) {
+      window.KfpsEditorDiagnostics?.action("pan");
+      isPanning = true;
+      guidePanButton = event.button;
+      lastPan = { x: event.clientX, y: event.clientY };
+      guideDraftPress = null;
+      canvas.setCursor("grabbing");
+      return;
+    }
+    if (event.button !== 0) return;
+    const finishing = Boolean(guideDraft);
+    if (!finishing && guideState.guidesVisible) {
+      const point = guideScenePoint(event);
+      const guide = guideState.guides.slice().reverse().find(line => distancePointToSnapLine(point, line) <= 6 / canvas.getZoom());
+      const helper = guide && editorGuideObjects().find(object => object.kloudyGuideId === guide.id);
+      if (selectGuideObject(helper)) return;
+    }
+    cancelFabricGroupSelection();
+    if (finishing) updateGuideDraft({ e: event });
+    else beginGuideDraft({ e: event });
+    guideDraftPress = { x: event.clientX, y: event.clientY, finishing };
+  }, true);
+  document.addEventListener("mousemove", event => {
+    if (activeToolMode !== "guides") return;
+    if (!isPanning && !guideDraftPress && event.target !== surface) { guidePointer = null; return; }
+    event.preventDefault(); event.stopImmediatePropagation();
+    guidePointer = event;
+    if (isPanning && lastPan) {
+      const vpt = canvas.viewportTransform;
+      vpt[4] += event.clientX - lastPan.x;
+      vpt[5] += event.clientY - lastPan.y;
+      lastPan = { x: event.clientX, y: event.clientY };
+      canvas.calcViewportBoundaries();
+      scheduleVisualGridLayerUpdate();
+      requestCanvasRender();
+    } else if (guideDraft) updateGuideDraft({ e: event });
+    schedulePointerHud(guideScenePoint(event), null, isPanning ? "panning" : null);
+  }, true);
+  document.addEventListener("mouseup", event => {
+    if (activeToolMode !== "guides" || (!isPanning && !guideDraftPress)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    guidePointer = event;
+    if (isPanning) {
+      if (!guideSpacePan && event.button === guidePanButton) endGuidePan();
+      return;
+    }
+    if (event.button !== 0) return;
+    const press = guideDraftPress;
+    guideDraftPress = null;
+    updateGuideDraft({ e: event });
+    if (press.finishing || Math.hypot(event.clientX - press.x, event.clientY - press.y) >= 8) finishGuideDraft();
+    else setGuideStatus(KfpsI18n.t("Guide start placed. Click the endpoint; Shift snaps to 45 degrees. Escape cancels."));
+  }, true);
+}
+
 function beginGuideDraft(opt) {
-  const pointer = KfpsFabricAdapter.scenePoint(canvas, opt.e);
+  window.KfpsEditorDiagnostics?.pulse("guide");
+  const pointer = guideScenePoint(opt.e);
   const anchor = guideState.snapGuideAnchor ? snapPointToGrid(pointer) : pointer;
   guideDraft = {
     id: "__draft__",
@@ -5834,14 +5975,20 @@ function beginGuideDraft(opt) {
 
 function updateGuideDraft(opt) {
   if (!guideDraft) return;
-  const pointer = KfpsFabricAdapter.scenePoint(canvas, opt.e);
+  window.KfpsEditorDiagnostics?.pulse("guide");
+  const pointer = guideScenePoint(opt.e);
   const end = constrainedGuideEnd({ x: guideDraft.x1, y: guideDraft.y1 }, pointer, opt.e);
   guideDraft.x2 = end.x;
   guideDraft.y2 = end.y;
-  renderGuideObjects();
+  if (guideDraftObject) {
+    guideDraftObject.set({ x1: guideDraft.x1, y1: guideDraft.y1, x2: end.x, y2: end.y });
+    guideDraftObject.setCoords();
+    requestCanvasRender();
+  } else renderGuideObjects();
 }
 
 function finishGuideDraft() {
+  guideDraftPress = null;
   if (!guideDraft) return;
   const zoom = Math.max(canvas.getZoom() || 1, 0.001);
   const length = Math.hypot(guideDraft.x2 - guideDraft.x1, guideDraft.y2 - guideDraft.y1);
@@ -6934,7 +7081,7 @@ function fitDesignView() {
   let bounds = null;
   objects.forEach((obj) => {
     obj.setCoords();
-    const rect = obj.getBoundingRect(true, true);
+    const rect = KfpsFabricAdapter.sceneBounds(obj);
     bounds = bounds ? {
       left: Math.min(bounds.left, rect.left),
       top: Math.min(bounds.top, rect.top),
@@ -6973,7 +7120,7 @@ function fitObjectsView(objects) {
   let bounds = null;
   objects.forEach((obj) => {
     obj.setCoords();
-    const rect = obj.getBoundingRect(true, true);
+    const rect = KfpsFabricAdapter.sceneBounds(obj);
     bounds = bounds ? {
       left: Math.min(bounds.left, rect.left),
       top: Math.min(bounds.top, rect.top),
@@ -9157,6 +9304,8 @@ async function saveProject(options = {}) {
     projectName = cleanProjectBaseName(requestedName, defaultName);
   }
   flushPendingNudgeHistory();
+  // Reference-only projects may have no shape/history entry yet.
+  ensureHistoryBaseline();
   const payload = editableProjectPayload(projectName);
   const savedRevision = { generation: documentGeneration, history: currentHistoryState(), overlay: overlayRevision };
   projectSaveInProgress = true;
@@ -13787,7 +13936,11 @@ function bindUi() {
   });
   if ($("overlayLayerMode")) {
     $("overlayLayerMode").value = overlayLayerMode;
-    $("overlayLayerMode").addEventListener("change", (event) => setOverlayLayerMode(event.target.value));
+    $("overlayLayerMode").addEventListener("change", (event) => {
+      const previous = overlayLayerMode;
+      setOverlayLayerMode(event.target.value);
+      if (overlayImage && overlayLayerMode !== previous) markOverlayChanged("reference image adjusted");
+    });
   }
   $("overlaySvgViewMode")?.addEventListener("change", (event) => setLayeredOverlayViewMode(event.target.value));
   $("overlaySvgLayerSelect")?.addEventListener("change", (event) => setLayeredOverlayLayer(Number(event.target.value)));
@@ -13882,6 +14035,27 @@ function bindUi() {
     if (event.target && event.target.classList?.contains("shortcutCapture")) return;
     if (event.target && ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
     if (document.querySelector("dialog[open]")) return;
+    if (activeToolMode === "guides") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelGuideInteraction();
+        return;
+      }
+      if (event.key === "Shift" && guideDraft && guidePointer && !isPanning) {
+        updateGuideDraft({ e: { clientX: guidePointer.clientX, clientY: guidePointer.clientY, shiftKey: true } });
+      }
+      if (event.key === " " && guidePointer && !Object.keys(shortcuts).some(action => shortcutMatches(event, action))) {
+        event.preventDefault();
+        if (!event.repeat && guidePointer) {
+          guideSpacePan = true;
+          isPanning = true;
+          guideDraftPress = null;
+          lastPan = { x: guidePointer.clientX, y: guidePointer.clientY };
+          canvas.setCursor("grabbing");
+        }
+        return;
+      }
+    }
     const toolAction = ["selectTool", "shapeLibrary", "textTool", "pixelArt", "dropper", "guides", "overlay", "sourceTool"].find((action) => shortcutMatches(event, action));
     if (toolAction) {
       event.preventDefault();
@@ -13995,6 +14169,10 @@ function bindUi() {
     }
   });
   document.addEventListener("keyup", (event) => {
+    if (event.key === " " && guideSpacePan) { event.preventDefault(); endGuidePan(); }
+    if (event.key === "Shift" && activeToolMode === "guides" && guideDraft && guidePointer && !isPanning) {
+      updateGuideDraft({ e: { clientX: guidePointer.clientX, clientY: guidePointer.clientY, shiftKey: false } });
+    }
     if (event.isComposing || event.keyCode === 229) return;
     if (event.target && event.target.classList?.contains("shortcutCapture")) return;
     if (event.target && ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
@@ -14019,6 +14197,7 @@ function bindUi() {
   document.addEventListener("wheel", handleLayerDragWheel, { passive: false });
   document.addEventListener("pointerdown", flushPendingNudgeHistory, true);
   window.addEventListener("blur", () => {
+    if (activeToolMode === "guides") { endGuidePan(); guidePointer = null; }
     flushPendingNudgeHistory();
     flushPendingAutosaveToBrowser();
     flushPendingAutosave();
@@ -14111,9 +14290,11 @@ window.addEventListener("kfps-preferences-status", (event) => {
 });
 
 async function startEditor() {
+  window.KfpsEditorDiagnostics?.configure({ headers: EDITOR_MUTATION_HEADERS, state: editorDiagnosticState });
   initCanvas();
   buildShapeLibrary();
   bindUi();
+  startDiagnosticReadout();
   rememberColor(rememberedColor);
   applyGuideStateToUi();
   renderGuideObjects();
@@ -14131,6 +14312,48 @@ async function startEditor() {
   await nextFrame();
   window.KfpsDesktop.ready = true;
   if (window.KfpsEditorPreferences?.error) setStatus(KfpsEditorPreferences.error);
+}
+
+function editorDiagnosticState() {
+  const active = canvas?.getActiveObject();
+  const element = overlayImage?.getElement?.();
+  return {
+    editorRevision: 2026091101, ready: Boolean(window.KfpsDesktop?.ready),
+    layers: vinylObjectRegistry.objects.length, objects: canvas?._objects?.length || 0,
+    selected: isActiveSelectionObject(active) ? active._objects.length : active?.kloudy || active?.kloudyMaskOwner ? 1 : 0,
+    shapeType: Number((active?.kloudyMaskOwner || active)?.kloudy?.type) || 0,
+    helpers: selectedShapeOutlineHelpers.size, zoom: canvas?.getZoom() || 0,
+    width: canvas?.width || 0, height: canvas?.height || 0, history: history.length,
+    renderer: hybridDisabledReason ? "fallback" : hybridRenderActive ? "gpu-preview" : canvas ? "fabric" : "starting",
+    referenceWidth: element?.naturalWidth || element?.width || 0,
+    referenceHeight: element?.naturalHeight || element?.height || 0,
+    referenceChars: (overlaySourceState?.dataUrl?.length || 0) + (overlaySourceState?.svgText?.length || 0),
+    referenceAbove: overlayLayerMode === "above", referenceVisible: Boolean(overlayImage && overlayImage.visible !== false),
+    referenceOpacity: overlayImage?.opacity || 0,
+  };
+}
+
+function startDiagnosticReadout() {
+  setInterval(() => {
+    if ($("performancePane")?.hidden || !window.KfpsEditorDiagnostics) return;
+    const data = window.KfpsEditorDiagnostics.snapshot();
+    const metrics = data.metrics, state = data.state, log = data.logging;
+    setText("perfFrame", KfpsI18n.t("{0} ms", metrics.frameP95.toFixed(1)));
+    setText("perfWorst", KfpsI18n.t("{0} ms", metrics.frameMax.toFixed(1)));
+    setText("perfStalls", String(metrics.totalGaps100));
+    setText("perfTasks", String(metrics.totalTasks));
+    setText("perfLayers", `${state.layers} / ${state.selected}`);
+    setText("perfReference", `${state.referenceWidth} x ${state.referenceHeight}`);
+    setText("perfRenderer", state.renderer === "gpu-preview" ? KfpsI18n.t("GPU preview") : state.renderer === "fallback" ? KfpsI18n.t("Fabric fallback") : "Fabric");
+    setText("perfMemory", Number.isFinite(metrics.heapBytes) ? KfpsI18n.t("{0} MiB", (metrics.heapBytes / 1048576).toFixed(1)) : "-");
+    const age = when => when ? KfpsI18n.t("{0} s ago", Math.max(0, Math.round((Date.now() - when) / 1000))) : KfpsI18n.t("Not confirmed");
+    setText("perfRecoveryApp", age(data.recovery.serverAt));
+    setText("perfRecoveryBrowser", age(data.recovery.browserAt));
+    const healthy = data.transportOk && !log.error && log.last_write && Date.now() / 1000 - log.last_write < 8;
+    setText("perfLog", healthy ? KfpsI18n.t("Writing locally") : KfpsI18n.t("Log writes not confirmed"));
+    setText("perfDrops", String((log.dropped || 0) + metrics.clientDrops));
+    $("perfLog").classList.toggle("diagnosticWarning", !healthy);
+  }, 1000);
 }
 
 function beginEditorStartup() {

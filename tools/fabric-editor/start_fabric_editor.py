@@ -32,6 +32,7 @@ from geometry_json import ELLIPSE, RECTANGLE, ROTATED_ELLIPSE, ROTATED_RECTANGLE
 from json_preview_renderer import render_json_preview as shared_render_json_preview, render_editor_asset_preview
 from kfps_shapes import resolve_full_type_resource, resolve_vinyl_resource, shape_word_resource_map
 from tools.fabric_editor_recovery import RecoveryStore
+from tools.fabric_editor_diagnostics import EditorDiagnostics, MAX_REQUEST as DIAGNOSTIC_MAX_REQUEST
 
 EDITOR = ROOT / "tools" / "fabric-editor" / "index.html"
 STARTUP_HELP_MARKER = ROOT / "runtime" / "fabric-editor" / "startup-help-confirmed.json"
@@ -42,6 +43,7 @@ EDITOR_OUTPUT_CHANGE_MARKER = ROOT / "runtime" / "fabric-editor" / "editor-outpu
 EDITOR_PROJECT_CHANGE_MARKER = ROOT / "runtime" / "fabric-editor" / "project-change.json"
 EDITOR_THEME_ROOT = ROOT / "runtime" / "fabric-editor" / "themes"
 EDITOR_HEALTH_API = "/api/fabric-editor/health"
+EDITOR_DIAGNOSTICS_API = "/api/fabric-editor/diagnostics"
 STARTUP_HELP_API = "/api/fabric-editor/startup-help-confirmed"
 EDITOR_PREFS_API = "/api/fabric-editor/preferences"
 EDITOR_THEMES_API = "/api/fabric-editor/themes"
@@ -62,6 +64,7 @@ EDITOR_ASSET_MAX_BYTES = 8 * 1024 * 1024
 EDITOR_PROJECT_MAX_BYTES = 150 * 1024 * 1024
 EDITOR_MUTATION_HEADER = "X-KFPS-Editor-Session"
 EDITOR_MUTATION_APIS = {
+    EDITOR_DIAGNOSTICS_API,
     STARTUP_HELP_API,
     EDITOR_PREFS_API,
     EDITOR_THEMES_API,
@@ -873,6 +876,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self) -> None:
+        if urlparse(self.path).path.startswith("/tools/fabric-editor/"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def _send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -945,6 +953,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == EDITOR_DIAGNOSTICS_API:
+            if not self._mutation_authorized():
+                self._send_json({"error": "editor session authorization failed"}, status=403)
+                return
+            self._send_json(self.server.diagnostics().snapshot())
+            return
         if parsed.path == EDITOR_HEALTH_API:
             self._send_json({
                 "ok": True,
@@ -1124,6 +1138,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 status=403,
             )
             return
+        if parsed.path == EDITOR_DIAGNOSTICS_API:
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+                if not 0 < length <= DIAGNOSTIC_MAX_REQUEST or self.headers.get("Transfer-Encoding"):
+                    raise ValueError("Invalid diagnostic request size")
+                self.connection.settimeout(3)
+                packet = json.loads(self.rfile.read(length))
+                serial = self.server.diagnostics().accept(packet)
+                self._send_json({"accepted": serial, "logging": self.server.diagnostics().status()})
+            except (OSError, ValueError, TypeError) as error:
+                self._send_json({"error": type(error).__name__}, status=400)
+            return
         if parsed.path == EDITOR_ASSETS_API:
             try:
                 length = int(self.headers.get("Content-Length") or "0")
@@ -1292,6 +1318,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._send_json({"error": "not found"}, status=404)
 
     def log_message(self, fmt, *args):
+        if getattr(self.server, "_diagnostics", None) is not None:
+            # HTTP success chatter is not an editor health signal. Never log query
+            # strings, session credentials or user-selected filenames here.
+            if len(args) > 1 and str(args[1]).isdigit() and int(args[1]) >= 400:
+                self.server._diagnostics.record("resource-error", code=int(args[1]))
+            return
         print(fmt % args, flush=True)
 
 
@@ -1315,7 +1347,20 @@ class EditorServer(socketserver.ThreadingTCPServer):
         self.asset_previews = OrderedDict()
         self.autosave_revision = None
         self._recovery = None
+        self._diagnostics = None
+        self._diagnostics_lock = threading.Lock()
         super().__init__(*args, **kwargs)
+
+    def diagnostics(self):
+        with self._diagnostics_lock:
+            if self._diagnostics is None:
+                self._diagnostics = EditorDiagnostics(ROOT, EDITOR_SERVER_MARKER.parent)
+            return self._diagnostics
+
+    def server_close(self):
+        super().server_close()
+        if self._diagnostics is not None:
+            self._diagnostics.close()
 
     def recovery_store(self):
         if self._recovery is None or self._recovery.marker != EDITOR_AUTOSAVE_MARKER:

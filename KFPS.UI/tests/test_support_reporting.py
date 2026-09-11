@@ -135,6 +135,27 @@ class SupportReportTests(unittest.TestCase):
             self.assertEqual(open_url.call_count, 0)
             service.openSupportForm("editor"); self.assertEqual(open_url.call_count, 0)
 
+    def test_actual_button_worker_collects_disk_logs_off_ui_thread(self):
+        from kfps_ui import support_logs
+        path = self.root / "runtime/fabric-editor/desktop.log"
+        path.parent.mkdir(parents=True)
+        path.write_text("Error: synthetic renderer failure\n")
+        service = self.service(); main_thread = threading.get_ident(); threads = []
+        original = support_logs.collect_worker_logs
+        def collect(*args, **kwargs):
+            threads.append(threading.get_ident())
+            return original(*args, **kwargs)
+        def build(root, context, **kwargs):
+            return support.build_support_report(root, context, collect=lambda:{}, **kwargs)
+        with patch("kfps_ui.report_service.build_support_report", side_effect=build), patch.object(support_logs, "collect_worker_logs", side_effect=collect), patch("kfps_ui.report_service.open_support_handoff", return_value="prefilled"):
+            service.openSupportForm("editor")
+            self.wait(lambda: not service.supportBusy)
+        self.assertTrue(threads)
+        self.assertTrue(all(thread != main_thread for thread in threads))
+        report = json.loads(Path(service.latestPath).read_text())
+        self.assertIn("synthetic renderer failure", report["technical"]["logs"][0]["text"])
+        self.assertIn("Nothing is sent", service.supportStatus)
+
     def test_service_failure_clears_busy_and_browser_failure_preserves_report(self):
         service = self.service()
         with patch("kfps_ui.report_service.build_support_report", side_effect=OSError("Permission denied")):

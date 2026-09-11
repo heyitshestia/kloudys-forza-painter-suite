@@ -152,6 +152,12 @@ mode, active color, common actions, and export readiness visible.
 - `Pixel`: convert deliberate pixel art into merged rectangle layers.
 - `Dropper`: sample a vinyl or reference-image color.
 - `Guides`: draw guides and configure snapping.
+  Draw by dragging, or click a start point and then an endpoint. Zoom with the
+  wheel and pan with middle/right drag without losing the start point. In Guides,
+  Space temporarily pans unless assigned to a custom shortcut. Escape cancels a
+  draft. Shift constrains free lines to 45-degree increments; explicit horizontal
+  or vertical mode takes precedence, followed by angle lock, then endpoint-grid
+  snapping. Drafts do not enter history or exports until committed.
 - `Reference`: load, show, scale, and sample a tracing image.
 - `Move Ref`: move the reference without touching vinyl layers.
 - `Mask`: toggle the selected layers as mask/cutout layers.
@@ -515,3 +521,28 @@ reuse:
 
 The editor relies on the bundled Fabric.js and bundled native shape resources.
 Arbitrary SVG path import is intentionally not treated as a valid game layer.
+
+## Local Diagnostics
+
+The Performance tab shows recent frame intervals, long tasks, layer/reference
+counts, approximate JavaScript memory, recovery acknowledgments and local log
+health. Hidden-window time is not counted as a visible frame stall. A missing
+heartbeat or an unconfirmed write is a warning, not proof of a renderer crash.
+
+Native logs live in `runtime/fabric-editor`: `desktop.log` contains launch and
+process output, `diagnostics.json` is the current bounded snapshot, and
+`performance.jsonl` plus two rotated files retain local diagnostic events.
+Performance events exclude artwork, typed text and filenames. Disk writes run
+on a bounded background queue, not the rendering thread.
+
+Use KFPS's **Report a problem** button to prepare a reviewable report with this
+snapshot and recent editor/worker log excerpts. Technical context can be
+excluded, and nothing is uploaded until Send is pressed. Automatic redaction is
+not perfect: review the excerpt for personal details. Do not share the entire
+runtime folder; it also contains your projects, references and recovery copies.
+
+Developer validation: `tests/editor-diagnostics.node.js`,
+`KFPS.UI/tests/test_editor_diagnostics.py`, `test_support_logs.py`, and
+`tools/support_worker/test` cover collection, bounds, failures and private
+delivery. The support worker's browser/server protocol must be deployed along
+with any newly supported report fields; desktop-only changes are insufficient.

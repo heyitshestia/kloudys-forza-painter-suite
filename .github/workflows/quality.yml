@@ -73,11 +73,11 @@ jobs:
 
       - name: Check and test the Fabric editor boundary
         run: |
-          foreach ($module in @('editor-core', 'editor-pixel-core', 'editor-pixel-worker', 'editor-persistence', 'editor-persistence-worker', 'editor-fabric-adapter', 'editor', 'editor-preferences')) {
+          foreach ($module in @('editor-core', 'editor-pixel-core', 'editor-pixel-worker', 'editor-persistence', 'editor-persistence-worker', 'editor-fabric-adapter', 'editor-diagnostics', 'editor', 'editor-preferences')) {
             node --check "tools/fabric-editor/$module.js"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          foreach ($suite in @('editor-core', 'editor-pixel-core', 'editor-persistence', 'editor-persistence-worker', 'editor-shell', 'editor-preferences')) {
+          foreach ($suite in @('editor-core', 'editor-pixel-core', 'editor-persistence', 'editor-persistence-worker', 'editor-shell', 'editor-preferences', 'editor-diagnostics')) {
             node "tools/fabric-editor/tests/$suite.node.js"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

@@ -103,6 +103,87 @@
   });
 
   let hitSurface = null;
+  const nearestControlCanvases = new WeakSet();
+  let nearestControlPickingInstalled = false;
+
+  function installNearestControlPicking(canvas) {
+    const prototype = runtime.Object?.prototype;
+    if (typeof prototype?._findTargetCorner !== "function") return false;
+    nearestControlCanvases.add(canvas);
+    if (nearestControlPickingInstalled) return true;
+    const original = prototype._findTargetCorner;
+    prototype._findTargetCorner = function (pointer, forTouch) {
+      const hit = original.call(this, pointer, forTouch);
+      if (!hit || !nearestControlCanvases.has(this.canvas)) return hit;
+      // Generous hit areas overlap on narrow shapes. Enumeration order must
+      // not turn a side-handle click into a corner resize or skew.
+      let nearest = hit;
+      let distance = (pointer.x - this.oCoords[hit].x) ** 2 + (pointer.y - this.oCoords[hit].y) ** 2;
+      for (const name of Object.keys(this.oCoords)) {
+        if (name === hit || !this.isControlVisible(name)) continue;
+        const point = this.oCoords[name];
+        const nextDistance = (pointer.x - point.x) ** 2 + (pointer.y - point.y) ** 2;
+        if (nextDistance >= distance) continue;
+        const corners = forTouch ? point.touchCorner : point.corner;
+        if (!corners) continue;
+        const crossings = this._findCrossPoints(pointer, this._getImageLines(corners));
+        if (crossings !== 0 && crossings % 2 === 1) {
+          nearest = name;
+          distance = nextDistance;
+        }
+      }
+      this.__corner = nearest;
+      return nearest;
+    };
+    nearestControlPickingInstalled = true;
+    return true;
+  }
+
+  function installCpuPixelPicking(canvas) {
+    const original = canvas.isTargetTransparent;
+    if (typeof original !== "function" || !canvas.cacheCanvasEl || !canvas.contextCache) return false;
+    const surface = document.createElement("canvas");
+    surface.width = canvas.cacheCanvasEl.width;
+    surface.height = canvas.cacheCanvasEl.height;
+    const context = surface.getContext("2d", { willReadFrequently: true });
+    if (!context) return false;
+    canvas.cacheCanvasEl.width = canvas.cacheCanvasEl.height = 1;
+    canvas.cacheCanvasEl = surface;
+    canvas.contextCache = context;
+    // Preserve Fabric's full-path rasterization and tolerance. Tiny clipped
+    // surfaces change antialiasing for some native triangle meshes. CPU storage
+    // removes GPU readback stalls without retaining a second viewport surface.
+    canvas.isTargetTransparent = function (object, x, y) {
+      if (!object?.kloudy || object.kloudyGuide) return original.call(this, object, x, y);
+      const caching = object.objectCaching;
+      const background = object.selectionBackgroundColor;
+      try {
+        // Inactive objects otherwise read back their GPU-backed render cache.
+        object.objectCaching = false;
+        return original.call(this, object, x, y);
+      } catch (error) {
+        // A failing Fabric render can leave its saved transform on the context.
+        const width = this.cacheCanvasEl.width;
+        this.cacheCanvasEl.width = width;
+        throw error;
+      } finally {
+        object.objectCaching = caching;
+        object.selectionBackgroundColor = background;
+      }
+    };
+    return true;
+  }
+
+  function sceneBounds(object) {
+    if (!object.group) return object.getBoundingRect(true, true);
+    // Fabric 5's absolute coordinates still live in the parent's coordinate space.
+    const transform = object.group.calcTransformMatrix();
+    const points = object.getCoords(true, true).map(point => runtime.util.transformPoint(point, transform));
+    const left = Math.min(...points.map(point => point.x));
+    const top = Math.min(...points.map(point => point.y));
+    return { left, top, width: Math.max(...points.map(point => point.x)) - left, height: Math.max(...points.map(point => point.y)) - top };
+  }
+
   function visiblePixelAt(canvas, object, point) {
     const bounds = object.getBoundingRect(true, true);
     if (point.x < bounds.left || point.y < bounds.top || point.x > bounds.left + bounds.width || point.y > bounds.top + bounds.height) return false;
@@ -133,6 +214,8 @@
   }
 
   global.KfpsFabricAdapter = Object.freeze({
+    installNearestControlPicking,
+    installCpuPixelPicking,
     installSceneRenderGate,
     visiblePixelAt,
     bringObjectToFront,
@@ -141,6 +224,7 @@
     moveObjectTo,
     replaceObjectStack,
     scenePoint,
+    sceneBounds,
     sendObjectToBack,
     version,
   });

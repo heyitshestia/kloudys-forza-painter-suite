@@ -18,6 +18,10 @@
 #assetStatus { font-size: 12px; overflow-wrap: anywhere; }
 #assetStatus.assetError { color: var(--danger); }
 .numericDragLabel { cursor: ew-resize; touch-action: none; user-select: none; }
+.diagnosticReadout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(84px, 0.8fr); gap: 0 12px; margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.diagnosticReadout dt, .diagnosticReadout dd { margin: 0; min-width: 0; min-height: 38px; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.diagnosticReadout dd { text-align: right; }
+.diagnosticWarning { color: var(--danger); font-weight: 700; }
 .fieldGrid input[aria-invalid="true"] { border-color: var(--danger); outline: 1px solid var(--danger); }
 .overlapMenu { position: fixed; z-index: 200; width: min(260px, calc(100vw - 16px)); max-height: min(300px, calc(100vh - 16px)); overflow: auto; padding: 6px; background: var(--panel); border: 1px solid var(--line2); border-radius: 6px; box-shadow: var(--shadow); }
 .overlapMenu button { display: block; width: 100%; margin: 3px 0; text-align: left; overflow-wrap: anywhere; white-space: normal; }

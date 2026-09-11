@@ -1,5 +1,8 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {NUMBERS, BOOLS, ASSETS, ENUMS} from '../public/editor-diagnostics.mjs';
 import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {SCHEMA, normalizeReport, readJsonLimited, validWebhook, publicSummary, redact} from '../public/protocol.mjs';
 
@@ -35,6 +38,71 @@ async function request(e, data, extra = {}) {
 }
 const send = (object, r) => object.fetch(new Request('https://report.internal/send', {method:'POST', body:JSON.stringify({report:r,user})}));
 
+test('Python diagnostic contract and browser/server allowlists stay aligned', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const output = execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c',
+    'import json; from tools.fabric_editor_diagnostics import NUMBERS, BOOLS, ASSETS, ENUMS; print(json.dumps(dict(numbers=sorted(NUMBERS), bools=sorted(BOOLS), assets=sorted(ASSETS), enums={k:sorted(v) for k,v in ENUMS.items()})))'], {cwd: root, encoding: 'utf8'});
+  const contract = JSON.parse(output);
+  assert.deepEqual([...NUMBERS].sort(), contract.numbers);
+  assert.deepEqual([...BOOLS].sort(), contract.bools);
+  assert.deepEqual([...ASSETS].sort(), contract.assets);
+  assert.deepEqual(Object.fromEntries(Object.entries(ENUMS).map(([k,v]) => [k,[...v].sort()])), contract.enums);
+});
+
+test('real Python disk-log report survives review and private attachment, never public post', async () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const code = `import json, sys, tempfile, time
+from pathlib import Path
+sys.path.insert(0, 'KFPS.UI/src')
+from kfps_ui.support_report import build_support_report
+from tools.fabric_editor_diagnostics import EditorDiagnostics
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory)
+ runtime=root/'runtime/fabric-editor'
+ runtime.mkdir(parents=True)
+ (runtime/'desktop.log').write_text('Error: GPU reset\\nsession_token=DO_NOT_SEND\\ndata:image/png;base64,AAAA\\n')
+ logger=EditorDiagnostics(root, runtime)
+ logger.accept({'schema':1,'page':'a'*32,'seq':1,'metrics':{'frameMax':280},'state':{'layers':355,'editorRevision':2026091101},'events':[{'kind':'long-task','duration':280,'action':'rotate','message':'DO_NOT_SEND'}]})
+ logger.close()
+ report=build_support_report(root, {'page':'editor','log':'Synthetic app error','services':{'editor':{'lastError':'Dragging shapes becomes slow.'}}}, since=time.time()-20, collect=lambda:{})
+ print(json.dumps(report))`;
+  const raw = JSON.parse(execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c', code], {cwd: root, encoding: 'utf8'}));
+  raw.technical.logs.push(...Array.from({length: 8}, (_, i) => ({source: `worker-${i}`, text: `Error: worker ${i} failed`, age_seconds: 25, previous_session: true})));
+  const reviewed = normalizeReport(raw);
+  assert.deepEqual(normalizeReport(reviewed), reviewed);
+  assert.equal(reviewed.technical.logs.length, 10);
+  assert.equal(reviewed.technical.editor.page.metrics.frameMax, 280);
+  assert.equal(reviewed.technical.editor.page.state.layers, 355);
+  assert.equal(reviewed.technical.editor.recent[0].action, 'rotate');
+  assert.equal(JSON.stringify(reviewed).includes('DO_NOT_SEND'), false);
+  const f = fixture();
+  assert.equal((await (await request(f.e, reviewed)).json()).status, 'delivered');
+  const posts = f.calls.filter(c => c.options.method === 'POST');
+  const attachment = JSON.parse(await posts[0].options.body.get('files[0]').text());
+  assert.deepEqual(attachment.technical.editor, reviewed.technical.editor);
+  assert.deepEqual(attachment.technical.logs, reviewed.technical.logs);
+  assert.equal(posts[1].options.body.includes('GPU reset'), false);
+  assert.equal(posts[1].options.body.includes('worker-7'), false);
+});
+
+test('diagnostics drop unknown text, wrong types and nonfinite numbers; logs remain bounded', () => {
+  const r = report();
+  r.technical.editor = {schema:'kfps-editor-diagnostics/1', age_seconds:Infinity, native:{rssBytes:NaN, code:'PRIVATE', ready:true},
+    page:{page:'a'.repeat(32),seq:1,metrics:{frameMax:280,heapBytes:'PRIVATE'},state:{layers:355,title:'PRIVATE'},events:[{kind:'js-error',error:'TypeError',source:'PRIVATE',message:'PRIVATE'}]},
+    installed_assets:{'editor.js':'a'.repeat(64),'PRIVATE':'b'.repeat(64)},logging:{failed:true,password:'PRIVATE'},recent:[]};
+  r.technical.logs = Array.from({length:100}, () => ({source:'worker',text:'\uc624\ub958 '.repeat(5000)}));
+  const clean = normalizeReport(r);
+  assert.equal(JSON.stringify(clean).includes('PRIVATE'), false);
+  assert.equal(clean.technical.editor.page.metrics.frameMax, 280);
+  r.technical.editor.native = JSON.parse('{"__proto__":"PRIVATE","constructor":"PRIVATE","toString":"PRIVATE","ready":true}');
+  assert.deepEqual(normalizeReport(r).technical.editor.native, {ready:true});
+  assert.equal(clean.technical.editor.installed_assets['editor.js'], 'a'.repeat(64));
+  assert.equal(clean.technical.logs.length, 16);
+  assert.ok(clean.technical.logs.reduce((sum,e)=>sum+Buffer.byteLength(e.text),0) <= 28000);
+  assert.ok(Buffer.byteLength(JSON.stringify(clean)) < 65536);
+  r.include_technical=false; assert.deepEqual(normalizeReport(r).technical, {});
+});
+
 test('allowlist drops artwork, credentials, local paths and unknown fields on both sides', () => {
   assert.equal(redact('Selected: Private Contest Entry.json').includes('Private Contest'),false);
   const r = report(); r.technical.artwork = {shapes:[1]}; r.technical.logs = [{source:'app',text:'Password: never-send\nFailed C:\\Users\\Private Name\\secret-work.json\nEmail private@example.test\nhttps://example.test/private?token=123'}];
@@ -42,6 +110,15 @@ test('allowlist drops artwork, credentials, local paths and unknown fields on bo
   const clean = normalizeReport(r), text = JSON.stringify(clean);
   for (const value of ['never-send','Private Name','private@example','example.test/private','private-serial','"artwork"']) assert.equal(text.includes(value),false, value);
   assert.equal(clean.source,'discord-form'); assert.equal(clean.technical.hardware.gpus[0].name,'Synthetic GPU');
+});
+test('legacy drafts do not gain empty diagnostic fields that change receipt hashes', () => {
+  const legacy = report();
+  assert.equal('editor' in legacy.technical, false);
+  assert.equal('log_collection' in legacy.technical, false);
+  legacy.technical.logs = Array.from({length:5}, (_,i)=>({source:`worker-${i}`,text:'Error: short repeated line\n'.repeat(250).slice(0,6500)}));
+  const first=normalizeReport(legacy);
+  assert.deepEqual(first.technical.logs,legacy.technical.logs);
+  assert.deepEqual(normalizeReport(first),first);
 });
 test('excluding technical details removes them entirely', () => { const r=report(); r.include_technical=false; assert.deepEqual(normalizeReport(r).technical,{}); });
 test('long unbroken log lines are processed in bounded time', () => {const start=performance.now(); redact('x'.repeat(1000000)); assert.ok(performance.now()-start<1000);});

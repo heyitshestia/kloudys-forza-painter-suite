@@ -61,6 +61,14 @@ def post_json(base_url: str, path: str, payload: dict, token=True):
 
 
 class FabricEditorServerTests(unittest.TestCase):
+    def test_executable_editor_assets_are_not_http_cached(self):
+        with RunningEditorServer() as server:
+            for filename in ("index.html", "editor.js", "editor-fabric-adapter.js", "style.css"):
+                with self.subTest(filename=filename):
+                    with urllib.request.urlopen(f"{server}/tools/fabric-editor/{filename}", timeout=3) as response:
+                        self.assertEqual("no-store", response.headers.get("Cache-Control"))
+                        self.assertEqual((EDITOR_ROOT / filename).read_bytes(), response.read())
+
     def test_rejected_posts_reliably_return_403_without_creating_projects(self):
         with tempfile.TemporaryDirectory() as temporary:
             projects = Path(temporary) / "projects"

@@ -1,4 +1,5 @@
 // Shared by the browser review and the server; only allowlisted context survives.
+import { normalizeEditor } from './editor-diagnostics.mjs';
 export const SCHEMA = 'kfps-support-report/1';
 export const FEATURES = ['Generator', 'Editor', 'Import and export', 'Liveries', 'Community', 'Updater', 'Other'];
 export const MAX_BYTES = 64 * 1024;
@@ -7,7 +8,9 @@ export class InputError extends Error {}
 
 export function redact(value, max = 1600) {
   return String(value ?? '').slice(0, 60000)
-    .replace(/^.*\b(?:authorization|cookie|password|secret|bearer|api[ _-]?key|activation[ _-]?key|access[ _-]?token|refresh[ _-]?token|receipt)\b.*$/gim, '[sensitive line removed]')
+    .replace(/^.*\b(?:authorization|cookie|password|secret|bearer|api[ _-]?key|activation[ _-]?key|access[ _-]?token|refresh[ _-]?token|session[ _-]?token|client[ _-]?secret|token|receipt)\b.*$/gim, '[sensitive line removed]')
+    .replace(/^.*["'](?:shapes|objects|svg|dataUrl|source_path|imageData|pixels)["']\s*:.*$/gim, '[artwork data removed]')
+    .replace(/data:[^\s<>"']+|[A-Za-z0-9+/=_-]{160,}/gi, '[encoded data removed]')
     .replace(/https?:\/\/[^\s<>"']+/gi, '[url removed]')
     .replace(/\b[a-z]:[\\/][^\r\n"'<>|]*/gi, '[local path removed]')
     .replace(/\\\\[^\r\n"'<>|]+/g, '[network path removed]')
@@ -52,7 +55,24 @@ export function normalizeTechnical(value) {
   result.locator = pick(v.locator, ['engine_version','created_utc','store_variant'], 100);
   result.locator.request = pick(v.locator?.request, ['game','purpose','layer_count']);
   result.locator.outcome = pick(v.locator?.outcome, ['status','reason','authoritative','failure_reason','refusal_reason']);
-  result.logs = (Array.isArray(v.logs) ? v.logs : []).slice(0, 5).map(log => ({source: redact(log?.source, 30), text: redact(log?.text, 6500)}));
+  const editor = normalizeEditor(v.editor);
+  if (Object.keys(editor).length) result.editor = editor;
+  if (v.log_collection && typeof v.log_collection === 'object' && !Array.isArray(v.log_collection)) {
+    result.log_collection = {lookback_days: 7, warnings: (Array.isArray(v.log_collection.warnings) ? v.log_collection.warnings : []).slice(0, 4).map(w => redact(w, 160))};
+  }
+  // Avoid adding empty fields/changing the old five-log budget on pending retries.
+  let logBudget = Array.isArray(v.logs) && v.logs.length <= 5 ? 32500 : 28000;
+  result.logs = (Array.isArray(v.logs) ? v.logs : []).slice(0, 16).map(log => {
+    const entry = {source: redact(log?.source, 30), text: redact(log?.text, Math.min(6500, logBudget))};
+    // Budget UTF-8 bytes, not UTF-16 characters; preserve recent text in Korean too.
+    while (new TextEncoder().encode(entry.text).length > logBudget) entry.text = entry.text.slice(Math.ceil(entry.text.length / 4));
+    logBudget -= new TextEncoder().encode(entry.text).length;
+    if (typeof log?.modified_utc === 'string' && /^\d{4}-\d\d-\d\dT[0-9:.+Z-]{8,30}$/.test(log.modified_utc)) entry.modified_utc = log.modified_utc;
+    for (const key of ['age_seconds', 'bytes']) if (typeof log?.[key] === 'number' && Number.isSafeInteger(log[key]) && log[key] >= 0) entry[key] = log[key];
+    for (const key of ['truncated', 'previous_session']) if (typeof log?.[key] === 'boolean') entry[key] = log[key];
+    if (entry.text.length < String(log?.text || '').length) entry.truncated = true;
+    return entry;
+  });
   result.browser = pick(v.browser, ['userAgent','language','screen','deviceMemory','hardwareConcurrency'], 300);
   return result;
 }
