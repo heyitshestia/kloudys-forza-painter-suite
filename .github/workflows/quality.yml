@@ -178,6 +178,24 @@ jobs:
         if: matrix.name == 'Community service'
         run: python tools/community_worker/tools/check_deployment_contract.py
 
+      - name: Set up Python for the desktop reporting contract
+        if: matrix.name == 'Community service'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the locked reporting dependency
+        if: matrix.name == 'Community service'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          pins = [line.strip() for line in Path('requirements.lock.txt').read_text().splitlines() if line.startswith('psutil==')]
+          assert len(pins) == 1, 'Expected one locked psutil dependency'
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--only-binary=:all:', '--no-deps', *pins])
+          PY
+
       - name: Test support reporting and actual Worker runtime
         if: matrix.name == 'Community service'
         run: node --test tools/support_worker/test/*.test.mjs
