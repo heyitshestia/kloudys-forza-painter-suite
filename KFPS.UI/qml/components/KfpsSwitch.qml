@@ -50,7 +50,7 @@ Switch {
                       ? 0
                       : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))))
+                      : (Theme.customFrameExclusive && Theme.controlSurfaceComponentFile.length === 0 ? 0 : Theme.px(1))))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -86,7 +86,8 @@ Switch {
             x: root.checked ? parent.width - width - Theme.px(3) : Theme.px(3)
             color: Theme.angularControlsEnabled
                    ? "transparent"
-                   : (root.hovered ? Theme.primaryHot : (root.checked ? Theme.primaryText : Theme.muted))
+                   : (root.hovered ? Theme.primaryHot
+                      : (Theme.controlSurfaceComponentFile.length > 0 ? Theme.primaryButtonTop : (root.checked ? Theme.primaryText : Theme.muted)))
             scale: root.pressed ? 0.88 : (root.hovered ? 1.08 : 1.0)
 
             AngularControlFrame {

@@ -137,6 +137,9 @@ ApplicationWindow {
 
     Column {
         anchors.fill: parent
+        anchors.leftMargin: Theme.px(Theme.chromeMetric(window.shortWindow || window.compactSidebar ? "compactLeftInset" : "leftInset", 0))
+        anchors.rightMargin: Theme.px(Theme.chromeMetric(window.shortWindow || window.compactSidebar ? "compactRightInset" : "rightInset", 0))
+        anchors.bottomMargin: Theme.px(Theme.chromeMetric(window.shortWindow || window.compactSidebar ? "compactBottomInset" : "bottomInset", 0))
         spacing: 0
 
         AppTitleBar {

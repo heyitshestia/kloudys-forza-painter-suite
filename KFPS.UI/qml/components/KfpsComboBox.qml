@@ -119,7 +119,7 @@ ComboBox {
                           ? 0
                           : (root.activeFocus
                           ? Theme.px(2)
-                          : (Theme.customFrameExclusive ? 0 : Theme.px(1)))
+                          : (Theme.customFrameExclusive && Theme.controlSurfaceComponentFile.length === 0 ? 0 : Theme.px(1)))
             border.color: root.activeFocus ? Theme.focusColor
                                            : (root.popup.visible ? Theme.primaryBright
                                                                  : (root.hovered ? Theme.primary : Theme.borderSoft))
@@ -258,7 +258,7 @@ ComboBox {
                 anchors.fill: parent
                 radius: Theme.framedRadius(Theme.px(10))
                 color: Theme.comboPopupSurface
-                border.width: Theme.customFrameExclusive ? 0 : Theme.px(1)
+                border.width: Theme.customFrameExclusive && Theme.controlSurfaceComponentFile.length === 0 ? 0 : Theme.px(1)
                 border.color: Theme.borderStrong
                 clip: true
 

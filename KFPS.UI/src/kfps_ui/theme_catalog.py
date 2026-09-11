@@ -11,6 +11,7 @@ CARBON_DARK_THEME = "Carbon Dark"
 OVERDRIVE_200X_THEME = "Overdrive 200X"
 APEX_VECTOR_THEME = "Apex Vector"
 NIGHT_CITY_2077_THEME = "Night City 2077"
+RX93_PSYCHO_FRAME_THEME = "RX-93 Psycho-Frame"
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(OVERDRIVE_200X_THEME, "PaletteOverdrive200X", supporter_only=True),
     ThemePreset(APEX_VECTOR_THEME, "PaletteApexVector"),
     ThemePreset(NIGHT_CITY_2077_THEME, "PaletteNightCity2077"),
+    ThemePreset(RX93_PSYCHO_FRAME_THEME, "PaletteRx93PsychoFrame"),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

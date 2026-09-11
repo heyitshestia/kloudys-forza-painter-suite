@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="270" height="70" viewBox="0 0 270 70">
+  <defs>
+    <linearGradient id="alloy" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3f6fa"/>
+      <stop offset="0.42" stop-color="#d5dfe8"/>
+      <stop offset="0.45" stop-color="#aebdcd"/>
+      <stop offset="1" stop-color="#7b8da3"/>
+    </linearGradient>
+    <path id="letters" fill-rule="evenodd" d="M10 10H21V30L42 10H57L34 34L59 60H44L21 39V60H10Z M73 10H117V21H85V31H110V42H85V60H73Z M133 10H173L184 21V33L174 44H145V60H133Z M145 21V33H169L173 29V25L169 21Z M208 10H254V21H217V30H245L258 42V50L248 60H204V49H246V42H218L205 30V20Z"/>
+  </defs>
+  <use href="#letters" transform="translate(0 2)" fill="#050910" stroke="#050910" stroke-width="2"/>
+  <use href="#letters" fill="url(#alloy)" stroke="#c7d2dd" stroke-width="0.6" stroke-linejoin="bevel"/>
+</svg>

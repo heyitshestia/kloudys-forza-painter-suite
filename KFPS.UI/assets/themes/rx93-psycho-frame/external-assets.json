@@ -1,0 +1,253 @@
+{
+  "revisions": {
+    "lucide-icons/lucide": "a79b2d131dab2bf20cb224bd0937b439a9c4fa99",
+    "google/fonts": "8e44913e4ff26fc997e6856c1ec40ff4791c98c5"
+  },
+  "files": [
+    {
+      "file": "icons/arrow-up.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/arrow-up.svg",
+      "source_sha256": "8c22c25874c80bb062bef985d207d8f1d4a4d7847237d0a8cf720a3235968518",
+      "sha256": "77e92dc275916e2f8d27df93e19ebb87912ceb6f1034b7a62e97b53b0eb26337",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/bolt.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/zap.svg",
+      "source_sha256": "4c395891eab4d1e5627c5d414a16db037317cb2f12453de0f3a1130964c6d444",
+      "sha256": "1ca5fb704583225a810f1cd47b9f2803f1295577ab1304b29e6856eadf5d017f",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/changelog.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/list-checks.svg",
+      "source_sha256": "08d26ab05aaf724222c4c0cd5a19d5eae753b2a5fff0eb2d81759dde11bac6b6",
+      "sha256": "e6300240c67f08db9bd068d11af41b8d85d38f537fbdcdaf5cfc4c4036bca7f6",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/check.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/check.svg",
+      "source_sha256": "7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0",
+      "sha256": "a8889197e5dd3350459fe3f96714a4c70898cc3988e4f38d23f0ff21276cfff9",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/chevron-left.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/chevron-left.svg",
+      "source_sha256": "83b0681aa38bf55e9d52a1e4b4cced624abe1fe7678ecafda133a574f1161d93",
+      "sha256": "0abc5d32bcb74a7debc3d4062185f0ff517dd8b7fd946832cf341b1cd2417550",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/chevron-right.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/chevron-right.svg",
+      "source_sha256": "2758143d7b2434e4aa7307dfd34405c87909ff4052f21b5f3f40d45224b4f19b",
+      "sha256": "8ad0323c4c9ac010afae2d41695b74fd934b11adaf60cccbef30da43efcd9dd5",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/coffee.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/coffee.svg",
+      "source_sha256": "970595bdafac0df42c00b847d53fd00c2283ecc3b83881274de2aa7dbce2bbc8",
+      "sha256": "15c541289ed854a0ceaf140dbec06765024b67d78bb1c6fe9e35e507adc83aed",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/compress.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/minimize-2.svg",
+      "source_sha256": "1150437d5a870321c59b7ebca2e1bc3f6227f0fa03dd10484ab384dfe5110739",
+      "sha256": "4bcafd92caddd7e81afc9bae831fca63d4835cda54510f09d1cc9fd6f4a42c3a",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/cutout.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/scissors.svg",
+      "source_sha256": "4c831fc2c903825f68565c28ffab945c34b2c60b6c564e2ae54250e1099fa550",
+      "sha256": "89275b9703dbb066c7df89de32f00c67146b8faca4314d0ce599f8acff4afcf7",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/community.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/users-round.svg",
+      "source_sha256": "8b41ee3ada1609e25a410d64056aa333952cf27d770f0c379a100065270de7f7",
+      "sha256": "6049aa4a7efc0e1bf05dedeed5bf18f05c2279de693ddf91ffe331ef37af69d3",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/editor.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/pen-tool.svg",
+      "source_sha256": "a31b434a7b7e379bd37b05fe7ae4b632c0cf38baf7463a726961ce65dd0cb089",
+      "sha256": "4faa6123604b9c0ae6c33a9ac130bdb4ed2adecc8b0554c17763288f21df8648",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/external.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/external-link.svg",
+      "source_sha256": "3891241b8c3bfc3a8a930078f26ffc5a7e9763da6d0162ace2050b28d4c1d1fe",
+      "sha256": "c93aee01ab39f9e6db8f4d8f36153495fab71cf99d9304227872311858ec95af",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/folder.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/folder-open.svg",
+      "source_sha256": "ee57452b40e71df310214091dd9da1941a397c83197b8ff8d7ae66dd4242578b",
+      "sha256": "1a4e31fea11d9eaf06873f328b4af2d6dd9b5bbccfc7baa509fe77aaf3c96c9f",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/generate.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/cpu.svg",
+      "source_sha256": "ec83bb69ec029d367d749afc445b39c8e95891ebf99b0400652677c2b149b99c",
+      "sha256": "fc85f6c70719186e8923967c93ed6e0da1d7f9dd399955384c01d7d7ba46e91d",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/heart.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/heart.svg",
+      "source_sha256": "70af5f30be9fcb500b852556b38dcdf8c04a4ba81fd262534fb0336bd39b3b52",
+      "sha256": "47a0c6d851e92f4fe91e8d0a049e192134458658fd573de980e02cb330094fa6",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/help.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/circle-question-mark.svg",
+      "source_sha256": "975db087da041530dbf59ba1e61a7b99c3519fad43dae6375e42ccc74ba63924",
+      "sha256": "6164ff4fc1fc36780523b78c08aae025c78c2c2b37d74a3fed106b6f1c9c4f2c",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/home.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/house.svg",
+      "source_sha256": "28216c479005731ef5e382e7d8627eda2b129b019eb1f3d9de9f5915576d448e",
+      "sha256": "42f0b8a1476ced972f45840255a70ac16ba9a7431e397cd0681b7d0d6a8f1198",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/images.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/images.svg",
+      "source_sha256": "f853679adfac703296d71cf0a55945af93144927bc50c9ce72eac809300aad8c",
+      "sha256": "609623e3c403cf158726f8868c7997c95df8cd6baeea7183e301b05fa6aaee6b",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/json.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/file-braces.svg",
+      "source_sha256": "f1ea60ee7f303887033d9b05c9b8c903b31c01dc2d8d15082f5c4d1a8899aa6a",
+      "sha256": "5254fb87d9a27ea3675379160c6502ff80c669e913e9f8d4582641413a738f4a",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/monitor.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/monitor.svg",
+      "source_sha256": "d1a443233345724859de8e4fb48968ba91e885e12ddbd710701548bd91b39428",
+      "sha256": "404013deb8ffea655db80ed6f55a532e740fe7ab6c31a178a560eb1808af07b8",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/petal.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/component.svg",
+      "source_sha256": "c373d52b448f8ca6bc5105209ae9900e033e933dfedd2d2ae804e0d822d5f7c0",
+      "sha256": "b9ac55ca105be7566194e0e29d446aeddff4528f14c6bc216378db9f069e2706",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/refresh.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/refresh-cw.svg",
+      "source_sha256": "2e10dd403c85a24f163d59fc6151aa21147fe9402e1305dfc8979208caee8944",
+      "sha256": "15a42b9d7696e1879fc1f18b18f6871df87e3a896797303b88725771a7240521",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/reports.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/bug.svg",
+      "source_sha256": "c4fddf0d43b4c4f0b8fc52eb8810173c8d8bd25618034a70f162d85e8189d69d",
+      "sha256": "dace9abdc4fdbeabc415030b2e9e2977726da7a054de9b2fd20a23c2f0abefa5",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/settings.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/sliders-horizontal.svg",
+      "source_sha256": "e43a00e5eb684e6cbb61083bed2528d7a3fa5f265693eb2b5f314cd432aa65f4",
+      "sha256": "04298d3bd38a725b5a2f718ea891f921f701d258825e3ebb3d679e6bed2edec3",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/source-check.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/file-check-corner.svg",
+      "source_sha256": "b697716c35561d0fbc65db4f60b7dcdc0074f9e4f44f4c8af9509fb73ad6d595",
+      "sha256": "4a9f26a5e11340032745e1b64b409fca1e3899aa331613b6801176628d827588",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/terminal.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/terminal.svg",
+      "source_sha256": "4f9b6488b237757d5cb615ccd07502fa99774826839e2a99017784bdb2596f1a",
+      "sha256": "7727e4e5bc00ea30c6e4ce3667db5266baa95d303c2fbea7345db0c67f94c413",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/tools.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/wrench.svg",
+      "source_sha256": "b5f3bf792743edb9e81b543dd1b13ccc26d3afe1d33500a1cd8dee2e052d6197",
+      "sha256": "f90c74161a650267bc750f942c494feb7f902fd0037b16d7f4eb24487cc7af3c",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/transfer.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/arrow-right-left.svg",
+      "source_sha256": "c32f61f0ea5aea4f11592db61e42774977a95086a4fa40656d00289a9604b9ad",
+      "sha256": "511a513a0a3f79bdc867a2c0d1562e5f8be8456317721dfda08104a749eb8696",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/update.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/download.svg",
+      "source_sha256": "3daeee13ded5a3afa2198b1bb4e2262d163922f97d96ac6ff9953e8ed4fe039d",
+      "sha256": "9597f13b51c0b9f2c207ac5481829757dd2f1810fbfbe8269e58612d79f4b805",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "icons/upscale.svg",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/icons/maximize-2.svg",
+      "source_sha256": "9b8413ad44a3d4f5a80049713743daddcdc3c5465a71c218cac156a99f582b5b",
+      "sha256": "6d66a82a247d34484c74e6d9aab1fe04527c4295bd672e3a67edb8a17fc0bebb",
+      "modification": "White 1.7px glyph mask for Qt tinting"
+    },
+    {
+      "file": "licenses/Lucide-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/lucide-icons/lucide/a79b2d131dab2bf20cb224bd0937b439a9c4fa99/LICENSE",
+      "source_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+      "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+      "modification": null
+    },
+    {
+      "file": "fonts/Barlow-Medium.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/barlow/Barlow-Medium.ttf",
+      "source_sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4",
+      "sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4",
+      "modification": null
+    },
+    {
+      "file": "licenses/barlow-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/barlow/OFL.txt",
+      "source_sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "modification": null
+    },
+    {
+      "file": "fonts/BarlowSemiCondensed-SemiBold.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/barlowsemicondensed/BarlowSemiCondensed-SemiBold.ttf",
+      "source_sha256": "bd299f4bc5b44d30be8d42e9bad3a5df7d66af1cd55d0ed72a8b8916360a1424",
+      "sha256": "bd299f4bc5b44d30be8d42e9bad3a5df7d66af1cd55d0ed72a8b8916360a1424",
+      "modification": null
+    },
+    {
+      "file": "licenses/barlowsemicondensed-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/8e44913e4ff26fc997e6856c1ec40ff4791c98c5/ofl/barlowsemicondensed/OFL.txt",
+      "source_sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "modification": null
+    }
+  ]
+}

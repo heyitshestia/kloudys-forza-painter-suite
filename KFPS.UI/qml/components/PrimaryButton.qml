@@ -61,7 +61,24 @@ Button {
     }
 
     background: Item {
-        clip: true
+        ThemeSurface {
+            id: customSurface
+            anchors.fill: parent
+            componentFile: Theme.controlSurfaceComponentFile
+            surfaceOwner: root
+            ownerProperty: "control"
+            surfaceRole: "primary"
+        }
+
+        Loader {
+            id: legacySurface
+            anchors.fill: parent
+            active: Theme.controlSurfaceComponentFile.length === 0 || customSurface.status === Loader.Error
+            sourceComponent: Component {
+                Item {
+                    anchors.fill: parent
+                    clip: true
+                    function playSheen() { sheenAnimation.restart() }
 
         AngularControlFrame {
             anchors.fill: parent
@@ -402,6 +419,23 @@ Button {
                 active: root.activeFocus && !root.down
             }
         }
+
+    SequentialAnimation {
+        id: sheenAnimation
+        PropertyAction { target: sheen; property: "opacity"; value: 0.46 }
+        NumberAnimation {
+            target: sheen
+            property: "x"
+            from: -sheen.width * 1.8
+            to: root.width + sheen.width
+            duration: Theme.interactionSweepDuration
+            easing.type: Easing.OutCubic
+        }
+        PropertyAction { target: sheen; property: "opacity"; value: 0 }
+    }
+                }
+            }
+        }
     }
 
     contentItem: Item {
@@ -479,7 +513,8 @@ Button {
     onHoveredChanged: {
         if (hovered) {
             if (!Theme.reducedMotion) {
-                sheenAnimation.restart()
+                if (legacySurface.item)
+                    legacySurface.item.playSheen()
                 if (Theme.controlSignalEnabled)
                     signalAnimation.restart()
             } else if (Theme.controlSignalEnabled) {
@@ -500,20 +535,6 @@ Button {
     KfpsToolTip {
         visible: root.hovered && root.effectiveToolTipText.length > 0
         text: root.effectiveToolTipText
-    }
-
-    SequentialAnimation {
-        id: sheenAnimation
-        PropertyAction { target: sheen; property: "opacity"; value: 0.46 }
-        NumberAnimation {
-            target: sheen
-            property: "x"
-            from: -sheen.width * 1.8
-            to: root.width + sheen.width
-            duration: Theme.interactionSweepDuration
-            easing.type: Easing.OutCubic
-        }
-        PropertyAction { target: sheen; property: "opacity"; value: 0 }
     }
 
     SequentialAnimation {

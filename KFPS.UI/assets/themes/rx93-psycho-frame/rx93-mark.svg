@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="alloy" x2="0" y2="1"><stop stop-color="#f0f1e8"/><stop offset=".55" stop-color="#b4bfb1"/><stop offset="1" stop-color="#7b8d80"/></linearGradient>
+  </defs>
+  <path fill="#111a1b" stroke="#788879" d="M12 8h62l10 10v65L48 91 12 83z"/>
+  <path fill="url(#alloy)" d="m21 19 23 21 4-18 4 18 23-21-12 35-15 22-15-22z"/>
+  <path fill="#d8b962" d="m16 16 28 27-6 4zm64 0L52 43l6 4z"/>
+  <path fill="#16231c" d="m30 45 13 6 5 17 5-17 13-6-10 19-8 13-8-13z"/>
+  <path fill="#a5edb5" d="m35 47 9 4v4l-8-4zm26 0-9 4v4l8-4z"/>
+  <path fill="#ae4f44" d="m44 66 4-5 4 5-4 9z"/>
+  <path stroke="#829484" stroke-width="1" d="M20 76v6h16m40-6v6H60M19 12h15m28 0h12"/>
+</svg>

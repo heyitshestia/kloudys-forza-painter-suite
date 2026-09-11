@@ -1,5 +1,18 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.76
+
+### New Free Theme
+- Added RX-93 Psycho-Frame, a detailed mechanical theme inspired by the Nu Gundam. Available to everyone in Settings, with no supporter key required.
+- Custom metal and ceramic buttons, armored panels, yellow piping, subtle moving details, and a matching KFPS wordmark.
+- Raised the window controls above the bright armor edge so they remain easy to see at desktop and compact window sizes.
+- Respects reduced-motion and ambient-motion settings, and pauses its decorative motion when the window is inactive or minimized.
+
+### Theme Improvements
+- Added reusable support for custom buttons, panels, sidebars, and title bars without changing how the app's controls work.
+- Custom-themed buttons no longer build unused older decorations in the background.
+- Checked theme selection, saved preferences, navigation, keyboard controls, and window buttons. Existing themes retain their default layouts.
+
 ## 3.1.75
 
 ### Larger Images and Language Updates

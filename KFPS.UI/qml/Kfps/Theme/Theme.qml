@@ -27,7 +27,8 @@ QtObject {
     readonly property QtObject overdrive200X: PaletteOverdrive200X {}
     readonly property QtObject apexVector: PaletteApexVector {}
     readonly property QtObject nightCity2077: PaletteNightCity2077 {}
-    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077]
+    readonly property QtObject rx93PsychoFrame: PaletteRx93PsychoFrame {}
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077, rx93PsychoFrame]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -41,6 +42,16 @@ QtObject {
     readonly property string uiFontFile: palette.uiFontFile
     readonly property string displayFontFile: palette.displayFontFile
     readonly property string monoFontFile: palette.monoFontFile
+    readonly property string controlSurfaceComponentFile: palette.controlSurfaceComponentFile
+    readonly property string titleBarContentComponentFile: palette.titleBarContentComponentFile
+
+    function chromeMetric(name, fallback) {
+        var value = palette.chromeMetrics[name]
+        return typeof value === "number" && isFinite(value) && value >= 0 ? value : fallback
+    }
+    readonly property string panelSurfaceComponentFile: palette.panelSurfaceComponentFile
+    readonly property string sidebarSurfaceComponentFile: palette.sidebarSurfaceComponentFile
+    readonly property string sidebarHeaderComponentFile: palette.sidebarHeaderComponentFile
 
     function paletteForName(name) {
         var requestedName = String(name || "").trim()
@@ -331,6 +342,8 @@ QtObject {
     }
 
     function corner(defaultRadius) {
+        if (controlSurfaceComponentFile.length > 0)
+            defaultRadius = Math.min(defaultRadius, px(customFrameRadius))
         return (terminalMode || classicMode || angularControlsEnabled) ? 0 : defaultRadius
     }
 }

@@ -1,0 +1,6 @@
+*.svg text eol=lf
+*.json text eol=lf
+# Preserve upstream license bytes, including intentional trailing spaces.
+licenses/*.txt -text whitespace=-blank-at-eol
+fonts/*.ttf -text
+parts/*.png -text

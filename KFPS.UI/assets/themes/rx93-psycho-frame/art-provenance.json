@@ -1,0 +1,34 @@
+{
+  "schema": "kfps.theme-art.v1",
+  "theme": "RX-93 Psycho-Frame",
+  "origin": "Original AI-generated runtime material assets, commissioned for the KFPS theme and selected by the project owner. These are reusable interface parts, not user artwork or screenshots.",
+  "source_tool": "OpenAI image generation",
+  "design": "Fan-made mechanical armor interpretation inspired by the RX-93 Nu Gundam. Not an official or endorsed Bandai product. No official product photographs are shipped.",
+  "files": [
+    {
+      "file": "parts/ceramic-key.png",
+      "sha256": "133241451fc342bf1dd4f9480e0cac2c256d8c9479f0033423f1a16a5e190854",
+      "bytes": 2064237
+    },
+    {
+      "file": "parts/chassis.png",
+      "sha256": "f210f4ba2f5a84ec4409e4453af82b81d46ea55a895a6df146538fd1ead49c07",
+      "bytes": 1362695
+    },
+    {
+      "file": "parts/inset-panel.png",
+      "sha256": "b8e480c428bc1588087191e18fd9365e98a6fe459eabc7b162fddf44678f2946",
+      "bytes": 1756375
+    },
+    {
+      "file": "parts/navy-key.png",
+      "sha256": "2c9135d9c08994ca50d06b0439db9fcd86641a3fbd3e441a6331de9d07f66555",
+      "bytes": 2165961
+    }
+  ],
+  "original_vectors": [
+    "kfps-armored-wordmark.svg",
+    "rx93-mark.svg"
+  ],
+  "third_party": "Font and Lucide icon licenses, source revisions and hashes are recorded separately in external-assets.json."
+}

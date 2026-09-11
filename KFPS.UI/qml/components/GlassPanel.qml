@@ -17,7 +17,7 @@ Rectangle {
     readonly property var backdropSource: Window.window && Window.window.glassBackdropSource ? Window.window.glassBackdropSource : null
     readonly property point backdropOrigin: backdropSource ? mapToItem(backdropSource, 0, 0) : Qt.point(0, 0)
     readonly property bool backdropBlurActive: !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && Theme.glassBackdropEnabled && backdropSource && width > 2 && height > 2
-    readonly property bool roundedContentMaskActive: !Theme.angularControlsEnabled && radius > 0 && width > 2 && height > 2
+    readonly property bool roundedContentMaskActive: Theme.panelSurfaceComponentFile.length === 0 && !Theme.angularControlsEnabled && radius > 0 && width > 2 && height > 2
     readonly property bool locatorVisible: Theme.panelLocatorEnabled && (strong || raised)
     readonly property bool telemetryVisible: Theme.equipmentAccentsEnabled
                                                && (strong || raised)
@@ -55,7 +55,7 @@ Rectangle {
         }
     }
 
-    layer.enabled: !Theme.angularControlsEnabled && !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && !screenshotMode
+    layer.enabled: Theme.panelSurfaceComponentFile.length === 0 && !Theme.angularControlsEnabled && !Theme.terminalMode && !Theme.classicMode && Theme.glassEffects && !screenshotMode
     layer.smooth: true
     layer.effect: MultiEffect {
         shadowEnabled: true
@@ -64,6 +64,13 @@ Rectangle {
         shadowHorizontalOffset: 0
         shadowVerticalOffset: root.raised ? Theme.px(9) : Theme.px(root.strong ? 7 : 5)
         shadowOpacity: root.glow ? 0.82 : root.shadowStrength
+    }
+
+    ThemeSurface {
+        anchors.fill: parent
+        componentFile: Theme.panelSurfaceComponentFile
+        surfaceOwner: root
+        ownerProperty: "panel"
     }
 
     AngularControlFrame {
@@ -101,7 +108,7 @@ Rectangle {
 
     Item {
         id: roundedContentLayer
-        visible: !Theme.angularControlsEnabled
+        visible: Theme.panelSurfaceComponentFile.length === 0 && !Theme.angularControlsEnabled
         anchors.fill: parent
         layer.enabled: root.roundedContentMaskActive
         layer.smooth: true

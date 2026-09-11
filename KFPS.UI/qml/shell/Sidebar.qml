@@ -81,11 +81,19 @@ Item {
     clip: true
 
     GlassPanel {
+        visible: Theme.sidebarSurfaceComponentFile.length === 0
         anchors.fill: parent
         radius: Theme.corner(0)
         strong: true
         panelOpacity: 0.97
         border.width: 0
+    }
+
+    ThemeSurface {
+        anchors.fill: parent
+        componentFile: Theme.sidebarSurfaceComponentFile
+        surfaceOwner: root
+        ownerProperty: "sidebar"
     }
 
     Rectangle {
@@ -125,7 +133,9 @@ Item {
         Item {
             id: logoArea
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.px(Theme.classicMode
+            Layout.preferredHeight: Theme.sidebarHeaderComponentFile.length > 0
+                                   ? Theme.px(Theme.chromeMetric(root.compact || root.denseNavigation ? "compactSidebarHeaderHeight" : "sidebarHeaderHeight", root.compact ? 80 : (root.denseNavigation ? 102 : 128)))
+                                   : Theme.px(Theme.classicMode
                                              ? (root.compact ? 62 : 78)
                                              : (Theme.terminalMode
                                              ? (root.compact ? 54 : 64)
@@ -134,7 +144,7 @@ Item {
 
             Row {
                 id: wideLogoContent
-                visible: !root.compact && !Theme.terminalMode
+                visible: !root.compact && !Theme.terminalMode && Theme.sidebarHeaderComponentFile.length === 0
                 anchors.centerIn: parent
                 spacing: Theme.px(10)
                 opacity: root.insaneActive ? 0 : 1
@@ -191,7 +201,7 @@ Item {
 
             Column {
                 id: compactLogoContent
-                visible: root.compact && !Theme.terminalMode
+                visible: root.compact && !Theme.terminalMode && Theme.sidebarHeaderComponentFile.length === 0
                 anchors.centerIn: parent
                 spacing: Theme.px(3)
                 opacity: root.insaneActive ? 0 : 1
@@ -286,6 +296,13 @@ Item {
                     font.pixelSize: Theme.px(root.compact ? 8 : 9.5)
                     horizontalAlignment: Text.AlignHCenter
                 }
+            }
+
+            ThemeSurface {
+                anchors.fill: parent
+                componentFile: Theme.sidebarHeaderComponentFile
+                surfaceOwner: root
+                ownerProperty: "sidebar"
             }
 
             TapHandler {

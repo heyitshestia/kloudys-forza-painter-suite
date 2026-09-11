@@ -1,6 +1,12 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property var chromeMetrics: ({})
+    readonly property string titleBarContentComponentFile: ""
+    readonly property string controlSurfaceComponentFile: ""
+    readonly property string panelSurfaceComponentFile: ""
+    readonly property string sidebarSurfaceComponentFile: ""
+    readonly property string sidebarHeaderComponentFile: ""
     readonly property string name: "Overdrive 200X"
     readonly property bool supporterOnly: true
     readonly property bool terminalMode: false

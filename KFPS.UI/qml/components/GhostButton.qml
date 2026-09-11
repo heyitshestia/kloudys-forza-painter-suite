@@ -66,7 +66,23 @@ Button {
     }
 
     background: Item {
-        clip: true
+        ThemeSurface {
+            id: customSurface
+            anchors.fill: parent
+            componentFile: Theme.controlSurfaceComponentFile
+            surfaceOwner: root
+            ownerProperty: "control"
+            surfaceRole: "ghost"
+        }
+
+        Loader {
+            id: legacySurface
+            anchors.fill: parent
+            active: Theme.controlSurfaceComponentFile.length === 0 || customSurface.status === Loader.Error
+            sourceComponent: Component {
+                Item {
+                    anchors.fill: parent
+                    clip: true
 
         AngularControlFrame {
             anchors.fill: parent
@@ -364,6 +380,9 @@ Button {
                 anchors.fill: parent
                 anchors.margins: Theme.px(4)
                 active: root.activeFocus && !root.checkedState
+            }
+        }
+                }
             }
         }
     }

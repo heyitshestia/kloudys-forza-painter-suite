@@ -42,6 +42,10 @@ an empty asset path, `false`, or zero opacity instead of branching in a componen
 
 ## Adding a theme
 
+Optional custom control, panel, sidebar and title surfaces are documented in
+[Theme surfaces](THEME_SURFACES.md). [RX-93 Psycho-Frame](RX93_THEME.md) uses
+these hooks without branching workflow logic on a concrete theme name.
+
 1. Copy an existing `Palette*.qml` file and change values without removing tokens.
 2. Give it unique `name` metadata and set `supporterOnly` deliberately.
 3. Register the QML type in `qml/Kfps/Theme/qmldir`.

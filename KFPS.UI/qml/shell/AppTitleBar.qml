@@ -10,7 +10,7 @@ Rectangle {
     property var window
 
     color: Theme.classicMode ? Theme.surface : Theme.titleBarSurface
-    height: Theme.px(Theme.classicMode ? 30 : Metrics.titleHeight)
+    height: Theme.px(Theme.chromeMetric(window.shortWindow || window.compactSidebar ? "compactTitleHeight" : "titleHeight", Theme.classicMode ? 30 : Metrics.titleHeight))
 
     ClassicBevel {
         anchors.fill: parent
@@ -44,6 +44,7 @@ Rectangle {
     }
 
     Row {
+        visible: Theme.titleBarContentComponentFile.length === 0
         anchors.left: parent.left
         anchors.leftMargin: Theme.px(Theme.classicMode ? 7 : 10)
         anchors.verticalCenter: parent.verticalCenter
@@ -74,13 +75,21 @@ Rectangle {
         }
     }
 
+    ThemeSurface {
+        anchors.left: parent.left
+        anchors.right: windowButtons.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        componentFile: Theme.titleBarContentComponentFile
+    }
+
     Row {
         id: windowButtons
         anchors.right: parent.right
         anchors.rightMargin: Theme.classicMode ? Theme.px(3) : 0
         anchors.top: parent.top
-        anchors.topMargin: Theme.classicMode ? Theme.px(3) : 0
-        height: Theme.classicMode ? parent.height - Theme.px(6) : parent.height
+        anchors.topMargin: Theme.px(Theme.chromeMetric(root.height > Theme.px(40) ? "windowButtonsTopInset" : "compactWindowButtonsTopInset", Theme.classicMode ? 3 : 0))
+        height: Math.min(parent.height - anchors.topMargin, Theme.px(Theme.chromeMetric("windowButtonsHeight", Theme.classicMode ? parent.height - Theme.px(6) : parent.height)))
         spacing: Theme.classicMode ? Theme.px(2) : 0
 
         Repeater {
@@ -126,6 +135,7 @@ Rectangle {
 
                 Item {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -Theme.px(Theme.chromeMetric(root.height > Theme.px(40) ? "windowButtonsIconLift" : "compactWindowButtonsIconLift", 0))
                     width: Theme.px(16)
                     height: Theme.px(16)
 

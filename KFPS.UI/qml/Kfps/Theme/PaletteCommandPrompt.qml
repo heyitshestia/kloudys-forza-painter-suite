@@ -1,6 +1,12 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property var chromeMetrics: ({})
+    readonly property string titleBarContentComponentFile: ""
+    readonly property string controlSurfaceComponentFile: ""
+    readonly property string panelSurfaceComponentFile: ""
+    readonly property string sidebarSurfaceComponentFile: ""
+    readonly property string sidebarHeaderComponentFile: ""
     property bool greenText: false
     property color ink: greenText ? "#00ff66" : "#f2f2f2"
     property color brightInk: greenText ? "#66ff9f" : "#ffffff"

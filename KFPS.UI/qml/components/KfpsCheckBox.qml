@@ -46,7 +46,7 @@ CheckBox {
                       ? 0
                       : (root.activeFocus
                       ? Theme.px(2)
-                      : (Theme.customFrameExclusive ? 0 : Theme.px(1))))
+                      : (Theme.customFrameExclusive && Theme.controlSurfaceComponentFile.length === 0 ? 0 : Theme.px(1))))
         border.color: root.activeFocus ? Theme.focusColor
                                        : (root.checked ? (root.hovered ? Theme.focusColor : Theme.primaryBright)
                                                        : (root.hovered ? Theme.primary : Theme.borderSoft))
