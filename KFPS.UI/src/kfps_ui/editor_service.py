@@ -22,6 +22,7 @@ class EditorService(QObject):
     editorOutputsChanged = Signal()
     launchCompleted = Signal(bool, str, str)
     previewCompleted = Signal(str, str)
+    scanCompleted = Signal(int, object, str)
 
     def __init__(
         self,
@@ -55,6 +56,9 @@ class EditorService(QObject):
         self._running = False
         self._last_error = ""
         self._preview_lock = threading.Lock()
+        self._scan_generation = 0
+        self._scan_running = False
+        self._scan_cache: dict[Path, tuple[tuple[int, int, int], int | None]] = {}
         self._output_change_marker = self.paths.runtime_root / "fabric-editor" / "editor-output-change.json"
         self._project_change_marker = self.paths.runtime_root / "fabric-editor" / "project-change.json"
         self._output_change_mtime = self._marker_mtime(self._output_change_marker)
@@ -65,6 +69,7 @@ class EditorService(QObject):
         self._change_timer.start()
         self.launchCompleted.connect(self._finish_launch)
         self.previewCompleted.connect(self._finish_preview)
+        self.scanCompleted.connect(self._finish_scan)
         self.refresh()
 
     @staticmethod
@@ -153,11 +158,38 @@ class EditorService(QObject):
     def refresh(self):
         if self._closed:
             return
+        self._scan_generation += 1
+        if not self._scan_running:
+            self._start_scan()
+
+    def _start_scan(self):
+        self._scan_running = True
+        try:
+            self._start_thread(target=self._scan_worker, args=(self._scan_generation,), name="kfps-editor-project-scan")
+        except Exception as exc:
+            self._scan_running = False
+            self.log.append(f"Could not scan editor projects: {exc}", "warning")
+
+    def _scan_worker(self, generation: int):
+        try:
+            rows = self._scan_projects()
+            error = ""
+        except Exception as exc:
+            rows, error = [], str(exc)
+        if not self._cancel_event.is_set():
+            self.scanCompleted.emit(generation, rows, error)
+
+    def _scan_projects(self):
         root = self.paths.project_root
+        if self._cancel_event.is_set():
+            return []
         root.mkdir(parents=True, exist_ok=True)
         rows = []
+        cache = {}
         now = time.time()
         for path in root.rglob("*.fabric-project.json"):
+            if self._cancel_event.is_set():
+                return []
             try:
                 stat = path.stat()
             except OSError:
@@ -171,7 +203,10 @@ class EditorService(QObject):
                 modified = f"{age // 3600}h ago"
             else:
                 modified = f"{age // 86400}d ago"
-            shape_count = self._project_shape_count(path)
+            identity = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            previous = self._scan_cache.get(path)
+            shape_count = previous[1] if previous and previous[0] == identity else self._project_shape_count(path)
+            cache[path] = (identity, shape_count)
             rows.append(
                 {
                     "name": path.name.removesuffix(".fabric-project.json"),
@@ -187,9 +222,23 @@ class EditorService(QObject):
                 }
             )
         rows.sort(key=lambda row: row["mtime"], reverse=True)
+        self._scan_cache = cache
+        return rows
+
+    @Slot(int, object, str)
+    def _finish_scan(self, generation: int, rows: list, error: str):
+        self._scan_running = False
+        if self._closed:
+            return
+        if generation != self._scan_generation:
+            self._start_scan()
+            return
+        if error:
+            self.log.append(f"Could not scan editor projects: {error}", "warning")
+            return
         self._all_projects = rows
         self._apply_filter()
-        if self._selected and not Path(self._selected).is_file():
+        if self._selected and not any(row["path"] == self._selected for row in rows):
             self._clear_selection()
         self._status = (
             f"{len(rows):,} saved editor project{'s' if len(rows) != 1 else ''} found."
@@ -267,10 +316,13 @@ class EditorService(QObject):
 
     @Slot()
     def openEditorFolder(self):
-        self.desktop.openFolder(str(self.paths.app_root / "tools" / "fabric-editor"))
+        from tools.editor_manifest import editor_web_root
+        self.desktop.openFolder(str(editor_web_root(self.paths.app_root)))
 
     def _project_shape_count(self, path: Path) -> int | None:
         try:
+            if self._cancel_event.is_set() or path.stat().st_size > 150 * 1024 * 1024:
+                return None
             with path.open("r", encoding="utf-8") as stream:
                 prefix = stream.read(64 * 1024)
                 match = re.search(
@@ -279,7 +331,12 @@ class EditorService(QObject):
                 )
                 if match:
                     return int(match.group(1))
-                data = json.loads(prefix + stream.read())
+                if self._cancel_event.is_set():
+                    return None
+                remainder = stream.read(150 * 1024 * 1024 + 1)
+                if len(remainder) + len(prefix) > 150 * 1024 * 1024:
+                    return None
+                data = json.loads(prefix + remainder)
             items = data.get("shapes", data.get("layers", [])) if isinstance(data, dict) else data
             return len(items) if isinstance(items, list) else None
         except (OSError, ValueError, TypeError):

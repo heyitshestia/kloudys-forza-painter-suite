@@ -1,0 +1,28 @@
+{
+  "schema": "kfps-editor-workflow-contracts/1",
+  "default": "Fresh native process and isolated profile; acknowledge startup notices before exercising ordinary controls.",
+  "cases": {
+    "regression-dense-translucency.js": { "timeoutSeconds": 600 },
+    "regression-generated-assets.js": { "normalClose": true },
+    "regression-generated-assets-restart.js": { "profileFrom": "regression-generated-assets.js", "normalClose": true },
+    "regression-new-canvas.js": { "timeoutSeconds": 300, "normalClose": true },
+    "regression-new-canvas-restart.js": { "profileFrom": "regression-new-canvas.js", "normalClose": true },
+    "regression-diagnostics.js": { "expectedPageErrors": ["TypeError: PRIVATE_IMAGE.png PRIVATE_NAME", "RangeError: PRIVATE_TEXT"] },
+    "regression-shape-identity.js": { "timeoutSeconds": 600 },
+    "regression-native-fill-pixels.js": { "timeoutSeconds": 600 },
+    "regression-transform-handle-matrix.js": { "timeoutSeconds": 900 },
+    "regression-guide-contact-matrix.js": { "timeoutSeconds": 600 },
+    "regression-storage-capacity.js": { "timeoutSeconds": 600 },
+    "regression-reference-file-limit.js": { "timeoutSeconds": 600 },
+    "regression-dense-commands.js": { "timeoutSeconds": 600 },
+    "regression-dense-gestures.js": { "timeoutSeconds": 600 },
+    "regression-dense-resources-restart.js": { "profileFrom": "regression-dense-resources.js" },
+    "regression-text-prompt-reopen.js": { "profileFrom": "regression-text-prompts.js" },
+    "regression-theme-restart.js": { "profileFrom": "regression-themes.js" },
+    "regression-language-restart.js": { "profileFrom": "regression-language-switch.js", "preserveStartupNotices": true },
+    "regression-tool-process-restart.js": { "profileFrom": "regression-tool-workflows.js" },
+    "regression-assets-layout.js": { "profileFrom": "regression-assets-persistence.js" },
+    "regression-assets-process-restart.js": { "profileFrom": "regression-assets-layout.js" },
+    "regression-project-sharing-notice.js": { "preserveStartupNotices": true }
+  }
+}

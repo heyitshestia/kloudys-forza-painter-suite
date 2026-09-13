@@ -1,5 +1,37 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.78
+
+### Editor Update
+- All supported downloads now include the same verified editor engine. The advanced download without Python is retired.
+- The editor has its own source package, with clearer boundaries for drawing, input, undo, saving, recovery and diagnostics. Existing projects, favorites, assets and settings stay in their current locations.
+- Reduced repeated work during shape picking, transformations, reference-image navigation and background recovery saving.
+- Large projects prepare drawing caches in smaller steps, reducing interruptions after opening. Large image decoding and some whole-project operations can still cause pauses.
+- Reduced shape-library memory use by loading previews as needed and reusing them while browsing.
+
+### Editing Fixes
+- Fixed translucent shapes disappearing while moving shapes or navigating the canvas.
+- Improved selecting and transforming mirrored, rotated and grouped shapes without unexpected movement.
+- Improved transform-handle picking, selection overlays, layer selection and numeric input behavior.
+- Hardened save/reopen, undo/redo, replacement operations and recovery against stale or interrupted work.
+- Saved projects and recovery retain the existing 150 MiB total limit and 100 MiB embedded-reference allowance; this update does not raise those limits.
+
+### Updates and Reporting
+- The standalone editor now checks for KFPS updates even when the main app is closed. Click the red UPDATE indicator to stop its blinking for that version.
+- Added a one-time editor update notice in English and Korean, with required acknowledgment and a support link.
+- Report a Problem can attach complete retained editor, generator, transfer, upscaler, background-removal and livery-worker logs privately. Limits or unreadable files are shown as omissions.
+- Reports now open in their own KFPS window with the supported log package loaded automatically, without choosing files by hand. Edited report text survives reopening the window for up to 24 hours.
+- Discord authorization opens in your Windows default browser so an existing login can be reused. The report stays open in KFPS and signs in after you authorize it. Nothing is sent until you press Send.
+- Fixed rapid editor actions losing diagnostic events before they reached the local log. Requests retry without duplicating accepted batches, and normal close gives pending events time to finish.
+- Optional screenshots are clearly labelled public and appear in the public support post. Technical logs remain private and can be excluded before sending.
+- Updated English and Korean reporting text and improved compatibility with reports from older versions.
+- Fixed a main-app shutdown crash reproduced after switching through themes and pages.
+
+### Notes
+- No report is sent automatically. Review the report and any screenshots before sending.
+- Recovery is additional protection, not a replacement for saving your project. A crash before the latest recovery write completes can still lose recent edits.
+- Very large references, dense work and low available memory can still cause pauses. Hardware-specific black-canvas reports have not been reproduced on this test machine.
+
 ## 3.1.77
 
 ### Smoother Editor Interaction

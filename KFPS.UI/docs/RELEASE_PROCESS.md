@@ -43,13 +43,15 @@ Build only from the exact committed revision intended for release:
 py -3.12 tools\release\build_release_bundles.py `
   --output-dir C:\path\to\release-output `
   --python-source C:\path\to\validated\python `
-  --kind all
+  --kind recommended
 ```
 
 The expected names are:
 
 - `KFPS-<version>-bundled.zip`: recommended, with Python and dependencies.
-- `KFPS-<version>-ADVANCED-NO-PYTHON-NO-DEPENDENCIES.zip`: advanced.
+
+The advanced no-Python download is retired. `--kind all` now builds only the
+supported managed-runtime bundle; `--kind advanced` is rejected.
 
 For each archive:
 
@@ -59,7 +61,9 @@ For each archive:
 4. confirm the Recommended build reports complete wheel `RECORD` contents and
    passes the bundled dependency API probe;
 5. start the recommended package on a machine without relying on system Python;
-6. start the advanced package with a supported system Python installation;
+6. start both KFPS and the standalone editor without system Python; verify the
+   installed editor baseline, then rehearse a historical no-Python upgrade through
+   verified runtime repair (historical fixtures are not supported new downloads);
 7. test first startup, second startup, updater handoff, editor launch, and an
    output that survives restart;
 8. verify generated/runtime data is absent before upload.

@@ -132,6 +132,11 @@ func buildPayload(arguments []string) error {
 	if err := createGitSnapshot(appRoot, commit, appSnapshot); err != nil {
 		return err
 	}
+	editorRetired, err := editorRetiredFiles(appSnapshot)
+	if err != nil {
+		return err
+	}
+	retired = append(retired, editorRetired...)
 	if err := copyRuntimeSnapshot(pythonRoot, pythonSnapshot); err != nil {
 		return fmt.Errorf("snapshot Python runtime: %w", err)
 	}
@@ -198,6 +203,9 @@ func buildPayload(arguments []string) error {
 		}
 	}
 
+	if err := writeEditorBaseline(appSnapshot, pythonSnapshot); err != nil {
+		return err
+	}
 	applicationFiles, err := walkedApplicationFiles(appSnapshot)
 	if err != nil {
 		return err

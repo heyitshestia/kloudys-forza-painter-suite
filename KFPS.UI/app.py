@@ -40,6 +40,7 @@ from kfps_ui.json_service import JsonService, build_startup_json_index_cache
 from kfps_ui.json_thumbnail_worker import worker_command, worker_environment
 from kfps_ui.log_service import LogService
 from kfps_ui.preview_service import PreviewService
+from kfps_ui.qml_lifecycle import exec_qml_application
 from kfps_ui.report_service import ReportService
 from kfps_ui.renderer_policy import apply_renderer_policy, select_renderer_policy
 from kfps_ui.runtime_service import RuntimeService
@@ -263,7 +264,7 @@ def run_source_download_blocker(
             QTimer.singleShot(350, capture_blocker)
 
         QTimer.singleShot(5000, settle_blocker_capture)
-    return app.exec()
+    return exec_qml_application(app, engine)
 
 
 def main():
@@ -580,7 +581,7 @@ def main():
                     print(f"KFPS shutdown warning ({type(service).__name__}): {exc}", file=sys.stderr)
 
     app.aboutToQuit.connect(shutdown_services)
-    return app.exec()
+    return exec_qml_application(app, engine, shutdown_services)
 
 
 if __name__ == "__main__":

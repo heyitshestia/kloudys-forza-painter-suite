@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "tools" / "release"))
 
 from build_release_bundles import (
     build_one,
+    generate_editor_baseline,
     commit_timestamp,
     read_version,
     resolve_commit,
@@ -54,7 +55,10 @@ class ReleaseBuilderTests(unittest.TestCase):
         run("git", "commit", "-m", "fixture", cwd=repo)
         return repo, resolve_commit(repo, "HEAD")
 
-    def test_advanced_bundle_is_reproducible_and_tracked_only(self):
+    @patch("build_release_bundles.generate_editor_baseline")
+    @patch("build_release_bundles.validate_python_runtime")
+    @patch("build_release_bundles.synchronize_python_runtime")
+    def test_managed_bundle_is_reproducible_and_tracked_only(self, synchronize, validate, baseline):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repo, commit = self.make_repo(root)
@@ -63,14 +67,17 @@ class ReleaseBuilderTests(unittest.TestCase):
             second_dir = root / "second"
             first_dir.mkdir()
             second_dir.mkdir()
+            runtime = root / "python"
+            runtime.mkdir()
+            (runtime / "python.exe").write_bytes(b"synthetic runtime")
             first = build_one(
                 repo,
                 first_dir,
                 commit=commit,
                 version=read_version(repo, commit),
                 timestamp=timestamp,
-                kind="advanced",
-                python_source=None,
+                kind="recommended",
+                python_source=runtime,
             )
             second = build_one(
                 repo,
@@ -78,8 +85,8 @@ class ReleaseBuilderTests(unittest.TestCase):
                 commit=commit,
                 version="9.8.7",
                 timestamp=timestamp,
-                kind="advanced",
-                python_source=None,
+                kind="recommended",
+                python_source=runtime,
             )
             self.assertEqual(hashlib.sha256(first.read_bytes()).digest(), hashlib.sha256(second.read_bytes()).digest())
             with zipfile.ZipFile(first) as bundle:
@@ -94,7 +101,8 @@ class ReleaseBuilderTests(unittest.TestCase):
                 self.assertNotIn("KFPS-9.8.7/KloudysFH6Painter/runtime/private.log", names)
                 manifest = json.loads(bundle.read("KFPS-9.8.7/RELEASE-MANIFEST.json"))
                 self.assertEqual(commit, manifest["commit"])
-                self.assertEqual("advanced", manifest["kind"])
+                self.assertEqual("recommended", manifest["kind"])
+            self.assertEqual(2, baseline.call_count)
 
     def test_recommended_bundle_requires_and_includes_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -121,6 +129,7 @@ class ReleaseBuilderTests(unittest.TestCase):
             with (
                 patch("build_release_bundles.synchronize_python_runtime") as synchronize,
                 patch("build_release_bundles.validate_python_runtime") as validate,
+                patch("build_release_bundles.generate_editor_baseline") as baseline,
             ):
                 bundle_path = build_one(
                     repo,
@@ -133,6 +142,7 @@ class ReleaseBuilderTests(unittest.TestCase):
                 )
             synchronize.assert_called_once()
             validate.assert_called_once()
+            baseline.assert_called_once_with(validate.call_args.args[0].parent)
             with zipfile.ZipFile(bundle_path) as bundle:
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/python.exe", bundle.namelist())
                 self.assertIn("KFPS-9.8.7/KloudysFH6Painter/python/dependency.pyd", bundle.namelist())
@@ -166,10 +176,45 @@ class ReleaseBuilderTests(unittest.TestCase):
                         path = target / relative
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_bytes(b"must not ship")
-                    with patch("build_release_bundles.synchronize_python_runtime"), patch("build_release_bundles.validate_python_runtime", side_effect=inject_state):
+                    with patch("build_release_bundles.synchronize_python_runtime"), patch("build_release_bundles.validate_python_runtime", side_effect=inject_state), patch("build_release_bundles.generate_editor_baseline"):
                         with self.assertRaisesRegex(RuntimeError, "forbidden runtime/personal"):
                             build_one(repo, root / "output", commit=commit, version="9.8.7",
                                       timestamp=commit_timestamp(repo, commit), kind="recommended", python_source=runtime)
+
+    def test_advanced_variant_rejected_before_export(self):
+        with patch("build_release_bundles.export_commit") as export:
+            with self.assertRaisesRegex(ValueError, "retired"):
+                build_one(Path("unused"), Path("unused"), commit="unused", version="9.8.7",
+                          timestamp=0, kind="advanced", python_source=None)
+            export.assert_not_called()
+
+    def test_baseline_generation_is_isolated_and_failure_is_fatal(self):
+        with tempfile.TemporaryDirectory() as temporary, patch("build_release_bundles.subprocess.run") as runner:
+            root = Path(temporary)
+            generate_editor_baseline(root)
+            self.assertEqual([str(root / "python/python.exe"), "-I", "-B",
+                              str(root / "tools/editor_baseline.py"), "--app-root", str(root),
+                              "--python-root", str(root / "python")], runner.call_args.args[0])
+            self.assertEqual(300, runner.call_args.kwargs["timeout"])
+            self.assertTrue(runner.call_args.kwargs["check"])
+            self.assertEqual("1", runner.call_args.kwargs["env"]["PYTHONDONTWRITEBYTECODE"])
+            runner.side_effect = subprocess.CalledProcessError(1, "baseline")
+            with self.assertRaises(subprocess.CalledProcessError):
+                generate_editor_baseline(root)
+
+    def test_final_gate_rejects_state_created_by_baseline_generation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, commit = self.make_repo(root)
+            runtime = root / "python"
+            runtime.mkdir()
+            (runtime / "python.exe").write_bytes(b"python")
+            def inject_state(app_root):
+                (app_root / "personal.kfpskey").write_bytes(b"must not ship")
+            with patch("build_release_bundles.synchronize_python_runtime"), patch("build_release_bundles.validate_python_runtime"), patch("build_release_bundles.generate_editor_baseline", side_effect=inject_state):
+                with self.assertRaisesRegex(RuntimeError, "forbidden runtime/personal"):
+                    build_one(repo, root / "output", commit=commit, version="9.8.7",
+                              timestamp=commit_timestamp(repo, commit), kind="recommended", python_source=runtime)
 
     def test_api_probe_cannot_write_bytecode_even_with_isolated_python(self):
         with tempfile.TemporaryDirectory() as temporary, patch("build_release_bundles.subprocess.run") as run_process:

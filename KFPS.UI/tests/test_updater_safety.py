@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,27 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class UpdaterSafetyTests(unittest.TestCase):
+    def test_legacy_launcher_pin_remains_compatible_with_installed_updaters(self):
+        contract = json.loads(
+            (ROOT / "tools/bootstrap_updater/legacy_bridge_contract.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        batch = (ROOT / "03_update_from_github.bat").read_text(encoding="utf-8")
+        pins = re.findall(
+            r'(?m)^if not defined QML_BINARY_ASSET_SHA256 set "QML_BINARY_ASSET_SHA256=([0-9A-Fa-f]{64})"$',
+            batch,
+        )
+        # Already-installed BATs cannot learn a replacement launcher pin from Git.
+        historical_pin = "e602689bc6840ed492632abd509302efcac1bf0f8a8081c44d9e7a4aee24ec10"
+        self.assertEqual([historical_pin], [pin.lower() for pin in pins])
+        self.assertEqual(historical_pin, contract["launcher_sha256"])
+        self.assertEqual(
+            historical_pin,
+            hashlib.sha256((ROOT / "KFPS.exe").read_bytes()).hexdigest(),
+            "Keep the legacy acquisition launcher until its migration window is explicitly closed.",
+        )
+
     def test_legacy_bootstrap_bridge_contract_matches_shipped_launcher_and_ui(self):
         contract = json.loads(
             (ROOT / "tools" / "bootstrap_updater" / "legacy_bridge_contract.json").read_text(
@@ -169,12 +191,13 @@ class UpdaterSafetyTests(unittest.TestCase):
             failed = subprocess.run(
                 [
                     "cmd.exe", "/d", "/c", str(app_root / "update_from_github.bat"),
-                    "--not-a-real-updater-option",
+                    "--no-pause", "--not-a-real-updater-option",
                 ],
                 cwd=app_root,
                 capture_output=True,
                 text=True,
                 timeout=20,
+                stdin=subprocess.DEVNULL,
             )
 
             self.assertEqual(2, failed.returncode, failed.stdout + failed.stderr)

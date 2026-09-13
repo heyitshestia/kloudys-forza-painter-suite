@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 (async () => {
   const output = path.resolve(process.argv[2]);
   fs.mkdirSync(output, {recursive:true});
-  const files = new Set(['index.html', 'form.js', 'protocol.mjs', 'editor-diagnostics.mjs', 'style.css', 'kfps-logo.png']);
+  const files = new Set(fs.readdirSync(path.join(__dirname, '../public')));
   const server = http.createServer((req, res) => {
     const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
     if (!files.has(name)) { res.writeHead(404); res.end(); return; }
@@ -38,6 +38,7 @@ const assert = require('node:assert/strict');
       logs:Array.from({length:10},(_,i)=>({source:i ? `worker-${i}` : 'editor-desktop',text:`Error: synthetic worker ${i}\nsession_token=PRIVATE_TEST`,age_seconds:20,previous_session:true}))}};
     await page.goto(origin + '/#draft=' + Buffer.from(JSON.stringify(draft)).toString('base64url'));
     await page.locator('#description').waitFor();
+    await page.waitForFunction(() => !!document.getElementById('technical').textContent);
     await page.getByText('Review technical details', {exact:true}).click();
     const reviewed = JSON.parse(await page.locator('#technical').textContent());
     assert.equal(reviewed.logs.length, 10);

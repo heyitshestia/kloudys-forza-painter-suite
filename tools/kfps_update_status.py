@@ -1,0 +1,161 @@
+"""Shared asynchronous public-channel status; installation stays with the updater."""
+from __future__ import annotations
+
+import json
+import re
+import time
+from pathlib import Path
+
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, QUrl
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+
+
+def version_tuple(value: str) -> tuple[int, ...]:
+    cleaned = value.strip().lower().lstrip("v")
+    nums = re.findall(r"\d+", cleaned)
+    return tuple(int(n) for n in nums[:4]) if nums else (0,)
+
+
+def is_remote_newer(local: str, remote: str) -> bool:
+    a, b = version_tuple(local), version_tuple(remote)
+    size = max(len(a), len(b))
+    return a + (0,) * (size - len(a)) < b + (0,) * (size - len(b))
+
+
+class VersionService(QObject):
+    changed = Signal()
+
+    URL = "https://raw.githubusercontent.com/heyitshestia/kloudys-forza-painter-suite/main/updates/stable/channel.json"
+
+    def __init__(self, version_file: Path, demo=False, parent=None, *, blink=True):
+        super().__init__(parent)
+        self._closed = False
+        self._reply = None
+        self._deadline = QTimer(self)
+        self._deadline.setSingleShot(True)
+        self._deadline.setInterval(15000)
+        self._deadline.timeout.connect(self._abort_request)
+        try:
+            self._local = version_file.read_text(encoding="utf-8").strip() or "unknown"
+        except Exception:
+            self._local = "unknown"
+        self._latest = self._local
+        self._available = False
+        self._checking = False
+        self._check_succeeded = False
+        self._check_status = "Waiting to check GitHub."
+        self._blink = True
+        self._network = QNetworkAccessManager(self)
+        self._network.finished.connect(self._finished)
+        self._poll = QTimer(self); self._poll.setInterval(300_000); self._poll.timeout.connect(self.checkNow); self._poll.start()
+        self._blink_timer = QTimer(self); self._blink_timer.setInterval(650); self._blink_timer.timeout.connect(self._tick)
+        if blink:
+            self._blink_timer.start()
+        self._initial_timer = QTimer(self); self._initial_timer.setSingleShot(True); self._initial_timer.setInterval(500); self._initial_timer.timeout.connect(self.checkNow)
+        if not demo:
+            self._initial_timer.start()
+
+    @Property(str, notify=changed)
+    def localVersion(self): return self._local
+    @Property(str, notify=changed)
+    def latestVersion(self): return self._latest
+    @Property(bool, notify=changed)
+    def updateAvailable(self): return self._available
+    @Property(bool, notify=changed)
+    def checking(self): return self._checking
+    @Property(str, notify=changed)
+    def checkStatus(self): return self._check_status
+    @Property(bool, notify=changed)
+    def checkSucceeded(self): return self._check_succeeded
+    @Property(bool, notify=changed)
+    def blinkOn(self): return self._blink
+    @Property(str, notify=changed)
+    def displayText(self): return f"v{self._local}"
+
+    @Slot()
+    def checkNow(self):
+        if self._closed or self._checking:
+            return
+        self._checking = True
+        self._check_status = "Checking GitHub for updates..."
+        self.changed.emit()
+        request = QNetworkRequest(QUrl(f"{self.URL}?cache={time.time_ns()}"))
+        request.setRawHeader(b"User-Agent", b"KFPS-QML/1.0")
+        request.setRawHeader(b"Cache-Control", b"no-cache, no-store")
+        request.setRawHeader(b"Pragma", b"no-cache")
+        request.setTransferTimeout(15_000)
+        self._reply = self._network.get(request)
+        reply = self._reply
+        reply.setReadBufferSize(65537)
+        reply.readyRead.connect(lambda: reply.abort() if reply.bytesAvailable() > 65536 else None)
+        self._deadline.start()
+
+    def _abort_request(self):
+        if self._reply is not None:
+            self._reply.abort()
+
+    def snapshot(self):
+        return {"localVersion": self._local, "latestVersion": self._latest,
+                "available": self._available, "checking": self._checking,
+                "checked": self._check_succeeded}
+
+    def _finished(self, reply: QNetworkReply):
+        self._deadline.stop()
+        self._reply = None
+        if self._closed:
+            reply.deleteLater()
+            return
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                self._check_succeeded = False
+                self._check_status = f"Update check failed: {reply.errorString()}"
+                return
+            body = bytes(reply.readAll())
+            if len(body) > 65536:
+                raise ValueError("The update channel is oversized")
+            channel = json.loads(body.decode("utf-8"))
+            if not isinstance(channel, dict) or channel.get("schema") != "kfps.update-channel.v1":
+                raise ValueError("GitHub returned an invalid update channel")
+            if channel.get("channel") != "stable" or int(channel.get("sequence") or 0) < 1:
+                raise ValueError("GitHub returned an invalid stable channel")
+            manifest = channel.get("manifest")
+            manifest_url = str(manifest.get("url") or "") if isinstance(manifest, dict) else ""
+            match = re.search(
+                r"/kfps-update-(\d+(?:\.\d+){1,3})(?:-[A-Za-z0-9._-]+)?\.json(?:\?.*)?$",
+                manifest_url,
+                flags=re.IGNORECASE,
+            )
+            if not match:
+                raise ValueError("The stable channel does not identify an installable KFPS version")
+            self._latest = match.group(1)
+            self._available = is_remote_newer(self._local, self._latest)
+            self._check_succeeded = True
+            self._check_status = (
+                f"Update v{self._latest} is available."
+                if self._available
+                else f"Up to date with the stable update channel (v{self._latest})."
+            )
+        except Exception as exc:
+            self._check_succeeded = False
+            self._check_status = f"Update check failed: {exc}"
+        finally:
+            self._checking = False
+            reply.deleteLater()
+            self.changed.emit()
+
+    def _tick(self):
+        if self._closed:
+            return
+        if self._available:
+            self._blink = not self._blink; self.changed.emit()
+        elif not self._blink:
+            self._blink = True; self.changed.emit()
+
+    @Slot()
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._initial_timer.stop(); self._poll.stop(); self._blink_timer.stop(); self._deadline.stop()
+        for reply in self._network.findChildren(QNetworkReply):
+            reply.abort()

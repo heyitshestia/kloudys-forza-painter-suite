@@ -1,4 +1,8 @@
-import {InputError, UUID, normalizeReport, publicSummary, readJsonLimited, validWebhook} from '../public/protocol.mjs';
+import {InputError, UUID, publicSummary, validWebhook} from '../public/protocol.mjs';
+import {readSubmission,submissionBody} from './submission.mjs';
+import {logFilename} from '../public/private-logs.mjs';
+import {screenshotName} from '../public/screenshots.mjs';
+import {nativeAuth, nativeAuthStore} from './native-auth.mjs';
 
 const encoder = new TextEncoder();
 const API = 'https://discord.com/api/v10';
@@ -6,7 +10,7 @@ const DAY = 86400000;
 const securityHeaders = {
   'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
 export function json(value, status = 200, headers = {}) {
@@ -59,8 +63,9 @@ async function callback(request, env) {
   const url = new URL(request.url), state = url.searchParams.get('state');
   const saved = await verify(cookie(request, 'kfps_oauth'), env.SESSION_SECRET);
   const clear = setCookie('kfps_oauth', '', 0, env);
+  const nativeReturn = saved?.kind === 'oauth' && UUID.test(saved.native || '') ? `/auth/native?ticket=${saved.native}` : '';
   if (!saved || saved.kind !== 'oauth' || !state || saved.nonce !== state || !url.searchParams.get('code') || url.searchParams.has('error')) {
-    return redirect('/?auth=cancelled', env, [clear]);
+    return redirect(nativeReturn ? `${nativeReturn}&auth=cancelled` : '/?auth=cancelled', env, [clear]);
   }
   let phase = 'token-request', status = 0;
   try {
@@ -84,10 +89,10 @@ async function callback(request, env) {
     phase = 'session'; status = 0;
     const value = {kind: 'session', id: user.id, name: (user.global_name || user.username).slice(0, 80), csrf: crypto.randomUUID(), exp: Date.now() + 8 * 3600000};
     // OAuth tokens are used only here and are never stored in cookies or report records.
-    return redirect('/', env, [clear, setCookie('kfps_support', await sign(value, env.SESSION_SECRET), 8 * 3600, env)]);
+    return redirect(nativeReturn || '/', env, [clear, setCookie('kfps_support', await sign(value, env.SESSION_SECRET), 8 * 3600, env)]);
   } catch {
     // Fixed phase names and HTTP status only: never reflect OAuth bodies or tokens.
-    return redirect(`/?auth=failed&detail=${phase}-${status}`, env, [clear]);
+    return redirect(`${nativeReturn ? nativeReturn + '&' : '/?'}auth=failed&detail=${phase}-${status}`, env, [clear]);
   }
 }
 
@@ -97,6 +102,8 @@ export default {
       const url = new URL(request.url);
       if (url.origin !== env.PUBLIC_ORIGIN) return json({error: 'Unsupported address.'}, 400);
       const path = url.pathname;
+      const nativeResponse = await nativeAuth(request, env, {json, session, sign, verify, cookie, setCookie, enabled});
+      if (nativeResponse) return nativeResponse;
       if (path === '/api/config' && request.method === 'GET') return json({enabled: enabled(env), join_url: env.DISCORD_JOIN_URL, environment: 'DIRTY testing', schema: 'kfps-support-report/1'});
       if (path === '/api/session' && request.method === 'GET') {
         const user = await session(request, env);
@@ -105,12 +112,20 @@ export default {
       if (path === '/auth/start' && request.method === 'GET') {
         if (!enabled(env)) return redirect('/?auth=unavailable', env);
         const nonce = crypto.randomUUID();
-        const signed = await sign({kind: 'oauth', nonce, exp: Date.now() + 600000}, env.SESSION_SECRET);
+        const native = url.searchParams.get('native');
+        const signed = await sign({kind: 'oauth', nonce, exp: Date.now() + 600000, ...(UUID.test(native || '') ? {native} : {})}, env.SESSION_SECRET);
         const target = new URL('https://discord.com/oauth2/authorize');
         target.search = new URLSearchParams({client_id: env.DISCORD_CLIENT_ID, redirect_uri: `${env.PUBLIC_ORIGIN}/auth/callback`, response_type: 'code', scope: 'identify', state: nonce}).toString();
         return redirect(target.href, env, [setCookie('kfps_oauth', signed, 600, env)]);
       }
       if (path === '/auth/callback' && request.method === 'GET') return callback(request, env);
+      if (path === '/auth/native' && request.method === 'GET') {
+        const ticket = url.searchParams.get('ticket');
+        if (!UUID.test(ticket || '')) return json({error: 'Invalid sign-in link.'}, 400);
+        if (!await session(request, env) && !url.searchParams.has('auth')) return redirect(`/auth/start?native=${ticket}`, env);
+        const response = await env.ASSETS.fetch(new Request(new URL('/native-auth', env.PUBLIC_ORIGIN)));
+        return new Response(response.body, {status: response.status, headers: {...securityHeaders, 'Content-Type': 'text/html; charset=utf-8'}});
+      }
       if (path === '/api/reports' || path === '/auth/logout' || /^\/api\/reports\//.test(path)) {
         const user = await session(request, env);
         if (!user) return json({error: 'Sign in with Discord again. Your draft is still here.'}, 401);
@@ -119,8 +134,13 @@ export default {
           if (path === '/auth/logout') return json({ok: true}, 200, {'Set-Cookie': setCookie('kfps_support', '', 0, env)});
           if (path !== '/api/reports') return json({error: 'Not found.'}, 404);
           if (!enabled(env)) return json({error: 'Report delivery is temporarily unavailable. Keep your saved report and try later.'}, 503);
-          const report = normalizeReport(await readJsonLimited(request));
+          const {report,files,privateLogs} = await readSubmission(request);
           const object = env.REPORTS.get(env.REPORTS.idFromName(user.id));
+          if (files.length || privateLogs) {
+            const body = submissionBody(report,files,privateLogs);
+            body.set('user',JSON.stringify({id:user.id,name:user.name}));
+            return object.fetch(new Request('https://report.internal/send',{method:'POST',body}));
+          }
           return object.fetch(new Request('https://report.internal/send', {method: 'POST', body: JSON.stringify({report, user: {id: user.id, name: user.name}})}));
         }
         const id = path.slice('/api/reports/'.length);
@@ -149,7 +169,7 @@ function result(record, env) {
   return {id: record.id, status: delivered ? 'delivered' : uncertain ? 'uncertain' : blocked ? 'blocked' : 'retryable',
     retry_after: Math.max(0, Math.ceil(((record.retryAt || 0) - Date.now()) / 1000)),
     public_url: record.public?.thread ? `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${record.public.thread}` : null,
-    message: delivered ? 'Report sent. Staff have the technical details and your support post is ready.'
+    message: delivered ? 'Report sent to the KFPS Support server. Open your public post below. Any included technical details remain private to staff.'
       : uncertain ? 'Discord may have received part of this report. Do not submit a new copy. Give staff this report ID so they can check.'
       : blocked ? 'Delivery is blocked by the reporting configuration. Keep this report ID and contact support.'
       : 'Delivery is incomplete. Retry this same report after the wait shown; already delivered parts will not be posted again.'};
@@ -168,12 +188,20 @@ export class ReportStore {
   }
   async handle(request) {
     const path = new URL(request.url).pathname;
+    if (request.method === 'POST' && path.startsWith('/native/')) return nativeAuthStore(this.ctx.storage, path.slice(8), await request.json(), json);
     if (request.method === 'GET' && path.startsWith('/status/')) {
       const record = await this.ctx.storage.get(`report:${path.slice(8)}`);
       return record ? json(result(record, this.env)) : json({error: 'No submission recorded for this account and report ID.'}, 404);
     }
     if (request.method !== 'POST' || path !== '/send') return json({error: 'Not found.'}, 404);
-    const {report, user} = await request.json(), storage = this.ctx.storage;
+    let report, user, files = [], privateLogs=null;
+    if (request.headers.get('content-type')?.startsWith('multipart/form-data;')) {
+      const form = await request.formData();
+      report = JSON.parse(form.get('report')); user = JSON.parse(form.get('user'));
+      files = (report.screenshots||[]).map((_,i)=>form.get(`screenshot[${i}]`));
+      privateLogs=report.private_logs?form.get('private_logs'):null;
+    } else ({report,user} = await request.json());
+    const storage = this.ctx.storage;
     const recordKey = `report:${report.id}`, hash = await digest(report);
     let record = await storage.get(recordKey);
     if (record && record.hash !== hash) return json({error: 'This report has already been submitted with different contents. Restore the original draft or contact staff with its ID.'}, 409);
@@ -213,11 +241,17 @@ export class ReportStore {
       let body, headers;
       if (kind === 'public') {
         payload.thread_name = `[${report.feature}] ${report.title}`.replace(/[@\r\n]/g, ' ').slice(0, 100);
-        body = JSON.stringify(payload); headers = {'Content-Type': 'application/json'};
+        if (files.length) {
+          payload.attachments = files.map((file,i)=>({id:i,filename:screenshotName(i,report.screenshots[i].type),description:`Public screenshot ${i+1}, chosen by the reporter`}));
+          body = new FormData(); body.set('payload_json',JSON.stringify(payload));
+          files.forEach((file,i)=>body.set(`files[${i}]`,file,screenshotName(i,report.screenshots[i].type)));
+        } else { body = JSON.stringify(payload); headers = {'Content-Type': 'application/json'}; }
       } else {
         payload.attachments = [{id: 0, filename: `kfps-report-${report.id}.json`, description: 'Reviewed KFPS technical context'}];
+        if(privateLogs)payload.attachments.push({id:1,filename:logFilename(report.id,report.private_logs.schema),description:'Complete retained application logs after privacy cleanup; private to staff'});
         body = new FormData(); body.set('payload_json', JSON.stringify(payload));
         body.set('files[0]', new Blob([JSON.stringify({received_at: new Date(record.created).toISOString(), reporter: user, ...report}, null, 2)], {type: 'application/json'}), `kfps-report-${report.id}.json`);
+        if(privateLogs)body.set('files[1]',privateLogs,logFilename(report.id,report.private_logs.schema));
       }
       record[kind] = {state: 'sending'};
       await storage.put(recordKey, record);
@@ -238,6 +272,13 @@ export class ReportStore {
     return json(result(record, this.env));
   }
   async alarm() {
+    const native = await this.ctx.storage.get('native-auth');
+    if (native) {
+      if (native.exp <= Date.now()) await this.ctx.storage.delete('native-auth');
+      else await this.ctx.storage.setAlarm(native.exp);
+      return;
+    }
+    if (await this.ctx.storage.get('native-rate')) { await this.ctx.storage.delete('native-rate'); return; }
     const records = await this.ctx.storage.list({prefix: 'report:'});
     const expired = [...records].filter(([, r]) => r.created <= Date.now() - 30 * DAY).map(([k]) => k);
     if (expired.length) await this.ctx.storage.delete(expired);

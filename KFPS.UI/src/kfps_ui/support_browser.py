@@ -36,10 +36,16 @@ def default_browser_executable() -> str:
     return ""
 
 
-def open_support_handoff(handoff: str) -> str:
+def open_support_handoff(handoff: str, *, paths=None) -> str:
     path = Path(handoff).resolve()
     if not path.is_file():
         return "failed"
+    if paths is not None:
+        from .support_window_launch import launch_review
+        try:
+            return launch_review(paths, path.parent.name)
+        except (OSError, ValueError, RuntimeError):
+            return "failed"
     executable = default_browser_executable()
     if executable:
         try:

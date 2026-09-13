@@ -81,7 +81,15 @@ class ReportService(QObject):
 
     def _prepare_support(self, context):
         report = build_support_report(self.paths.app_root, context, since=self._started)
-        path, handoff = save_handoff(self.paths.app_root, report)
+        from .support_log_bundle import collect_retained_log_bundle
+        try:
+            attachment = collect_retained_log_bundle(self.paths.app_root)
+        except Exception:
+            attachment = None
+            report["technical"]["collection_warning"] = "Complete application logs could not be prepared. Only the reviewed diagnostic summary is included."
+        if attachment is not None:
+            report["private_logs"] = attachment[0]
+        path, handoff = save_handoff(self.paths.app_root, report, log_attachment=attachment)
         return {"path": str(path), "handoff": str(handoff), "report": report}
 
     def _emit_support(self, future):
@@ -104,11 +112,13 @@ class ReportService(QObject):
         else:
             self._latest = result["path"]
             self._preview = json.dumps(result["report"], indent=2)
-            opened = open_support_handoff(result["handoff"])
+            opened = open_support_handoff(result["handoff"], paths=self.paths)
+            bundle_name = "report.kfps-report.json.gz" if result["report"].get("private_logs") else "report.json"
             self._support_status = {
+                "review": "KFPS report review opened with logs included. Nothing is sent until you press Send.",
                 "prefilled": "Review opened in your default browser. Nothing is sent until you press Send.",
-                "manual": "Report saved. The form opened in your default browser. Use Add a saved KFPS report and choose report.json from Saved reports.",
-                "failed": "Report saved. Windows could not open your default browser. Your report is available in Saved reports.",
+                "manual": f"Report saved. The form opened in your default browser. Use Add a saved KFPS report and choose {bundle_name} from Saved reports.",
+                "failed": "Report saved. The KFPS report window could not open. Run KFPS-Updater.exe to repair the app, or find your report in Saved reports.",
             }.get(opened, "Report saved. Your report is available in Saved reports.")
         self.log.append(self._support_status, update_status=False)
         self.changed.emit()

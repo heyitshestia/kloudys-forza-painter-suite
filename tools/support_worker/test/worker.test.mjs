@@ -2,9 +2,11 @@ import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {NUMBERS, BOOLS, ASSETS, ENUMS} from '../public/editor-diagnostics.mjs';
+import {NUMBERS, BOOLS, ASSETS, ENUMS, normalizeEditor} from '../public/editor-diagnostics.mjs';
 import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {SCHEMA, normalizeReport, readJsonLimited, validWebhook, publicSummary, redact} from '../public/protocol.mjs';
+import {describeScreenshot} from '../public/screenshots.mjs';
+import {submissionBody} from '../src/submission.mjs';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -38,6 +40,20 @@ async function request(e, data, extra = {}) {
 }
 const send = (object, r) => object.fetch(new Request('https://report.internal/send', {method:'POST', body:JSON.stringify({report:r,user})}));
 
+test('save correlation retains only canonical request identifiers and bounded numeric fields', () => {
+  const id='358cd0bc-4e38-4bcc-8400-d3fe4e8b6b72';
+  const result=normalizeEditor({schema:'kfps-editor-diagnostics/1',recent:[
+    {kind:'job',job:'saveProject',state:'committed',requestId:id,jobId:3,documentGeneration:2,queueDepth:0,source:'native',private:'PRIVATE'},
+    {kind:'job',job:'saveExport',requestId:'PRIVATE',jobId:'PRIVATE',duration:Infinity},
+  ]});
+  assert.equal(result.recent[0].requestId,id);
+  assert.equal(result.recent[0].jobId,3);
+  assert.equal(result.recent[0].source,'native');
+  assert.equal(result.recent[1].requestId,undefined);
+  assert.equal(result.recent[1].duration,undefined);
+  assert.equal(JSON.stringify(result).includes('PRIVATE'),false);
+});
+
 test('Python diagnostic contract and browser/server allowlists stay aligned', () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const output = execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c',
@@ -47,6 +63,24 @@ test('Python diagnostic contract and browser/server allowlists stay aligned', ()
   assert.deepEqual([...BOOLS].sort(), contract.bools);
   assert.deepEqual([...ASSETS].sort(), contract.assets);
   assert.deepEqual(Object.fromEntries(Object.entries(ENUMS).map(([k,v]) => [k,[...v].sort()])), contract.enums);
+});
+
+test('accepted commit and checkpoint ranges survive collection without arbitrary text', () => {
+  const cause={pageId:'a'.repeat(32),documentId:2,commitId:7,firstCommitId:4,operationId:7,commandId:3,historyId:9};
+  const result=normalizeEditor({schema:'kfps-editor-diagnostics/1',recent:[
+    {kind:'commit',...cause,state:'committed'},
+    {kind:'checkpoint',...cause,state:'committed',source:'native',revision:123},
+    {kind:'recovery-result',...cause,revision:123,errorCode:'http_error',serverOk:false,browserOk:true},
+    {kind:'phase',phase:'settled-paint',...cause,duration:20,renderDuration:12},
+    {kind:'job',pageId:'PRIVATE',errorCode:'PRIVATE',phase:'PRIVATE'},
+    {kind:'phase',phase:'document-cache',...cause,state:'finished',duration:1300,layers:2900},
+  ]});
+  for(const event of result.recent.slice(0,4)) for(const [key,value] of Object.entries(cause)) assert.equal(event[key],value);
+  assert.equal(result.recent[2].errorCode,'http_error');
+  assert.equal(result.recent[3].renderDuration,12);
+  assert.deepEqual(result.recent[4],{kind:'job'});
+  assert.equal(result.recent[5].phase,'document-cache');
+  assert.equal(result.recent[5].layers,2900);
 });
 
 test('real Python disk-log report survives review and private attachment, never public post', async () => {
@@ -221,4 +255,48 @@ test('status is scoped to authenticated account and raw context is not returned'
   const token=await sign({...user,kind:'session',csrf:'c',exp:Date.now()+10000},secret);
   const response=await worker.fetch(new Request(f.e.PUBLIC_ORIGIN+'/api/reports/'+r.id,{headers:{Cookie:`kfps_support=${token}`}}),f.e);
   const text=await response.text(); assert.equal(text.includes('Synthetic GPU'),false); assert.equal(text.includes('Dragging shapes'),false); assert.match(text,/delivered/);
+});
+
+async function screenshotFixture() {
+  const png=new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aipkAAAAASUVORK5CYII=','base64')],{type:'image/png'});
+  const r=normalizeReport({...report(),screenshots:[await describeScreenshot(png)],screenshots_public:true});
+  return {r,png};
+}
+async function upload(e,r,files,extra={}) {
+  const token=await sign({...user,kind:'session',csrf:'csrf-test',exp:Date.now()+60000},secret);
+  return worker.fetch(new Request(e.PUBLIC_ORIGIN+'/api/reports',{method:'POST',headers:{Origin:e.PUBLIC_ORIGIN,Cookie:`kfps_support=${token}`,'X-CSRF-Token':'csrf-test',...extra},body:submissionBody(r,files)}),e);
+}
+test('real screenshot route publishes images only with the public post and deduplicates',async()=>{
+  const f=fixture(),{r,png}=await screenshotFixture();
+  const results=await Promise.all([upload(f.e,r,[png]),upload(f.e,r,[png])]);
+  for(const response of results)assert.equal((await response.json()).status,'delivered');
+  const posts=f.calls.filter(c=>c.options.method==='POST');assert.equal(posts.length,2);
+  const privateBody=posts[0].options.body;
+  assert.equal([...privateBody.keys()].filter(k=>k.startsWith('files')).length,1);
+  assert.equal(privateBody.get('files[0]').type,'application/json');
+  const publicBody=posts[1].options.body,payload=JSON.parse(publicBody.get('payload_json'));
+  assert.deepEqual(Buffer.from(await publicBody.get('files[0]').arrayBuffer()),Buffer.from(await png.arrayBuffer()));
+  assert.match(payload.content,/shared publicly/);assert(!payload.content.includes('Synthetic GPU'));
+  assert.equal(payload.attachments[0].filename,'screenshot-1.png');assert.deepEqual(payload.allowed_mentions,{parse:[]});
+  const stored=JSON.stringify(await f.storage.get('report:'+r.id));
+  assert(!stored.includes('screenshots'));assert(!stored.includes('Synthetic GPU'));
+});
+test('screenshot validation and auth failures never post to Discord',async()=>{
+  const f=fixture(),{r,png}=await screenshotFixture();
+  assert.equal((await upload(f.e,r,[png],{'X-CSRF-Token':'wrong'})).status,403);
+  assert.equal((await upload(f.e,{...r,screenshots_public:false},[png])).status,400);
+  assert.equal((await upload(f.e,r,[])).status,400);
+  assert.equal(f.calls.length,0);
+});
+test('partial screenshot delivery requires the same images and skips the delivered private part',async()=>{
+  const f=fixture(),{r,png}=await screenshotFixture(),fetch=globalThis.fetch;
+  let reject=true;
+  globalThis.fetch=async(url,opts)=>opts?.method==='POST'&&String(url).includes('666666666666666666')&&reject
+    ?(reject=false,new Response('{}',{status:429})):fetch(url,opts);
+  assert.equal((await(await upload(f.e,r,[png])).json()).status,'retryable');
+  const stored=await f.storage.get('report:'+r.id);stored.retryAt=0;await f.storage.put('report:'+r.id,stored);
+  const before=f.calls.length;
+  assert.equal((await upload(f.e,r,[])).status,400);assert.equal(f.calls.length,before);
+  assert.equal((await(await upload(f.e,r,[png])).json()).status,'delivered');
+  assert.equal(f.calls.filter(c=>c.kind==='private'&&c.options.method==='POST').length,1);
 });

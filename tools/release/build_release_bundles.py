@@ -413,6 +413,14 @@ def write_deterministic_zip(source_root: Path, target: Path, timestamp: int) -> 
             bundle.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
+def generate_editor_baseline(app_root: Path) -> None:
+    """Verify the installation-owned engine and bind it to the packaged source."""
+    subprocess.run([str(app_root / "python/python.exe"), "-I", "-B",
+                    str(app_root / "tools/editor_baseline.py"), "--app-root", str(app_root),
+                    "--python-root", str(app_root / "python")],
+                   env=_python_runtime_environment(), check=True, timeout=300)
+
+
 def build_one(
     repo: Path,
     output_dir: Path,
@@ -423,13 +431,11 @@ def build_one(
     kind: str,
     python_source: Path | None,
 ) -> Path:
-    if kind not in {"recommended", "advanced"}:
+    if kind == "advanced":
+        raise ValueError("The advanced no-Python variant is retired. Use the recommended managed-runtime bundle.")
+    if kind != "recommended":
         raise ValueError(f"Unsupported release kind: {kind}")
-    asset_name = (
-        f"KFPS-{version}-bundled.zip"
-        if kind == "recommended"
-        else f"KFPS-{version}-ADVANCED-NO-PYTHON-NO-DEPENDENCIES.zip"
-    )
+    asset_name = f"KFPS-{version}-bundled.zip"
     with tempfile.TemporaryDirectory(prefix="kfps-release-") as temporary:
         temporary_root = Path(temporary)
         exported = temporary_root / "exported"
@@ -458,6 +464,7 @@ def build_one(
             synchronize_python_runtime(sanitized_runtime, app_root / "requirements.lock.txt")
             copy_python_runtime(sanitized_runtime, app_root / "python")
             validate_python_runtime(app_root / "python", app_root / "requirements.lock.txt")
+            generate_editor_baseline(app_root)
 
         # Validation must not reintroduce caches or private state after copying.
         enforce_release_policy(app_root)
@@ -476,7 +483,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--commit", default="HEAD")
-    parser.add_argument("--kind", choices=("recommended", "advanced", "all"), default="all")
+    parser.add_argument("--kind", choices=("recommended", "all"), default="recommended",
+                        help="Supported managed-runtime bundle; 'all' is a compatibility alias for recommended.")
     parser.add_argument("--python-source", type=Path)
     parser.add_argument("--allow-dirty", action="store_true")
     return parser.parse_args()
@@ -492,7 +500,7 @@ def main() -> int:
     timestamp = commit_timestamp(repo, commit)
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    kinds = ("recommended", "advanced") if args.kind == "all" else (args.kind,)
+    kinds = ("recommended",) if args.kind == "all" else (args.kind,)
     for kind in kinds:
         target = build_one(
             repo,

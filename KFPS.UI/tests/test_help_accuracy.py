@@ -38,7 +38,7 @@ class HelpAccuracyTests(unittest.TestCase):
         self.assertIn("microsoft store/xbox wgs", self.text("export-games"))
 
     def test_editor_storage_and_sharing_boundaries(self):
-        source = (ROOT / "tools" / "fabric-editor" / "editor.js").read_text(encoding="utf-8")
+        source = (ROOT / "KFPS.Editor" / "web" / "editor.js").read_text(encoding="utf-8")
         self.assertIn("EDITOR_PROJECT_MAX_BYTES = 150 * 1024 * 1024", source)
         self.assertIn("EDITOR_REFERENCE_MAX_BYTES = 100 * 1024 * 1024", source)
         for phrase in ("100 mib", "150 mib", "75 mib", "79 mb", "no 16-megapixel"):

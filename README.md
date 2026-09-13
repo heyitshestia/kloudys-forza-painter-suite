@@ -200,7 +200,7 @@ The editor has its own **Signature Pink, Dark, Blackout, and Whiteout** themes, 
 
 Use the app's **Help** page for searchable steps covering templates, exact counts, projects, recovery, transfers, and troubleshooting. This README is the overview; Help is where the task-specific instructions live.
 
-**Report a Problem** prepares troubleshooting information and opens a browser review. Nothing is sent until you press **Send report**. The issue description, Discord display name, version, and report ID are public in the [KFPS Support Discord](https://discord.gg/XT8dG8bDKy); additional technical details you choose to include are private to Kloudy and authorized support staff. A saved local text report is separate and is not uploaded automatically.
+**Report a Problem** opens a KFPS review window with troubleshooting information and retained logs loaded automatically. Discord sign-in opens in your Windows default browser so an existing login can be reused. Nothing is sent until you press **Send report**. The issue description, Discord display name, version, report ID, and screenshots you explicitly attach are public in the [KFPS Support Discord](https://discord.gg/XT8dG8bDKy); additional technical details and logs you choose to include are private to Kloudy and authorized support staff. Any logs excluded by size or access limits are clearly identified.
 
 For a useful report, include the version, exact steps, expected result, actual result, and relevant hardware. For transfer issues, include the game, live/offline route, actual layer count, and the JSON with its report/manifest when available. Never share keys, credentials, or private saves publicly.
 

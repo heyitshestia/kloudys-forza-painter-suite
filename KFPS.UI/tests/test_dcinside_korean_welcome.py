@@ -34,7 +34,7 @@ class DisplayLanguageTests(unittest.TestCase):
     def test_detection_failure_does_not_show_korean_notice(self):
         with patch.object(display_language.sys, "platform", "win32"), patch.object(
             display_language.ctypes, "WinDLL", side_effect=OSError("unavailable"), create=True
-        ), self.assertLogs("kfps_ui.display_language", level="WARNING"):
+        ), self.assertLogs("tools.kfps_display_language", level="WARNING"):
             self.assertFalse(display_language.is_korean_display_language())
 
     def test_non_windows_does_not_use_locale_or_load_windows_api(self):

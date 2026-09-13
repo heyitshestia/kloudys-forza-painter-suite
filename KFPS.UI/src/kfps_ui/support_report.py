@@ -214,7 +214,7 @@ def atomic_text(path: Path, text: str) -> None:
             os.unlink(temporary)
 
 
-def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN) -> tuple[Path, Path]:
+def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN, log_attachment=None) -> tuple[Path, Path]:
     url = urlsplit(origin)
     if origin != FORM_ORIGIN and not (url.scheme == "http" and url.hostname in {"127.0.0.1", "localhost"}):
         raise ValueError("The support form address is not trusted.")
@@ -229,6 +229,24 @@ def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN) -> tupl
     handoff = folder / "open-report.html"
     encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     destination = origin.rstrip("/") + "/#draft=" + encoded
+    if log_attachment is not None:
+        from .support_log_bundle import package_report
+        package = package_report(report, log_attachment)
+        # A local bundle is always available; large handoffs use explicit file
+        # selection instead of relying on browser-specific maximum URL lengths.
+        folder.mkdir(parents=True, exist_ok=True)
+        bundle_path = folder / "report.kfps-report.json.gz"
+        temporary = folder / ".report-bundle.tmp"
+        try:
+            with temporary.open("wb") as stream:
+                stream.write(package)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, bundle_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        if len(package) <= 750 * 1024:
+            destination = origin.rstrip("/") + "/#bundle=" + base64.urlsafe_b64encode(package).decode().rstrip("=")
     # All injected data is JSON-escaped; only the reviewed, sanitized report is carried.
     script_url = json.dumps(destination).replace("<", "\\u003c")
     html = '<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer">'

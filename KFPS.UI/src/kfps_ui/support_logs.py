@@ -15,6 +15,7 @@ MAX_AGE = 7 * 86400
 RUN_NAME = r"\d{8}-\d{6}(?:-[0-9a-f]+)?"
 # Deliberately not a recursive *.log search. Never read project/report JSON files.
 SOURCES = (
+    ("report-window", "runtime/support-reports", None, r"report-window\.log(?:\.[12])?"),
     ("editor-desktop", "runtime/fabric-editor", None, r"desktop\.log"),
     ("transfer-worker", "runtime/qml-transfer-logs", None, r"transfer-\d{8}-\d{6}\.log"),
     ("generator-bridge", "runtime/qml-generation-logs", None, r"generation-\d{8}-\d{6}\.log"),
@@ -41,9 +42,9 @@ def _safe(root: Path, path: Path):
     return info
 
 
-def collect_worker_logs(root: Path, *, since: float, now: float, redact):
+def discover_worker_logs(root: Path, *, now: float, retained=False):
     root = Path(root).resolve()
-    entries, warnings = [], set()
+    found, warnings = [], set()
     deadline = time.monotonic() + 1.5
 
     def scan(folder, pattern, directories=False):
@@ -62,6 +63,8 @@ def collect_worker_logs(root: Path, *, since: float, now: float, redact):
                         info = _safe(root, path)
                         if (stat.S_ISDIR(info.st_mode) if directories else stat.S_ISREG(info.st_mode) and info.st_nlink == 1):
                             yield path, info
+                        else:
+                            warnings.add("Some log entries could not be read or were linked.")
                     except (OSError, ValueError):
                         warnings.add("Some log entries could not be read or were linked.")
         except FileNotFoundError:
@@ -78,40 +81,54 @@ def collect_worker_logs(root: Path, *, since: float, now: float, redact):
                        for path, _ in scan(folder, r"[^/\\]+" if source == "generator-worker" else subdir, True)]
         for directory in folders:
             for path, info in scan(directory, pattern):
-                if now - MAX_AGE <= info.st_mtime <= now + 5 and info.st_size:
+                if info.st_size and (retained or now - MAX_AGE <= info.st_mtime <= now + 5):
                     candidates.append((info.st_mtime, path))
-                    # Keep the two latest files, not a directory-sized list of contents.
-                    candidates = sorted(candidates, key=lambda item: (item[0], str(item[1])), reverse=True)[:2]
+                    limit = 256 if retained else 2
+                    if retained and len(candidates) > limit:
+                        warnings.add("Retained log file limit reached; some logs were not included.")
+                    candidates = sorted(candidates, key=lambda item: (item[0], str(item[1])), reverse=True)[:limit]
         # Preserve stdout + stderr from the latest livery session, not unrelated runs.
-        if source.startswith("livery-") and candidates:
-            newest_parent = candidates[0][1].parent
-            candidates = [item for item in candidates if item[1].parent == newest_parent]
-        else:
-            candidates = candidates[:1]
-        for _, path in candidates:
-            try:
-                before = _safe(root, path)
-                with path.open("rb") as handle:
-                    info = os.fstat(handle.fileno())
-                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                            or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)):
-                        raise ValueError("log changed while opening")
-                    start = max(0, info.st_size - MAX_TAIL_BYTES)
-                    handle.seek(start)
-                    raw = handle.read(MAX_TAIL_BYTES)
-                # Drop an incomplete leading line: it may start inside a credential/blob.
-                if start:
-                    raw = raw.partition(b"\n")[2]
-                lines = raw.decode("utf-8", errors="replace").replace("\r", "\n").splitlines()
-                cleaned = redact("\n".join(lines), MAX_TAIL_BYTES)
-                tail = "\n".join(cleaned.splitlines()[-60:])[-2400:]
-                label = source + ("-stderr" if path.name == "stderr.log" else "")
-                entries.append({"source": label, "text": tail,
-                                "modified_utc": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
-                                "age_seconds": max(0, int(now - info.st_mtime)),
-                                "previous_session": info.st_mtime < since,
-                                "truncated": bool(start or tail != cleaned),
-                                "bytes": info.st_size})
-            except (OSError, ValueError, OverflowError):
-                warnings.add("Some logs could not be read; the report is still usable.")
+        if not retained:
+            if source.startswith("livery-") and candidates:
+                newest_parent = candidates[0][1].parent
+                candidates = [item for item in candidates if item[1].parent == newest_parent]
+            else:
+                candidates = candidates[:1]
+        found.extend((source, path) for _, path in candidates)
+    if retained and len(found) > 256:
+        warnings.add("Retained log file limit reached; some logs were not included.")
+        found = found[:256]
+    return found, sorted(warnings)
+
+
+def collect_worker_logs(root: Path, *, since: float, now: float, redact):
+    root = Path(root).resolve()
+    candidates, discovery_warnings = discover_worker_logs(root, now=now)
+    entries, warnings = [], set(discovery_warnings)
+    for source, path in candidates:
+        try:
+            before = _safe(root, path)
+            with path.open("rb") as handle:
+                info = os.fstat(handle.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)):
+                    raise ValueError("log changed while opening")
+                start = max(0, info.st_size - MAX_TAIL_BYTES)
+                handle.seek(start)
+                raw = handle.read(MAX_TAIL_BYTES)
+            # Drop an incomplete leading line: it may start inside a credential/blob.
+            if start:
+                raw = raw.partition(b"\n")[2]
+            lines = raw.decode("utf-8", errors="replace").replace("\r", "\n").splitlines()
+            cleaned = redact("\n".join(lines), MAX_TAIL_BYTES)
+            tail = "\n".join(cleaned.splitlines()[-60:])[-2400:]
+            label = source + ("-stderr" if path.name == "stderr.log" else "")
+            entries.append({"source": label, "text": tail,
+                            "modified_utc": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
+                            "age_seconds": max(0, int(now - info.st_mtime)),
+                            "previous_session": info.st_mtime < since,
+                            "truncated": bool(start or tail != cleaned),
+                            "bytes": info.st_size})
+        except (OSError, ValueError, OverflowError):
+            warnings.add("Some logs could not be read; the report is still usable.")
     return entries, sorted(warnings)

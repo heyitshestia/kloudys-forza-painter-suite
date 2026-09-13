@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from geometry_json import ELLIPSE, RECTANGLE, ROTATED_ELLIPSE, ROTATED_RECTANGLE, load_normalized_geometry
+from tools.editor_manifest import editor_web_root
 from kfps_shapes import (
     payload_uses_typecodes,
     resolve_full_type_resource,
@@ -26,8 +27,8 @@ from kfps_shapes import (
 
 
 ROOT = Path(__file__).resolve().parent
-VINYL_RESOURCE_ROOT = ROOT / "tools" / "fabric-editor" / "Resources" / "Vinyls"
-SHAPE_WORDS_PATH = ROOT / "tools" / "fabric-editor" / "shape-words.json"
+VINYL_RESOURCE_ROOT = editor_web_root(ROOT) / "Resources" / "Vinyls"
+SHAPE_WORDS_PATH = editor_web_root(ROOT) / "shape-words.json"
 PREVIEW_MAX = 420
 
 VINYL_RESOURCE_CACHE: dict[tuple[str, int], list[list[tuple[float, float]]]] = {}

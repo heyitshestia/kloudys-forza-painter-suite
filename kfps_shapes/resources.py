@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tools.cgroup.shape_identity import VINYL_TYPE_BASES, parse_int
+from .identity import VINYL_TYPE_BASES, parse_int
 
 
 RESOURCE_SLOTS_PER_FAMILY = 40

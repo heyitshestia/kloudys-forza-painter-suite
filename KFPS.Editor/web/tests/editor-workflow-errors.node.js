@@ -1,0 +1,16 @@
+"use strict";
+const assert = require("node:assert/strict");
+const { validatePageErrors } = require("./workflow-errors.cjs");
+const scripts = ["ordinary.js", "injected.js"];
+const contracts = { cases: { "injected.js": { expectedPageErrors: ["TypeError: synthetic"] } } };
+const known = { script: "injected.js", message: "TypeError: synthetic" };
+assert.equal(validatePageErrors([known], scripts, contracts).passed, true);
+assert.equal(validatePageErrors([], ["ordinary.js"], contracts).passed, true);
+assert.equal(validatePageErrors([], scripts, contracts).missing.length, 1);
+assert.equal(validatePageErrors([known, known], scripts, contracts).unexpected.length, 1);
+assert.equal(validatePageErrors([{ ...known, script: "ordinary.js" }], scripts, contracts).passed, false);
+assert.equal(validatePageErrors([{ ...known, script: null }], scripts, contracts).passed, false);
+assert.equal(validatePageErrors([{ ...known, message: "TypeError: synthetic extra" }], scripts, contracts).passed, false);
+assert.equal(validatePageErrors([known, { script: "ordinary.js", message: "Error: real failure" }], scripts, contracts).passed, false);
+assert.deepEqual(known, { script: "injected.js", message: "TypeError: synthetic" });
+console.log("Workflow error gates: exact case/count matching and unexpected errors pass");

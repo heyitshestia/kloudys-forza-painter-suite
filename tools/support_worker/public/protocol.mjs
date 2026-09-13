@@ -1,5 +1,7 @@
 // Shared by the browser review and the server; only allowlisted context survives.
 import { normalizeEditor } from './editor-diagnostics.mjs';
+import {validateScreenshotMetadata} from './screenshots.mjs';
+import {validatePrivateMetadata} from './private-logs.mjs';
 export const SCHEMA = 'kfps-support-report/1';
 export const FEATURES = ['Generator', 'Editor', 'Import and export', 'Liveries', 'Community', 'Updater', 'Other'];
 export const MAX_BYTES = 64 * 1024;
@@ -91,6 +93,17 @@ export function normalizeReport(input) {
     technical: v.include_technical === false ? {} : normalizeTechnical(v.technical),
     include_technical: v.include_technical !== false,
   };
+  if(v.private_logs!==undefined&&result.include_technical) {
+    try {result.private_logs=validatePrivateMetadata(v.private_logs);}
+    catch(error){throw new InputError(error.message);}
+  }
+  // Do not change old receipt hashes for reports without screenshots.
+  if (v.screenshots !== undefined) {
+    let screenshots;
+    try { screenshots = validateScreenshotMetadata(v.screenshots,v.screenshots_public); }
+    catch (error) { throw new InputError(error.message); }
+    if (screenshots.length) { result.screenshots = screenshots; result.screenshots_public = true; }
+  }
   if (new TextEncoder().encode(JSON.stringify(result)).length > MAX_BYTES) throw new InputError('Report is too large. Remove some log text.');
   return result;
 }
@@ -107,6 +120,7 @@ export function publicSummary(report, user) {
     ...(report.expected ? ['', '**Expected:**', discordText(report.expected, 350)] : []),
     '', `Report ID: \`${report.id}\``,
     report.include_technical ? 'Technical details are delivered privately to staff.' : 'Technical details were not included.',
+    ...(report.screenshots?.length ? [`Screenshots: ${report.screenshots.length} image(s), shared publicly by the reporter.`] : []),
   ].join('\n');
   return text.slice(0, 1990);
 }
@@ -121,7 +135,13 @@ export function validWebhook(value) {
 
 export async function readJsonLimited(request) {
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new InputError('Expected a JSON report.');
-  if (Number(request.headers.get('content-length') || 0) > MAX_BYTES) throw new InputError('Report is too large.');
+  const bytes = await readBytesLimited(request,MAX_BYTES);
+  try { return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)); }
+  catch { throw new InputError('Invalid JSON report.'); }
+}
+
+export async function readBytesLimited(request, limit) {
+  if (Number(request.headers.get('content-length') || 0) > limit) throw new InputError('Report is too large.');
   const reader = request.body?.getReader();
   if (!reader) throw new InputError('Missing report.');
   const chunks = []; let length = 0;
@@ -129,11 +149,10 @@ export async function readJsonLimited(request) {
     const {done, value} = await reader.read();
     if (done) break;
     length += value.length;
-    if (length > MAX_BYTES) { await reader.cancel(); throw new InputError('Report is too large.'); }
+    if (length > limit) { await reader.cancel(); throw new InputError('Report is too large.'); }
     chunks.push(value);
   }
   const bytes = new Uint8Array(length); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  try { return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)); }
-  catch { throw new InputError('Invalid JSON report.'); }
+  return bytes;
 }

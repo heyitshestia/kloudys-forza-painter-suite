@@ -56,7 +56,7 @@ class ShapeSchemaContractTests(unittest.TestCase):
         ]
         for type_code, shape, expected in cases:
             with self.subTest(type_code=type_code, shape=shape):
-                self.assertEqual(expected, resolve_vinyl_resource(type_code, shape, ROOT / "tools" / "fabric-editor" / "shape-words.json"))
+                self.assertEqual(expected, resolve_vinyl_resource(type_code, shape, ROOT / "KFPS.Editor" / "web" / "shape-words.json"))
                 self.assertEqual(expected, preview_resource(type_code, shape))
                 self.assertEqual(expected, editor_resource(type_code, shape))
 

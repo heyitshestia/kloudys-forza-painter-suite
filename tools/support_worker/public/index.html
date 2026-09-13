@@ -6,10 +6,11 @@
 <main>
   <div class="heading"><div><p class="eyebrow">REPORT A PROBLEM</p><h1>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button">Sign in with Discord</button><button id="logout" type="button" hidden>Sign out</button></div></div>
   <div id="notice" role="status" aria-live="polite">Checking reporting service...</div>
+  <section id="native-signin" class="public-note" hidden aria-label="Browser sign-in"><p id="native-signin-text"></p><p><strong id="native-signin-code" class="approval-code"></strong></p><div class="actions"><button id="native-reopen" type="button">Open browser again / 브라우저 다시 열기</button><button id="native-cancel" type="button">Cancel / 취소</button></div></section>
   <form id="report-form">
     <div id="report-visibility" class="public-note" role="note" aria-label="Who can see your report">
       <p>Reports go to the KFPS Support Discord server, created specifically for reporting and resolving KFPS issues. Permanent invite: <a id="support-invite" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Join the support server</a>.</p>
-      <p><strong>Your post will be publicly visible in the KFPS Support Discord server.</strong> This includes your Discord display name, post title, affected area, issue description, expected result, KFPS version, and report ID.</p>
+      <p><strong>Your post will be publicly visible in the KFPS Support Discord server.</strong> This includes your Discord display name, post title, affected area, issue description, expected result, KFPS version, report ID, and any screenshots you choose to attach. This is the dedicated support server, separate from the community server.</p>
       <p><strong>The remaining technical details stay private.</strong> Any additional technical details you choose to include are visible only to Kloudy and authorized KFPS support staff.</p>
     </div>
     <div class="columns">
@@ -23,14 +24,30 @@
         <div class="section-title"><h2>Technical context</h2><span id="source">Browser report</span></div>
         <dl id="facts"></dl>
         <label class="check"><input id="include" type="checkbox" checked><span>Include technical details privately for staff</span></label>
-        <p class="privacy">Includes the context shown below, editor performance details when available, and short excerpts from recent editor and worker logs. Artwork, game saves, and screenshots are not attached. Review the text before sending; automatic cleanup cannot identify every personal detail.</p>
+        <p class="privacy">Includes the context shown below, editor performance details, and complete retained editor and worker logs when supplied. Older KFPS versions may provide excerpts only. Artwork, game saves, and screenshots are never collected automatically. Screenshots you add below are public, even if technical details are turned off. Review before sending; automatic cleanup cannot identify every personal detail.</p>
         <details><summary>Review technical details</summary><pre id="technical" tabindex="0"></pre></details>
-        <details><summary>Add a saved KFPS report</summary><label for="report-file">KFPS support report.json</label><input id="report-file" type="file" accept="application/json,.json"><p class="privacy">Only KFPS support reports are accepted, not artwork or save files.</p></details>
+        <section id="private-logs-section" aria-label="Private application logs">
+          <h3>Application logs (private)</h3>
+          <p class="privacy">Complete retained logs are attached only to the private staff report, never your public post. Personal paths, credentials and artwork fields are removed. A temporary copy stays in this browser across sign-in and refresh, and is deleted after delivery or sign-out; copies older than 24 hours are discarded when the form opens.</p>
+          <p class="privacy" lang="ko">저장되어 있는 에디터 및 작업 프로세스의 전체 로그는 공개 게시글이 아닌 Kloudy와 권한이 있는 지원 담당자만 볼 수 있는 비공개 보고서에 첨부됩니다. 개인 경로, 인증 정보, 작품 데이터는 제거됩니다. 파일 크기나 접근 제한으로 포함되지 못한 내용은 따로 표시됩니다. 전송 전 내용을 확인해 주세요.</p>
+          <p id="private-log-state" role="status" class="privacy"></p>
+          <a id="download-private-logs" hidden>Download complete private logs to review</a>
+          <details><summary>Preview recent lines from each retained file</summary><pre id="private-log-preview" tabindex="0"></pre></details>
+          <details><summary>Add a saved KFPS report or restore its logs</summary><input id="report-file" type="file" accept="application/json,application/gzip,.json,.gz" hidden><button id="choose-report" type="button">Choose saved report</button><p id="report-file-status" class="privacy" role="status"></p><p class="privacy">Reports opened from KFPS include their logs automatically. Use this recovery option only to reopen a saved report. Choose report.kfps-report.json.gz for complete retained logs, or report.json for the summary. Artwork and save files are not accepted.</p><p class="privacy" lang="ko">KFPS에서 연 보고서에는 로그가 자동으로 포함됩니다. 저장된 보고서를 다시 열 때만 이 복구 기능을 사용해 주세요. 전체 로그는 report.kfps-report.json.gz 파일에 포함되어 있습니다.</p></details>
+        </section>
         <details><summary>Missing context</summary><label for="version">KFPS version</label><input id="version" maxlength="30" placeholder="Unknown"><label for="game">Game</label><select id="game"><option value="">Unknown / not applicable</option><option>FH4</option><option>FH5</option><option>FH6</option><option>FM8</option></select><label for="store">Store</label><select id="store"><option value="unknown">Unknown / not applicable</option><option value="steam">Steam</option><option value="microsoft_xbox">Xbox / Microsoft Store</option></select></details>
       </aside>
     </div>
+    <section id="screenshots-section" aria-label="Public screenshots">
+      <h2>Screenshots (optional, public)</h2>
+      <p id="screenshot-warning"><strong>Everyone who can view your support post can see these screenshots.</strong> Remove private information from the image before attaching it. Screenshots are not automatically blurred or censored.</p>
+      <label for="screenshots">Add or paste screenshots (PNG/JPG)</label><input id="screenshots" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple disabled aria-describedby="screenshot-warning screenshot-state">
+      <p id="screenshot-state" role="status" class="privacy">Sign in before adding screenshots.</p>
+      <div id="screenshot-previews"></div>
+      <label class="check"><input id="screenshots-public" type="checkbox"><span>I understand that my screenshots will be posted publicly in KFPS Support.</span></label>
+    </section>
     <footer><div><span id="report-id"></span><p>Nothing is sent until you confirm below. Discord sign-in requests identity only.</p></div><button id="send" class="primary" type="submit" disabled>Send report</button></footer>
   </form>
-  <section id="receipt" hidden aria-label="Report result"><h2 id="result-title">Report status</h2><p id="result-text"></p><code id="receipt-id"></code><div class="actions"><a id="post-link" class="primary" target="_blank" rel="noreferrer" hidden>Open support post</a><button id="check" type="button">Check status</button><button id="retry" type="button" hidden>Retry same report</button><button id="new-report" type="button" hidden>New report</button></div></section>
+  <section id="receipt" hidden aria-label="Report result"><h2 id="result-title">Report status</h2><p id="result-text"></p><code id="receipt-id"></code><div id="retry-screenshots" hidden></div><div id="retry-private-logs" hidden></div><div class="actions"><a id="post-link" class="primary" target="_blank" rel="noreferrer" hidden>Open report in KFPS Support</a><button id="check" type="button">Check status</button><button id="retry" type="button" hidden>Retry same report</button><button id="new-report" type="button" hidden>New report</button></div></section>
   <div class="data-note">The reporting service keeps delivery receipts for up to 30 days, not copies of your technical report. Discord posts and attachments remain until staff delete them. Contact server staff with your report ID for removal. No email address or access to your messages is requested.</div>
 </main></body></html>

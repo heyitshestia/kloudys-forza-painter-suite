@@ -40,6 +40,10 @@ bootstrap, which supplies the same module roots to bundled and system Python
 without relying on inherited `PYTHONPATH` behavior. Frozen builds use the same
 worker and inspector entry points through hidden application arguments.
 
+Frozen-worker support is a historical compatibility path, not an advertised
+no-Python download. The advanced variant is retired; supported end-user packages
+include the managed runtime described in [Packaging](PACKAGING.md).
+
 The local 3D inspector is a second disposable process. Each new livery receives
 a fresh server session. Leaving the page clears the URL, destroys the QML
 `WebEngineView`, requests viewer shutdown without blocking the UI, and force

@@ -1,4 +1,5 @@
 import json
+import queue
 import sys
 import tempfile
 import threading
@@ -12,7 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 for entry in (ROOT, ROOT / "tools/fabric-editor", ROOT / "KFPS.UI/src"):
     sys.path.insert(0, str(entry))
-from tools.fabric_editor_diagnostics import EditorDiagnostics, clean_packet, read_support_diagnostics
+from tools.fabric_editor_diagnostics import DiagnosticBusy, EditorDiagnostics, clean_packet, read_support_diagnostics, support_recent
 from kfps_ui.support_report import build_support_report
 from test_fabric_editor_server import RunningEditorServer, post_json, fabric_server
 
@@ -31,6 +32,67 @@ def wait_for(test, timeout=5):
 
 
 class EditorDiagnosticTests(unittest.TestCase):
+    def test_busy_queue_does_not_acknowledge_or_advance_retry_sequence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            logger = EditorDiagnostics(ROOT, Path(folder))
+            try:
+                with patch.object(logger._queue, "put_nowait", side_effect=queue.Full):
+                    with self.assertRaises(DiagnosticBusy):
+                        logger.accept(packet(7))
+                self.assertEqual(logger.status()["accepted"], 0)
+                self.assertEqual(logger.status()["dropped"], 0)
+                self.assertEqual(logger.snapshot()["page"], {})
+                serial = logger.accept(packet(7))
+                self.assertEqual(logger.accept(packet(7)), serial)
+                wait_for(lambda: logger.status()["written"] == serial)
+                rows = (Path(folder) / "performance.jsonl").read_text().splitlines()
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(json.loads(rows[0])["seq"], 7)
+            finally:
+                logger.close()
+            with self.assertRaises(DiagnosticBusy):
+                logger.accept(packet(8))
+
+    def test_http_backpressure_is_retryable_and_does_not_accept_the_packet(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(fabric_server, "EDITOR_SERVER_MARKER", Path(folder) / "server.json"), RunningEditorServer() as server:
+                logger = server.httpd.diagnostics()
+                with patch.object(logger._queue, "put_nowait", side_effect=queue.Full):
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        post_json(server, fabric_server.EDITOR_DIAGNOSTICS_API, packet())
+                    self.assertEqual(error.exception.code, 503)
+                self.assertEqual(logger.snapshot()["page"], {})
+                _, result = post_json(server, fabric_server.EDITOR_DIAGNOSTICS_API, packet())
+                wait_for(lambda: logger.status()["written"] >= result["accepted"])
+
+    def test_collection_retains_native_ack_before_delayed_page_batch(self):
+        cause = {"pageId": "a" * 32, "documentId": 2, "commitId": 7}
+        records = [{"kind": "checkpoint", **cause, "source": "native", "state": "committed"}]
+        records += [{"kind": "job", "job": "parseText", "state": "finished"}] * 20
+        records += [{"kind": "commit", **cause}, {"kind": "recovery-result", **cause, "serverOk": True}]
+        recent = support_recent(records)
+        self.assertEqual(len(recent), 16)
+        self.assertTrue(any(item.get("source") == "native" for item in recent))
+        self.assertTrue(any(item.get("kind") == "commit" for item in recent))
+        self.assertTrue(any(item.get("serverOk") for item in recent))
+
+    def test_native_timing_is_durable_without_flooding_recent_events(self):
+        with tempfile.TemporaryDirectory() as folder:
+            logger = EditorDiagnostics(ROOT, Path(folder))
+            logger.record("renderer-stopped", source="native", code=42)
+            for _ in range(55):
+                logger.native_tick(uiLag=2, ready=True, private_path="PRIVATE")
+            serial = logger.native_tick(uiLag=450, ready=True)
+            wait_for(lambda: logger.status()["written"] >= serial)
+            logger.close()
+            rows = [json.loads(line) for line in (Path(folder) / "performance.jsonl").read_text().splitlines()]
+            samples = [row for row in rows if row["kind"] == "native-sample"]
+            self.assertEqual(len(samples), 56)
+            self.assertEqual(samples[-1]["uiLag"], 450)
+            self.assertNotIn("PRIVATE", json.dumps(rows))
+            recent = logger.snapshot()["recent"]
+            self.assertEqual([row["kind"] for row in recent], ["renderer-stopped", "native-sample"])
+
     def test_memory_probe_failure_does_not_stop_diagnostic_writes(self):
         import psutil
         with tempfile.TemporaryDirectory() as folder:
@@ -44,6 +106,24 @@ class EditorDiagnosticTests(unittest.TestCase):
                 logger.close()
 
     def test_strict_fields_exclude_artwork_secrets_and_invalid_numbers(self):
+        request_id = "da5c3040-6a47-4e3f-a103-6399c729a81b"
+        job = clean_packet(packet(events=[{"kind": "job", "job": "saveProject", "jobId": 5,
+            "requestId": request_id, "documentGeneration": 7, "state": "finished", "message": "PRIVATE"},
+            {"kind": "job", "job": "PRIVATE", "requestId": "PRIVATE"}], metrics={"criticalDrops": 2}))
+        self.assertEqual(job["events"][0]["requestId"], request_id)
+        self.assertEqual(job["events"][1], {"kind": "job"})
+        self.assertEqual(job["metrics"]["criticalDrops"], 2)
+        self.assertNotIn("PRIVATE", json.dumps(job))
+        causal = clean_packet(packet(events=[{"kind": "checkpoint", "pageId": "a" * 32, "documentId": 2,
+            "commitId": 7, "firstCommitId": 4, "operationId": 7, "commandId": 3, "historyId": 9,
+            "state": "failed", "errorCode": "http_error"}, {"kind": "phase", "phase": "PRIVATE", "pageId": "PRIVATE", "errorCode": "PRIVATE"}]))
+        self.assertEqual(causal["events"][0]["commitId"], 7)
+        self.assertEqual(causal["events"][0]["errorCode"], "http_error")
+        self.assertEqual(causal["events"][1], {"kind": "phase"})
+        warming = clean_packet(packet(events=[{"kind": "phase", "phase": "document-cache",
+            "documentId": 2, "state": "finished", "duration": 1300, "layers": 2900}]))
+        self.assertEqual(warming["events"][0]["phase"], "document-cache")
+        self.assertEqual(warming["events"][0]["layers"], 2900)
         result = clean_packet(packet(state={"name": "PRIVATE", "data_url": "PRIVATE", "shapeType": float("nan"), "layers": 3,
                                            "renderer": "PRIVATE", "visible": "PRIVATE"},
                                      events=[{"kind": "js-error", "message": "PRIVATE", "error": "TypeError", "source": "C:/PRIVATE", "line": 7}]))

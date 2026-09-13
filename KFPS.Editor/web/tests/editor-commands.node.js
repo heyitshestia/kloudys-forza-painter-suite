@@ -1,0 +1,21 @@
+"use strict";
+const assert = require("node:assert/strict");
+const {create} = require("../editor-commands.js");
+(async () => {
+  let generation=1, release, commits=0, overflows=0;
+  const events=[];
+  const commands=create({generation:()=>generation,limit:2,event:e=>events.push(e),overflow:()=>overflows++});
+  const first=commands.enqueue(async tx=>{await new Promise(done=>release=done);return tx.commit(()=>++commits);},"duplicate");
+  const stale=commands.enqueue(()=>{throw Error("stale ran");});
+  const stale2=commands.enqueue(()=>true);
+  assert.equal(await commands.enqueue(()=>true),false); assert.equal(overflows,1);
+  generation++; release();
+  assert.equal(await first,false); assert.equal(await stale,false); assert.equal(await stale2,false);
+  assert.equal(commits,0); assert.equal(commands.busy,false);
+  assert.equal(await commands.enqueue(tx=>tx.commit(()=>++commits)),1);
+  await assert.rejects(commands.enqueue(tx=>{tx.commit(()=>++commits);tx.commit(()=>++commits);}),/already committed/);
+  assert.equal(commits,2);
+  assert(events.some(e=>e.state==="committed")); assert(events.some(e=>e.state==="cancelled"));
+  commands.dispose(); assert.equal(await commands.enqueue(()=>true),false);
+  console.log("commands: bounded admission, stale cancellation, single commit, disposal and terminal records passed");
+})().catch(error=>{console.error(error);process.exitCode=1;});

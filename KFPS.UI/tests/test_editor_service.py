@@ -14,7 +14,7 @@ UI_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = UI_ROOT.parent
 sys.path.insert(0, str(UI_ROOT / "src"))
 
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QTimer
 
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.editor_service import EditorService
@@ -109,6 +109,7 @@ class EditorProjectManagerTests(unittest.TestCase):
             paths = make_paths(root)
             service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             output_events = []
             service.editorOutputsChanged.connect(lambda: output_events.append(True))
 
@@ -120,7 +121,7 @@ class EditorProjectManagerTests(unittest.TestCase):
             service._poll_editor_changes()
 
             self.assertEqual([True], output_events)
-            self.assertEqual(1, service.projectCount)
+            self.assertTrue(wait_for(lambda: service.projectCount == 1 and not service._scan_running))
             self.assertEqual("Marker Project", service.projectModel.row(0)["name"])
 
     def test_discovers_filters_selects_and_opens_projects(self):
@@ -153,8 +154,9 @@ class EditorProjectManagerTests(unittest.TestCase):
             desktop = DummyDesktop()
             service = EditorService(paths, preview, desktop, DummyLog())
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
 
-            self.assertEqual(3, service.projectCount)
+            self.assertTrue(wait_for(lambda: service.projectCount == 3 and not service._scan_running))
             by_name = {row["name"]: row for row in service.projectModel.rows}
             self.assertEqual(3, by_name["Alpha"]["shapeCount"])
             self.assertEqual("3 shapes", by_name["Alpha"]["shapeLabel"])
@@ -193,6 +195,7 @@ class EditorProjectManagerTests(unittest.TestCase):
                 DummyLog(),
             )
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
 
             service.resetTutorial()
 
@@ -211,8 +214,10 @@ class EditorProjectManagerTests(unittest.TestCase):
                 DummyLog(),
             )
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             first = str(paths.project_root / "First.fabric-project.json")
             second = str(paths.project_root / "Second.fabric-project.json")
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             service._selected = first
             first_thread = threading.Thread(
                 target=service._preview_worker,
@@ -233,6 +238,71 @@ class EditorProjectManagerTests(unittest.TestCase):
             self.assertEqual(1, preview.max_active)
             self.assertEqual([first, second], preview.requests)
 
+    def test_scan_is_background_coalesced_cached_and_owner_thread_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = make_paths(Path(temporary))
+            paths.project_root.mkdir(parents=True)
+            for index in range(200):
+                (paths.project_root / f"Project {index}.fabric-project.json").write_text(
+                    json.dumps({"shapes": [{}] * (index % 10)}), encoding="utf-8")
+            entered, release = threading.Event(), threading.Event()
+            calls, scans, updates, beats = [], [], [], []
+            original_count, original_scan = EditorService._project_shape_count, EditorService._scan_projects
+            owner = threading.get_ident()
+            def count(service, path):
+                calls.append(threading.get_ident())
+                if len(calls) == 1:
+                    entered.set()
+                    release.wait(3)
+                return original_count(service, path)
+            def scan(service):
+                scans.append(threading.get_ident())
+                return original_scan(service)
+            with patch.object(EditorService, "_project_shape_count", count), patch.object(EditorService, "_scan_projects", scan):
+                service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
+                timer = QTimer(); timer.setInterval(5); timer.timeout.connect(lambda: beats.append(True)); timer.start()
+                service.changed.connect(lambda: updates.append(threading.get_ident()))
+                try:
+                    self.assertTrue(entered.wait(1))
+                    for _ in range(60):
+                        service.refresh()
+                    service.searchText = "Project 19"
+                    self.assertTrue(wait_for(lambda: len(beats) >= 5))
+                    self.assertEqual(1, len(scans), "Repeated requests spawned simultaneous scans")
+                    release.set()
+                    self.assertTrue(wait_for(lambda: not service._scan_running and service.projectCount == 200, timeout=10),
+                                    (len(scans), len(calls), service._scan_generation, service._scan_running, service.projectCount, service.log.messages))
+                    self.assertEqual(2, len(scans), "Newest refresh was not coalesced into one follow-up scan")
+                    self.assertEqual(200, len(calls), "Unchanged projects were reparsed on the second scan")
+                    self.assertTrue(all(thread != owner for thread in calls))
+                    self.assertTrue(all(thread == owner for thread in updates))
+                    self.assertEqual(11, len(service.projectModel.rows))
+                    project = paths.project_root / "Project 19.fabric-project.json"
+                    project.write_text(json.dumps({"shapes": [{}] * 12}), encoding="utf-8")
+                    service.refresh()
+                    self.assertTrue(wait_for(lambda: not service._scan_running))
+                    self.assertEqual(201, len(calls))
+                    self.assertEqual(12, next(row["shapeCount"] for row in service.projectModel.rows if row["name"] == "Project 19"))
+                finally:
+                    release.set(); timer.stop(); service.close()
+
+    def test_scan_start_failure_can_retry_and_close_ignores_late_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = make_paths(Path(temporary))
+            service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
+            try:
+                self.assertTrue(wait_for(lambda: not service._scan_running))
+                with patch.object(service, "_start_thread", side_effect=RuntimeError("No worker")):
+                    service.refresh()
+                self.assertFalse(service._scan_running)
+                service.refresh()
+                self.assertTrue(wait_for(lambda: not service._scan_running))
+                service.close()
+                service._finish_scan(service._scan_generation, [{"invalid": "late"}], "")
+                self.assertEqual(0, service.projectCount)
+            finally:
+                service.close()
+
 
 class EditorWindowLaunchTests(unittest.TestCase):
     def test_failed_worker_start_is_retryable_and_activate_preserves_canvas(self):
@@ -243,6 +313,7 @@ class EditorWindowLaunchTests(unittest.TestCase):
             entry.touch()
             service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             with patch.object(service, "_start_thread", side_effect=RuntimeError("No worker available")):
                 service.activate()
             self.assertFalse(service.launching)
@@ -264,6 +335,7 @@ class EditorWindowLaunchTests(unittest.TestCase):
                 DummyLog(),
             )
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             completed = []
             service.launchCompleted.connect(
                 lambda ok, url, message: completed.append((ok, url, message))
@@ -288,6 +360,7 @@ class EditorWindowLaunchTests(unittest.TestCase):
             paths = make_paths(Path(temporary))
             service = EditorService(paths, DummyPreview(), DummyDesktop(), DummyLog())
             self.addCleanup(service.close)
+            self.assertTrue(wait_for(lambda: not service._scan_running))
             service._selected = "chosen-project"
             with patch.object(service, "_launch") as launch:
                 service.launch()

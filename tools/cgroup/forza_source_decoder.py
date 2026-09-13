@@ -2238,9 +2238,10 @@ def clivery_to_layers(payload: bytes) -> tuple[list[dict[str, Any]], dict[str, A
 
 
 def _load_word_lookup() -> dict[int, list[tuple[str, int, str | None]]]:
+    from tools.editor_manifest import editor_web_root
     root = Path(__file__).resolve().parents[2]
-    words_path = root / "tools" / "fabric-editor" / "shape-words.json"
-    names_path = root / "tools" / "fabric-editor" / "shape-names.json"
+    words_path = editor_web_root(root) / "shape-words.json"
+    names_path = editor_web_root(root) / "shape-names.json"
     if not words_path.exists():
         return {}
     words = json.loads(words_path.read_text(encoding="utf-8")).get("families", {})

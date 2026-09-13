@@ -10,6 +10,27 @@ from test_fabric_editor_server import RunningEditorServer, fabric_server, post_j
 
 
 class EditorPreferencesTests(unittest.TestCase):
+    def test_update_notice_survives_restart_language_change_and_failed_write(self):
+        key = "kloudyFabricEditorUpdateAcknowledged"
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "preferences.json"
+            with patch.object(fabric_server, "EDITOR_PREFS_MARKER", marker):
+                with RunningEditorServer() as server:
+                    post_json(server, "/api/fabric-editor/preferences", {"settings": {
+                        "kloudyFabricFavorites": "[101,102]", "kloudyFabricLanguage": "en"}})
+                    original = marker.read_bytes()
+                    with patch.object(fabric_server, "_write_json_atomic", side_effect=OSError("disk unavailable")):
+                        with self.assertRaises(urllib.error.HTTPError):
+                            post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "modernization-1"}})
+                    self.assertEqual(original, marker.read_bytes())
+                    post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "modernization-1"}})
+                    post_json(server, "/api/fabric-editor/preferences", {"settings": {"kloudyFabricLanguage": "ko"}})
+                with RunningEditorServer() as server:
+                    with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                        settings = json.load(response)["settings"]
+                self.assertEqual(settings, {key: "modernization-1", "kloudyFabricLanguage": "ko",
+                                            "kloudyFabricFavorites": "[101,102]"})
+
     def test_language_and_notice_acknowledgment_survive_restart(self):
         with tempfile.TemporaryDirectory() as temporary:
             marker = Path(temporary) / "preferences.json"

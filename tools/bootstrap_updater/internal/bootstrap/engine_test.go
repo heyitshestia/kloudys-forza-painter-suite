@@ -113,8 +113,15 @@ func TestSignedComponentChannelUpdatesAndRepairs(t *testing.T) {
 	writeTestFile(t, filepath.Join(app, "runtime", "user.json"), "keep")
 	writeTestFile(t, filepath.Join(app, "python", "old.pyd"), "old")
 	writeTestFile(t, filepath.Join(app, "python", "Lib", "__pycache__", "generated.pyc"), "keep-cache")
+	writeTestFile(t, filepath.Join(app, "tools", "fabric-editor", "editor.js"), "old-editor")
+	editorData := []string{"preferences.json", "autosave.json", "recovery-floor.json", "projects/project.fabric-project.json", "assets/group.json", "webengine/Local Storage/data"}
+	for _, name := range editorData {
+		writeTestFile(t, filepath.Join(app, "runtime", "fabric-editor", filepath.FromSlash(name)), "keep-editor-data")
+	}
 
-	applicationFiles := map[string][]byte{"VERSION": []byte("2.0.0\n"), "KFPS.UI/app.py": []byte("new app")}
+	applicationFiles := map[string][]byte{"VERSION": []byte("2.0.0\n"), "KFPS.UI/app.py": []byte("new app"),
+		"KFPS.Editor/web/editor.js": []byte("new-editor"), "KFPS.Editor/editor.py": []byte("new-entry"),
+		"tools/fabric-editor/start_fabric_editor.py": []byte("compatibility-adapter")}
 	pythonFiles := map[string][]byte{"python/python.exe": []byte("python-new"), "python/Lib/site.py": []byte("site-new")}
 	serverFiles := map[string][]byte{}
 	appRecords, appArchive := componentFixture(t, applicationFiles)
@@ -138,7 +145,7 @@ func TestSignedComponentChannelUpdatesAndRepairs(t *testing.T) {
 	manifest := UpdateManifest{
 		Schema: ManifestSchema, Channel: "stable", Sequence: 7, Version: "2.0.0", Commit: strings.Repeat("b", 40), PublishedUTC: time.Now().UTC().Format(time.RFC3339), Relaunch: "KFPS.exe",
 		Components: []Component{
-			{Name: "application", Target: "app-root", Archive: Artifact{URL: server.URL + "/application.zip", Size: int64(len(appArchive)), SHA256: sha256Bytes(appArchive)}, Files: appRecords},
+			{Name: "application", Target: "app-root", Archive: Artifact{URL: server.URL + "/application.zip", Size: int64(len(appArchive)), SHA256: sha256Bytes(appArchive)}, Files: appRecords, RetiredFiles: []string{"tools/fabric-editor/editor.js"}},
 			{Name: "python-runtime", Target: "app-root", Archive: Artifact{URL: server.URL + "/python.zip", Size: int64(len(pythonArchive)), SHA256: sha256Bytes(pythonArchive)}, Files: pythonRecords, ExactRoots: []string{"python"}},
 		},
 	}
@@ -172,7 +179,7 @@ func TestSignedComponentChannelUpdatesAndRepairs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Summary.Success || result.Summary.FilesRemoved != 1 {
+	if !result.Summary.Success || result.Summary.FilesRemoved != 2 {
 		t.Fatalf("unexpected summary: %#v", result.Summary)
 	}
 	assertFileContent(t, filepath.Join(app, "VERSION"), "2.0.0\n")
@@ -184,6 +191,7 @@ func TestSignedComponentChannelUpdatesAndRepairs(t *testing.T) {
 	}
 
 	writeTestFile(t, filepath.Join(app, "KFPS.UI", "app.py"), "corrupt")
+	writeTestFile(t, filepath.Join(app, "KFPS.Editor", "web", "editor.js"), "corrupt-editor")
 	repairLogger := testLogger(t, state, "channel-repair")
 	repairEngine, _ := NewEngine(EngineConfig{
 		BootstrapVersion: "1.0.1", ChannelURL: server.URL + "/channel.json", ChannelSignature: server.URL + "/channel.json.sig",
@@ -194,10 +202,18 @@ func TestSignedComponentChannelUpdatesAndRepairs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repaired.Summary.FilesReplaced != 1 {
-		t.Fatalf("expected one repaired file, got %#v", repaired.Summary)
+	if repaired.Summary.FilesReplaced != 2 {
+		t.Fatalf("expected two repaired files, got %#v", repaired.Summary)
 	}
 	assertFileContent(t, filepath.Join(app, "KFPS.UI", "app.py"), "new app")
+	assertFileContent(t, filepath.Join(app, "KFPS.Editor", "web", "editor.js"), "new-editor")
+	assertFileContent(t, filepath.Join(app, "tools", "fabric-editor", "start_fabric_editor.py"), "compatibility-adapter")
+	if fileExists(filepath.Join(app, "tools", "fabric-editor", "editor.js")) {
+		t.Fatal("retired editor source survived installation")
+	}
+	for _, name := range editorData {
+		assertFileContent(t, filepath.Join(app, "runtime", "fabric-editor", filepath.FromSlash(name)), "keep-editor-data")
+	}
 }
 
 func TestNewerBootstrapDoesNotHandoffToOlderUpdater(t *testing.T) {

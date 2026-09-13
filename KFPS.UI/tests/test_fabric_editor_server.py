@@ -1,4 +1,6 @@
 import json
+import http.client
+import socket
 import sys
 import tempfile
 import threading
@@ -6,12 +8,12 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EDITOR_ROOT = ROOT / "tools" / "fabric-editor"
-for entry in (str(ROOT), str(EDITOR_ROOT)):
+EDITOR_ROOT = ROOT / "KFPS.Editor" / "web"
+for entry in (str(ROOT), str(ROOT / "tools/fabric-editor")):
     if entry not in sys.path:
         sys.path.insert(0, entry)
 
@@ -19,10 +21,11 @@ import start_fabric_editor as fabric_server
 
 
 class RunningEditorServer:
-    def __init__(self):
+    def __init__(self, *, paths=None):
         self.httpd = fabric_server.EditorServer(
             ("127.0.0.1", 0),
             fabric_server.Handler,
+            paths=paths,
         )
         self.thread = threading.Thread(
             target=self.httpd.serve_forever,
@@ -61,6 +64,92 @@ def post_json(base_url: str, path: str, payload: dict, token=True):
 
 
 class FabricEditorServerTests(unittest.TestCase):
+    def test_update_status_is_authenticated_and_read_only(self):
+        with RunningEditorServer() as server:
+            endpoint = f"{server}/api/fabric-editor/update-status"
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                urllib.request.urlopen(endpoint, timeout=3)
+            self.assertEqual(denied.exception.code, 403)
+            request = urllib.request.Request(endpoint, headers={
+                fabric_server.EDITOR_MUTATION_HEADER: server.httpd.editor_session_token,
+            })
+            with urllib.request.urlopen(request, timeout=3) as response:
+                self.assertFalse(json.loads(response.read())["available"])
+            offered = {"localVersion": "3.1.77", "latestVersion": "3.1.78", "available": True,
+                       "checking": False, "checked": True}
+            server.httpd.update_status = offered
+            with urllib.request.urlopen(request, timeout=3) as response:
+                self.assertEqual(json.loads(response.read()), offered)
+                self.assertIn("no-store", response.headers["Cache-Control"])
+            self.assertIs(server.httpd.update_status, offered)
+
+    def test_json_response_ignores_disconnection_but_not_other_failures(self):
+        handler = object.__new__(fabric_server.Handler)
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = Mock()
+        for error in (BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()):
+            with self.subTest(error=type(error).__name__):
+                handler.wfile.write.side_effect = error
+                self.assertFalse(handler._send_json({"ok": True}))
+        handler.wfile.write.side_effect = OSError("unrelated failure")
+        with self.assertRaises(OSError):
+            handler._send_json({"ok": True})
+        handler.wfile.write.side_effect = None
+        self.assertTrue(handler._send_json({"ok": True}))
+        with self.assertRaises(TypeError):
+            handler._send_json({"invalid": object()})
+
+    def test_saved_files_and_private_commit_trace_survive_lost_reply(self):
+        for job, endpoint in (("saveProject", fabric_server.PROJECT_SAVE_API),
+                              ("saveExport", fabric_server.EDITOR_EXPORT_API)):
+            with self.subTest(job=job), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                request_id = "358cd0bc-4e38-4bcc-8400-d3fe4e8b6b72"
+                response_finished = threading.Event()
+                original = fabric_server.Handler._send_json
+
+                def lose_reply(handler, payload, status=200):
+                    if payload.get("receipt", {}).get("request_id") != request_id:
+                        return original(handler, payload, status)
+                    handler.connection.shutdown(socket.SHUT_RDWR)
+                    try:
+                        return original(handler, payload, status)
+                    finally:
+                        response_finished.set()
+
+                with (
+                    patch.object(fabric_server, "EDITOR_PROJECT_ROOT", root / "projects"),
+                    patch.object(fabric_server, "EDITOR_JSON_ROOT", root / "exports"),
+                    patch.object(fabric_server, "EDITOR_SERVER_MARKER", root / "server.json"),
+                    patch.object(fabric_server, "EDITOR_PROJECT_CHANGE_MARKER", root / "project-change.json"),
+                    patch.object(fabric_server, "EDITOR_OUTPUT_CHANGE_MARKER", root / "output-change.json"),
+                    patch.object(fabric_server, "_safe_relpath", side_effect=lambda path: Path(path).name),
+                    patch.object(fabric_server.Handler, "_send_json", lose_reply),
+                    RunningEditorServer() as server,
+                ):
+                    diagnostic = server.httpd.diagnostics()
+                    server.httpd.handle_error = Mock()
+                    with self.assertRaises((http.client.RemoteDisconnected, ConnectionResetError)):
+                        post_json(server, endpoint, {"name": "PRIVATE ARTWORK", "request_id": request_id,
+                                                   "payload": {"shapes": [{"type": 1, "private": "PRIVATE"}]}})
+                    self.assertTrue(response_finished.wait(3))
+                    store = server.httpd.project_store() if job == "saveProject" else server.httpd.export_store()
+                    outcome = store.outcome(request_id)
+                    self.assertTrue(outcome["current"])
+                    target = store.root / outcome["receipt"]["target_id"]
+                    self.assertEqual([{"type": 1, "private": "PRIVATE"}], json.loads(target.read_text())["shapes"])
+                    self.assertEqual(1, len(list(store.root.rglob("*.json"))))
+                    server.httpd.handle_error.assert_not_called()
+                records = [json.loads(line) for line in (root / "performance.jsonl").read_text().splitlines()]
+                commits = [record for record in records if record.get("requestId") == request_id]
+                self.assertEqual(1, len(commits))
+                self.assertEqual(("job", job, "committed", "native"),
+                                 tuple(commits[0][key] for key in ("kind", "job", "state", "source")))
+                self.assertGreaterEqual(commits[0]["duration"], 0)
+                self.assertNotIn("PRIVATE", json.dumps(records))
+
     def test_executable_editor_assets_are_not_http_cached(self):
         with RunningEditorServer() as server:
             for filename in ("index.html", "editor.js", "editor-fabric-adapter.js", "style.css"):
@@ -144,7 +233,7 @@ class FabricEditorServerTests(unittest.TestCase):
         )
         self.assertTrue(
             fabric_server._is_allowed_static_path(
-                "/tools/fabric-editor/Resources/Vinyls/Primitives/1.svg"
+                "/tools/fabric-editor/Resources/Vinyls/Primitives/1.png"
             )
         )
         self.assertTrue(
@@ -171,6 +260,25 @@ class FabricEditorServerTests(unittest.TestCase):
                     timeout=3,
                 )
             self.assertEqual(404, blocked.exception.code)
+
+    def test_static_get_and_head_share_the_declared_mount(self):
+        with RunningEditorServer() as server:
+            for method in ("GET", "HEAD"):
+                for filename in ("index.html", "editor.js", "Resources/Vinyls/Primitives/1", "Resources/Vinyls/Primitives/1.png"):
+                    with self.subTest(method=method, filename=filename):
+                        request = urllib.request.Request(f"{server}/tools/fabric-editor/{filename}", method=method)
+                        with urllib.request.urlopen(request, timeout=3) as response:
+                            self.assertEqual(200, response.status)
+                            self.assertEqual((EDITOR_ROOT / filename).stat().st_size, int(response.headers["Content-Length"]))
+                            self.assertEqual("no-store", response.headers["Cache-Control"])
+                            self.assertEqual(b"" if method == "HEAD" else (EDITOR_ROOT / filename).read_bytes(), response.read())
+                for target in ("/VERSION", "/tools/fabric-editor/start_fabric_editor.py", "/tools/fabric-editor/tests/run-native-page.py",
+                               "/tools/fabric-editor/", "/tools/fabric-editor/Resources/Vinyls/",
+                               "/tools/fabric-editor/%2e%2e/%2e%2e/VERSION", "/tools/fabric-editor/Resources/%5c..%5cVERSION"):
+                    with self.subTest(method=method, target=target):
+                        with self.assertRaises(urllib.error.HTTPError) as blocked:
+                            urllib.request.urlopen(urllib.request.Request(f"{server}{target}", method=method), timeout=3)
+                        self.assertEqual(404, blocked.exception.code)
 
     def test_mutations_require_editor_header_and_save_as_cannot_overwrite(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -272,6 +380,7 @@ class FabricEditorServerTests(unittest.TestCase):
             output_marker = Path(temporary) / "editor-output-change.json"
             with (
                 patch.object(fabric_server, "EDITOR_JSON_ROOT", editor_root),
+                patch.object(fabric_server, "EDITOR_SERVER_MARKER", Path(temporary) / "server.json"),
                 patch.object(fabric_server, "EDITOR_OUTPUT_CHANGE_MARKER", output_marker),
                 patch.object(fabric_server, "_safe_relpath", side_effect=lambda path: Path(path).name),
                 RunningEditorServer() as base_url,

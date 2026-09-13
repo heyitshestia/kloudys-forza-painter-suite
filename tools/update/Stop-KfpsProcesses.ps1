@@ -12,11 +12,12 @@ $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $parentPath = (Resolve-Path -LiteralPath $Parent).Path
 $parentLaunchers = @(
     (Join-Path $parentPath "KFPS.exe"),
+    (Join-Path $parentPath "KFPS Editor.exe"),
     (Join-Path $parentPath "Kloudys Painter Launcher.exe"),
     (Join-Path $parentPath "Kloudys Painter.exe")
 )
 $names = @(
-    "KFPS.exe", "Kloudys Painter Launcher.exe", "Kloudys Painter.exe",
+    "KFPS.exe", "KFPS Editor.exe", "Kloudys Painter Launcher.exe", "Kloudys Painter.exe",
     "KloudysGalateaGenesis.exe", "KloudysGeneratorV7.exe", "KloudysGeneratorV6.exe",
     "KloudysGeneratorV6-Go.exe", "KloudysGeneratorV5.exe",
     "KloudysGeneratorV5DetailLock.exe", "KloudysGeneratorV4.exe",
@@ -39,15 +40,22 @@ function Get-KfpsProcesses {
         )
         $kfpsPython = ($_.Name -match '^pythonw?\.exe$') -and
             (Test-KfpsCommandReferencesTree -CommandLine $command -Base $rootPath) -and
-            ($command -match 'app_qt\.py|start_fabric_editor\.py|forza_generator_v2\.py|benchmark_generator_settings\.py|KFPS\.UI')
+            ($command -match 'app_qt\.py|start_fabric_editor\.py|forza_generator_v2\.py|benchmark_generator_settings\.py|KFPS\.(UI|Editor)')
         $knownExecutable -or $kfpsPython
     }
 }
 
 $locks = @(Get-KfpsProcesses)
-$editorEntry = Join-Path $rootPath "KFPS.UI\editor.py"
+$editorEntries = @(
+    (Join-Path $rootPath "KFPS.UI\editor.py"),
+    (Join-Path $rootPath "KFPS.Editor\editor.py"),
+    (Join-Path $rootPath "tools\fabric-editor\start_fabric_editor.py")
+)
 $editors = @($locks | Where-Object {
-    Test-KfpsCommandReferencesPath -CommandLine ([string]$_.CommandLine) -Expected $editorEntry
+    $process = $_
+    ($process.Name -eq "KFPS Editor.exe") -or @($editorEntries | Where-Object {
+        Test-KfpsCommandReferencesPath -CommandLine ([string]$process.CommandLine) -Expected $_
+    }).Count -gt 0
 })
 if ($editors.Count -gt 0) {
     "Close KFPS Editor and save your work before updating. No processes were stopped." |

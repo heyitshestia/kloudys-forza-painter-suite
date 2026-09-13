@@ -62,6 +62,16 @@ class RecoveryStoreTests(unittest.TestCase):
         self.assertTrue(error)
         self.assertEqual(2, self.store.revision())
 
+    def test_head_survives_corrupt_reference_without_loading_image(self):
+        reference, _ = self.reference("reference pixels")
+        self.store.write(self.payload(10, reference))
+        self.store.write({"action": "clear", "shapes": [], "recovery_revision": 20})
+        self.store.write(self.payload(30, reference))
+        with patch.object(self.store, "reference_bytes", side_effect=AssertionError("Head decoded a reference")):
+            self.assertEqual({"recovery_revision": 30, "clearedRevision": 20}, self.store.head())
+        self.marker.write_text("{interrupted")
+        self.assertEqual({"recovery_revision": 30, "clearedRevision": 20}, self.store.head())
+
     def test_corrupt_reference_falls_back_to_different_previous_reference(self):
         first, source = self.reference("first image")
         self.store.write(self.payload(1, first))

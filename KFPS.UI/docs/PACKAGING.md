@@ -1,20 +1,25 @@
 # Packaging
 
-KFPS ships as loose QML/Python application files plus a small native launcher. The launcher is built from `tools/native_launcher/KFPSLauncher.cs`; it does not embed QML, Python modules, backend scripts, or assets. It prefers `KloudysFH6Painter/python/`, then validates `KFPS_PYTHON`, the Windows `py -3.12` launcher, and common system Python locations. Every external candidate must be 64-bit Python 3.12 and import all packages required by KFPS.
+KFPS ships as loose application files, native launchers and an installation-owned Python/Qt runtime. The launchers are built from `tools/native_launcher/KFPSLauncher.cs`; they do not embed the application source or assets. All supported end-user downloads include `KloudysFH6Painter/python/`. The advanced no-Python variant is retired. The editor verifies the packaged runtime and source baseline before creating its window; it does not use the user's default browser or silently switch to system Python. Development checkouts retain their explicit development launch path.
 
 The standalone layout is:
 
 ```text
 Standalone root/
 ├── KFPS.exe
+├── KFPS Editor.exe
+├── KFPS-Updater.exe
 ├── Images/
 └── KloudysFH6Painter/
     ├── VERSION
     ├── KFPS.exe
+    ├── KFPS Editor.exe
+    ├── KFPS-Updater.exe
     ├── KloudysGalateaGenesis.exe
-    ├── python/                 (bundled release only)
+    ├── python/                 (required managed runtime)
     ├── generator_backend.py
     ├── KFPS.UI/
+    ├── KFPS.Editor/            (editor source and baseline.json)
     ├── tools/
     ├── settings/
     └── imgs/
@@ -25,13 +30,14 @@ Standalone root/
 Every release must include:
 
 - the parent `KFPS.exe`
+- `KFPS Editor.exe` and `KFPS-Updater.exe` beside it, with repair copies inside the app folder
 - the full `KloudysFH6Painter` app folder
 - `KloudysFH6Painter/KFPS.exe` as the launcher repair payload
 - an `Images/` folder beside `KFPS.exe`
 
-Bundled releases additionally include `KloudysFH6Painter/python/` with Python 3.12 and all app dependencies. Binary releases intentionally omit that directory and require the user to install `requirements.txt` into a system 64-bit Python 3.12. Neither release may flatten or rename the nested app folder. Active Git checkouts remain usable for development, while source archives are intercepted by the wrong-download guard before normal app services initialize.
+The supported bundle includes `KloudysFH6Painter/python/` with Python 3.12 and all locked dependencies. Do not flatten or rename the nested app folder. Active Git checkouts remain usable for development, while source archives are intercepted by the wrong-download guard before normal app services initialize. Users of historical no-Python packages need the managed runtime through the verified updater repair or the supported bundle; installing arbitrary system packages is not an editor repair.
 
-The in-app updater closes `KFPS.exe` and invokes `03_update_from_github.bat`. The batch updater preserves generated/runtime/user data, mirrors program files from GitHub, verifies tracked files, then verifies the parent launcher hash.
+Installed bundles prefer `KFPS-Updater.exe`. KFPS refuses update handoff while the editor is open. Development/legacy fallback uses the installed `03_update_from_github.bat`. See the updater tests and release process for the separately verified repair and rollback paths.
 
 ## Release builder
 
@@ -48,13 +54,18 @@ complete.
 py -3.12 tools\release\build_release_bundles.py `
   --output-dir C:\path\to\release-output `
   --python-source C:\path\to\validated\python `
-  --kind all
+  --kind recommended
 ```
 
-The output names remain:
+The supported output name remains:
 
 - `KFPS-<version>-bundled.zip` for the recommended package with Python and dependencies.
-- `KFPS-<version>-ADVANCED-NO-PYTHON-NO-DEPENDENCIES.zip` for the advanced package.
+
+`--kind all` is retained only as an alias for the single supported bundle.
+`--kind advanced` is rejected. Historical upgrade fixtures are not new offerings.
+After dependency verification, the builder generates the editor baseline with the
+staged Python using `-I -B`. Failure aborts packaging. The final state scan runs
+after that generator so caches or private files cannot slip into the archive.
 
 The generated manifest records the source commit and every included file's size and SHA-256 digest. Rebuilding the same commit with the same Python runtime produces byte-identical archives. A release signing key is deliberately not stored in this repository; release signatures require a separately controlled production key before they can become a trust boundary.
 

@@ -1,0 +1,28 @@
+"use strict";
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const window = { fabric: { version: '5.3.0' } };
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../editor-fabric-adapter.js'), 'utf8'), { window });
+const rebase = window.KfpsFabricAdapter.rebaseDragContact;
+const target = {};
+const transform = { target, action: 'drag', offsetX: 10, offsetY: 20 };
+const canvas = { _currentTransform: transform };
+assert.equal(rebase(canvas, target, { x: -100, y: 0 }, { x: 0, y: 100 }), true);
+assert.equal(transform.offsetX, 110);
+assert.equal(transform.offsetY, 120);
+// The next pointer increment must carry the same local contact forward.
+assert.equal((200 - transform.offsetX) + 0, (200 - 10) - 100);
+assert.equal((210 - transform.offsetY) + 100, (210 - 20) + 0);
+assert.equal(rebase(canvas, target, { x: 1, y: 2 }, { x: 1, y: 2 }), true);
+assert.equal(transform.offsetX, 110);
+assert.equal(rebase(canvas, {}, { x: 0, y: 0 }, { x: 2, y: 3 }), false);
+assert.equal(rebase(canvas, target, { x: NaN, y: 0 }, { x: 2, y: 3 }), false);
+transform.action = 'scale';
+assert.equal(rebase(canvas, target, { x: 0, y: 0 }, { x: 2, y: 3 }), false);
+assert.equal(rebase({}, target, { x: 0, y: 0 }, { x: 2, y: 3 }), false);
+assert.equal(rebase({}, undefined, { x: 0, y: 0 }, { x: 2, y: 3 }), false);
+assert.equal(transform.offsetX, 110);
+assert.equal(transform.offsetY, 120);
+console.log('Drag contact rebasing: continuity, zero delta, target identity, invalid input, action and lifetime guards passed');
