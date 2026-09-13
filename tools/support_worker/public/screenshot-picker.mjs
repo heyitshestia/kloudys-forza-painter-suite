@@ -1,10 +1,13 @@
 import {MAX_SCREENSHOTS,MAX_SCREENSHOTS_BYTES,describeScreenshot,validateScreenshotMetadata,screenshotName} from './screenshots.mjs';
+import {t} from './report-locale.mjs';
 
 export class ScreenshotPicker {
   constructor({getAccount,getSubmitted,getSending,onChange,onError,onReady}) {
     Object.assign(this,{getAccount,getSubmitted,getSending,onChange,onError,onReady});
     this.items=[]; this.busy=false;
     this.input=document.getElementById('screenshots');
+    this.choose=document.getElementById('choose-screenshots');
+    this.choose.onclick=()=>this.input.click();
     this.preview=document.getElementById('screenshot-previews');
     this.consent=document.getElementById('screenshots-public');
     this.input.addEventListener('change',()=>{const files=Array.from(this.input.files||[]);this.input.value='';this.add(files);});
@@ -20,22 +23,23 @@ export class ScreenshotPicker {
   }
   refresh() {
     this.input.disabled=this.busy || this.getSending() || !this.getAccount()?.authenticated;
-    document.getElementById('screenshot-state').textContent=!this.getAccount()?.authenticated
+    this.choose.disabled=this.input.disabled;
+    document.getElementById('screenshot-state').textContent=t(!this.getAccount()?.authenticated
       ? 'Sign in before adding screenshots.'
       : this.busy ? 'Preparing screenshot previews...'
       : this.getSubmitted()?.screenshots?.length && !this.items.length
         ? 'To retry, reattach the same screenshots in the original order. No images are silently left out.'
-        : 'Optional. PNG/JPG only, up to 3 images, 5 MiB each and 10 MiB total. Images stay in this tab until you send; after a reload, select them again.';
+        : 'Optional. PNG/JPG only, up to 3 images, 5 MiB each and 10 MiB total. Images stay in this tab until you send; after a reload, select them again.');
     this.consent.disabled=this.busy || !!this.getSubmitted();
     if(this.getSubmitted()?.screenshots?.length) this.consent.checked=true;
     this.preview.replaceChildren(...this.items.map((item,i)=>{
       const figure=document.createElement('figure'),link=document.createElement('a'),img=document.createElement('img');
-      link.href=item.url; link.target='_blank'; link.rel='noopener'; link.title=`Open screenshot ${i+1} preview`;
-      img.src=item.url; img.alt=`Public screenshot ${i+1} preview`; link.append(img);
+      link.href=item.url; link.target='_blank'; link.rel='noopener'; link.title=t('Open screenshot {0} preview',i+1);
+      img.src=item.url; img.alt=t('Public screenshot {0} preview',i+1); link.append(img);
       const caption=document.createElement('figcaption');
-      caption.textContent=`Screenshot ${i+1} (${item.metadata.width} x ${item.metadata.height})`;
-      const remove=document.createElement('button'); remove.type='button'; remove.textContent='Remove';
-      remove.setAttribute('aria-label',`Remove screenshot ${i+1}`); remove.disabled=this.busy||this.getSending();
+      caption.textContent=t('Screenshot {0} ({1} x {2})',i+1,item.metadata.width,item.metadata.height);
+      const remove=document.createElement('button'); remove.type='button'; remove.textContent=t('Remove');
+      remove.setAttribute('aria-label',t('Remove screenshot {0}',i+1)); remove.disabled=this.busy||this.getSending();
       remove.onclick=()=>{URL.revokeObjectURL(item.url);this.items.splice(i,1);if(!this.getSubmitted())this.consent.checked=false;this.refresh();this.onChange();};
       figure.append(link,caption,remove);return figure;
     }));

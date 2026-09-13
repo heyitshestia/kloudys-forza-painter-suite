@@ -6,7 +6,9 @@ import {readSubmission,submissionBody} from '../src/submission.mjs';
 
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aipkAAAAASUVORK5CYII=','base64');
 const image=()=>new Blob([png],{type:'image/png'});
-const draft=()=>({schema:'kfps-support-report/1',id:crypto.randomUUID(),feature:'Editor',description:'Screenshot transport test',technical:{logs:[{source:'editor',text:'PRIVATE-TEST-LOG'}]}});
+// These cases isolate public screenshot transport with private diagnostics off.
+// Combined screenshot + checked full-log delivery is covered in worker.test.mjs.
+const draft=()=>({schema:'kfps-support-report/1',id:crypto.randomUUID(),feature:'Editor',description:'Screenshot transport test',include_technical:false,technical:{logs:[{source:'editor',text:'PRIVATE-TEST-LOG'}]}});
 async function report() {return normalizeReport({...draft(),screenshots:[await describeScreenshot(image())],screenshots_public:true});}
 const request=body=>new Request('https://example.test',{method:'POST',body});
 

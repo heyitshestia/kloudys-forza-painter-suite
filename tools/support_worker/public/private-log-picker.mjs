@@ -1,5 +1,7 @@
 import {readPackage,describePrivateLogs,logFilename} from './private-logs.mjs';
 import {redact} from './protocol.mjs';
+import {reportText} from './report-copy.mjs';
+import {t,logWarning} from './report-locale.mjs';
 
 // One bounded, temporary browser-local bundle survives the Discord sign-in
 // redirect. It never enters sessionStorage or the delivery-receipt database.
@@ -39,7 +41,7 @@ export class PrivateLogPicker {
       item.report=validate(item.report);
       this.item={...item,id:item.report.id};
       try {await cache('put',{id:item.report.id,logs:item.logs,at:Date.now()});}
-      catch {this.onError('Logs are ready in this tab, but could not be saved across sign-in or refresh. Reattach your saved report bundle afterwards.');}
+      catch {this.onError(reportText('cacheWarning'));}
       return item.report;
     } finally {this.busy=false;}
   }
@@ -54,25 +56,29 @@ export class PrivateLogPicker {
       const {metadata,bundle}=await describePrivateLogs(stored.logs,{redact});
       if(JSON.stringify(metadata)!==JSON.stringify(report.private_logs))throw Error('Saved private logs do not match this report.');
       this.item={id:report.id,logs:stored.logs,metadata,bundle};
-    } catch {if(report.private_logs)this.onError('Private logs could not be restored. Reattach the saved KFPS report bundle before sending.');}
+    } catch {if(report.private_logs)this.onError(reportText('restoreWarning'));}
     finally {this.busy=false;}
   }
   refresh(report,included=true) {
     const wanted=report.private_logs;
     if(this.url){URL.revokeObjectURL(this.url);this.url=null;}
     this.download.hidden=true;this.preview.textContent='';
-    if(!included){this.state.textContent='Private logs will not be sent because technical details are turned off.';return;}
-    if(!wanted){this.state.textContent='No complete application logs attached. Older reports may contain excerpts only.';return;}
-    if(!this.item||this.item.id!==report.id||this.item.metadata.sha256!==wanted.sha256) {
-      this.state.textContent='Private logs are missing. Add the saved report.kfps-report.json.gz bundle below before sending.';return;
+    if(!included){this.state.textContent=reportText('excludedLogs');return;}
+    if(!wanted){this.state.textContent=reportText('noLogs');return;}
+    if(!this.ready(report)) {
+      this.state.textContent=reportText(window.KFPSNativeReport===true?'nativeMissing':'browserMissing');return;
     }
-    this.state.textContent=`${wanted.files} retained log file(s), ${(wanted.size/1024).toFixed(1)} KB compressed. Private to Kloudy and authorized support staff.${wanted.warnings.length?' Some records could not be included: '+wanted.warnings.join(' '):' No retained files or valid records were omitted.'}`;
+    this.state.textContent=`${wanted.files} ${reportText('readyLogs')}; ${(wanted.size/1024).toFixed(1)} KB ${reportText('compressed')} ${wanted.warnings.length?reportText('omittedLogs')+wanted.warnings.map(logWarning).join(' '):reportText('noOmissions')}`;
     this.url=URL.createObjectURL(this.item.logs);this.download.href=this.url;this.download.download=logFilename(report.id,wanted.schema);this.download.hidden=false;
-    this.preview.textContent=this.item.bundle.files.map(file=>`${file.name} (${file.source_bytes} original bytes; ${file.omitted_lines} omitted lines)\n${file.text.slice(-1600)}`).join('\n\n');
+    this.preview.textContent=this.item.bundle.files.map(file=>t('{0} ({1} original bytes; {2} omitted lines)',file.name,file.source_bytes,file.omitted_lines)+`\n${file.text.slice(-1600)}`).join('\n\n');
+  }
+  ready(report) {
+    return !this.busy&&!!report.private_logs&&report.private_logs.files>0&&this.item?.id===report.id
+      &&this.item.logs?.size===report.private_logs.size&&JSON.stringify(this.item.metadata)===JSON.stringify(report.private_logs);
   }
   attach(report,upload) {
-    if(!report.private_logs)return upload;
-    if(!this.item||this.item.id!==report.id||JSON.stringify(this.item.metadata)!==JSON.stringify(report.private_logs))throw Error('Reattach the original saved KFPS report bundle. The complete private logs are missing.');
+    if(report.include_technical===false)return upload;
+    if(!this.ready(report))throw Error(reportText('noLogs'));
     const body=upload.body instanceof FormData?upload.body:new FormData();
     body.set('report',JSON.stringify(report));body.set('private_logs',this.item.logs,logFilename(report.id,report.private_logs.schema));
     return {body};

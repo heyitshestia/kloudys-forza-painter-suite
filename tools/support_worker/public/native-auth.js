@@ -1,9 +1,14 @@
 import {UUID} from '/protocol.mjs';
+import {language,applyLanguage,onLanguageChange,localizedError} from '/report-locale.mjs';
 const $ = id => document.getElementById(id);
-const ko = navigator.language.toLowerCase().startsWith('ko');
+const ko = language()==='ko';
 const t = (en, kr) => ko ? kr : en;
 const id = new URLSearchParams(location.search).get('ticket');
 let account;
+applyLanguage();
+// Approval state lives on the server; changing language never approves or sends.
+onLanguageChange(()=>location.reload());
+$('auth-info').textContent=t('Checking your sign-in request...', '로그인 요청을 확인하는 중입니다...');
 document.documentElement.lang = ko ? 'ko' : 'en';
 for (const [key, en, kr] of [
   ['auth-title', 'Sign in to KFPS', 'KFPS 로그인'],
@@ -20,17 +25,19 @@ async function request(path, options = {}) {
   return value;
 }
 function complete(status) {
+  $('notice').textContent = '';
   $('approval').hidden = true; $('auth-login').hidden = true;
   $('auth-info').textContent = status === 'ready'
     ? t('Authorized. Return to your KFPS report window; it will sign in automatically. You can close this tab.', '승인되었습니다. KFPS 신고 창으로 돌아가면 자동으로 로그인됩니다. 이 탭은 닫아도 됩니다.')
     : t('Sign-in cancelled. Your report has not been sent.', '로그인이 취소되었습니다. 보고서는 전송되지 않았습니다.');
 }
 async function decide(action) {
+  $('notice').textContent = '';
   $('approve').disabled = true; $('deny').disabled = true;
   try {
     const value = await request('/api/native-auth/' + action, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': account.csrf}, body: JSON.stringify({ticket: id, confirm: true, code: account.code})});
     complete(value.status);
-  } catch (error) { $('notice').textContent = error.message; $('deny').disabled = false; $('approve').disabled = !$('match-code').checked; }
+  } catch (error) { $('notice').textContent = localizedError(error.message); $('deny').disabled = false; $('approve').disabled = !$('match-code').checked; }
 }
 $('match-code').onchange = () => { $('approve').disabled = !$('match-code').checked; };
 $('approve').onclick = () => { if ($('match-code').checked) decide('approve'); };
@@ -46,4 +53,4 @@ try {
     $('approval-code').textContent = account.code;
     $('approval').hidden = false;
   }
-} catch (error) { $('auth-info').textContent = error.message; }
+} catch (error) { $('auth-info').textContent = localizedError(error.message); }

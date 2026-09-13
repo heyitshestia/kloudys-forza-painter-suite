@@ -11,8 +11,8 @@ from pathlib import Path
 import sys
 import time
 
-from PySide6.QtCore import QLocale, QLockFile, QTimer, QUrl, Qt
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtCore import QLockFile, QTimer, QUrl, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -20,6 +20,8 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMainWindow, QM
 from shiboken6 import delete, isValid
 
 from .support_report import FORM_ORIGIN
+from .support_browser import open_browser_url
+from .display_language import is_korean_display_language
 from .support_window_protocol import CHUNK_BYTES, read_source, report_id, window_name
 
 
@@ -44,7 +46,7 @@ class ReportPage(QWebEnginePage):
         if origin == self.form_origin and url.path() not in {"/auth/start", "/auth/callback", "/auth/native"}:
             return True
         if kind == QWebEnginePage.NavigationType.NavigationTypeLinkClicked and url.scheme() == "https":
-            QDesktopServices.openUrl(url)
+            open_browser_url(url)
         return False
 
     def javaScriptConsoleMessage(self, level, message, line, source):
@@ -60,7 +62,7 @@ class ReportWindow(QMainWindow):
         self.origin = origin
         if origin != FORM_ORIGIN and not (origin.startswith("http://127.0.0.1:") and QUrl(origin).path() == ""):
             raise ValueError("Untrusted support form origin.")
-        self.korean = QLocale.system().name().lower().startswith("ko")
+        self.korean = is_korean_display_language()
         self.closed = False
         self.identifier = ""
         self.data = b""
@@ -80,7 +82,8 @@ class ReportWindow(QMainWindow):
         panel = QWidget(self)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.status = QLabel(self.tr_text("Opening your report...", "보고서를 여는 중입니다..."), panel)
+        self._status_copy = ("Opening your report...", "보고서를 여는 중입니다...")
+        self.status = QLabel(self.tr_text(*self._status_copy), panel)
         self.status.setWordWrap(True)
         self.status.setMargin(12)
         self.retry = QPushButton(self.tr_text("Retry", "다시 시도"), panel)
@@ -110,7 +113,8 @@ class ReportWindow(QMainWindow):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(False)
-        script.setSourceCode(f"if(location.origin==={json.dumps(origin)})Object.defineProperty(window,'KFPSNativeReport',{{value:true}});")
+        script.setSourceCode(f"if(location.origin==={json.dumps(origin)}){{Object.defineProperty(window,'KFPSNativeReport',{{value:true}});"
+                             f"Object.defineProperty(window,'KFPSReportSystemLanguage',{{value:{json.dumps('ko' if self.korean else 'en')}}});}}")
         self.page.scripts().insert(script)
         self.page.permissionRequested.connect(lambda permission: permission.deny())
         self.page.newWindowRequested.connect(self.open_external)
@@ -138,6 +142,22 @@ class ReportWindow(QMainWindow):
 
     def tr_text(self, english, korean):
         return korean if self.korean else english
+
+    def set_status(self, english, korean):
+        self._status_copy = (english, korean)
+        self.status.setText(self.tr_text(english, korean))
+
+    def review_state(self, value):
+        self.auth_inflight = False
+        if not isinstance(value, dict):
+            return
+        language = value.get("language")
+        if language in ("ko", "en") and self.korean != (language == "ko"):
+            self.korean = language == "ko"
+            self.setWindowTitle(self.tr_text("KFPS - Report a Problem", "KFPS - 문제 신고"))
+            self.retry.setText(self.tr_text("Retry", "다시 시도"))
+            self.status.setText(self.tr_text(*self._status_copy))
+        self.launch_auth(value.get("request"))
 
     def open_report(self, identifier, *, confirm=True):
         identifier = report_id(identifier)
@@ -177,7 +197,7 @@ class ReportWindow(QMainWindow):
             self.fail("network")
             return
         self.status.show()
-        self.status.setText(self.tr_text("Adding your report and logs...", "보고서와 로그를 준비하는 중입니다..."))
+        self.set_status("Adding your report and logs...", "보고서와 로그를 준비하는 중입니다...")
         self.deadline = time.monotonic() + 90
         self.timer.start()
         self.auth_timer.start()
@@ -199,7 +219,7 @@ class ReportWindow(QMainWindow):
         if self.closed or self.auth_inflight or origin_of(self.page.url()) != self.origin:
             return
         self.auth_inflight = True
-        self.run("return window.KFPSReportSignIn?.request() || null;", self.launch_auth)
+        self.run("return {language:window.KFPSReportLanguage?.current(),request:window.KFPSReportSignIn?.request() || null};", self.review_state)
 
     def launch_auth(self, value):
         self.auth_inflight = False
@@ -212,10 +232,10 @@ class ReportWindow(QMainWindow):
         expected = f"{self.origin}/auth/native?ticket={identifier}"
         if value.get("url") != expected:
             return
-        # Windows' HTTPS handler opens the user's default browser, never a named engine.
-        success = QDesktopServices.openUrl(QUrl(expected))
+        route = open_browser_url(QUrl(expected))
+        success = route != "failed"
         self.run(f"window.KFPSReportSignIn.opened({json.dumps(identifier)},{json.dumps(bool(success))});return true;", lambda _: None)
-        self.logger.info("browser-authorization opened=%s", bool(success))
+        self.logger.info("browser-authorization launch-requested=%s route=%s", success, route)
 
     def poll(self):
         if self.closed or not self.identifier:
@@ -268,9 +288,9 @@ class ReportWindow(QMainWindow):
         self.epoch += 1
         self.inflight = False
         self.status.show()
-        self.status.setText(self.tr_text(
+        self.set_status(
             "Your report is saved. The review could not finish loading. Check your connection and retry; nothing has been sent automatically.",
-            "보고서는 저장되어 있습니다. 신고 화면을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요. 자동으로 전송된 내용은 없습니다."))
+            "보고서는 저장되어 있습니다. 신고 화면을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요. 자동으로 전송된 내용은 없습니다.")
         self.retry.show()
         self.logger.warning("review-failed code=%s", code)
 
@@ -279,8 +299,9 @@ class ReportWindow(QMainWindow):
 
     def open_external(self, request):
         url = request.requestedUrl()
-        if request.isUserInitiated() and url.scheme() == "https" and not url.userName() and not url.password():
-            QDesktopServices.openUrl(url)
+        local_fixture = self.origin.startswith("http://127.0.0.1:") and origin_of(url) == self.origin
+        if request.isUserInitiated() and (url.scheme() == "https" or local_fixture) and not url.userName() and not url.password():
+            open_browser_url(url)
 
     def download(self, request):
         if origin_of(self.page.url()) != self.origin:
@@ -404,7 +425,7 @@ def main(root: Path) -> int:
         logger.error("startup-failed type=%s", type(error).__name__)
         if app is None:
             app = QApplication(sys.argv[:1])
-        korean = QLocale.system().name().lower().startswith("ko")
+        korean = is_korean_display_language()
         QMessageBox.warning(None, "KFPS", "신고 창을 열지 못했습니다. 보고서는 저장되어 있습니다. KFPS-Updater.exe로 앱을 복구한 뒤 다시 시도해 주세요."
                             if korean else "The report window could not open. Your report is saved. Run KFPS-Updater.exe to repair the app and try again.")
         return 1

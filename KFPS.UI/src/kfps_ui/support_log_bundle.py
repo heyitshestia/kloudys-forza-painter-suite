@@ -51,8 +51,8 @@ def clean_record(value):
     return result
 
 
-def collect_retained_log_bundle(root: Path):
-    return _collect_log_bundle(root, include_workers=True)
+def collect_retained_log_bundle(root: Path, *, snapshot=None):
+    return _collect_log_bundle(root, include_workers=True, snapshot=snapshot)
 
 
 def collect_editor_log_bundle(root: Path):
@@ -60,10 +60,20 @@ def collect_editor_log_bundle(root: Path):
     return _collect_log_bundle(root, include_workers=False)
 
 
-def _collect_log_bundle(root: Path, *, include_workers):
+def _collect_log_bundle(root: Path, *, include_workers, snapshot=None):
     from .support_report import redact
     root = Path(root).resolve()
     files, warnings, total = [], [], 0
+    if snapshot is not None:
+        # Only the already allowlisted report context is supplied here, never raw
+        # QObject state or project data. Refilter each line for the archive contract.
+        text = "\n".join(redact(line, 60000) for line in
+                         json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False).splitlines()) + "\n"
+        total = len(text.encode("utf-8"))
+        if total > MAX_FILE_BYTES:
+            raise ValueError("Current session diagnostics exceed the attachment safety limit.")
+        files.append({"name": "app-status-0000.log", "modified_utc": datetime.now(timezone.utc).isoformat(),
+                      "source_bytes": total, "omitted_lines": 0, "text": text})
     paths = [(name, root / "runtime/fabric-editor" / name) for name in NAMES]
     if include_workers:
         found, discovery_warnings = discover_worker_logs(root, now=time.time(), retained=True)

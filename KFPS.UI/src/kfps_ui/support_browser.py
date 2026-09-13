@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import logging
 from pathlib import Path
 import sys
 
@@ -34,6 +35,36 @@ def default_browser_executable() -> str:
     except (OSError, ValueError, AttributeError):
         pass
     return ""
+
+
+def open_browser_url(url: QUrl) -> str:
+    """Open an ordinary web URL in the existing default-browser profile.
+
+    A started process/OS request is not proof that a tab appeared or login finished.
+    Callers must retain a manual URL and wait for the authorization protocol.
+    """
+    if (not url.isValid() or url.scheme() not in {"https", "http"}
+            or not url.host() or url.userName() or url.password()):
+        return "failed"
+    logger = logging.getLogger("kfps-report-window")
+    executable = default_browser_executable()
+    if executable:
+        try:
+            # No shell, browser-specific switches or temporary profile. The single
+            # encoded argument cannot become command-line options or private data.
+            started, _pid = QProcess.startDetached(executable, [url.toString(QUrl.ComponentFormattingOption.FullyEncoded)])
+        except (OSError, RuntimeError):
+            started = False
+        logger.info("browser-launch route=default-executable started=%s", bool(started))
+        if started:
+            return "default-executable"
+    try:
+        started = QDesktopServices.openUrl(url)
+    except (OSError, RuntimeError):
+        started = False
+    # Never log approval URLs, ticket IDs, paths or exception text here.
+    logger.info("browser-launch route=system-handler started=%s", bool(started))
+    return "system-handler" if started else "failed"
 
 
 def open_support_handoff(handoff: str, *, paths=None) -> str:

@@ -83,10 +83,10 @@ class ReportService(QObject):
         report = build_support_report(self.paths.app_root, context, since=self._started)
         from .support_log_bundle import collect_retained_log_bundle
         try:
-            attachment = collect_retained_log_bundle(self.paths.app_root)
+            attachment = collect_retained_log_bundle(self.paths.app_root, snapshot=report["technical"])
         except Exception:
             attachment = None
-            report["technical"]["collection_warning"] = "Complete application logs could not be prepared. Only the reviewed diagnostic summary is included."
+            report["technical"]["collection_warning"] = "Application logs could not be prepared. Sending with technical details enabled is blocked. Reopen Report a Problem to retry, or explicitly turn technical details off to send without logs."
         if attachment is not None:
             report["private_logs"] = attachment[0]
         path, handoff = save_handoff(self.paths.app_root, report, log_attachment=attachment)
@@ -115,9 +115,11 @@ class ReportService(QObject):
             opened = open_support_handoff(result["handoff"], paths=self.paths)
             bundle_name = "report.kfps-report.json.gz" if result["report"].get("private_logs") else "report.json"
             self._support_status = {
-                "review": "KFPS report review opened with logs included. Nothing is sent until you press Send.",
+                "review": ("KFPS report review opened with logs included. Nothing is sent until you press Send."
+                           if result["report"].get("private_logs") else
+                           "KFPS report review opened, but log collection failed. Sending with technical details enabled is blocked."),
                 "prefilled": "Review opened in your default browser. Nothing is sent until you press Send.",
-                "manual": f"Report saved. The form opened in your default browser. Use Add a saved KFPS report and choose {bundle_name} from Saved reports.",
+                "manual": f"Report saved. The form opened in your default browser. Use Reopen a saved report and choose {bundle_name} from Saved reports.",
                 "failed": "Report saved. The KFPS report window could not open. Run KFPS-Updater.exe to repair the app, or find your report in Saved reports.",
             }.get(opened, "Report saved. Your report is available in Saved reports.")
         self.log.append(self._support_status, update_status=False)

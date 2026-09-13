@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -15,16 +16,19 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "KFPS.UI/src"), str(ROOT / "KFPS.Editor/src"), str(ROOT)]
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from kfps_ui.support_log_bundle import collect_retained_log_bundle
 from kfps_ui.support_report import build_support_report, save_handoff
-from kfps_ui.support_window import ReportWindow
+from kfps_ui.support_window import ReportWindow, ReportPage
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
+    parser.add_argument("--browser-mode", choices=("direct", "handler", "manual", "silent", "real-browser"), default="direct")
+    parser.add_argument("--display-language", choices=("en", "ko"), default="en")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / "runtime/test-runs"):
@@ -50,11 +54,21 @@ def main():
     events = []
     ticket = str(uuid.uuid4())
     approved = False
+    browser_attempts = []
+    manual_clicked = False
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):
             pass
         def do_GET(self):
+            nonlocal approved
             path = self.path.split("?",1)[0]
+            if self.path == '/auth/native?ticket=' + ticket:
+                approved = True
+                events.append('sign-in')
+                browser_attempts.append({'route':'real-browser-request','userAgent':self.headers.get('User-Agent','')})
+                body = b'<!doctype html><title>KFPS Browser Launch Test</title><h1>Default browser launch verified</h1><p>This is a local synthetic test, not Discord. No report was sent. You can close this tab.</p>'
+                self.send_response(200); self.send_header('Content-Type','text/html'); self.end_headers(); self.wfile.write(body)
+                return
             if path == "/auth/start":
                 events.append("sign-in")
                 self.send_response(303)
@@ -105,8 +119,17 @@ def main():
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    console_errors=[]
+    class FixturePage(ReportPage):
+        def javaScriptConsoleMessage(self, level, message, line, source):
+            if level == self.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
+                console_errors.append({"message":message,"line":line,"source":source})
+            super().javaScriptConsoleMessage(level,message,line,source)
+    page_patch=patch('kfps_ui.support_window.ReportPage',FixturePage)
+    page_patch.start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    window = ReportWindow(fixture,origin=origin,background=True)
+    with patch('kfps_ui.support_window.is_korean_display_language',return_value=args.display_language=='ko'):
+        window = ReportWindow(fixture,origin=origin,background=True)
     window.open_report(report["id"],confirm=False)
     checks = []
     failure = []
@@ -144,16 +167,18 @@ def main():
             app.quit()
             return
         busy = True
-        evaluate("({ready:!!window.KFPSReportTransfer,logs:document.getElementById('private-log-state')?.textContent||'',identity:document.getElementById('identity')?.textContent||'',description:document.getElementById('description')?.value||'',url:location.href})",advance)
+        evaluate("({ready:!!window.KFPSReportTransfer,logsReady:!document.getElementById('download-private-logs')?.hidden,language:document.documentElement.lang,identity:document.getElementById('identity')?.textContent||'',description:document.getElementById('description')?.value||'',url:location.href,pending:!document.getElementById('native-signin')?.hidden,link:document.getElementById('native-link')?.value||'',href:document.getElementById('native-reopen')?.getAttribute('href')||''})",advance)
     def advance(value):
-        nonlocal phase,busy,window,expected_epoch
+        nonlocal phase,busy,window,expected_epoch,manual_clicked
         busy = False
         try:
-            if not isinstance(value,dict) or not value.get("ready") or "3 retained" not in value.get("logs",""):
+            if not isinstance(value,dict) or not value.get("ready") or not value.get("logsReady"):
                 return
             if window.epoch<expected_epoch or window.timer.isActive():
                 return
             if phase == 0:
+                check(value['language']==args.display_language,'Windows display language selects the entire form')
+                check(window.korean==(args.display_language=='ko'),'native chrome matches display language')
                 check("#" not in value["url"],"large report never placed in URL")
                 check(not events,"automatic attachment does not upload logs")
                 check(not window.retry.isVisible(),"native handoff finishes without retry or file selection")
@@ -161,9 +186,20 @@ def main():
                 phase = 1
                 expected_epoch=window.epoch
                 evaluate("(()=>{document.getElementById('description').value='Edited native report text';document.getElementById('description').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('login').click();return true;})()",lambda _:None)
-            elif phase == 1 and "Signed in as" in value["identity"]:
+            elif phase == 1 and args.browser_mode in ('manual','silent') and not manual_clicked and browser_attempts and value['pending']:
+                check(value['description']=='Edited native report text','blocked/silent browser launch preserves the edited draft')
+                check(value['href']==origin+'/auth/native?ticket='+ticket and value['link']==value['href'],'manual and copyable links retain the same approval ticket')
+                window.view.grab().save(str(output / 'native-browser-fallback.png'))
+                manual_clicked = True
+                def click(value):
+                    if isinstance(value,dict):
+                        QTest.mouseClick(window.view.focusProxy() or window.view, Qt.MouseButton.LeftButton,
+                                         Qt.KeyboardModifier.NoModifier, QPoint(value['x'],value['y']))
+                evaluate("(()=>{const a=document.getElementById('native-reopen');a.scrollIntoView({block:'center'});const r=a.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()",click)
+            elif phase == 1 and "Native Test" in value["identity"]:
                 check(value["description"]=="Edited native report text","report text and all logs survive sign-in")
                 check(window.epoch==expected_epoch,"default-browser authorization never navigates the native report")
+                check(not value['pending'] and not value['link'] and not value['href'],'completed sign-in removes stale approval links')
                 phase = 2
                 expected_epoch=window.epoch+1
                 window.reload_review()
@@ -182,7 +218,8 @@ def main():
                 window.hide()
                 QTimer.singleShot(500,reopen)
             elif phase == 5:
-                check("Signed in as Native Test" in value["identity"],"Discord-style session persists across reviewer restart")
+                check("Native Test" in value["identity"],"Discord-style session persists across reviewer restart")
+                check(value['language']==args.display_language,'display language persists across reviewer restart')
                 check(value['description']=='Edited native report text','edited report survives native reviewer restart')
                 check(package.is_file(),"closing reviewer preserves local report package")
                 app.quit()
@@ -191,7 +228,8 @@ def main():
             app.quit()
     def reopen():
         nonlocal phase,window,expected_epoch
-        window=ReportWindow(fixture,origin=origin,background=True)
+        with patch('kfps_ui.support_window.is_korean_display_language',return_value=args.display_language=='ko'):
+            window=ReportWindow(fixture,origin=origin,background=True)
         window.open_report(report["id"],confirm=False)
         phase=5
         expected_epoch=0
@@ -199,21 +237,35 @@ def main():
     timer.setInterval(150)
     timer.timeout.connect(tick)
     timer.start()
-    def open_browser(url):
+    def open_browser(url,route):
         nonlocal approved
         check(url.toString()==origin+'/auth/native?ticket='+ticket,'native sign-in uses system default browser with approval URL only')
+        browser_attempts.append({'route':route,'manual':manual_clicked})
+        if route=='direct' and args.browser_mode=='handler':
+            return False
+        if args.browser_mode in ('manual','silent') and not manual_clicked:
+            return args.browser_mode=='silent'
         events.append('sign-in')
         approved=True
         return True
+    def direct_browser(executable,arguments):
+        from PySide6.QtCore import QUrl
+        check(executable=='C:/Synthetic Browser/browser.exe' and len(arguments)==1,'explicit default executable receives a single URL argument')
+        return open_browser(QUrl(arguments[0]),'direct'),42
     try:
-        with patch('kfps_ui.support_window.QDesktopServices.openUrl',side_effect=open_browser):
+        with ExitStack() as stack:
+            if args.browser_mode!='real-browser':
+                stack.enter_context(patch('kfps_ui.support_browser.default_browser_executable',return_value='C:/Synthetic Browser/browser.exe'))
+                stack.enter_context(patch('kfps_ui.support_browser.QProcess.startDetached',side_effect=direct_browser))
+                stack.enter_context(patch('kfps_ui.support_browser.QDesktopServices.openUrl',side_effect=lambda url:open_browser(url,'handler')))
             app.exec()
     finally:
         timer.stop()
         window.shutdown()
         server.shutdown()
         server.server_close()
-    result={"passed":not failure,"checks":checks,"failures":failure,"packageBytes":package.stat().st_size,"logFiles":3,"realDiscordPosts":0,"fixtureEvents":events}
+        page_patch.stop()
+    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":3,"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts}
     (output / "results.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result))
     return 0 if result["passed"] else 1

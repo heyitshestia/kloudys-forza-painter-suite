@@ -94,6 +94,31 @@ class FullEditorLogTests(unittest.TestCase):
     def test_missing_logs_do_not_add_empty_attachment(self):
         self.assertIsNone(bundle.collect_editor_log_bundle(self.root))
 
+    def test_fresh_app_includes_current_session_and_refilters_sensitive_text(self):
+        from kfps_ui.support_report import build_support_report
+        report = build_support_report(self.root, {"page":"editor", "version":"3.1.78",
+            "log":"Application opened\npassword=PRIVATE_SECRET\nC:\\Users\\PRIVATE_USER\\image.png"},
+            since=0, collect=lambda:{})
+        metadata, blob = bundle.collect_retained_log_bundle(self.root, snapshot=report["technical"])
+        data = json.loads(gzip.decompress(blob))
+        self.assertEqual(metadata["files"], 1)
+        self.assertEqual(data["files"][0]["name"], "app-status-0000.log")
+        self.assertIn("3.1.78", data["files"][0]["text"])
+        self.assertIn("Application opened", data["files"][0]["text"])
+        self.assertNotIn("PRIVATE", data["files"][0]["text"])
+        self.assertFalse(metadata["warnings"])
+
+    def test_session_snapshot_survives_omitted_retained_file(self):
+        (self.runtime / "desktop.log").write_bytes(b"X"*(bundle.MAX_FILE_BYTES+1))
+        metadata, blob = bundle.collect_retained_log_bundle(self.root, snapshot={"app":{"page":"editor"}})
+        self.assertEqual(metadata["files"], 1)
+        self.assertTrue(metadata["warnings"])
+        self.assertIn("editor", json.loads(gzip.decompress(blob))["files"][0]["text"])
+
+    def test_archive_failure_never_returns_summary_as_success(self):
+        with patch.object(bundle, "MAX_ARCHIVE_BYTES", 1), self.assertRaisesRegex(ValueError, "No log attachment"):
+            bundle.collect_retained_log_bundle(self.root, snapshot={"app":{"page":"editor"}})
+
     def test_all_retained_worker_logs_include_old_runs_and_complete_lines(self):
         examples = [
             "runtime/qml-transfer-logs/transfer-20260801-120000.log",

@@ -135,6 +135,33 @@ class SupportReportTests(unittest.TestCase):
             self.assertEqual(open_url.call_count, 0)
             service.openSupportForm("editor"); self.assertEqual(open_url.call_count, 0)
 
+    def test_collection_failure_never_claims_logs_were_attached(self):
+        service = self.service()
+        with patch("kfps_ui.report_service.build_support_report", side_effect=lambda *a,**k:self.build()), \
+             patch("kfps_ui.support_log_bundle.collect_retained_log_bundle", side_effect=OSError("PRIVATE failure")), \
+             patch("kfps_ui.report_service.open_support_handoff", return_value="review"):
+            service.openSupportForm("editor")
+            self.wait(lambda: not service.supportBusy)
+        report=json.loads(Path(service.latestPath).read_text())
+        self.assertNotIn("private_logs", report)
+        self.assertIn("blocked", report["technical"]["collection_warning"])
+        self.assertIn("blocked", service.supportStatus)
+        self.assertNotIn("PRIVATE", json.dumps(report))
+
+    def test_fresh_app_button_prepares_archive_without_retained_files(self):
+        import gzip
+        service=self.service()
+        with patch("kfps_ui.report_service.build_support_report", side_effect=lambda *a,**k:self.build()), \
+             patch("kfps_ui.report_service.open_support_handoff", return_value="review"):
+            service.openSupportForm("editor")
+            self.wait(lambda: not service.supportBusy)
+        path=Path(service.latestPath)
+        report=json.loads(path.read_text())
+        self.assertGreaterEqual(report["private_logs"]["files"],1)
+        package=json.loads(gzip.decompress((path.parent/"report.kfps-report.json.gz").read_bytes()))
+        self.assertEqual(package["report"]["private_logs"],report["private_logs"])
+        self.assertIn("logs included",service.supportStatus)
+
     def test_actual_button_worker_collects_disk_logs_off_ui_thread(self):
         from kfps_ui import support_logs
         path = self.root / "runtime/fabric-editor/desktop.log"

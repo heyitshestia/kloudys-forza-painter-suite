@@ -2,9 +2,16 @@ import {InputError,MAX_BYTES,normalizeReport,readJsonLimited,readBytesLimited,re
 import {MAX_SCREENSHOTS_BYTES,describeScreenshot,screenshotName} from '../public/screenshots.mjs';
 import {MAX_LOG_BYTES,describePrivateLogs,logFilename} from '../public/private-logs.mjs';
 
+const missingLogs = () => new InputError('Compressed logs are required while technical details are enabled. Reopen Report a Problem in KFPS to prepare them, or turn technical details off to send without logs.');
+
+function requireLogs(report) {
+  if (report.include_technical !== false && (!report.private_logs || report.private_logs.files < 1)) throw missingLogs();
+}
+
 export async function readSubmission(request) {
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('multipart/form-data;')) {
     const report = normalizeReport(await readJsonLimited(request));
+    requireLogs(report);
     if (report.screenshots?.length) throw new InputError('Reattach the original screenshots before retrying this report.');
     if (report.private_logs) throw new InputError('Reattach the saved KFPS report bundle to include the complete private logs.');
     return {report,files:[],privateLogs:null};
@@ -18,6 +25,7 @@ export async function readSubmission(request) {
   let input;
   try { input = JSON.parse(raw); } catch { throw new InputError('Invalid JSON report.'); }
   const report = normalizeReport(input), files = [], metadata = report.screenshots || [];
+  requireLogs(report);
   const keys = [...form.keys()];
   if (keys.length !== metadata.length+1+Number(!!report.private_logs) || new Set(keys).size !== keys.length
       || keys.some(key=>key!=='report'&&!(report.private_logs&&key==='private_logs')&&!metadata.some((_,i)=>key===`screenshot[${i}]`))) throw new InputError('Unexpected or missing attachment files.');

@@ -6,6 +6,12 @@ export function nativeSignIn({api, origin, changed, authenticated, now = () => D
   const publish = error => changed(attempt ? {...attempt, error: error || ''} : null);
   const post = path => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}', signal: AbortSignal.timeout(15000)});
   const clear = () => { if (timer !== null) unschedule(timer); timer = null; };
+  const active = () => {
+    if (attempt && now() >= attempt.expires_at) {
+      clear(); attempt = null; publish(); changed({error: 'expired'});
+    }
+    return !!attempt;
+  };
   async function poll(epoch) {
     if (!attempt || epoch !== generation) return;
     if (now() >= attempt.expires_at) { attempt = null; publish(); changed({error: 'expired'}); return; }
@@ -33,7 +39,7 @@ export function nativeSignIn({api, origin, changed, authenticated, now = () => D
         const result = await post('/api/native-auth/start');
         if (epoch !== generation) return;
         const target = new URL(result.url);
-        if (!UUID.test(result.id || '') || target.origin !== origin || target.pathname !== '/auth/native'
+        if (!UUID.test(result.id || '') || target.origin !== origin || target.pathname !== '/auth/native' || target.username || target.password || target.hash
           || target.search !== '?ticket=' + result.id || !/^[A-F0-9]{4}-[A-F0-9]{4}$/.test(result.code)
           || !Number.isFinite(result.expires_at) || result.expires_at <= now() || result.expires_at > now() + 301000) throw Error('Invalid authorization response.');
         attempt = {...result, launch: true}; publish();
@@ -41,9 +47,15 @@ export function nativeSignIn({api, origin, changed, authenticated, now = () => D
       } catch { if (epoch === generation) changed({error: 'start'}); }
       finally { starting = false; }
     },
-    request() { return attempt?.launch ? {id: attempt.id, url: attempt.url} : null; },
-    opened(id, success) { if (attempt?.id === id) { attempt.launch = false; publish(success ? '' : 'browser'); } },
-    reopen() { if (attempt) { attempt.launch = true; publish(); } },
+    request() { return active() && attempt.launch ? {id: attempt.id, url: attempt.url} : null; },
+    opened(id, success) { if (active() && attempt.id === id && attempt.launch) { attempt.launch = false; publish(success ? '' : 'browser'); } },
+    reopen() { if (active()) { attempt.launch = true; publish(); } },
+    manual() {
+      if (!active()) return false;
+      // A real target=_blank click also works when the native polling bridge is
+      // unavailable. Suppress a duplicate automatic launch and any late reply.
+      attempt.launch = false; publish(); return true;
+    },
     async cancel() {
       ++generation; clear(); attempt = null; starting = true; publish();
       try { await post('/api/native-auth/cancel'); } catch { /* Expiry still closes an unreachable request. */ }

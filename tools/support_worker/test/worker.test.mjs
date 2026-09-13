@@ -7,13 +7,14 @@ import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {SCHEMA, normalizeReport, readJsonLimited, validWebhook, publicSummary, redact} from '../public/protocol.mjs';
 import {describeScreenshot} from '../public/screenshots.mjs';
 import {submissionBody} from '../src/submission.mjs';
+import {logBlob,logMetadata} from './log-fixture.mjs';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
 const secret = 'test-only-not-a-real-secret-1234567890';
 const user = {id: '111111111111111111', name: 'Synthetic Tester'};
 const env = () => ({PUBLIC_ORIGIN: 'https://support.example', SESSION_SECRET: secret, DISCORD_CLIENT_ID: '222222222222222222', DISCORD_CLIENT_SECRET: 'test-client', DELIVERY_ENABLED: '1', DISCORD_GUILD_ID: '333333333333333333', SUPPORT_CHANNEL_ID: '444444444444444444', PRIVATE_CHANNEL_ID: '555555555555555555', PUBLIC_WEBHOOK_URL: 'https://discord.com/api/webhooks/666666666666666666/' + 'a'.repeat(40), PRIVATE_WEBHOOK_URL: 'https://discord.com/api/webhooks/777777777777777777/' + 'b'.repeat(40), DISCORD_JOIN_URL: 'https://discord.com/channels/333333333333333333/444444444444444444'});
-const report = () => normalizeReport({schema: SCHEMA, id: crypto.randomUUID(), created_at: '2026-09-06T12:00:00Z', feature: 'Editor', title: 'Synthetic test', description: 'Dragging shapes becomes slow.', technical: {app: {version: '3.1.60'}, hardware: {gpus: [{name: 'Synthetic GPU'}]}}});
+const report = () => normalizeReport({schema: SCHEMA, id: crypto.randomUUID(), created_at: '2026-09-06T12:00:00Z', feature: 'Editor', title: 'Synthetic test', description: 'Dragging shapes becomes slow.', technical: {app: {version: '3.1.60'}, hardware: {gpus: [{name: 'Synthetic GPU'}]}},private_logs:logMetadata});
 class Storage {
   constructor() { this.data = new Map(); }
   async get(k) { return structuredClone(this.data.get(k)); }
@@ -34,11 +35,15 @@ function fixture() {
   };
   return {e, storage, ctx, object, calls};
 }
-async function request(e, data, extra = {}) {
+async function request(e, data, extra = {}, logs = logBlob) {
   const token = await sign({...user, kind:'session', csrf:'csrf-test', exp:Date.now()+60000}, secret);
-  return worker.fetch(new Request(e.PUBLIC_ORIGIN + '/api/reports', {method:'POST', headers:{'Content-Type':'application/json', Origin:e.PUBLIC_ORIGIN, Cookie:`kfps_support=${token}`, 'X-CSRF-Token':'csrf-test', ...extra}, body:JSON.stringify(data)}),e);
+  const body = data.private_logs ? submissionBody(data,[],logs) : JSON.stringify(data);
+  return worker.fetch(new Request(e.PUBLIC_ORIGIN + '/api/reports', {method:'POST', headers:{...(!data.private_logs?{'Content-Type':'application/json'}:{}), Origin:e.PUBLIC_ORIGIN, Cookie:`kfps_support=${token}`, 'X-CSRF-Token':'csrf-test', ...extra}, body}),e);
 }
-const send = (object, r) => object.fetch(new Request('https://report.internal/send', {method:'POST', body:JSON.stringify({report:r,user})}));
+const send = (object, r) => {
+  const body=submissionBody(r,[],logBlob);body.set('user',JSON.stringify(user));
+  return object.fetch(new Request('https://report.internal/send', {method:'POST',body}));
+};
 
 test('save correlation retains only canonical request identifiers and bounded numeric fields', () => {
   const id='358cd0bc-4e38-4bcc-8400-d3fe4e8b6b72';
@@ -85,10 +90,11 @@ test('accepted commit and checkpoint ranges survive collection without arbitrary
 
 test('real Python disk-log report survives review and private attachment, never public post', async () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
-  const code = `import json, sys, tempfile, time
+  const code = `import base64, json, sys, tempfile, time
 from pathlib import Path
 sys.path.insert(0, 'KFPS.UI/src')
 from kfps_ui.support_report import build_support_report
+from kfps_ui.support_log_bundle import collect_retained_log_bundle
 from tools.fabric_editor_diagnostics import EditorDiagnostics
 with tempfile.TemporaryDirectory() as directory:
  root=Path(directory)
@@ -99,8 +105,11 @@ with tempfile.TemporaryDirectory() as directory:
  logger.accept({'schema':1,'page':'a'*32,'seq':1,'metrics':{'frameMax':280},'state':{'layers':355,'editorRevision':2026091101},'events':[{'kind':'long-task','duration':280,'action':'rotate','message':'DO_NOT_SEND'}]})
  logger.close()
  report=build_support_report(root, {'page':'editor','log':'Synthetic app error','services':{'editor':{'lastError':'Dragging shapes becomes slow.'}}}, since=time.time()-20, collect=lambda:{})
- print(json.dumps(report))`;
-  const raw = JSON.parse(execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c', code], {cwd: root, encoding: 'utf8'}));
+ attachment=collect_retained_log_bundle(root,snapshot=report['technical'])
+ report['private_logs']=attachment[0]
+ print(json.dumps({'report':report,'logs':base64.b64encode(attachment[1]).decode('ascii')}))`;
+  const prepared = JSON.parse(execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c', code], {cwd: root, encoding: 'utf8'}));
+  const raw=prepared.report, retained=new Blob([Buffer.from(prepared.logs,'base64')],{type:'application/gzip'});
   raw.technical.logs.push(...Array.from({length: 8}, (_, i) => ({source: `worker-${i}`, text: `Error: worker ${i} failed`, age_seconds: 25, previous_session: true})));
   const reviewed = normalizeReport(raw);
   assert.deepEqual(normalizeReport(reviewed), reviewed);
@@ -110,11 +119,13 @@ with tempfile.TemporaryDirectory() as directory:
   assert.equal(reviewed.technical.editor.recent[0].action, 'rotate');
   assert.equal(JSON.stringify(reviewed).includes('DO_NOT_SEND'), false);
   const f = fixture();
-  assert.equal((await (await request(f.e, reviewed)).json()).status, 'delivered');
+  const response=await request(f.e, reviewed,{},retained);
+  assert.equal((await response.json()).status, 'delivered');
   const posts = f.calls.filter(c => c.options.method === 'POST');
   const attachment = JSON.parse(await posts[0].options.body.get('files[0]').text());
   assert.deepEqual(attachment.technical.editor, reviewed.technical.editor);
   assert.deepEqual(attachment.technical.logs, reviewed.technical.logs);
+  assert.deepEqual(Buffer.from(await posts[0].options.body.get('files[1]').arrayBuffer()),Buffer.from(await retained.arrayBuffer()));
   assert.equal(posts[1].options.body.includes('GPU reset'), false);
   assert.equal(posts[1].options.body.includes('worker-7'), false);
 });
@@ -227,6 +238,33 @@ test('wrong configured channel cannot receive private diagnostics', async () => 
   globalThis.fetch=async(url,opts)=>{ const response=await fetch(url,opts); if(opts?.method!=='POST') return Response.json({type:1,guild_id:f.e.DISCORD_GUILD_ID,channel_id:'123123123123123123'}); return response; };
   assert.equal((await (await request(f.e,report())).json()).status,'blocked'); assert.equal(f.calls.filter(c=>c.options.method==='POST').length,0);
 });
+test('checked missing archives never reach either destination or create a receipt',async()=>{
+  const f=fixture(),r=report();delete r.private_logs;
+  assert.equal((await request(f.e,r)).status,400);
+  const internal=await f.object.fetch(new Request('https://report.internal/send',{method:'POST',body:JSON.stringify({report:r,user})}));
+  assert.equal(internal.status,400);assert.equal(f.calls.length,0);
+  assert.equal(await f.storage.get('report:'+r.id),undefined);
+  const explicit=normalizeReport({...r,include_technical:false});
+  assert.equal((await(await request(f.e,explicit)).json()).status,'delivered');
+  const body=f.calls.find(c=>c.kind==='private'&&c.options.method==='POST').options.body;
+  assert.equal(body.get('files[1]'),null);
+  assert.deepEqual(JSON.parse(await body.get('files[0]').text()).technical,{});
+});
+test('failed private upload cannot publish a summary-only checked report',async()=>{
+  const f=fixture(),r=report(),fetch=globalThis.fetch;let observed=0;
+  globalThis.fetch=async(url,opts)=>{
+    if(opts?.method==='POST'){
+      assert(String(url).includes('777777777777777777'));
+      assert.deepEqual(Buffer.from(await opts.body.get('files[1]').arrayBuffer()),Buffer.from(await logBlob.arrayBuffer()));
+      observed++;return new Response('{}',{status:429});
+    }
+    return fetch(url,opts);
+  };
+  assert.equal((await(await request(f.e,r)).json()).status,'retryable');
+  assert.equal(observed,1);
+  const state=await f.storage.get('report:'+r.id);
+  assert.equal(state.private.state,'pending');assert.equal(state.public.state,'pending');
+});
 test('lost POST acknowledgment and restarted sending state never automatically repost', async () => {
   const f=fixture(), r=report(), fetch=globalThis.fetch;
   globalThis.fetch=async(url,opts)=>{ if(opts?.method==='POST') throw new Error('timeout after remote acceptance'); return fetch(url,opts); };
@@ -264,7 +302,7 @@ async function screenshotFixture() {
 }
 async function upload(e,r,files,extra={}) {
   const token=await sign({...user,kind:'session',csrf:'csrf-test',exp:Date.now()+60000},secret);
-  return worker.fetch(new Request(e.PUBLIC_ORIGIN+'/api/reports',{method:'POST',headers:{Origin:e.PUBLIC_ORIGIN,Cookie:`kfps_support=${token}`,'X-CSRF-Token':'csrf-test',...extra},body:submissionBody(r,files)}),e);
+  return worker.fetch(new Request(e.PUBLIC_ORIGIN+'/api/reports',{method:'POST',headers:{Origin:e.PUBLIC_ORIGIN,Cookie:`kfps_support=${token}`,'X-CSRF-Token':'csrf-test',...extra},body:submissionBody(r,files,logBlob)}),e);
 }
 test('real screenshot route publishes images only with the public post and deduplicates',async()=>{
   const f=fixture(),{r,png}=await screenshotFixture();
@@ -272,8 +310,9 @@ test('real screenshot route publishes images only with the public post and dedup
   for(const response of results)assert.equal((await response.json()).status,'delivered');
   const posts=f.calls.filter(c=>c.options.method==='POST');assert.equal(posts.length,2);
   const privateBody=posts[0].options.body;
-  assert.equal([...privateBody.keys()].filter(k=>k.startsWith('files')).length,1);
+  assert.equal([...privateBody.keys()].filter(k=>k.startsWith('files')).length,2);
   assert.equal(privateBody.get('files[0]').type,'application/json');
+  assert.deepEqual(Buffer.from(await privateBody.get('files[1]').arrayBuffer()),Buffer.from(await logBlob.arrayBuffer()));
   const publicBody=posts[1].options.body,payload=JSON.parse(publicBody.get('payload_json'));
   assert.deepEqual(Buffer.from(await publicBody.get('files[0]').arrayBuffer()),Buffer.from(await png.arrayBuffer()));
   assert.match(payload.content,/shared publicly/);assert(!payload.content.includes('Synthetic GPU'));

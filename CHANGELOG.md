@@ -1,5 +1,23 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.79
+
+### Reporting Language and Privacy
+- Report a Problem now opens in Korean when your Windows display language is Korean. A language menu lets you choose English, Korean or your system language and remembers your choice.
+- Translated the full report window, including screenshots, log explanations, privacy information, login help, errors and delivery messages. Switching languages keeps your text and attachments in place.
+- Added an expanded privacy notice explaining what is collected, what is filtered out, who can see each part, how long copies remain, and how to contact us about privacy or deletion.
+
+### More Reliable Reports
+- Improved opening Discord sign-in in your normal Windows default browser. If it does not open, the report window keeps an Open in default browser link and a backup link you can copy.
+- Logs are collected automatically from supported KFPS sections, including a current-session diagnostic record. The report window no longer asks you to find them manually.
+- When Include technical details is checked, compressed logs must be attached. If preparation or upload fails, reporting shows an error instead of silently sending only a summary. You can still uncheck the option to send without private technical details or logs.
+- Improved failed-login and report retry messages. Drafts and prepared logs remain available through sign-in and reopening the report window.
+
+### Notes
+- Nothing is submitted just by opening the report window or signing in. Press Send report when you are ready.
+- Screenshots you attach are public; technical details and logs go to the private support channel. Existing log size and retention safeguards remain, and known omissions are shown.
+- Older reports without compressed logs must be prepared again in KFPS, or sent with private technical details turned off.
+
 ## 3.1.78
 
 ### Editor Update

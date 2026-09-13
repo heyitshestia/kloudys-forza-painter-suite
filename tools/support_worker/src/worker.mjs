@@ -201,6 +201,11 @@ export class ReportStore {
       files = (report.screenshots||[]).map((_,i)=>form.get(`screenshot[${i}]`));
       privateLogs=report.private_logs?form.get('private_logs'):null;
     } else ({report,user} = await request.json());
+    if (report.include_technical !== false && (!report.private_logs || report.private_logs.files < 1
+        || !privateLogs || privateLogs.size !== report.private_logs.size)) {
+      return json({error: 'Compressed logs are required while technical details are enabled. Reopen Report a Problem in KFPS, or turn technical details off.'}, 400);
+    }
+    if (report.include_technical === false && (privateLogs || report.private_logs)) return json({error:'Private logs require technical-details consent.'},400);
     const storage = this.ctx.storage;
     const recordKey = `report:${report.id}`, hash = await digest(report);
     let record = await storage.get(recordKey);

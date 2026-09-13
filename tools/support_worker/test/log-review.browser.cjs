@@ -3,9 +3,13 @@ const path = require('node:path');
 const http = require('node:http');
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
+const {pathToFileURL}=require('node:url');
+const {gzipSync}=require('node:zlib');
 
 (async () => {
   const output = path.resolve(process.argv[2]);
+  const {logBlob,logMetadata}=await import(pathToFileURL(path.join(__dirname,'log-fixture.mjs')));
+  const {readSubmission}=await import(pathToFileURL(path.join(__dirname,'../src/submission.mjs')));
   fs.mkdirSync(output, {recursive:true});
   const files = new Set(fs.readdirSync(path.join(__dirname, '../public')));
   const server = http.createServer((req, res) => {
@@ -28,7 +32,11 @@ const assert = require('node:assert/strict');
       if (url.pathname === '/api/config') return route.fulfill({json:{enabled:true,join_url:'https://discord.gg/XT8dG8bDKy'}});
       if (url.pathname === '/api/session') return route.fulfill({json:{authenticated:true,name:'Synthetic Tester',csrf:'synthetic'}});
       if (url.pathname.startsWith('/api/reports')) {
-        if (route.request().method() === 'POST') posts.push(route.request().postDataJSON());
+        if (route.request().method() === 'POST') {
+          const req=route.request(),accepted=await readSubmission(new Request(req.url(),{method:'POST',headers:req.headers(),body:req.postDataBuffer()}));
+          assert.deepEqual(Buffer.from(await accepted.privateLogs.arrayBuffer()),Buffer.from(await logBlob.arrayBuffer()));
+          posts.push(accepted.report);
+        }
         return route.fulfill({json:{id:draft.id,status:'delivered',message:'Synthetic delivery only.',public_url:null}});
       }
       await route.continue();
@@ -36,7 +44,9 @@ const assert = require('node:assert/strict');
     const draft = {schema:'kfps-support-report/1', id:crypto.randomUUID(), feature:'Editor', source:'kfps', description:'Synthetic test: shape movement stalls.', technical:{app:{version:'3.1.76'},
       editor:{schema:'kfps-editor-diagnostics/1',page:{page:'a'.repeat(32),seq:1,state:{layers:355,referenceWidth:1216,referenceHeight:832},metrics:{frameMax:280},events:[{kind:'long-task',action:'rotate',duration:280}]},recent:[]},
       logs:Array.from({length:10},(_,i)=>({source:i ? `worker-${i}` : 'editor-desktop',text:`Error: synthetic worker ${i}\nsession_token=PRIVATE_TEST`,age_seconds:20,previous_session:true}))}};
-    await page.goto(origin + '/#draft=' + Buffer.from(JSON.stringify(draft)).toString('base64url'));
+    draft.private_logs=logMetadata;
+    const prepared=gzipSync(JSON.stringify({schema:'kfps-support-package/1',report:draft,logs_base64:Buffer.from(await logBlob.arrayBuffer()).toString('base64')}));
+    await page.goto(origin + '/#bundle=' + prepared.toString('base64url'));
     await page.locator('#description').waitFor();
     await page.waitForFunction(() => !!document.getElementById('technical').textContent);
     await page.getByText('Review technical details', {exact:true}).click();

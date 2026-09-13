@@ -1,0 +1,101 @@
+// Shared reporting explanations and log states; no HTML is accepted from translations.
+import {language,registerStrings} from './report-locale.mjs';
+export const copy = {
+  en: {
+    automaticTitle: 'Logs are attached automatically (private)',
+    automaticIntro: 'When you open Report a Problem in KFPS, the latest available logs from its supported app and worker sections are gathered automatically, privacy-filtered and combined into one compressed file. You do not need to find or select log files.',
+    automaticSources: 'KFPS checks its known log locations across the editor, performance monitoring, generation, import/export, livery processing and preview, upscaling, background removal and the report window. Retained files and a current-session diagnostic record are included. Unreadable or oversized files and records are listed as omissions, not silently called complete.',
+    automaticSend: 'Box ticked means logs included: Send report attaches the compressed logs privately. If the attachment cannot be prepared or uploaded, sending stops with an error; it never silently sends only a summary. Untick the box to send without technical details or logs. Opening this window or signing in does not send a report.',
+    includeLabel: 'Include technical details and compressed logs privately for staff',
+    downloadLogs: 'Download compressed logs to review',
+    previewLogs: 'Preview recent lines from each attached file',
+    recoveryIntro: 'This standalone web page cannot read logs from your computer. Use Report a Problem inside KFPS to gather them automatically. Reopening an older saved report is optional:',
+    chooseReport: 'Reopen a saved report',
+    privacyLink: 'How your report data is handled',
+    privacyTitle: 'Report privacy',
+    privacyOperator: 'KFPS reporting is operated by Hestia Cummings (Kloudy). Reports are used to investigate problems, provide support, improve reliability and prevent duplicate or abusive submissions.',
+    collectedTitle: 'What is prepared on your computer',
+    collectedText: 'KFPS prepares a snapshot when you request a report: app version, theme and active section; component status, errors and operation counts; supported running Forza game and store; operating system, CPU, memory, GPU and driver details; runtime and dependency versions. Editor diagnostics can include event times, performance and memory measurements, document/selection counts, recovery state and rendering-engine information. The report page adds browser identity, display language, screen size and available processor information. Available retained log files can include earlier sessions, not just the last error. The collector checks known KFPS log locations, not arbitrary folders.',
+    excludedTitle: 'What is not automatically attached',
+    excludedText: 'The report collector does not attach artwork, reference images, project contents, game saves, game-memory dumps or arbitrary personal files. Screenshots are never captured automatically. Discord sign-in requests identity only, including your Discord user ID and display name, not access to your messages or email address. Your browser handles Discord credentials; KFPS does not request your Discord password.',
+    redactionTitle: 'Redaction and its limits',
+    redactionText: 'Before submission, structured diagnostics are restricted to known fields. Text filtering removes recognized credential/cookie/token lines, local and network paths, URLs, email addresses, long identifiers, certain file references, encoded image/blob data and recognized artwork payload fields. Invalid or oversized log records can be omitted. Session IDs, event timing, diagnostic measurements and report IDs needed for troubleshooting remain. This is best-effort filtering, not guaranteed anonymization. Review the technical details and downloadable logs, and remove personal information from your description. Screenshots are not automatically blurred or censored.',
+    recipientsTitle: 'Who receives the report',
+    recipientsText: 'The public KFPS Support Discord post contains your Discord display name, title, affected area, description, expected result, report ID, KFPS version when included, and screenshots you explicitly attach. Other people with access to that support post can see and copy it. The technical report and compressed log attachment go to the private staff channel for Kloudy and authorized support staff, not the public post. Your Discord identity also associates the submission and delivery status with your account.',
+    providersTitle: 'Sign-in, delivery and service providers',
+    providersText: 'Cloudflare hosts the reporting service and processes network requests, including normal connection metadata such as IP addresses. A hash of the connection IP is used for sign-in rate limiting. Discord provides sign-in and stores delivered messages and attachments. These providers may process data outside your country under their own policies. The short-lived browser approval URL contains an approval ticket, not your report or log contents. Essential sign-in cookies keep the review session authenticated; a sign-in request expires after five minutes and the report session after up to eight hours.',
+    retentionTitle: 'Where copies remain and for how long',
+    retentionText: 'The prepared report and log package are saved locally by KFPS; sending a report does not delete those files or the original logs. The review window keeps a local draft across sign-in/restart, with drafts older than 24 hours discarded when reopened. Its temporary compressed-log cache is cleared after confirmed delivery or sign-out; cache entries older than 24 hours are discarded when read. Cleanup failures are shown. The delivery service retains account-linked delivery receipts, hashes, timestamps and status for up to 30 days, not a stored copy of the report body or attachment in its receipt database. Delivered Discord posts and attachments are not automatically deleted after 30 days: they remain until staff delete them, subject to Discord policies. Browser data and files you downloaded can remain until you clear or delete them.',
+    choicesTitle: 'Your choices and privacy requests',
+    choicesText: 'You can close the review without submitting, turn off private technical details/logs, and choose whether to add screenshots. These choices may reduce the information available for troubleshooting. To ask about access, correction, deletion or other privacy rights available under applicable law, contact Hestia Cummings at the address below and include your report ID if possible. You may also contact your local data-protection authority. Deleting a Discord post cannot retrieve copies already saved by other viewers.',
+    contactLabel: 'Privacy and deletion contact: ',
+    noLogs: 'Sending is blocked: no compressed logs are ready. Reopen Report a Problem in KFPS to collect them, or untick technical details to send without logs.',
+    excludedLogs: 'Private logs will not be sent because technical details are turned off.',
+    nativeMissing: 'The prepared log attachment is unavailable in this window. Reopen Report a Problem in KFPS to collect it automatically, or turn off technical details to send without logs.',
+    browserMissing: 'This page has no copy of the log attachment. Open Report a Problem in KFPS for automatic collection, or reopen the original saved report below.',
+    readyLogs: 'log file(s)',
+    compressed: 'compressed. Private to Kloudy and authorized support staff.',
+    omittedLogs: 'Some records could not be included: ',
+    noOmissions: 'No omissions were reported by the collector.',
+    cacheWarning: 'Logs are ready in this tab, but could not be cached. Keep this window open or reopen Report a Problem in KFPS to collect them again.',
+    restoreWarning: 'The cached logs could not be restored. Open Report a Problem in KFPS again for automatic collection.',
+    automaticReady: 'Report and compressed logs prepared automatically. Review before sending.',
+    summaryReady: 'Report loaded, but compressed logs are missing. Sending with technical details enabled is blocked.',
+    savedReady: 'Saved report loaded. You do not need to select it again.',
+  },
+  ko: {
+    automaticTitle: '로그는 자동으로 첨부됩니다 (비공개)',
+    automaticIntro: 'KFPS에서 문제 신고를 열면 앱과 각 기능에 남아 있는 로그를 자동으로 모으고, 개인정보 필터를 적용한 뒤 하나의 압축 파일로 준비합니다. 로그 파일을 직접 찾거나 선택할 필요가 없습니다.',
+    automaticSources: 'KFPS는 에디터, 성능 모니터링, 생성, 가져오기/내보내기, 리버리 처리 및 미리보기, 업스케일링, 배경 제거, 신고 창의 정해진 로그 위치를 확인합니다. 저장된 로그와 현재 세션의 진단 기록을 함께 포함합니다. 읽을 수 없거나 너무 큰 파일 및 기록은 모두 포함되었다고 표시하지 않고 제외된 항목으로 안내합니다.',
+    automaticSend: '체크하면 로그도 함께 전송됩니다. 보고서 전송을 누르면 압축 로그가 비공개로 첨부됩니다. 첨부 파일을 준비하거나 업로드하지 못하면 오류를 표시하고 전송을 중단하며, 요약만 전송하는 방식으로 대체하지 않습니다. 기술 정보나 로그 없이 보내려면 체크를 해제해 주세요. 창을 열거나 로그인하는 것만으로는 보고서가 전송되지 않습니다.',
+    includeLabel: '기술 정보와 압축 로그를 지원 담당자에게 비공개로 보내기',
+    downloadLogs: '압축 로그를 내려받아 확인하기',
+    previewLogs: '첨부된 각 파일의 최근 기록 미리보기',
+    recoveryIntro: '일반 브라우저에서 직접 연 이 페이지는 컴퓨터의 로그를 읽을 수 없습니다. KFPS 안의 문제 신고를 사용하면 자동으로 수집됩니다. 이전에 저장한 보고서를 다시 여는 기능은 선택 사항입니다:',
+    chooseReport: '저장한 보고서 다시 열기',
+    privacyLink: '보고서 데이터 처리 안내',
+    privacyTitle: '보고서 개인정보 처리 안내',
+    privacyOperator: 'KFPS 신고 서비스는 Hestia Cummings (Kloudy)가 운영합니다. 보고서는 문제 조사, 사용자 지원, 안정성 개선, 중복 또는 악의적인 신고 방지에 사용됩니다.',
+    collectedTitle: '컴퓨터에서 준비되는 정보',
+    collectedText: '신고를 요청하면 KFPS는 앱 버전, 테마, 사용 중인 화면, 각 기능의 상태와 오류 및 작업 수, 실행 중인 지원 대상 Forza 게임과 스토어, 운영체제, CPU, 메모리, GPU 및 드라이버, 실행 환경과 의존성 버전을 정리합니다. 에디터 진단에는 이벤트 시각, 성능과 메모리 측정값, 문서 및 선택 항목 수, 복구 상태, 렌더링 엔진 정보가 포함될 수 있습니다. 신고 페이지는 브라우저 종류, 표시 언어, 화면 크기, 사용 가능한 프로세서 정보를 추가합니다. 저장된 로그에는 마지막 오류뿐 아니라 이전 세션의 기록도 포함될 수 있습니다. 수집기는 정해진 KFPS 로그 위치만 확인하며 임의의 폴더를 검색하지 않습니다.',
+    excludedTitle: '자동으로 첨부하지 않는 정보',
+    excludedText: '신고 수집기는 작품, 레퍼런스 이미지, 프로젝트 내용, 게임 저장 파일, 게임 메모리 덤프 또는 임의의 개인 파일을 첨부하지 않습니다. 스크린샷도 자동으로 촬영하지 않습니다. Discord 로그인은 사용자 ID와 표시 이름 등 신원 확인만 요청하며 메시지나 이메일 주소에 대한 접근을 요청하지 않습니다. Discord 인증 정보는 브라우저에서 처리되며 KFPS는 Discord 비밀번호를 요청하지 않습니다.',
+    redactionTitle: '개인정보 필터와 그 한계',
+    redactionText: '전송 전 구조화된 진단 정보는 허용된 항목으로 제한됩니다. 텍스트 필터는 인식된 인증 정보, 쿠키, 토큰 관련 줄, 로컬 및 네트워크 경로, URL, 이메일 주소, 긴 식별자, 일부 파일 참조, 인코딩된 이미지·대용량 데이터, 알려진 작품 데이터 항목을 제거합니다. 유효하지 않거나 너무 큰 로그 기록은 제외될 수 있습니다. 문제 분석에 필요한 세션 ID, 이벤트 시각, 진단 측정값, 보고서 ID는 유지됩니다. 자동 필터가 모든 개인정보를 찾아내거나 완전한 익명성을 보장하지는 않습니다. 기술 정보와 내려받은 로그를 확인하고, 문제 설명에서도 개인정보를 제거해 주세요. 스크린샷은 자동으로 흐리게 처리하거나 가리지 않습니다.',
+    recipientsTitle: '누가 보고서를 받나요?',
+    recipientsText: 'KFPS Support Discord의 공개 게시글에는 Discord 표시 이름, 제목, 문제 영역, 설명, 예상 결과, 보고서 ID, 포함된 경우 KFPS 버전, 직접 첨부한 스크린샷이 표시됩니다. 해당 지원 게시글에 접근할 수 있는 사람은 내용을 보거나 복사할 수 있습니다. 기술 보고서와 압축 로그는 공개 게시글이 아닌 Kloudy와 권한이 있는 지원 담당자용 비공개 채널로 전송됩니다. Discord 신원 정보는 신고 및 전송 상태를 사용자 계정과 연결하는 데도 사용됩니다.',
+    providersTitle: '로그인, 전송 및 서비스 제공업체',
+    providersText: 'Cloudflare는 신고 서비스를 호스팅하며 IP 주소와 같은 일반적인 연결 정보를 포함한 네트워크 요청을 처리합니다. 연결 IP의 해시값은 로그인 요청 횟수를 제한하는 데 사용됩니다. Discord는 로그인 기능을 제공하고 전송된 메시지와 첨부 파일을 저장합니다. 각 제공업체는 자체 정책에 따라 사용자의 국가 밖에서 데이터를 처리할 수 있습니다. 임시 브라우저 승인 URL에는 승인 요청 식별자가 들어 있으며 보고서나 로그 내용은 들어 있지 않습니다. 필수 로그인 쿠키는 신고 창의 로그인 상태를 유지합니다. 로그인 승인 요청은 5분 후, 신고 세션은 최대 8시간 후 만료됩니다.',
+    retentionTitle: '사본의 저장 위치와 보관 기간',
+    retentionText: 'KFPS는 준비된 보고서와 로그 묶음을 컴퓨터에 저장합니다. 보고서를 전송해도 이 파일이나 원본 로그가 삭제되지는 않습니다. 신고 창은 로그인과 재시작 중에도 초안을 로컬에 보관하며, 다시 열 때 24시간이 지난 초안을 폐기합니다. 임시 압축 로그 캐시는 전송 완료가 확인되거나 로그아웃하면 삭제되며, 읽을 때 24시간이 지난 캐시도 폐기됩니다. 정리 실패 시 경고가 표시됩니다. 전송 서비스는 계정과 연결된 전송 기록, 해시값, 시각, 상태를 최대 30일간 보관하지만, 전송 기록 데이터베이스에 보고서 본문이나 첨부 파일 사본을 저장하지는 않습니다. Discord 게시글과 첨부 파일은 30일 후 자동 삭제되지 않으며, Discord 정책에 따라 담당자가 삭제할 때까지 남습니다. 브라우저 데이터와 직접 내려받은 파일은 사용자가 지우거나 삭제할 때까지 남을 수 있습니다.',
+    choicesTitle: '사용자 선택과 개인정보 관련 요청',
+    choicesText: '보고서를 전송하지 않고 창을 닫거나, 비공개 기술 정보 및 로그 포함을 끄거나, 스크린샷 첨부 여부를 선택할 수 있습니다. 이 경우 문제 해결에 필요한 정보가 줄어들 수 있습니다. 적용되는 법률에 따른 열람, 정정, 삭제 또는 기타 개인정보 권리에 관한 요청은 아래 주소로 Hestia Cummings에게 문의해 주세요. 가능하면 보고서 ID를 함께 알려 주세요. 관할 개인정보 보호 기관에 문의할 수도 있습니다. Discord 게시글을 삭제해도 다른 사람이 이미 저장한 사본까지 회수할 수는 없습니다.',
+    contactLabel: '개인정보 및 삭제 문의: ',
+    noLogs: '압축 로그가 준비되지 않아 전송이 차단되었습니다. KFPS의 문제 신고를 다시 열어 로그를 수집하거나, 기술 정보 포함 체크를 해제하고 로그 없이 전송해 주세요.',
+    excludedLogs: '기술 정보 포함이 꺼져 있어 비공개 로그는 전송되지 않습니다.',
+    nativeMissing: '이 창에서 준비된 로그 첨부 파일을 사용할 수 없습니다. KFPS의 문제 신고를 다시 열어 자동으로 수집하거나, 기술 정보 포함을 끄고 로그 없이 전송해 주세요.',
+    browserMissing: '이 페이지에 로그 첨부 파일의 사본이 없습니다. KFPS의 문제 신고를 열어 자동으로 수집하거나 아래에서 원래 저장한 보고서를 다시 열어 주세요.',
+    readyLogs: '개의 로그 파일',
+    compressed: '압축됨. Kloudy와 권한이 있는 지원 담당자만 볼 수 있습니다.',
+    omittedLogs: '일부 기록이 포함되지 못했습니다: ',
+    noOmissions: '수집 중 확인된 누락 사항은 없습니다.',
+    cacheWarning: '이 탭에 로그는 준비되었지만 캐시에 저장하지 못했습니다. 창을 유지하거나 KFPS의 문제 신고를 다시 열어 수집해 주세요.',
+    restoreWarning: '캐시된 로그를 복원하지 못했습니다. KFPS의 문제 신고를 다시 열면 자동으로 수집됩니다.',
+    automaticReady: '보고서와 압축 로그가 자동으로 준비되었습니다. 전송 전에 확인해 주세요.',
+    summaryReady: '보고서를 불러왔지만 압축 로그가 없습니다. 기술 정보 포함이 켜져 있으면 전송할 수 없습니다.',
+    savedReady: '저장한 보고서를 불러왔습니다. 다시 선택할 필요가 없습니다.',
+  },
+};
+
+registerStrings(Object.fromEntries(Object.keys(copy.en).map(key=>[copy.en[key],copy.ko[key]])));
+
+export function reportText(key, locale = language()) {
+  return (locale.toLowerCase().startsWith('ko') ? copy.ko : copy.en)[key] || copy.en[key] || '';
+}
+
+export function applyReportCopy() {
+  for (const node of document.querySelectorAll('[data-report-copy]')) {
+    const text = reportText(node.dataset.reportCopy);
+    if (text) node.textContent = text;
+  }
+}

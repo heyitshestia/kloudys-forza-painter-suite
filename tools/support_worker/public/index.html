@@ -1,53 +1,72 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>KFPS Support</title><link rel="icon" href="/kfps-logo.png"><link rel="stylesheet" href="/style.css"><script type="module" src="/form.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title data-i18n>KFPS Support</title><link rel="icon" href="/kfps-logo.png"><link rel="stylesheet" href="/style.css"><script type="module" src="/form.js"></script></head>
 <body>
-<header><a class="brand" href="/"><img src="/kfps-logo.png" alt=""><span>KFPS <strong>Support</strong></span></a><span class="stage">Issue reports</span><a id="discord" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Discord</a></header>
+<header><a class="brand" href="/"><img src="/kfps-logo.png" alt=""><span>KFPS <strong data-i18n>Support</strong></span></a><span class="stage" data-i18n>Issue reports</span><div class="language-control"><label for="report-language" data-i18n>Language</label><select id="report-language"><option value="auto" data-i18n>System language</option><option value="en">English</option><option value="ko">한국어</option></select></div><a id="discord" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Discord</a></header>
 <main>
-  <div class="heading"><div><p class="eyebrow">REPORT A PROBLEM</p><h1>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button">Sign in with Discord</button><button id="logout" type="button" hidden>Sign out</button></div></div>
-  <div id="notice" role="status" aria-live="polite">Checking reporting service...</div>
-  <section id="native-signin" class="public-note" hidden aria-label="Browser sign-in"><p id="native-signin-text"></p><p><strong id="native-signin-code" class="approval-code"></strong></p><div class="actions"><button id="native-reopen" type="button">Open browser again / 브라우저 다시 열기</button><button id="native-cancel" type="button">Cancel / 취소</button></div></section>
-  <form id="report-form">
-    <div id="report-visibility" class="public-note" role="note" aria-label="Who can see your report">
-      <p>Reports go to the KFPS Support Discord server, created specifically for reporting and resolving KFPS issues. Permanent invite: <a id="support-invite" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Join the support server</a>.</p>
-      <p><strong>Your post will be publicly visible in the KFPS Support Discord server.</strong> This includes your Discord display name, post title, affected area, issue description, expected result, KFPS version, report ID, and any screenshots you choose to attach. This is the dedicated support server, separate from the community server.</p>
-      <p><strong>The remaining technical details stay private.</strong> Any additional technical details you choose to include are visible only to Kloudy and authorized KFPS support staff.</p>
+  <div class="heading"><div><p class="eyebrow" data-i18n>REPORT A PROBLEM</p><h1 data-i18n>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button" data-i18n>Sign in with Discord</button><button id="logout" type="button" data-i18n hidden>Sign out</button></div></div>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <section id="native-signin" class="public-note" hidden data-i18n-aria-label="Browser sign-in">
+    <p id="native-signin-text"></p><p><strong id="native-signin-code" class="approval-code"></strong></p>
+    <div class="actions"><a id="native-reopen" class="primary" target="_blank" rel="noopener noreferrer">Open in default browser</a><button id="native-cancel" type="button">Cancel</button></div>
+    <label id="native-link-label" for="native-link">Browser didn't open? Copy this link into your browser.</label>
+    <input id="native-link" type="text" readonly autocomplete="off" spellcheck="false" aria-describedby="native-signin-text">
+  </section>
+  <form id="report-form" novalidate>
+    <div id="report-visibility" class="public-note" role="note" data-i18n-aria-label="Who can see your report">
+      <p><span data-i18n>Reports go to the KFPS Support Discord server, created specifically for reporting and resolving KFPS issues. Permanent invite: </span><a id="support-invite" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer" data-i18n>Join the support server</a>.</p>
+      <p><strong data-i18n>Your post will be publicly visible in the KFPS Support Discord server.</strong><span data-i18n> This includes your Discord display name, post title, affected area, issue description, expected result, KFPS version, report ID, and any screenshots you choose to attach. This is the dedicated support server, separate from the community server.</span></p>
+      <p><strong data-i18n>The remaining technical details stay private.</strong><span data-i18n> Any additional technical details you choose to include are visible only to Kloudy and authorized KFPS support staff.</span></p>
     </div>
     <div class="columns">
-      <section aria-label="Problem details">
-        <label for="feature">Affected area</label><select id="feature"><option>Generator</option><option>Editor</option><option>Import and export</option><option>Liveries</option><option>Community</option><option>Updater</option><option selected>Other</option></select>
-        <label for="description">What happened? <span>Required</span></label><textarea id="description" rows="7" maxlength="3000" minlength="5" required placeholder="For example: Export stopped after I selected my grouped vinyl."></textarea>
-        <label for="expected">What did you expect? <span>Optional</span></label><textarea id="expected" rows="3" maxlength="1500"></textarea>
-        <details open><summary>Post title</summary><label for="title">Title</label><input id="title" maxlength="90"></details>
+      <section data-i18n-aria-label="Problem details">
+        <label for="feature" data-i18n>Affected area</label><select id="feature"><option value="Generator" data-i18n>Generator</option><option value="Editor" data-i18n>Editor</option><option value="Import and export" data-i18n>Import and export</option><option value="Liveries" data-i18n>Liveries</option><option value="Community" data-i18n>Community</option><option value="Updater" data-i18n>Updater</option><option value="Other" data-i18n selected>Other</option></select>
+        <label for="description"><span data-i18n>What happened?</span> <span data-i18n>Required</span></label><textarea id="description" rows="7" maxlength="3000" minlength="5" required data-i18n-placeholder="For example: Export stopped after I selected my grouped vinyl."></textarea>
+        <label for="expected"><span data-i18n>What did you expect?</span> <span data-i18n>Optional</span></label><textarea id="expected" rows="3" maxlength="1500"></textarea>
+        <details open><summary data-i18n>Post title</summary><label for="title" data-i18n>Title</label><input id="title" maxlength="90"></details>
       </section>
-      <aside aria-label="Technical details">
-        <div class="section-title"><h2>Technical context</h2><span id="source">Browser report</span></div>
+      <aside data-i18n-aria-label="Technical details">
+        <div class="section-title"><h2 data-i18n>Technical context</h2><span id="source">Browser report</span></div>
         <dl id="facts"></dl>
-        <label class="check"><input id="include" type="checkbox" checked><span>Include technical details privately for staff</span></label>
-        <p class="privacy">Includes the context shown below, editor performance details, and complete retained editor and worker logs when supplied. Older KFPS versions may provide excerpts only. Artwork, game saves, and screenshots are never collected automatically. Screenshots you add below are public, even if technical details are turned off. Review before sending; automatic cleanup cannot identify every personal detail.</p>
-        <details><summary>Review technical details</summary><pre id="technical" tabindex="0"></pre></details>
-        <section id="private-logs-section" aria-label="Private application logs">
-          <h3>Application logs (private)</h3>
-          <p class="privacy">Complete retained logs are attached only to the private staff report, never your public post. Personal paths, credentials and artwork fields are removed. A temporary copy stays in this browser across sign-in and refresh, and is deleted after delivery or sign-out; copies older than 24 hours are discarded when the form opens.</p>
-          <p class="privacy" lang="ko">저장되어 있는 에디터 및 작업 프로세스의 전체 로그는 공개 게시글이 아닌 Kloudy와 권한이 있는 지원 담당자만 볼 수 있는 비공개 보고서에 첨부됩니다. 개인 경로, 인증 정보, 작품 데이터는 제거됩니다. 파일 크기나 접근 제한으로 포함되지 못한 내용은 따로 표시됩니다. 전송 전 내용을 확인해 주세요.</p>
+        <label class="check"><input id="include" type="checkbox" checked aria-describedby="automatic-send private-log-state"><span data-report-copy="includeLabel">Include technical details and compressed logs privately for staff</span></label>
+        <p class="privacy"><a href="#report-privacy" data-report-copy="privacyLink">How your report data is handled</a></p>
+        <details><summary data-i18n>Review technical details</summary><pre id="technical" tabindex="0"></pre></details>
+        <section id="private-logs-section" data-i18n-aria-label="Private application logs">
+          <h3 data-report-copy="automaticTitle">Logs are attached automatically (private)</h3>
+          <p data-report-copy="automaticIntro"></p>
+          <p data-report-copy="automaticSources"></p>
+          <p id="automatic-send" data-report-copy="automaticSend"></p>
+          <p id="report-file-status" class="privacy" role="status"></p>
           <p id="private-log-state" role="status" class="privacy"></p>
-          <a id="download-private-logs" hidden>Download complete private logs to review</a>
-          <details><summary>Preview recent lines from each retained file</summary><pre id="private-log-preview" tabindex="0"></pre></details>
-          <details><summary>Add a saved KFPS report or restore its logs</summary><input id="report-file" type="file" accept="application/json,application/gzip,.json,.gz" hidden><button id="choose-report" type="button">Choose saved report</button><p id="report-file-status" class="privacy" role="status"></p><p class="privacy">Reports opened from KFPS include their logs automatically. Use this recovery option only to reopen a saved report. Choose report.kfps-report.json.gz for complete retained logs, or report.json for the summary. Artwork and save files are not accepted.</p><p class="privacy" lang="ko">KFPS에서 연 보고서에는 로그가 자동으로 포함됩니다. 저장된 보고서를 다시 열 때만 이 복구 기능을 사용해 주세요. 전체 로그는 report.kfps-report.json.gz 파일에 포함되어 있습니다.</p></details>
+          <a id="download-private-logs" data-report-copy="downloadLogs" hidden>Download compressed logs to review</a>
+          <details><summary data-report-copy="previewLogs">Preview recent lines from each attached file</summary><pre id="private-log-preview" tabindex="0"></pre></details>
+          <div id="saved-report-recovery" hidden><p class="privacy" data-report-copy="recoveryIntro"></p><input id="report-file" type="file" accept="application/json,application/gzip,.json,.gz" hidden><button id="choose-report" type="button" data-report-copy="chooseReport">Reopen a saved report</button></div>
         </section>
-        <details><summary>Missing context</summary><label for="version">KFPS version</label><input id="version" maxlength="30" placeholder="Unknown"><label for="game">Game</label><select id="game"><option value="">Unknown / not applicable</option><option>FH4</option><option>FH5</option><option>FH6</option><option>FM8</option></select><label for="store">Store</label><select id="store"><option value="unknown">Unknown / not applicable</option><option value="steam">Steam</option><option value="microsoft_xbox">Xbox / Microsoft Store</option></select></details>
+        <details><summary data-i18n>Missing context</summary><label for="version" data-i18n>KFPS version</label><input id="version" maxlength="30" data-i18n-placeholder="Unknown"><label for="game" data-i18n>Game</label><select id="game"><option value="" data-i18n>Unknown / not applicable</option><option>FH4</option><option>FH5</option><option>FH6</option><option>FM8</option></select><label for="store" data-i18n>Store</label><select id="store"><option value="unknown" data-i18n>Unknown / not applicable</option><option value="steam">Steam</option><option value="microsoft_xbox" data-i18n>Xbox / Microsoft Store</option></select></details>
       </aside>
     </div>
-    <section id="screenshots-section" aria-label="Public screenshots">
-      <h2>Screenshots (optional, public)</h2>
-      <p id="screenshot-warning"><strong>Everyone who can view your support post can see these screenshots.</strong> Remove private information from the image before attaching it. Screenshots are not automatically blurred or censored.</p>
-      <label for="screenshots">Add or paste screenshots (PNG/JPG)</label><input id="screenshots" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple disabled aria-describedby="screenshot-warning screenshot-state">
+    <section id="screenshots-section" data-i18n-aria-label="Public screenshots">
+      <h2 data-i18n>Screenshots (optional, public)</h2>
+      <p id="screenshot-warning"><strong data-i18n>Everyone who can view your support post can see these screenshots.</strong><span data-i18n> Remove private information from the image before attaching it. Screenshots are not automatically blurred or censored.</span></p>
+      <label for="choose-screenshots" data-i18n>Add or paste screenshots (PNG/JPG)</label><input id="screenshots" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple disabled hidden aria-describedby="screenshot-warning screenshot-state"><button id="choose-screenshots" type="button" disabled data-i18n>Choose screenshots</button>
       <p id="screenshot-state" role="status" class="privacy">Sign in before adding screenshots.</p>
       <div id="screenshot-previews"></div>
-      <label class="check"><input id="screenshots-public" type="checkbox"><span>I understand that my screenshots will be posted publicly in KFPS Support.</span></label>
+      <label class="check"><input id="screenshots-public" type="checkbox"><span data-i18n>I understand that my screenshots will be posted publicly in KFPS Support.</span></label>
     </section>
-    <footer><div><span id="report-id"></span><p>Nothing is sent until you confirm below. Discord sign-in requests identity only.</p></div><button id="send" class="primary" type="submit" disabled>Send report</button></footer>
+    <footer><div><span id="report-id"></span><p data-i18n>Nothing is sent until you confirm below. Discord sign-in requests identity only.</p></div><button id="send" class="primary" type="submit" disabled>Send report</button></footer>
   </form>
-  <section id="receipt" hidden aria-label="Report result"><h2 id="result-title">Report status</h2><p id="result-text"></p><code id="receipt-id"></code><div id="retry-screenshots" hidden></div><div id="retry-private-logs" hidden></div><div class="actions"><a id="post-link" class="primary" target="_blank" rel="noreferrer" hidden>Open report in KFPS Support</a><button id="check" type="button">Check status</button><button id="retry" type="button" hidden>Retry same report</button><button id="new-report" type="button" hidden>New report</button></div></section>
-  <div class="data-note">The reporting service keeps delivery receipts for up to 30 days, not copies of your technical report. Discord posts and attachments remain until staff delete them. Contact server staff with your report ID for removal. No email address or access to your messages is requested.</div>
+  <section id="receipt" hidden data-i18n-aria-label="Report result"><h2 id="result-title">Report status</h2><p id="result-text"></p><code id="receipt-id"></code><div id="retry-screenshots" hidden></div><div id="retry-private-logs" hidden></div><div class="actions"><a id="post-link" class="primary" target="_blank" rel="noreferrer" hidden data-i18n>Open report in KFPS Support</a><button id="check" type="button" data-i18n>Check status</button><button id="retry" type="button" hidden data-i18n>Retry same report</button><button id="new-report" type="button" hidden data-i18n>New report</button></div></section>
+  <section id="report-privacy" aria-labelledby="privacy-title">
+    <h2 id="privacy-title" data-report-copy="privacyTitle">Report privacy</h2>
+    <p data-report-copy="privacyOperator"></p>
+    <h3 data-report-copy="collectedTitle"></h3><p data-report-copy="collectedText"></p>
+    <h3 data-report-copy="excludedTitle"></h3><p data-report-copy="excludedText"></p>
+    <h3 data-report-copy="redactionTitle"></h3><p data-report-copy="redactionText"></p>
+    <h3 data-report-copy="recipientsTitle"></h3><p data-report-copy="recipientsText"></p>
+    <h3 data-report-copy="providersTitle"></h3><p data-report-copy="providersText"></p>
+    <p><a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" data-i18n>Cloudflare Privacy Policy</a> &middot; <a href="https://discord.com/privacy" target="_blank" rel="noopener noreferrer" data-i18n>Discord Privacy Policy</a></p>
+    <h3 data-report-copy="retentionTitle"></h3><p data-report-copy="retentionText"></p>
+    <h3 data-report-copy="choicesTitle"></h3><p data-report-copy="choicesText"></p>
+    <p><strong data-report-copy="contactLabel">Privacy and deletion contact: </strong><span>Hestia Cummings &lt;hestia.cummings@yandex.com&gt;</span></p>
+  </section>
 </main></body></html>

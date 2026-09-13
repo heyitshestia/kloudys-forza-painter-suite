@@ -15,9 +15,10 @@ class StartupSplashTests(unittest.TestCase):
         env["QT_QPA_PLATFORM"] = "offscreen"
         env["KFPS_TEST_UI_ROOT"] = str(UI)
         src = str(UI / "src")
-        env["PYTHONPATH"] = src + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        # The shipped isolated runtime intentionally ignores PYTHONPATH.
+        source = f"import sys\nsys.path.insert(0, {src!r})\n" + textwrap.dedent(script)
         result = subprocess.run(
-            [sys.executable, "-B", "-c", textwrap.dedent(script)], cwd=UI.parent,
+            [sys.executable, "-B", "-c", source], cwd=UI.parent,
             env=env, capture_output=True, text=True, timeout=30, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )

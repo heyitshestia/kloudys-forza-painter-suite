@@ -43,6 +43,7 @@ const {chromium}=require('playwright');
     await page.getByText('Sign in to send',{exact:true}).waitFor();
     check(await page.locator('#screenshots').isDisabled(),'screenshots require sign-in first');
     authenticated=true;await page.reload();await page.getByText('Signed in as Synthetic Tester',{exact:true}).waitFor();
+    await page.locator('#include').uncheck();
     await page.locator('#description').fill('Synthetic screenshot workflow verification.');
     await page.locator('#title').fill('Screenshot browser test');
     await page.context().grantPermissions(['clipboard-read','clipboard-write'],{origin});
@@ -73,7 +74,6 @@ const {chromium}=require('playwright');
     await page.locator('#screenshots').setInputFiles(images[1]);
     await page.locator('#screenshot-previews img').nth(1).waitFor();
     await page.locator('#screenshots-public').check();
-    await page.locator('#include').uncheck();
     for(const [width,height] of [[1280,960],[390,844]]) {
       await page.setViewportSize({width,height});
       check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`no overflow at ${width}`);

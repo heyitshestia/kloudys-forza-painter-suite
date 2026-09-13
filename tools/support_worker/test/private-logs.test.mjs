@@ -23,6 +23,18 @@ test('private consent off removes metadata and rejects attached files',async()=>
   assert(!excluded.private_logs);await assert.rejects(readSubmission(request(submissionBody(excluded,[],logs))),/Unexpected/);
   assert(!normalizeReport({schema:report.schema,id:crypto.randomUUID(),feature:'Editor',description:'Legacy report'}).private_logs);
 });
+test('checked consent requires logs even for legacy and fresh browser reports',async()=>{
+  const {report}=await fixture();delete report.private_logs;
+  const json=r=>new Request('https://support.example',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});
+  await assert.rejects(readSubmission(json(report)),/Compressed logs are required/);
+  await assert.rejects(readSubmission(request(submissionBody(report,[]))),/Compressed logs are required/);
+  const optedOut=await readSubmission(json({...report,include_technical:false}));
+  assert.equal(optedOut.report.include_technical,false);assert.equal(optedOut.privateLogs,null);
+  assert.deepEqual(optedOut.report.technical,{});
+  const empty=make();empty.files=[];
+  const logs=file(empty),{metadata}=await describePrivateLogs(logs,{redact});
+  await assert.rejects(readSubmission(request(submissionBody({...report,private_logs:metadata},[],logs))),/Compressed logs are required/);
+});
 test('missing, changed, duplicate or unexpected archives are refused',async()=>{
   const {logs,report}=await fixture();
   await assert.rejects(readSubmission(new Request('https://support.example',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(report)})),/Reattach/);

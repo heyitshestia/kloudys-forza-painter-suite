@@ -107,8 +107,13 @@ test('actual workerd OAuth and SQLite delivery survive duplicate submission and 
     assert.notEqual(nativeSession.csrf,approval.csrf,'native and default-browser sessions are distinct');
     assert.equal(calls.filter(c=>c.path.includes('/webhooks/')).length,0,'authorization never sends logs or a report');
     assert.equal((await nativePost('/api/native-auth/poll',pending)).headers.get('set-cookie'),nativeReady.headers.get('set-cookie'),'workerd restart and retries preserve pending authorization');
-    const report={schema:'kfps-support-report/1',id:crypto.randomUUID(),created_at:new Date().toISOString(),feature:'Editor',title:'Runtime test',description:'Synthetic runtime test only',technical:{hardware:{gpus:[{name:'Synthetic GPU'}]},editor,logs}};
-    const submit=()=>mf.dispatchFetch(origin+'/api/reports',{method:'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':session.csrf,'Content-Type':'application/json'},body:JSON.stringify(report)});
+    const report={schema:'kfps-support-report/1',id:crypto.randomUUID(),created_at:new Date().toISOString(),feature:'Editor',title:'Runtime test',description:'Synthetic runtime test only',technical:{hardware:{gpus:[{name:'Synthetic GPU'}]},editor,logs},private_logs:(await describePrivateLogs(privateLogs,{redact})).metadata};
+    const missing=await mf.dispatchFetch(origin+'/api/reports',{method:'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':session.csrf,'Content-Type':'application/json'},body:JSON.stringify({...report,private_logs:undefined})});
+    assert.equal(missing.status,400);assert.equal(calls.filter(c=>c.path.includes('/webhooks/')).length,0);
+    const submit=async()=>{
+      const wire=new Request(origin+'/api/reports',{method:'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':session.csrf},body:submissionBody(report,[],privateLogs)});
+      return mf.dispatchFetch(wire.url,{method:'POST',headers:Object.fromEntries(wire.headers),body:await wire.arrayBuffer()});
+    };
     assert.equal((await(await submit()).json()).status,'delivered');
     assert.equal((await(await submit()).json()).status,'delivered');
     assert.equal(calls.filter(c=>c.method==='POST'&&c.path.includes('/webhooks/')).length,2);
@@ -119,7 +124,7 @@ test('actual workerd OAuth and SQLite delivery survive duplicate submission and 
     const withImage=normalizeReport({...report,id:crypto.randomUUID(),screenshots:[await describeScreenshot(png)],screenshots_public:true});
     const upload=async()=>{
       // Serialize browser-style multipart bytes across Node/Miniflare's separate FormData implementations.
-      const wire=new Request(origin+'/api/reports',{method:'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':session.csrf},body:submissionBody(withImage,[png])});
+      const wire=new Request(origin+'/api/reports',{method:'POST',headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':session.csrf},body:submissionBody(withImage,[png],privateLogs)});
       return mf.dispatchFetch(wire.url,{method:'POST',headers:Object.fromEntries(wire.headers),body:await wire.arrayBuffer()});
     };
     const uploaded=await(await upload()).json();assert.equal(uploaded.status,'delivered',JSON.stringify(uploaded));
@@ -132,7 +137,7 @@ test('actual workerd OAuth and SQLite delivery survive duplicate submission and 
       return mf.dispatchFetch(wire.url,{method:'POST',headers:Object.fromEntries(wire.headers),body:await wire.arrayBuffer()});
     };
     const deliveredLogs=await(await uploadLogs()).json();assert.equal(deliveredLogs.status,'delivered',JSON.stringify(deliveredLogs));
-    assert.equal((await(await uploadLogs()).json()).status,'delivered');assert.equal(privateLogPosts,1);
+    assert.equal((await(await uploadLogs()).json()).status,'delivered');assert.equal(privateLogPosts,3);
     assert.equal(calls.filter(c=>c.method==='POST'&&c.path.includes('/webhooks/')).length,6);
     redirectToken=true; const before=calls.length;
     const refused=await login();

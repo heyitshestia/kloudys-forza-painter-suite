@@ -131,3 +131,43 @@ test('client cancellation ignores a late authorization response and untrusted la
   const bad = nativeSignIn({origin: 'https://support.example', changed: v => errors.push(v), authenticated: v => accounts.push(v), api: () => Promise.resolve({id, url: 'https://evil.example/', code: '1234-5678', expires_at: Date.now() + 10000})});
   await bad.start(); assert.equal(bad.request(), null); assert.equal(errors.at(-1).error, 'start');
 });
+
+test('manual browser link survives failed or absent host launch without another auth request', async () => {
+  const id = crypto.randomUUID(), tasks = [], changes = [], calls = [];
+  let now = 1000;
+  const flow = nativeSignIn({origin: 'https://support.example', now: () => now,
+    schedule: fn => {tasks.push(fn); return tasks.length;}, unschedule: () => {},
+    changed: value => changes.push(value), authenticated: () => assert.fail('No approval happened'),
+    api: async path => {calls.push(path); return {id, code: '1234-5678', expires_at: 301000, url: 'https://support.example/auth/native?ticket=' + id};}});
+  await flow.start();
+  const url = flow.request().url;
+  flow.opened(id, false);
+  assert.equal(changes.at(-1).error, 'browser');
+  assert.equal(changes.at(-1).url, url);
+  assert.equal(flow.manual(), true);
+  assert.equal(flow.request(), null);
+  assert.equal(changes.at(-1).error, '');
+  flow.reopen();
+  assert.equal(flow.request().url, url);
+  assert.equal(flow.manual(), true, 'user click works before the host acknowledges');
+  flow.opened(id, false);
+  assert.equal(changes.at(-1).error, '', 'late automatic reply cannot overwrite the manual fallback');
+  assert.deepEqual(calls, ['/api/native-auth/start']);
+  now = 301000;
+  assert.equal(flow.manual(), false, 'expired URL is never launched by a late click');
+  assert.equal(changes.at(-1).error, 'expired');
+  assert.equal(flow.request(), null);
+  assert.equal(changes.at(-1).url, undefined);
+});
+
+test('client refuses credentials, fragments and extra query parameters in approval URLs', async () => {
+  const id = crypto.randomUUID(), changes = [];
+  for (const url of [`https://user:pass@support.example/auth/native?ticket=${id}`,
+    `https://support.example/auth/native?ticket=${id}#fragment`,
+    `https://support.example/auth/native?ticket=${id}&extra=true`]) {
+    const flow = nativeSignIn({origin: 'https://support.example', changed: value => changes.push(value),
+      authenticated: () => assert.fail('No approval happened'), api: async () => ({id, url, code: '1234-5678', expires_at: Date.now() + 10000})});
+    await flow.start(); assert.equal(flow.request(), null); assert.equal(flow.manual(), false);
+    assert.equal(changes.at(-1).error, 'start');
+  }
+});
