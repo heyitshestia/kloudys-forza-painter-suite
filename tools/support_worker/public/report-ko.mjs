@@ -1,5 +1,18 @@
 // English source strings are stable keys. Never translate report contents or protocol values.
 export const korean = {
+  'Starting Discord sign-in...':'Discord 로그인을 시작하는 중입니다...',
+  'Authorize in your browser, then return to KFPS. Your report has not been sent.':'브라우저에서 승인한 뒤 KFPS로 돌아와 주세요. 보고서는 아직 전송되지 않았습니다.',
+  'This sign-in request expired. Click Sign in with Discord to start again. Your report is still here.':'로그인 요청이 만료되었습니다. Discord 로그인 버튼을 눌러 다시 시작해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Sign-in was declined in the browser. Click Sign in with Discord to try again. Your report is still here.':'브라우저에서 로그인이 거절되었습니다. Discord 로그인 버튼을 눌러 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Sign-in was cancelled. You can start again when ready. Your report is still here.':'로그인이 취소되었습니다. 준비되면 다시 시작해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Too many sign-in attempts. Please wait a few minutes before trying again. Your report is still here.':'로그인을 너무 여러 번 시도했습니다. 몇 분 뒤에 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Discord sign-in is temporarily unavailable. Please try again shortly. Your report is still here.':'지금은 Discord 로그인을 이용할 수 없습니다. 잠시 후 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'The sign-in service returned an unexpected response. Please retry. Your report is still here.':'로그인 서비스의 응답을 처리하지 못했습니다. 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'The sign-in service rejected this request. Please retry sign-in. Your report is still here.':'로그인 서비스에서 요청을 거부했습니다. 로그인을 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'The sign-in service encountered an error. Please try again shortly. Your report is still here.':'로그인 서비스에 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Browser approval was received, but KFPS could not establish the signed-in session. It will retry automatically. Your report is still here.':'브라우저에서 승인했지만 KFPS에 로그인이 연결되지 않았습니다. 자동으로 다시 시도합니다. 작성한 보고서는 그대로 유지됩니다.',
+  'The sign-in request timed out. Check your connection and try again. Your report is still here.':'로그인 요청 시간이 초과되었습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
+  'Could not reach the sign-in service. Check your connection and try again. Your report is still here.':'로그인 서비스에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요. 작성한 보고서는 그대로 유지됩니다.',
   'KFPS Support':'KFPS 지원', 'KFPS sign-in':'KFPS 로그인', 'Support':'지원',
   'Issue reports':'문제 신고', 'Language':'언어', 'System language':'시스템 언어',
   'REPORT A PROBLEM':'문제 신고', 'What went wrong?':'어떤 문제가 있었나요?',

@@ -27,6 +27,7 @@ function fixture() {
 
 test('separate browser approval creates a fresh native session; private cookie, no report/token in links', async () => {
   const f = fixture(), first = await f.start(), browser = await f.browser();
+  assert(first.value.expires_in_ms > 0 && first.value.expires_in_ms <= 300000);
   assert.equal(first.value.url, f.env.PUBLIC_ORIGIN + '/auth/native?ticket=' + first.value.id);
   assert.equal(JSON.stringify(first.value).includes('secret'), false);
   assert.equal((await f.request('/api/native-auth/poll', {cookie: first.cookie})).status, 200);
@@ -129,7 +130,7 @@ test('client cancellation ignores a late authorization response and untrusted la
   const started = flow.start(); await flow.cancel(); resolve({id, url: 'https://evil.example/', code: '1234-5678', expires_at: Date.now() + 10000}); await started;
   assert.equal(flow.request(), null); assert.equal(tasks.length, 0); assert.equal(accounts.length, 0);
   const bad = nativeSignIn({origin: 'https://support.example', changed: v => errors.push(v), authenticated: v => accounts.push(v), api: () => Promise.resolve({id, url: 'https://evil.example/', code: '1234-5678', expires_at: Date.now() + 10000})});
-  await bad.start(); assert.equal(bad.request(), null); assert.equal(errors.at(-1).error, 'start');
+  await bad.start(); assert.equal(bad.request(), null); assert.equal(errors.at(-1).error, 'invalid-response');
 });
 
 test('manual browser link survives failed or absent host launch without another auth request', async () => {
@@ -168,6 +169,6 @@ test('client refuses credentials, fragments and extra query parameters in approv
     const flow = nativeSignIn({origin: 'https://support.example', changed: value => changes.push(value),
       authenticated: () => assert.fail('No approval happened'), api: async () => ({id, url, code: '1234-5678', expires_at: Date.now() + 10000})});
     await flow.start(); assert.equal(flow.request(), null); assert.equal(flow.manual(), false);
-    assert.equal(changes.at(-1).error, 'start');
+    assert.equal(changes.at(-1).error, 'invalid-response');
   }
 });

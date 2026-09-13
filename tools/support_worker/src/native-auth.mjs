@@ -38,7 +38,7 @@ export async function nativeAuth(request, env, helpers) {
     if (!response.ok) return response;
     const {code} = await response.json();
     const pending = await sign({kind: 'native-auth', id, secret, exp}, env.SESSION_SECRET);
-    return json({id, code, expires_at: exp, url: `${env.PUBLIC_ORIGIN}/auth/native?ticket=${id}`}, 200,
+    return json({id, code, expires_at: exp, expires_in_ms: Math.max(0, exp - Date.now()), url: `${env.PUBLIC_ORIGIN}/auth/native?ticket=${id}`}, 200,
       {'Set-Cookie': setCookie(PENDING, pending, TTL / 1000, env)});
   }
   if (path === '/api/native-auth/approve' || path === '/api/native-auth/deny') {

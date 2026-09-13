@@ -101,7 +101,7 @@ class BrowserLaunchTests(unittest.TestCase):
             opened.assert_not_called()
 
     def test_language_switch_updates_native_chrome_without_launching_auth(self):
-        window = SimpleNamespace(auth_inflight=True, korean=False, _status_copy=("Retry loading", "다시 불러오기"),
+        window = SimpleNamespace(auth_inflight=True, auth_diagnostic_cursor=0, logger=logging.getLogger('test'), korean=False, _status_copy=("Retry loading", "다시 불러오기"),
                                  retry=Mock(), status=Mock(), setWindowTitle=Mock(), launch_auth=Mock())
         window.tr_text=lambda en,ko:ko if window.korean else en
         ReportWindow.review_state(window,{"language":"ko","request":None})

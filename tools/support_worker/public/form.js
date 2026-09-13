@@ -3,7 +3,7 @@ import {ScreenshotPicker} from '/screenshot-picker.mjs';
 import {PrivateLogPicker} from '/private-log-picker.mjs';
 import {MAX_PACKAGE_BYTES} from '/private-logs.mjs';
 import {nativeHandoff} from '/native-handoff.mjs';
-import {nativeSignIn} from '/native-signin.mjs';
+import {nativeSignIn,signInErrorText} from '/native-signin.mjs';
 import {applyReportCopy,reportText} from '/report-copy.mjs';
 import {t,language,applyLanguage,onLanguageChange,localizedError} from '/report-locale.mjs';
 
@@ -29,7 +29,7 @@ const nativeLogin = nativeSignIn({api, origin: location.origin, authenticated: v
 }, changed: value => {signInState=value;renderSignIn(value);}});
 function renderSignIn(value) {
   $('native-signin').hidden = !value?.id;
-  $('login').disabled = !!value?.id || !config?.enabled;
+  $('login').disabled = !!value?.id || !!value?.starting || !config?.enabled;
   $('native-reopen').textContent = tr('Open in default browser', '기본 브라우저에서 열기');
   $('native-cancel').textContent = tr('Cancel', '취소');
   $('native-link-label').textContent = tr("Browser didn't open? Copy this link into your browser.", '브라우저가 열리지 않으면 아래 링크를 복사해 브라우저 주소창에 붙여 넣어 주세요.');
@@ -42,11 +42,11 @@ function renderSignIn(value) {
     $('native-reopen').removeAttribute('href');
     $('native-signin-code').textContent = '';
   }
-  if (value?.error) message(value.id
-    ? tr('Sign-in has not completed. Open in default browser, or copy the sign-in link into your browser. Your report is still here.', '로그인이 완료되지 않았습니다. 기본 브라우저에서 열거나 로그인 링크를 복사해 브라우저 주소창에 붙여 넣어 주세요. 보고서는 그대로 유지됩니다.')
-    : tr('Sign-in ended or could not start. Sign in with Discord again; your report is still here.', '로그인이 종료되었거나 시작되지 않았습니다. Discord 로그인을 다시 시도해 주세요. 보고서는 그대로 유지됩니다.'), true);
+  if (value?.error) message(signInErrorText(value), true);
+  else if (value?.starting) message('Starting Discord sign-in...');
+  else if (value?.id) message('Authorize in your browser, then return to KFPS. Your report has not been sent.');
 }
-Object.defineProperty(window, 'KFPSReportSignIn', {value: Object.freeze({request: nativeLogin.request, opened: nativeLogin.opened})});
+Object.defineProperty(window, 'KFPSReportSignIn', {value: Object.freeze({request: nativeLogin.request, opened: nativeLogin.opened, diagnostics: nativeLogin.diagnostics})});
 function signIn() {
   if (!submitted) readDraft();
   if (native) nativeLogin.start();
@@ -154,13 +154,13 @@ onLanguageChange(()=>{
 async function api(path, options = {}) {
   const response = await fetch(path, {...options, credentials: 'same-origin', signal: options.signal || AbortSignal.timeout(70000)});
   let result;
-  try { result = await response.json(); } catch { throw new Error('The service returned an unreadable response. Your draft is still saved.'); }
+  try { result = await response.json(); } catch { throw Object.assign(new Error('The service returned an unreadable response. Your draft is still saved.'),{status:response.status,supportCode:'invalid-response'}); }
   if (response.status === 401) {
     account = {authenticated: false};
     $('identity').textContent = t('Sign-in expired'); $('login').hidden = false; $('logout').hidden = true;
     $('send').textContent = t('Sign in to send');
   }
-  if (!response.ok && !result.status) throw new Error(result.error || `Request failed (${response.status}).`);
+  if (!response.ok && !result?.status) throw Object.assign(new Error(result?.error || `Request failed (${response.status}).`),{status:response.status});
   return result;
 }
 async function checkStatus() {

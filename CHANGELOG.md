@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.80
+
+### Discord Sign-In Fix
+- Fixed valid sign-in requests being rejected when your computer's clock differs from the reporting server. The sign-in countdown no longer depends on your computer showing exactly the same time.
+- Added clearer messages for expired or declined requests, connection problems, temporary service errors and too many attempts. Your report text and prepared logs stay in place when you retry.
+- Report-window logs now record the sign-in steps and specific failure codes, making problems easier to trace. Approval links, approval codes, cookies, tokens and account details are not written to these diagnostic entries.
+- Updated English and Korean messages and the privacy explanation. The default-browser link and copyable backup link remain available while sign-in is pending.
+
 ## 3.1.79
 
 ### Reporting Language and Privacy

@@ -4,7 +4,10 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import gzip
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import random
@@ -29,6 +32,8 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--browser-mode", choices=("direct", "handler", "manual", "silent", "real-browser"), default="direct")
     parser.add_argument("--display-language", choices=("en", "ko"), default="en")
+    parser.add_argument("--clock-offset-ms", type=int, default=-2000)
+    parser.add_argument("--initial-auth-failure", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / "runtime/test-runs"):
@@ -51,11 +56,18 @@ def main():
     package = fixture / "runtime/support-reports" / report["id"] / "report.kfps-report.json.gz"
     assert package.stat().st_size > 750 * 1024, "Must exercise the old manual-only path"
     public = ROOT / "tools/support_worker/public"
+    auth_log = fixture / "runtime/support-reports/report-window.log"
+    log_handler = RotatingFileHandler(auth_log, maxBytes=1000000, backupCount=2, encoding="utf-8")
+    logger = logging.getLogger("kfps-report-window")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(log_handler)
     events = []
     ticket = str(uuid.uuid4())
     approved = False
     browser_attempts = []
     manual_clicked = False
+    auth_start_count = 0
+    retried_auth = False
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):
             pass
@@ -96,7 +108,15 @@ def main():
             self.end_headers()
             self.wfile.write(body)
         def do_POST(self):
+            nonlocal auth_start_count
             if self.path == '/api/native-auth/start':
+                auth_start_count += 1
+                if args.initial_auth_failure and auth_start_count == 1:
+                    self.send_response(429)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(b'{"error":"Synthetic rate limit"}')
+                    return
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Set-Cookie', 'qa_pending=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=300')
@@ -167,9 +187,9 @@ def main():
             app.quit()
             return
         busy = True
-        evaluate("({ready:!!window.KFPSReportTransfer,logsReady:!document.getElementById('download-private-logs')?.hidden,language:document.documentElement.lang,identity:document.getElementById('identity')?.textContent||'',description:document.getElementById('description')?.value||'',url:location.href,pending:!document.getElementById('native-signin')?.hidden,link:document.getElementById('native-link')?.value||'',href:document.getElementById('native-reopen')?.getAttribute('href')||''})",advance)
+        evaluate("({ready:!!window.KFPSReportTransfer,logsReady:!document.getElementById('download-private-logs')?.hidden,language:document.documentElement?.lang,identity:document.getElementById('identity')?.textContent||'',description:document.getElementById('description')?.value||'',notice:document.getElementById('notice')?.textContent||'',url:location.href,pending:!document.getElementById('native-signin')?.hidden,link:document.getElementById('native-link')?.value||'',href:document.getElementById('native-reopen')?.getAttribute('href')||''})",advance)
     def advance(value):
-        nonlocal phase,busy,window,expected_epoch,manual_clicked
+        nonlocal phase,busy,window,expected_epoch,manual_clicked,retried_auth
         busy = False
         try:
             if not isinstance(value,dict) or not value.get("ready") or not value.get("logsReady"):
@@ -185,7 +205,15 @@ def main():
                 window.view.grab().save(str(output / "native-large-ready.png"))
                 phase = 1
                 expected_epoch=window.epoch
-                evaluate("(()=>{document.getElementById('description').value='Edited native report text';document.getElementById('description').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('login').click();return true;})()",lambda _:None)
+                evaluate("(()=>{const wallNow=Date.now;Date.now=()=>wallNow()+" + str(args.clock_offset_ms) + ";document.getElementById('description').value='Edited native report text';document.getElementById('description').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('login').click();return true;})()",lambda _:None)
+            elif phase == 1 and args.initial_auth_failure and not retried_auth:
+                if 'result=rate-limited http_status=429' not in auth_log.read_text(encoding='utf-8'):
+                    return
+                check(('너무 여러 번' if args.display_language=='ko' else 'Too many') in value['notice'],'localized native sign-in failure is specific')
+                check(value['description']=='Edited native report text','failed sign-in preserves report text')
+                window.view.grab().save(str(output / 'native-signin-error.png'))
+                retried_auth = True
+                evaluate("(()=>{document.getElementById('login').click();return true;})()",lambda _:None)
             elif phase == 1 and args.browser_mode in ('manual','silent') and not manual_clicked and browser_attempts and value['pending']:
                 check(value['description']=='Edited native report text','blocked/silent browser launch preserves the edited draft')
                 check(value['href']==origin+'/auth/native?ticket='+ticket and value['link']==value['href'],'manual and copyable links retain the same approval ticket')
@@ -197,6 +225,9 @@ def main():
                                          Qt.KeyboardModifier.NoModifier, QPoint(value['x'],value['y']))
                 evaluate("(()=>{const a=document.getElementById('native-reopen');a.scrollIntoView({block:'center'});const r=a.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()",click)
             elif phase == 1 and "Native Test" in value["identity"]:
+                if 'stage=session result=authenticated' not in auth_log.read_text(encoding='utf-8'):
+                    return
+                check('stage=start result=ready' in auth_log.read_text(encoding='utf-8'),'real native bridge retains sign-in stages')
                 check(value["description"]=="Edited native report text","report text and all logs survive sign-in")
                 check(window.epoch==expected_epoch,"default-browser authorization never navigates the native report")
                 check(not value['pending'] and not value['link'] and not value['href'],'completed sign-in removes stale approval links')
@@ -265,7 +296,18 @@ def main():
         server.shutdown()
         server.server_close()
         page_patch.stop()
-    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":3,"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts}
+        log_handler.flush()
+        logger.removeHandler(log_handler)
+        log_handler.close()
+    if not failure:
+        text = auth_log.read_text(encoding='utf-8')
+        check(all(secret not in text for secret in (ticket,'1234-ABCD',origin,'Native Test')),'native diagnostics omit links, codes and identity')
+        retained = json.loads(gzip.decompress(collect_retained_log_bundle(fixture)[1]))
+        collected = '\n'.join(file['text'] for file in retained['files'] if file['name'].startswith('report-window-'))
+        check('stage=session result=authenticated' in collected,'next automatic log bundle retains sign-in diagnostics')
+    if console_errors:
+        failure.append('Unexpected JavaScript console errors')
+    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":3,"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts,"clockOffsetMs":args.clock_offset_ms,"initialAuthFailure":args.initial_auth_failure}
     (output / "results.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result))
     return 0 if result["passed"] else 1

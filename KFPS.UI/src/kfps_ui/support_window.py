@@ -23,6 +23,7 @@ from .support_report import FORM_ORIGIN
 from .support_browser import open_browser_url
 from .display_language import is_korean_display_language
 from .support_window_protocol import CHUNK_BYTES, read_source, report_id, window_name
+from .support_auth_diagnostics import record_signin_events
 
 
 def origin_of(url: QUrl) -> str:
@@ -70,6 +71,7 @@ class ReportWindow(QMainWindow):
         self.epoch = 0
         self.inflight = False
         self.auth_inflight = False
+        self.auth_diagnostic_cursor = 0
         self.deadline = 0.0
         self.background = background
         self.logger = logging.getLogger("kfps-report-window")
@@ -151,6 +153,7 @@ class ReportWindow(QMainWindow):
         self.auth_inflight = False
         if not isinstance(value, dict):
             return
+        self.auth_diagnostic_cursor = record_signin_events(value.get("diagnostics"), self.auth_diagnostic_cursor, self.logger)
         language = value.get("language")
         if language in ("ko", "en") and self.korean != (language == "ko"):
             self.korean = language == "ko"
@@ -185,6 +188,7 @@ class ReportWindow(QMainWindow):
         self.epoch += 1
         self.inflight = False
         self.auth_inflight = False
+        self.auth_diagnostic_cursor = 0
         self.auth_timer.stop()
         self.timer.stop()
         self.load_timeout.start()
@@ -219,7 +223,8 @@ class ReportWindow(QMainWindow):
         if self.closed or self.auth_inflight or origin_of(self.page.url()) != self.origin:
             return
         self.auth_inflight = True
-        self.run("return {language:window.KFPSReportLanguage?.current(),request:window.KFPSReportSignIn?.request() || null};", self.review_state)
+        self.run("return {language:window.KFPSReportLanguage?.current(),request:window.KFPSReportSignIn?.request() || null,"
+                 f"diagnostics:window.KFPSReportSignIn?.diagnostics?.({self.auth_diagnostic_cursor}) || []}};", self.review_state)
 
     def launch_auth(self, value):
         self.auth_inflight = False

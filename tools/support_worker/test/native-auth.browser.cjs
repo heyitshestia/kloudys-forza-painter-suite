@@ -43,12 +43,21 @@ const {chromium}=require('playwright');
       caseIP=`192.0.2.${caseNumber++}`;
       const app=await browser.newContext({locale,viewport:{width:1080,height:840}}),system=await browser.newContext({locale,viewport:{width:1100,height:900}});
       await app.addInitScript(()=>Object.defineProperty(window,'KFPSNativeReport',{value:true}));
+      await app.addInitScript(offset=>{const original=Date.now;Date.now=()=>original()+offset;},mode==='blocked'?-2000:mode==='silent'?86400000:-86400000);
       const token=await sign({kind:'session',id:'444444444444444444',name:'Synthetic Browser User',csrf:'browser-csrf',exp:Date.now()+3600000},env.SESSION_SECRET);
       await system.addCookies([{name:'kfps_support',value:token,url:env.PUBLIC_ORIGIN,httpOnly:true,sameSite:'Lax'}]);
       const report=await app.newPage(),approval=await system.newPage();
       for(const page of [report,approval])page.on('pageerror',e=>errors.push(String(e)));
       await report.goto(env.PUBLIC_ORIGIN);await report.locator('#login').waitFor();
       await report.locator('#description').fill('My edited description stays in KFPS.');
+      if(mode==='blocked') {
+        await report.route('**/api/native-auth/start',route=>route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:'Synthetic rate limit'})}));
+        await report.locator('#login').click();
+        await report.waitForFunction(()=>document.getElementById('notice').textContent.includes(document.documentElement.lang==='ko'?'너무 여러 번':'Too many'));
+        check(await report.locator('#login').isEnabled(),`${locale}: rate-limited attempt can retry`);
+        check(await report.evaluate(()=>window.KFPSReportSignIn.diagnostics().some(e=>e.result==='rate-limited'&&e.http_status===429)),`${locale}: rate-limit reason reaches diagnostics`);
+        await report.unroute('**/api/native-auth/start');
+      }
       await report.locator('#login').click();
       await report.locator('#native-signin').waitFor({state:'visible'});
       const url=await report.locator('#native-link').inputValue(),launch={url,id:new URL(url).searchParams.get('ticket')};
@@ -118,6 +127,7 @@ const {chromium}=require('playwright');
       check(await report.locator('#send').isDisabled(),`${locale}/${mode}: completed sign-in still requires checked logs`);
       check(await report.locator('#native-signin').isHidden() && await report.locator('#native-link').inputValue()==='' && await report.locator('#native-reopen').getAttribute('href')===null,`${locale}/${mode}: signed-in form clears approval links`);
       check(await report.locator('#description').inputValue()==='My edited description stays in KFPS.',`${locale}: browser authorization preserves report text`);
+      check(await report.evaluate(()=>window.KFPSReportSignIn.diagnostics().some(e=>e.stage==='session'&&e.result==='authenticated')),`${locale}/${mode}: clock-skewed form records successful authentication`);
       check(report.url()===env.PUBLIC_ORIGIN+'/',`${locale}: the native report never navigates to Discord`);
       await report.reload();await report.locator('#identity').filter({hasText:'Synthetic Browser User'}).waitFor();
       await report.close();const reopened=await app.newPage();await reopened.goto(env.PUBLIC_ORIGIN);
@@ -130,6 +140,7 @@ const {chromium}=require('playwright');
       await approval.locator('#deny').click();await reopened.locator('#native-signin').waitFor({state:'hidden'});
       check(await reopened.locator('#login').isVisible(),`${locale}: cancelling browser approval leaves the report usable`);
       check(await reopened.locator('#native-link').inputValue()==='',`${locale}/${mode}: denied sign-in clears manual link`);
+      check((await reopened.locator('#notice').innerText()).includes(locale==='ko-KR'?'거절':'declined'),`${locale}/${mode}: browser denial has a specific explanation`);
       await app.close();await system.close();
     }
     check(!requests.some(v=>v.startsWith('/api/reports')),'authorization never submits reports or logs');
