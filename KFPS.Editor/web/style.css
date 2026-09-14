@@ -1135,6 +1135,10 @@ body.guideMode #canvas {
   overflow: hidden;
 }
 
+#layerInfo {
+  flex-shrink: 0;
+}
+
 .layersViewport {
   min-height: 0;
   flex: 1 1 auto;
@@ -2432,6 +2436,11 @@ dialog::backdrop {
   min-width: 0;
   flex: 1;
 }
+
+.projectBrowserDialog .jsonBrowserActions { flex-wrap: wrap; }
+.projectBrowserDialog .jsonBrowserActions button { flex-shrink: 0; }
+.projectBrowserDialog .helpHeader > button { flex-shrink: 0; white-space: nowrap; }
+#projectBrowserStatus { flex-basis: 180px; }
 
 .helpBody h3 {
   margin: 0 0 8px;

@@ -1,5 +1,19 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.81
+
+### Combine Editor Projects
+- Open the project list, select a saved project and choose Add to Current Project to bring its shapes into your current canvas without replacing your work.
+- Added shapes arrive inside one group named after the source project, with their original groups preserved inside it. Position, rotation, size, skew, colors, transparency, masks, names, visibility and locks are retained.
+- Each addition is an independent copy. Changing or deleting the original project does not affect the added shapes, including after saving and reopening your combined project.
+- Your current project's reference image, guides, view and save location stay unchanged. The source project's reference image and guides are not added.
+- The combined project can contain up to 3,000 shapes. Additions that would exceed the limit are rejected without changing your work, and a successful addition can be undone in one step.
+
+### Groups And Reliability
+- Nested groups survive saving, reopening, recovery, and supported copying and Assets workflows. Fixed parent-group actions targeting the wrong group after filtering or renaming the layer list.
+- Cancelled or failed additions leave no partially added shapes behind. Updated English and Korean controls, messages and project-list layouts.
+- Game-exported JSON remains flat and does not contain editor groups. Share editor project files to preserve groups, and use an updated editor: older versions can lose the new nested structure when saving.
+
 ## 3.1.80
 
 ### Discord Sign-In Fix

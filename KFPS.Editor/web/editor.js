@@ -393,7 +393,8 @@ const editorLayerGroups = KfpsEditorLayerGroups.create({
   scene: {
     selected: () => selectedVinylObjects(), all: () => vinylObjects(),
     groupIds: () => selectedGroupIds(), members: ids => membersForGroupIds(ids),
-    selectedMembers: () => selectedGroupMembers(), groupName: object => groupNameForObject(object),
+    selectedMembers: () => selectedGroupMembers(), groupName: (object, id) => groupNameForObject(object, id),
+    focus: id => { lastLayerListKey = `group:${id}`; },
     typeLabel: type => typeLabel(type), attached: object => object.canvas === canvas,
     expand: id => collapsedLayerGroups.delete(id), lock: (object, value) => setObjectLocked(object, value),
   },
@@ -2620,6 +2621,7 @@ async function makeFabricObject(shape, name = null) {
     pixel_art_generated: shape.editor_pixel_art_generated === true,
     group_id: shape.editor_group_id ? String(shape.editor_group_id) : null,
     group_name: shape.editor_group_name ? String(shape.editor_group_name) : null,
+    group_path: shape.editor_group_path ? KfpsEditorLayerGroups.shapePath(shape) : null,
     mesh_path: d || null,
     outline_path: shape.outline_path || null,
     outline_path_failed: false,
@@ -3141,6 +3143,7 @@ function objectToShape(object, options = {}) {
     shape.editor_locked = Boolean(meta.locked);
     shape.editor_group_id = meta.group_id || null;
     shape.editor_group_name = meta.group_name || null;
+    if (meta.group_path?.length > 1) shape.editor_group_path = meta.group_path.map(group => ({ ...group }));
     if (meta.pixel_art_generated === true) shape.editor_pixel_art_generated = true;
   }
   return shape;
@@ -3160,7 +3163,7 @@ function captureAssetSelection() {
 }
 
 function currentEditorGroupIds() {
-  return new Set(vinylObjects().map((obj) => obj.kloudy?.group_id).filter(Boolean).map(String));
+  return new Set(vinylObjects().flatMap(obj => KfpsEditorLayerGroups.objectPath(obj).map(group => group.id)));
 }
 
 function pruneCollapsedLayerGroups() {
@@ -3315,6 +3318,7 @@ function applyHistoryShapeToObject(object, shape) {
     pixel_art_generated: shape.editor_pixel_art_generated === true,
     group_id: shape.editor_group_id ? String(shape.editor_group_id) : null,
     group_name: shape.editor_group_name ? String(shape.editor_group_name) : null,
+    group_path: shape.editor_group_path ? KfpsEditorLayerGroups.shapePath(shape) : null,
     scaleSigns: {
       x: (Number(data[2]) || 1) < 0 ? -1 : 1,
       y: (Number(data[3]) || 1) < 0 ? -1 : 1,
@@ -6298,6 +6302,7 @@ function renderProjectBrowser() {
   container.innerHTML = "";
   const selected = selectedProjectEntry();
   $("selectProjectEntry").disabled = !selected;
+  $("addProjectEntry").disabled = !selected || projectAdditionPending;
   if (!projectBrowserState.entries.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
@@ -6322,12 +6327,14 @@ function renderProjectBrowser() {
     button.addEventListener("click", () => {
       projectBrowserState.selectedIndex = index;
       setBrowserActiveRow(container, ".projectBrowserEntry", index);
-      setProjectBrowserStatus(KfpsI18n.t("Choose Load Project or double-click a project."));
+      $("selectProjectEntry").disabled = false;
+      $("addProjectEntry").disabled = projectAdditionPending;
+      setProjectBrowserStatus(KfpsI18n.t("Choose Load Project or Add to Current Project."));
     });
     button.addEventListener("dblclick", () => loadSelectedProject());
     container.appendChild(button);
   });
-  setProjectBrowserStatus(selected ? KfpsI18n.t("Choose Load Project or double-click a project.") : KfpsI18n.t("Select a project."));
+  setProjectBrowserStatus(selected ? KfpsI18n.t("Choose Load Project or Add to Current Project.") : KfpsI18n.t("Select a project."));
 }
 
 async function refreshProjectBrowser() {
@@ -6406,6 +6413,107 @@ async function loadSelectedProject() {
   } catch (err) {
     showError(KfpsI18n.t("Project load failed"), err);
     setProjectBrowserStatus(err.message || String(err));
+  }
+}
+
+let projectAdditionPending = false;
+async function addSelectedProject() {
+  const entry = selectedProjectEntry();
+  if (!entry || projectAdditionPending) return;
+  projectAdditionPending = true;
+  const generation = documentGeneration;
+  const dialog = $("projectBrowserDialog");
+  let cancelled = false;
+  const cancel = () => { cancelled = true; };
+  dialog.addEventListener("close", cancel);
+  $("addProjectEntry").disabled = true;
+  setProjectBrowserStatus(KfpsI18n.t("Adding {0}...", entry.title || entry.name));
+  try {
+    const added = await queueEditorMutation(async context => {
+      const data = await readEditorDocument(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`);
+      return addProjectPayloadNow(data.payload, entry.title || entry.name, {
+        ...context, current: () => context.current() && dialog.open && !cancelled,
+      });
+    }, "add");
+    if (added) {
+      $("projectBrowserDialog")?.close();
+      clearBusy(KfpsI18n.t("Added {0} as a group. The original project is unchanged.", entry.title || entry.name));
+    }
+  } catch (error) {
+    if (cancelled || !dialog.open || generation !== documentGeneration) return;
+    showError(KfpsI18n.t("Add project failed"), error);
+    setProjectBrowserStatus(KfpsI18n.error(error.message || String(error)));
+  } finally {
+    dialog.removeEventListener("close", cancel);
+    if (cancelled && generation === documentGeneration) clearBusy();
+    projectAdditionPending = false;
+    $("addProjectEntry").disabled = !selectedProjectEntry();
+  }
+}
+
+async function addProjectPayloadNow(payload, displayName, context) {
+  if (!context.current()) return false;
+  const groupName = cleanProjectBaseName(payload?.name || displayName, KfpsI18n.t("Untitled project"));
+  const reserved = currentEditorGroupIds();
+  const allocateGroupId = () => {
+    let id;
+    do { id = `group-${crypto.randomUUID()}`; } while (reserved.has(id));
+    reserved.add(id);
+    return id;
+  };
+  const prepared = KfpsEditorProjects.prepareAddition(payload, {
+    count: vinylObjects().length, maxLayers: MAX_VINYL_LAYERS, name: groupName,
+    groups: KfpsEditorLayerGroups, allocateGroupId,
+  });
+  const legacyOffset = computeLegacyOffset(prepared.shapes);
+  const shapeIds = new Set([...vinylObjects().map(object => object.kloudy?.editor_id),
+    ...payload.shapes.map(shape => shape.editor_id)].filter(Boolean).map(String));
+  const normalized = prepared.shapes.map((shape, index) => {
+    const result = normalizeInputShape(shape, index, legacyOffset);
+    if (!result) throw new Error(KfpsI18n.t("Some saved layers are invalid. The current canvas and recovery checkpoint were kept."));
+    const editorId = allocateEditorObjectId(shapeIds);
+    shapeIds.add(editorId);
+    return { ...shape, ...result, editor_id: editorId };
+  });
+  setBusy(KfpsI18n.t("Inserting {0} layer(s)...", normalized.length));
+  let objects = [], committed = false;
+  try {
+    objects = await buildDetachedFabricObjects(normalized);
+    await editorRenderer.prewarmHybridMeshesForObjects(objects);
+    if (!context.current()) return false;
+    if (!requireLayerCapacity(objects.length, KfpsI18n.t("insert these layers"))) throw new Error(KfpsI18n.t("This project would exceed the 3,000-shape limit."));
+    flushPendingNudgeHistory();
+    const previousCollapsed = new Set(collapsedLayerGroups);
+    const previousSelection = selectedVinylObjects();
+    context.commit(() => {
+      try {
+        canvas.discardActiveObject();
+        objects.forEach(object => canvas.add(object));
+        prepared.collapsed.forEach(id => collapsedLayerGroups.add(id));
+        syncCanvasObjectCoords();
+        const snapshot = captureSharedHistoryState(currentHistoryState());
+        editorHistory.breakCoalescing();
+        if (!editorHistory.commit(snapshot, "add project")) throw new Error(KfpsI18n.t("Add project failed"));
+        committed = true;
+        acceptEditorContent("add project");
+        presentAcceptedDocument(() => writeAutosavePayload(autosavePayloadFromState(snapshot)));
+      } catch (error) {
+        if (!committed) {
+          collapsedLayerGroups = previousCollapsed;
+          objects.forEach(object => { if (object.canvas === canvas) canvas.remove(object); });
+          if (previousSelection.length) selectObjects(previousSelection, KfpsI18n.t("current selection"));
+        }
+        throw error;
+      }
+    });
+    if (!committed) return false;
+    for (const refresh of [bringGuidesToBack, refreshLayers,
+      () => { selectObjects(objects, groupName); lastLayerListKey = `group:${prepared.outer.id}`; },
+      updateDocumentState, renderHistoryList, () => canvas.requestRenderAll()]) presentAcceptedDocument(refresh);
+    return true;
+  } finally {
+    if (!committed) objects.forEach(discardFabricObject);
+    if (context.current()) clearBusy(committed ? KfpsI18n.t("Added {0} layer(s) to the current project.", objects.length) : KfpsI18n.t("The current project was kept unchanged."));
   }
 }
 
@@ -6829,12 +6937,18 @@ function setObjectLocked(object, locked) {
   });
 }
 
-function groupNameForObject(object) {
-  return object?.kloudy?.group_name || KfpsI18n.t("Layer Group");
+function groupNameForObject(object, groupId = null) {
+  return (groupId ? KfpsEditorLayerGroups.objectPath(object).find(group => group.id === groupId)?.name : object?.kloudy?.group_name) || KfpsI18n.t("Layer Group");
 }
 
 function selectedGroupIds() {
-  return [...new Set(selectedVinylObjects()
+  const selected = selectedVinylObjects();
+  const groupId = lastLayerListKey?.startsWith("group:") ? lastLayerListKey.slice(6) : null;
+  if (groupId) {
+    const members = membersForGroupIds([groupId]), selectedSet = new Set(selected);
+    if (members.length && members.length === selected.length && members.every(object => selectedSet.has(object))) return [groupId];
+  }
+  return [...new Set(selected
     .map((obj) => obj.kloudy?.group_id)
     .filter(Boolean))];
 }
@@ -6842,7 +6956,7 @@ function selectedGroupIds() {
 function membersForGroupIds(groupIds) {
   const ids = new Set(groupIds.filter(Boolean));
   if (!ids.size) return [];
-  return vinylObjects().filter((obj) => ids.has(obj.kloudy?.group_id));
+  return vinylObjects().filter(obj => KfpsEditorLayerGroups.objectPath(obj).some(group => ids.has(group.id)));
 }
 
 function selectedGroupMembers() {
@@ -6853,6 +6967,7 @@ function selectGroupForObject(object) {
   const groupId = object?.kloudy?.group_id;
   if (!groupId) return false;
   selectObjects(membersForGroupIds([groupId]), groupNameForObject(object));
+  lastLayerListKey = `group:${groupId}`;
   return true;
 }
 
@@ -7103,6 +7218,7 @@ function selectLayerEntry(entry) {
   if (!entry?.objects?.length) return;
   if (entry.objects.length === 1) selectObjects(entry.objects, "layer");
   else selectObjects(entry.objects, KfpsI18n.t("layer group"));
+  lastLayerListKey = entry.key;
 }
 
 function selectLayerEntryByKey(key, reason = "layer") {
@@ -7308,6 +7424,8 @@ function createVirtualLayerElement(entry, activeSet) {
     const li = document.createElement("li");
     const active = entry.objects.some((object) => activeSet.has(object));
     li.className = `layerGroupRow${active ? " active" : ""}${entry.collapsed ? " collapsed" : ""}`;
+    li.style.paddingLeft = `${8 + Math.min(entry.depth || 0, 8) * 12}px`;
+    li.setAttribute("aria-level", String((entry.depth || 0) + 1));
     li.innerHTML = KfpsI18n.t("\n      <button class=\"layerGroupTwist\" type=\"button\" title=\"{0}\">{1}</button>\n      <span class=\"layerGroupTitle\">{2}</span>\n      <span class=\"layerGroupMeta\">{3} layers | {4} | {5}</span>\n      <button class=\"layerIcon layerGroupVisibility\" type=\"button\" title=\"Hide/show this group\">{6}</button>\n      <button class=\"layerIcon layerGroupLock\" type=\"button\" title=\"Lock/unlock this group\">{7}</button>\n    ", entry.collapsed ? KfpsI18n.t("Expand group") : KfpsI18n.t("Collapse group"), entry.collapsed ? "+" : "-", escapeHtml(entry.groupName), entry.objects.length, entry.visibility.hidden ? KfpsI18n.t("{0} hidden", entry.visibility.hidden) : KfpsI18n.t("visible"), entry.locks.locked ? KfpsI18n.t("{0} locked", entry.locks.locked) : KfpsI18n.t("unlocked"), entry.visibility.visible ? "V" : "H", entry.locks.unlocked ? "U" : "L");
     li.querySelector(".layerGroupTwist").addEventListener("click", (event) => {
       event.stopPropagation();
@@ -7316,11 +7434,13 @@ function createVirtualLayerElement(entry, activeSet) {
     li.querySelector(".layerGroupVisibility").addEventListener("click", (event) => {
       event.stopPropagation();
       selectObjects(entry.objects, entry.groupName);
+      lastLayerListKey = entry.key;
       toggleSelectedGroupVisibility();
     });
     li.querySelector(".layerGroupLock").addEventListener("click", (event) => {
       event.stopPropagation();
       selectObjects(entry.objects, entry.groupName);
+      lastLayerListKey = entry.key;
       toggleSelectedGroupLock();
     });
     li.addEventListener("click", (event) => {
@@ -7337,6 +7457,7 @@ function createVirtualLayerElement(entry, activeSet) {
   const obj = entry.object;
   const li = document.createElement("li");
   li.className = "layerRow";
+  li.style.paddingLeft = `${8 + Math.min(entry.depth || 0, 8) * 12}px`;
   if (entry.groupId) li.classList.add("groupedLayer");
   if (activeSet.has(obj)) li.classList.add("active");
   if (obj.visible === false) li.classList.add("hiddenLayer");
@@ -7599,21 +7720,21 @@ function refreshLayers() {
   const groupLocks = new Map();
   objects.forEach((obj) => {
     if (obj.visible !== false && (obj.opacity ?? 1) > 0) visibleCount += 1;
-    const rawGroupId = obj.kloudy?.group_id;
-    if (!rawGroupId) return;
-    const groupId = String(rawGroupId);
-    const members = groupMembers.get(groupId) || [];
-    members.push(obj);
-    groupMembers.set(groupId, members);
-    groupNames.set(groupId, groupNameForObject(obj));
-    const visibility = groupVisibility.get(groupId) || { visible: 0, hidden: 0 };
-    if (obj.visible === false) visibility.hidden += 1;
-    else visibility.visible += 1;
-    groupVisibility.set(groupId, visibility);
-    const locks = groupLocks.get(groupId) || { locked: 0, unlocked: 0 };
-    if (obj.kloudy?.locked) locks.locked += 1;
-    else locks.unlocked += 1;
-    groupLocks.set(groupId, locks);
+    for (const group of KfpsEditorLayerGroups.objectPath(obj)) {
+      const groupId = group.id;
+      const members = groupMembers.get(groupId) || [];
+      members.push(obj);
+      groupMembers.set(groupId, members);
+      groupNames.set(groupId, group.name || KfpsI18n.t("Layer Group"));
+      const visibility = groupVisibility.get(groupId) || { visible: 0, hidden: 0 };
+      if (obj.visible === false) visibility.hidden += 1;
+      else visibility.visible += 1;
+      groupVisibility.set(groupId, visibility);
+      const locks = groupLocks.get(groupId) || { locked: 0, unlocked: 0 };
+      if (obj.kloudy?.locked) locks.locked += 1;
+      else locks.unlocked += 1;
+      groupLocks.set(groupId, locks);
+    }
   });
   layerStatsCache = { objects, count: objects.length, visible: visibleCount };
   $("layerInfo").textContent = activeSet.size > 1
@@ -7626,28 +7747,34 @@ function refreshLayers() {
   displayObjects.forEach((obj, displayIndex) => {
     const actualIndex = objects.length - displayIndex;
     const label = `${actualIndex}. ${obj.kloudy?.name || localizedTypeLabel(obj.kloudy?.type || 0)}`;
-    const groupId = obj.kloudy?.group_id ? String(obj.kloudy.group_id) : null;
+    const path = KfpsEditorLayerGroups.objectPath(obj);
+    const groupId = path.at(-1)?.id || null;
     const groupName = groupId ? (groupNames.get(groupId) || groupNameForObject(obj)) : "";
-    const searchText = `${label} ${groupName} ${obj.kloudy?.type || ""} ${obj.kloudy?.type_word || ""}`.toLowerCase();
+    const searchText = `${label} ${path.map(group => group.name).join(" ")} ${obj.kloudy?.type || ""} ${obj.kloudy?.type_word || ""}`.toLowerCase();
     if (filter && !searchText.includes(filter)) return;
-    if (groupId && !renderedGroups.has(groupId)) {
-      renderedGroups.add(groupId);
-      const members = groupMembers.get(groupId) || [obj];
-      entries.push({
-        kind: "group",
-        key: `group:${groupId}`,
-        objects: members,
-        displayIndex,
-        groupId,
-        groupName,
-        collapsed: collapsedLayerGroups.has(groupId),
-        visibility: groupVisibility.get(groupId) || { visible: 0, hidden: 0 },
-        locks: groupLocks.get(groupId) || { locked: 0, unlocked: 0 },
-        height: 62,
-        element: null,
-      });
+    for (const [depth, group] of path.entries()) {
+      const groupId = group.id;
+      const groupName = groupNames.get(groupId) || KfpsI18n.t("Layer Group");
+      if (!renderedGroups.has(groupId)) {
+        renderedGroups.add(groupId);
+        const members = groupMembers.get(groupId) || [obj];
+        entries.push({
+          kind: "group",
+          key: `group:${groupId}`,
+          objects: members,
+          displayIndex,
+          groupId,
+          groupName,
+          collapsed: !filter && collapsedLayerGroups.has(groupId),
+          depth,
+          visibility: groupVisibility.get(groupId) || { visible: 0, hidden: 0 },
+          locks: groupLocks.get(groupId) || { locked: 0, unlocked: 0 },
+          height: 62,
+          element: null,
+        });
+      }
+      if (!filter && collapsedLayerGroups.has(groupId)) return;
     }
-    if (groupId && collapsedLayerGroups.has(groupId)) return;
     entries.push({
       kind: "layer",
       key: layerListObjectKey(obj),
@@ -7657,6 +7784,7 @@ function refreshLayers() {
       groupId,
       groupName,
       groupCount: groupId ? (groupMembers.get(groupId)?.length || 1) : 0,
+      depth: path.length,
       label,
       height: 62,
       element: null,
@@ -10659,16 +10787,18 @@ async function duplicateSelectedNow(context) {
   const duplicateGroupMap = new Map();
   const duplicateGroupNameMap = new Map();
   objects.forEach((obj) => {
-    const groupId = obj.kloudy?.group_id;
-    if (!groupId || duplicateGroupMap.has(groupId)) return;
-    const members = membersForGroupIds([groupId]);
-    const completeGroupSelection = members.length > 1 && members.every((member) => editableSet.has(member));
-    if (completeGroupSelection) {
-      duplicateGroupMap.set(groupId, `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-      duplicateGroupNameMap.set(groupId, nextLayerGroupName());
-    } else {
-      duplicateGroupMap.set(groupId, null);
-      duplicateGroupNameMap.set(groupId, null);
+    for (const [depth, group] of KfpsEditorLayerGroups.objectPath(obj).entries()) {
+      const groupId = group.id;
+      if (duplicateGroupMap.has(groupId)) continue;
+      const members = membersForGroupIds([groupId]);
+      const completeGroupSelection = members.length > 0 && members.every((member) => editableSet.has(member));
+      if (completeGroupSelection) {
+        duplicateGroupMap.set(groupId, `group-${crypto.randomUUID()}`);
+        duplicateGroupNameMap.set(groupId, depth ? group.name : nextLayerGroupName());
+      } else {
+        duplicateGroupMap.set(groupId, null);
+        duplicateGroupNameMap.set(groupId, null);
+      }
     }
   });
   let clones = [];
@@ -10682,11 +10812,10 @@ async function duplicateSelectedNow(context) {
       shape.data = Array.isArray(shape.data) ? shape.data.slice() : [];
       shape.data[0] = round((Number(shape.data[0]) || 0) + 30);
       shape.data[1] = round((Number(shape.data[1]) || 0) - 30);
-      if (shape.editor_group_id) {
-        const newGroupId = duplicateGroupMap.get(shape.editor_group_id);
-        shape.editor_group_id = newGroupId;
-        shape.editor_group_name = newGroupId ? duplicateGroupNameMap.get(obj.kloudy.group_id) : null;
-      }
+      const path = KfpsEditorLayerGroups.objectPath(obj).filter(group => duplicateGroupMap.get(group.id))
+        .map(group => ({ id: duplicateGroupMap.get(group.id), name: duplicateGroupNameMap.get(group.id) }));
+      delete shape.editor_group_path;
+      Object.assign(shape, KfpsEditorLayerGroups.fields(path));
       shape.editor_locked = false;
       return shape;
     });
@@ -11118,18 +11247,9 @@ async function pasteCopiedLayersNow() {
 async function insertCopiedShapesNow(sourceShapes, { asset = false } = {}) {
   const generation = documentGeneration;
   if (!requireLayerCapacity(sourceShapes.length, KfpsI18n.t("insert these layers"))) return;
-  const groupMap = new Map();
-  const normalized = sourceShapes.map((source) => {
-    const shape = JSON.parse(JSON.stringify(source));
-    delete shape.editor_id;
+  const normalized = KfpsEditorLayerGroups.cloneShapes(sourceShapes).shapes.map((shape) => {
     // Pasted/assets are independent artwork, not replacement targets for Pixel generation.
     delete shape.editor_pixel_art_generated;
-    if (shape.editor_group_id) {
-      if (!groupMap.has(shape.editor_group_id)) {
-        groupMap.set(shape.editor_group_id, `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-      }
-      shape.editor_group_id = groupMap.get(shape.editor_group_id);
-    }
     shape.editor_locked = false;
     shape.data = Array.isArray(shape.data) ? shape.data.slice() : [0, 0, 1, 1, 0, 0, 0];
     shape.data[0] = round((Number(shape.data[0]) || 0) + (asset ? 0 : 30));
@@ -12129,6 +12249,7 @@ function bindUi() {
   $("refreshProjectBrowser")?.addEventListener("click", refreshProjectBrowser);
   $("openProjectFolder")?.addEventListener("click", openProjectFolder);
   $("selectProjectEntry")?.addEventListener("click", loadSelectedProject);
+  $("addProjectEntry")?.addEventListener("click", addSelectedProject);
   $("importJsonFromDisk")?.addEventListener("click", () => $("jsonInput")?.click());
   $("jsonInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];

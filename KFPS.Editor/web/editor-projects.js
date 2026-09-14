@@ -1,5 +1,28 @@
 (function installProjects(root) {
   "use strict";
+  function prepareAddition(payload, { count, maxLayers = 3000, name, groups,
+    allocateGroupId = () => `group-${root.crypto.randomUUID()}` }) {
+    if (!payload || !Array.isArray(payload.shapes)) throw new Error("Project JSON must contain a shapes list.");
+    if (!payload.shapes.length) throw new Error("This project has no shapes to add.");
+    if (count + payload.shapes.length > maxLayers) {
+      throw Object.assign(new Error("This project would exceed the 3,000-shape limit."), { code: "layer_limit", layers: payload.shapes.length });
+    }
+    for (const shape of payload.shapes) {
+      if (!shape || !Number.isSafeInteger(Number(shape.type)) || Number(shape.type) <= 0
+        || !Array.isArray(shape.data) || shape.data.length < 5
+        || shape.data.some(value => typeof value !== "number" || !Number.isFinite(value))
+        || !Array.isArray(shape.color) || shape.color.length !== 4
+        || shape.color.some(value => typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 255)) {
+        throw new Error("Some saved layers are invalid. The current canvas and recovery checkpoint were kept.");
+      }
+    }
+    const outer = { id: allocateGroupId(), name };
+    const result = groups.cloneShapes(payload.shapes, { outer, allocateGroupId });
+    result.shapes.forEach(shape => { delete shape.editor_pixel_art_generated; });
+    const collapsed = (Array.isArray(payload.editor_collapsed_groups) ? payload.editor_collapsed_groups : [])
+      .map(id => result.groupIds.get(id)).filter(Boolean);
+    return { shapes: result.shapes, outer, collapsed: [...collapsed, outer.id] };
+  }
   function create({ persistence, generation, requestId = () => root.crypto.randomUUID() }) {
     let association = null;
     let associatedGeneration = -1;
@@ -50,7 +73,7 @@
       export: (name, payload) => write("saveExport", name, payload, null),
     };
   }
-  const api = { create };
+  const api = { create, prepareAddition };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.KfpsEditorProjects = api;
 })(typeof globalThis === "object" ? globalThis : this);

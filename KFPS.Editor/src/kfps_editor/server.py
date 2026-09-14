@@ -213,7 +213,7 @@ def _validated_asset_shapes(value: object) -> list[dict]:
         "type", "type_word", "data", "color", "mask", "score", "source_format",
         "resource_family", "resource_index", "shape_name", "legacy_type",
         "legacy_divisor", "legacy_offset", "editor_id", "editor_hidden",
-        "editor_locked", "editor_group_id", "editor_group_name",
+        "editor_locked", "editor_group_id", "editor_group_name", "editor_group_path",
     }
     for shape in value:
         if not isinstance(shape, dict) or set(shape) - allowed:
@@ -237,6 +237,20 @@ def _validated_asset_shapes(value: object) -> list[dict]:
         for key in ("type_word", "resource_index", "legacy_type"):
             if shape.get(key) is not None and (type(shape[key]) is not int or not 0 <= shape[key] <= 0xFFFFFFFF):
                 raise ValueError("The asset contains invalid resource metadata.")
+        path = shape.get("editor_group_path")
+        if path is not None:
+            if not isinstance(path, list) or not 1 <= len(path) <= 64:
+                raise ValueError("The asset contains invalid nested groups.")
+            seen = set()
+            for group in path:
+                if (not isinstance(group, dict) or set(group) != {"id", "name"}
+                    or not isinstance(group.get("id"), str) or not 1 <= len(group["id"]) <= 256
+                    or group["id"] in seen or not isinstance(group.get("name"), str)
+                    or len(group["name"]) > 1024):
+                    raise ValueError("The asset contains invalid nested groups.")
+                seen.add(group["id"])
+            if shape.get("editor_group_id") and path[-1]["id"] != shape["editor_group_id"]:
+                raise ValueError("The asset contains invalid nested groups.")
         for key in ("score", "legacy_divisor"):
             number = shape.get(key)
             if number is not None and (type(number) not in (int, float) or not math.isfinite(number) or abs(number) > 1e12):

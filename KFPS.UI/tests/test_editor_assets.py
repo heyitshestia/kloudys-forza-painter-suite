@@ -78,6 +78,22 @@ class EditorAssetTests(unittest.TestCase):
             self.assertEqual(1, len(result["unavailable"]))
             self.assertEqual("broken", broken.read_text())
 
+    def test_nested_groups_survive_asset_save_and_restart(self):
+        nested = dict(SHAPE, editor_group_path=[
+            {"id": "outer", "name": "Added project"},
+            {"id": "group-a", "name": "Original group"},
+        ])
+        with RunningEditorServer() as server:
+            entry = save(server, shapes=[nested])
+        with RunningEditorServer() as server:
+            self.assertEqual(nested, get(server, "?id=" + entry["id"])["payload"]["shapes"][0])
+            for path in ([], "bad", [{"id": "wrong", "name": "Wrong leaf"}],
+                         [{"id": "group-a", "name": "A"}] * 2,
+                         [{"id": "group-a", "name": "A", "source_path": "private"}],
+                         [{"id": str(i), "name": "Group"} for i in range(65)]):
+                with self.subTest(path=path), self.assertRaises(urllib.error.HTTPError):
+                    save(server, shapes=[dict(nested, editor_group_path=path)])
+
     def test_failed_atomic_rename_retains_previous_document(self):
         with RunningEditorServer() as server:
             entry = save(server)

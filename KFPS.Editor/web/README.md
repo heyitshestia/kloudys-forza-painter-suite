@@ -61,6 +61,35 @@ is a safety net, not a replacement for `Save`.
 
 ## Reusable Groups
 
+### Add A Saved Project
+
+Open `Open Project`, select a saved project and choose `Add to Current Project`.
+This copies its shapes above the current artwork at their saved positions. One
+new group named after that project contains the copies, with its original groups
+preserved as nested groups. Expand a parent to select its children separately.
+Renaming, hiding, locking and ungrouping a parent act on that parent; ungrouping
+does not dissolve the remaining child groups. Layer painting order is unchanged.
+
+The addition is native, independent artwork, not a linked project. Editing,
+renaming or deleting either project does not change the other. Every copy receives
+fresh layer/group IDs. Add retains colors, masks, transforms, names, visibility
+and locks; it does not copy the other project's reference image or guides, change
+the current view, or redirect Save. `Load Project` still replaces the workspace.
+
+Exactly 3,000 shapes is allowed; hidden, locked and mask shapes count too. An
+addition that would exceed the limit is rejected in full. A failed or cancelled
+addition leaves existing artwork alone. Closing the project browser while an
+addition is still loading cancels it. A successful addition is one Undo step and
+uses normal recovery saving. Game JSON exports remain a flat list of shapes.
+
+Nested groups use optional `editor_group_path` project/asset metadata, keeping
+the existing leaf group ID/name fields for compatibility. Old flat project files
+still load. Older editor versions do not understand the added parent hierarchy;
+use an updated editor when sharing nested projects or assets. Nesting is bounded
+at 64 levels; malformed/cyclic or inconsistent incoming groups are rejected.
+
+### Save Selected Artwork As An Asset
+
 The `Assets` tab stores independent copies of selected artwork. `Save Selection`
 keeps shape identities, colors, transforms, masks, visibility, names and group
 metadata. Search the thumbnail grid and choose `Insert` to add a separate copy

@@ -26,6 +26,25 @@ The page harness needs the existing Playwright/Node dependencies. Keep native
 QApplication suites separate from tests that create QCoreApplication. Do not call
 an offscreen graphics run equivalent to real-window pixel/performance validation.
 
+## Project Addition Checks
+
+`editor-project-add.node.js` covers detached independent copies, capacity,
+metadata preservation, ID remapping, malformed paths and nesting bounds.
+`test_editor_assets.py` also verifies nested asset persistence and validation.
+
+`regression-project-add.js` uses the native project list Add button with 2,400
+existing shapes, repeated 120-shape additions and actual group/Assets/clipboard
+actions. It verifies exact undo, source bytes, source deletion followed by
+destination reopen, retained destination reference/guides/save association,
+game JSON readback and dense pointer interactions.
+`regression-project-add-boundaries.js` covers self-add, exact 3,000 capacity,
+overflow, build/install/history failures, cancellation and EN/KO layouts.
+Use `--abrupt-exit` for the successful boundary phase. Then reuse its profile
+with `regression-project-add.js`, options `restart: true` and `expected` pointing
+to `expected-restart.json`, with `--normal-close`, to verify native recovery.
+Fixtures are synthetic and private; their short interaction timings are not an
+endurance test or a guarantee across all hardware/reference sizes.
+
 ## Update Awareness Checks
 
 `test_update_status.py` exercises the shared main/editor Qt checker against a local

@@ -916,7 +916,7 @@
   <dialog id="projectBrowserDialog" class="projectBrowserDialog">
     <div class="helpHeader">
       <div>
-        <h2>Load Editor Project</h2>
+        <h2>Editor Projects</h2>
         <p>These are internal KFPS project saves from runtime/fabric-editor/projects. They are not shown in the Import JSON browser.</p>
       </div>
       <button id="closeProjectBrowser" type="button" title="Close the project browser without changing the current project.">Close</button>
@@ -929,6 +929,7 @@
     <div id="projectBrowserEntries" class="projectBrowserEntries"></div>
     <div class="jsonBrowserActions">
       <p id="projectBrowserStatus">Choose a project, then click Load Project.</p>
+      <button id="addProjectEntry" type="button" title="Add an independent copy of this project's shapes and nested groups to the current project. Reference images and guides are not added." disabled><span aria-hidden="true">+</span> Add to Current Project</button>
       <button id="selectProjectEntry" class="primary" type="button" title="Replace the current workspace with the selected editable project." disabled>Load Project</button>
     </div>
   </dialog>
