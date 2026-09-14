@@ -10,6 +10,9 @@ internal static class KfpsLauncher
 {
     private const int PythonProbeTimeoutMs = 15000;
 #if KFPS_EDITOR
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(uint processId);
+
     private static readonly string EntryPoint = Path.Combine("KFPS.Editor", "editor.py");
     private static readonly string Requirements = Path.Combine("KFPS.Editor", "requirements.txt");
 #else
@@ -125,6 +128,10 @@ internal static class KfpsLauncher
                 {
                     return 3;
                 }
+#if KFPS_EDITOR
+                if (!args.Contains("--background"))
+                    AllowSetForegroundWindow((uint)process.Id);
+#endif
                 if (args.Length > 0)
                 {
                     process.WaitForExit();

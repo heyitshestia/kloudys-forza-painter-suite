@@ -30,6 +30,7 @@ Neither operation commits an artwork change by itself.
 | Preferences/assets | `web/editor-preferences.js`, `web/editor-assets.js` | Existing independent settings and reusable artwork storage |
 | Diagnostics | `web/editor-diagnostics.js` | Bounded semantic events, performance recorder and observer lifetime |
 | Native host | `src/kfps_editor/host.py`, `ipc.py` | Window, readiness, single instance, transport and safe close decisions |
+| Startup ownership (O18) | `src/kfps_editor/startup.py`, `instance_lock.py`, `windows_lock.py`, `activation.py` | Bounded startup coordination, OS-held ownership, targeted foreground handoff |
 | Installed baseline | `src/kfps_editor/baseline.py`, `update_guard.py` | Release-owned file/runtime contract, isolated local interpreter and pre-Qt update exclusion |
 | Update awareness (O20) | `web/editor-updates.js`, shared `tools/kfps_update_status.py` | Independent stable-channel checks, bounded requests and per-version blink acknowledgement; no installation or artwork mutation |
 | Native storage | `src/kfps_editor/projects.py`, `recovery.py` | Atomic writes, byte limits, receipts, fingerprints, heads and floors |
@@ -142,6 +143,47 @@ Denied raw-log storage must not prevent launching. The structured writer and nat
 startup-error/readiness markers remain independent failure-reporting paths.
 
 ## Stable Distribution Boundaries
+
+### Startup Ownership And Presentation
+
+On Windows, `desktop.lock` is owned by an open, non-inheritable file handle, not
+its PID/hostname text or age. Acquire before reading/writing its metadata. Reuse
+an abandoned marker in place; never unlink it to claim ownership. A killed process
+releases the handle automatically. Qt-compatible metadata and Windows share modes
+exclude live legacy QLockFile owners in both directions. Reject directories,
+reparse points and multiply linked lock files without modifying their targets.
+Non-Windows development retains QLockFile.
+Native startup briefly retries Windows sharing violations for up to 1.5 seconds
+to tolerate transient readers; permission errors fail immediately. Waiting never
+changes permissions or removes another process's handle.
+
+The pre-Qt installation/update lease is separate and remains mandatory. Contention
+retries for up to ten seconds while attempting one acknowledged delivery to the
+existing editor. An uncertain acknowledgement is an error, not permission to replay
+an opening request or launch another writer. No timer kills an unresponsive editor.
+Permission/storage failures are distinct from a live lock and preserve saved data.
+
+Ready markers include process identity, startup time and transition time. Ignore a
+verified dead process; missing state is not ready. Readiness requires both the
+existing IPC handshake and explicit native/page readiness. A failed page can reopen
+through the existing activation/retry flow without resetting projects or preferences.
+Do not update marker timestamps on every diagnostic heartbeat.
+
+EXE, managed-interpreter relay and KFPS bridge hand foreground permission to their
+actual child. An IPC client grants permission only to its connected pipe's server
+PID. Normal activation restores and raises the window or its active native modal;
+explicit background activation does not take focus. Windows may deny foreground
+focus if other user input intervenes; request taskbar attention instead of changing
+global foreground policy. No success claim depends solely on a saved PID marker.
+
+On partial startup failure, dispose initialized components and release ownership
+before displaying the error dialog. A noncritical cleanup exception cannot skip
+later cleanup. If a potential data writer cannot stop, retain ownership until
+process exit and do not leave a blocking startup dialog open. Only remove state
+markers owned by the closing process. Low-volume startup/activation/cleanup events
+go into the existing retained desktop log, never a frame-by-frame disk stream.
+
+### Package Contracts
 
 The source package is `KFPS.Editor`, but HTTP remains `/tools/fabric-editor/`.
 Resource requests never fall back to an old physical web folder. GET and HEAD use

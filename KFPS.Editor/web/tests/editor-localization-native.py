@@ -70,6 +70,22 @@ class NativeLocalizationTests(unittest.TestCase):
                     host.deleteLater()
                     self.app.processEvents()
 
+    def test_startup_errors_are_available_in_both_languages(self):
+        from kfps_editor.localization import EditorTranslator
+        for language in ("en", "ko"):
+            translator = EditorTranslator(ROOT, Path("missing-test-profile"), language)
+            for role in ("instance-lock", "startup"):
+                from kfps_editor.manifest import native_source
+                import ast
+                tree = ast.parse(native_source(role, ROOT).read_text(encoding="utf-8"))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args:
+                        argument = node.exc.args[0]
+                        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                            self.assertIn(argument.value, translator.messages)
+                            if language == "ko":
+                                self.assertNotEqual(translator.tr(argument.value), argument.value)
+
 
 if __name__ == "__main__":
     unittest.main()

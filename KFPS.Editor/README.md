@@ -29,7 +29,10 @@ py -3.12 KFPS.Editor/editor.py
 ```
 
 `--background` opens without raising the editor or taking focus; it does not
-minimize the window. Normal launches retain their existing foreground behavior.
+minimize the window. Normal launches bring the editor forward, restore a minimized
+window, and focus its active dialog when one needs attention. Windows may deny
+foreground focus after unrelated user input; the editor requests taskbar attention
+instead of overriding the user's focus settings.
 `--runtime-root` is available for an explicitly isolated test profile.
 
 The native `KFPS Editor.exe` still belongs beside `KFPS.exe` in a combined

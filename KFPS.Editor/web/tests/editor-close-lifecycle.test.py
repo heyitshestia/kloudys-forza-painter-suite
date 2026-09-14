@@ -280,6 +280,26 @@ class CloseLifecycleTests(unittest.TestCase):
         self.assertFalse(self.host._commands)
         self.assertFalse(self.host.close_timer.isActive())
 
+    def test_noncritical_shutdown_error_does_not_strand_locks(self):
+        self.host.page = None
+        self.host.server.diagnostics.side_effect = RuntimeError("diagnostics unavailable")
+        self.host.lock = Mock()
+        self.host.lock.isLocked.return_value = True
+        self.host._update_guard = Mock()
+        lease = self.host._update_guard
+        self.assertTrue(self.host.shutdown())
+        self.host.lock.unlock.assert_called_once()
+        lease.Close.assert_called_once()
+
+    def test_live_writer_cleanup_failure_keeps_ownership_until_process_exit(self):
+        self.host.page = None
+        self.host.server.server_close.side_effect = RuntimeError("writer still alive")
+        self.host.lock = Mock()
+        self.host._update_guard = Mock()
+        self.assertFalse(self.host.shutdown())
+        self.host.lock.unlock.assert_not_called()
+        self.host._update_guard.Close.assert_not_called()
+
     def open_request(self):
         self.host._queued_requests.append({"mode": "new", "project": ""})
         self.host._dispatch_open()

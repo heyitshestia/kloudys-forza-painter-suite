@@ -15,11 +15,15 @@ CLIENT = '''
 import json,sys
 sys.path.insert(0,sys.argv[1])
 from kfps_editor.ipc import forward_before_qt
+from kfps_editor import activation
+destinations=[]
+activation.grant_foreground=lambda pid: destinations.append(pid) or True
 try:
     result={'accepted':forward_before_qt(sys.argv[2],{'mode':'activate'},timeout=300)}
 except Exception as error:
     result={'error':type(error).__name__,'message':str(error)}
 result['qtImported']=any(name.startswith(('PySide6','shiboken6')) for name in sys.modules)
+result['foregroundPids']=destinations
 print(json.dumps(result))
 '''
 
@@ -90,6 +94,7 @@ class PreQtIpcTests(unittest.TestCase):
         for split in (False,True):
             result, requests = self.exchange(b'ok\n',split=split)
             self.assertTrue(result.get('accepted'),result)
+            self.assertEqual(result['foregroundPids'], [os.getpid()], 'Focus must target the real connected server')
             self.assertEqual(requests,[{'project':'','mode':'activate'}])
 
     def test_busy_bad_and_oversized_replies_are_not_absence(self):

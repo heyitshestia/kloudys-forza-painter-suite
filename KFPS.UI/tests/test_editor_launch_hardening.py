@@ -18,6 +18,7 @@ class EditorLaunchHardeningTests(unittest.TestCase):
         socket.bytesAvailable.return_value = len(reply)
         socket.readAll.return_value = reply
         socket.waitForReadyRead.return_value = False
+        socket.socketDescriptor.return_value = -1
         return socket
 
     def test_live_rejected_or_bad_ack_never_starts_second_process(self):

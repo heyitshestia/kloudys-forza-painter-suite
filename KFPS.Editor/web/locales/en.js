@@ -4,6 +4,11 @@ window.KfpsEditorLocales.en = {
   "locale": "en",
   "name": "English",
   "messages": {
+    "KFPS Editor could not start": "KFPS Editor could not start",
+    "The editor cannot write its startup lock. Check folder access and available disk space. Your saved work has not been changed.": "The editor cannot write its startup lock. Check folder access and available disk space. Your saved work has not been changed.",
+    "The editor data folder is locked by another process, and no responding editor was found. Close the other editor or application using this folder and try again. Your saved work has not been changed.": "The editor data folder is locked by another process, and no responding editor was found. Close the other editor or application using this folder and try again. Your saved work has not been changed.",
+    "The editor or updater still holds this installation, but the editor is not responding. Finish the update or close the existing editor and try again. No running process or saved work was removed.": "The editor or updater still holds this installation, but the editor is not responding. Finish the update or close the existing editor and try again. No running process or saved work was removed.",
+    "The startup lock is not a regular, single-link file.": "The startup lock points to an unexpected file. No changes were made to that file. Please use Report a Problem for help.",
     "UPDATE": "UPDATE",
     "A KFPS update is available. Click to stop blinking.": "A KFPS update is available. Click to stop blinking.",
     "KFPS {0} is available. Click to stop blinking. Save your work and update from KFPS when ready.": "KFPS {0} is available. Click to stop blinking. Save your work and update from KFPS when ready.",

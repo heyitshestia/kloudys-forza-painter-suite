@@ -13,6 +13,7 @@ from kfps_editor.ipc import (EditorConnectionError, forward_request, instance_na
                              read_desktop_state, validate_request, wait_until_ready)
 from kfps_editor.bootstrap_log import open_desktop_log
 from kfps_editor.baseline import launch_command
+from kfps_editor.activation import grant_foreground
 
 
 
@@ -38,10 +39,12 @@ def editor_is_open(paths) -> bool:
 
 def launch_editor(paths, project: str = "", mode: str = "activate", cancelled=None, *, background=False) -> str:
     request = validate_request({"project": project, "mode": mode or "activate"})
+    if background:
+        request["background"] = True
     runtime = paths.runtime_root / "fabric-editor"
     name = instance_name(paths.app_root, runtime)
     if forward_request(name, request):
-        return wait_until_ready(runtime, name, cancelled)
+        return wait_until_ready(runtime, name, cancelled, background=background)
     if cancelled is not None and cancelled.is_set():
         return "Editor launch cancelled."
     entry = paths.app_root / "KFPS.Editor" / "editor.py"
@@ -58,6 +61,8 @@ def launch_editor(paths, project: str = "", mode: str = "activate", cancelled=No
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     with open_desktop_log(runtime) as stream:
         process = subprocess.Popen(args, cwd=paths.app_root, env=env, creationflags=flags, close_fds=True, stdout=stream, stderr=stream)
+    if not background:
+        grant_foreground(process.pid)
     # The new process receives the opening request on its command line. Only ping
     # for activation here, so startup cannot open the same document twice.
-    return wait_until_ready(runtime, name, cancelled, process, connected=False)
+    return wait_until_ready(runtime, name, cancelled, process, connected=False, background=background)

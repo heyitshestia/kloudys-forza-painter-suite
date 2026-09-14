@@ -30,10 +30,15 @@ class EditorDesktopContractTests(unittest.TestCase):
 
     def test_existing_editor_is_reused_without_child_process(self):
         paths = Mock(app_root=Path("installation"), runtime_root=Path("runtime"))
-        with patch("kfps_ui.editor_launch.forward_request", return_value=True) as forward, patch("kfps_ui.editor_launch.subprocess.Popen") as spawn:
+        with (patch("kfps_ui.editor_launch.forward_request", return_value=True) as forward,
+              patch("kfps_ui.editor_launch.wait_until_ready", return_value="Editor opened in its own window.") as ready,
+              patch("kfps_ui.editor_launch.subprocess.Popen") as spawn):
             launch_editor(paths, "test.fabric-project.json", "activate")
             spawn.assert_not_called()
             self.assertEqual("test.fabric-project.json", forward.call_args.args[1]["project"])
+            ready.assert_called_once_with(paths.runtime_root / "fabric-editor",
+                                          instance_name(paths.app_root, paths.runtime_root / "fabric-editor"),
+                                          None, background=False)
 
     def test_update_does_not_launch_or_quit_main_while_editor_open(self):
         from kfps_ui.update_service import UpdateService

@@ -5,16 +5,19 @@ import socket
 import sys
 import subprocess
 import time
+import threading
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[3]
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(root / "KFPS.Editor/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from kfps_editor.host import EditorDesktop
 from kfps_editor.ipc import forward_request, instance_name, EditorConnectionError
+from kfps_editor.instance_lock import EditorInstanceLock
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 app = QApplication([])
@@ -30,7 +33,7 @@ occupied.bind(("127.0.0.1", 0))
 occupied.listen()
 port = occupied.getsockname()[1]
 (runtime / "desktop-port.json").write_text(json.dumps({"port": port}))
-host = EditorDesktop(root, runtime)
+host = EditorDesktop(root, runtime, background=True)
 from native_window_policy import keep_in_background
 keep_in_background(host)
 results = []
@@ -47,6 +50,7 @@ def wait(predicate, timeout=15):
 
 
 def forward(request, bridge=False):
+    request = dict(request, background=True)
     code = """
 import json, sys
 from PySide6.QtCore import QCoreApplication
@@ -63,7 +67,7 @@ try:
         from kfps_ui.editor_launch import launch_editor
         request = json.loads(sys.argv[3])
         with patch('kfps_ui.editor_launch.subprocess.Popen', side_effect=AssertionError('Live bridge spawned a second editor')):
-            message = launch_editor(SimpleNamespace(app_root=root, runtime_root=runtime.parent), project=request.get('project',''), mode=request.get('mode','activate'))
+            message = launch_editor(SimpleNamespace(app_root=root, runtime_root=runtime.parent), project=request.get('project',''), mode=request.get('mode','activate'), background=True)
         print(json.dumps({'ok':bool(message)}))
     else:
         print(json.dumps({'ok': forward_request(sys.argv[2], json.loads(sys.argv[3]), timeout=1500)}))
@@ -77,8 +81,13 @@ except Exception as exc: print(json.dumps({'error': str(exc)}))
     return EditorConnectionError(response["error"]) if "error" in response else response["ok"]
 
 
+temporary_lock = EditorInstanceLock(runtime)
+assert temporary_lock.tryLock()
+release_lock = threading.Timer(.15, temporary_lock.unlock)
+release_lock.start()
 try:
     assert host.start({"mode": "activate", "project": ""})
+    results.append({"transientStartupLockRecovered": True})
     host.show()
     wait(lambda: host._ready)
     assert host.url.port() != port
@@ -129,6 +138,8 @@ try:
     host.grab().save(str(out / "reopened.png"))
     (out / "results.json").write_text(json.dumps(results, indent=2))
 finally:
+    release_lock.join()
+    temporary_lock.unlock()
     (out / "last-state.json").write_text(json.dumps({"ready": host._ready, "failed": host._failed, "label": host.error_label.text(), "url": host.page.url().toString(), "results": results}, ensure_ascii=False, indent=2), encoding="utf-8")
     host._allow_close = True
     host.close()

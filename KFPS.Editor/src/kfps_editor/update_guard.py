@@ -39,7 +39,9 @@ def acquire_update_guard(state_root: Path):
     if handle == ctypes.c_void_p(-1).value:
         code = ctypes.get_last_error()
         if code in (32, 33):
-            raise RuntimeError("KFPS is updating or the editor is already open. Finish the current operation before opening the editor.")
+            error = RuntimeError("KFPS is updating or the editor is already open. Finish the current operation before opening the editor.")
+            error.winerror = code
+            raise error
         raise ctypes.WinError(code)
     class Lease:
         def __init__(self, value): self.value = value

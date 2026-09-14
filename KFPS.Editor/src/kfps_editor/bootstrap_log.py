@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import secrets
 import time
+import json
+from datetime import datetime, timezone
 
 if os.name == "nt":
     from pywintypes import error as WindowsFileError
@@ -12,6 +14,16 @@ else:
     WindowsFileError = OSError
 
 MAX_BYTES = 2 * 1024 * 1024
+
+
+def record_startup(runtime, event, **fields):
+    """Low-volume lifecycle evidence; never called by drawing/frame callbacks."""
+    try:
+        with open_desktop_log(Path(runtime)) as stream:
+            stream.write(json.dumps({"utc": datetime.now(timezone.utc).isoformat(),
+                                     "pid": os.getpid(), "event": event, **fields}) + "\n")
+    except OSError:
+        pass
 
 
 def _ordinary(path):

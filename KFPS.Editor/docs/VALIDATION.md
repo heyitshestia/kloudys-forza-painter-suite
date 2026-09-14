@@ -17,6 +17,9 @@ node KFPS.Editor/web/tests/run-unit.cjs
 py -3.12 KFPS.Editor/web/locales/manage.py check
 py -3.12 KFPS.Editor/web/tests/editor-localization.test.py
 py -3.12 KFPS.Editor/web/tests/editor-close-lifecycle.test.py
+py -3.12 KFPS.Editor/web/tests/editor-instance-lock.test.py
+py -3.12 KFPS.Editor/web/tests/editor-ipc-preqt.test.py
+py -3.12 KFPS.Editor/web/tests/editor-startup-errors.test.py
 py -3.12 KFPS.Editor/web/tests/editor-bootstrap-log.test.py
 py -3.12 -m unittest discover -s KFPS.UI/tests -p "test_editor*.py"
 go -C tools/bootstrap_updater test ./cmd/kfps-update-tool ./internal/bootstrap
@@ -25,6 +28,34 @@ go -C tools/bootstrap_updater test ./cmd/kfps-update-tool ./internal/bootstrap
 The page harness needs the existing Playwright/Node dependencies. Keep native
 QApplication suites separate from tests that create QCoreApplication. Do not call
 an offscreen graphics run equivalent to real-window pixel/performance validation.
+
+## Startup Qualification
+
+`editor-instance-lock.test.py` uses real Windows sharing modes, legacy Qt locks,
+malformed/foreign-host/reused-PID markers, cross-process contention, concurrent
+acquisition, abrupt termination, permission errors and hardlinked files. Its state
+tests reject dead/missing readiness and uncertain acknowledgement replay.
+`editor-startup-errors.test.py` injects a partial native startup failure, then checks
+that real instance/update leases can be acquired before the error dialog is shown.
+`editor-launch-native.py` covers a transient startup lock, startup timeout, retry
+and renderer termination. Startup-error fixtures also deny the raw log file and
+require the independent startup error marker to survive.
+
+After rebuilding the local editor EXE and regenerating a changed managed baseline:
+
+```powershell
+.\python\python.exe -B KFPS.Editor/web/tests/editor-startup-qualification.py runtime/test-runs/my-startup-check
+```
+
+This requires an unused output directory and an interactive Windows desktop. Press
+the controller's Begin button to establish actual foreground input ownership; if
+Windows denies a later return to that controller, focus it again. Do not inspect or
+move other windows during focus assertions. The checks launch through the actual
+EXE, managed CLI and main-app bridge, load a synthetic 200-shape project, restore a
+minimized editor, reuse one owner for four simultaneous activations/cold launches, terminate only
+the test owner to simulate a crash, restart, and test a read-only startup lock.
+Results, child logs, isolated profile and a foreground screenshot are retained.
+These are startup/ownership tests, not performance or endurance benchmarks.
 
 ## Project Addition Checks
 

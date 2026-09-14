@@ -6,6 +6,7 @@ import os
 import re
 import time
 from pathlib import Path, PurePosixPath
+from .activation import grant_pipe_foreground, process_running
 
 STARTUP_TIMEOUT = 65
 
@@ -19,7 +20,7 @@ def instance_name(app_root: Path, runtime: Path) -> str:
     return "kfps-editor-" + hashlib.sha256(identity.encode()).hexdigest()[:32]
 
 def validate_request(payload: object) -> dict:
-    if not isinstance(payload, dict) or set(payload) - {"project", "mode"}:
+    if not isinstance(payload, dict) or set(payload) - {"project", "mode", "background"}:
         raise ValueError("Invalid editor launch request.")
     project = payload.get("project", "")
     mode = payload.get("mode", "activate")
@@ -30,7 +31,12 @@ def validate_request(payload: object) -> dict:
         raise ValueError("The requested project must be inside the editor project folder.")
     if not isinstance(mode, str) or mode not in {"activate", "new", "json", "tutorial"}:
         raise ValueError("Invalid editor launch mode.")
-    return {"project": project, "mode": mode}
+    if "background" in payload and type(payload["background"]) is not bool:
+        raise ValueError("Invalid editor activation request.")
+    request = {"project": project, "mode": mode}
+    if payload.get("background"):
+        request["background"] = True
+    return request
 
 def _local_socket():
     from PySide6.QtNetwork import QLocalSocket
@@ -78,6 +84,8 @@ def forward_before_qt(name: str, request: dict, timeout: int = 800) -> bool:
             operation.GetOverlappedResult(True)
 
     try:
+        if not request.get("background"):
+            grant_pipe_foreground(handle)
         operation, _ = _winapi.WriteFile(handle, payload, overlapped=True)
         if finish(operation) != len(payload):
             raise EditorConnectionError("The open editor received an incomplete request. No second editor was started.")
@@ -104,6 +112,8 @@ def forward_request(name: str, request: dict, timeout: int = 800) -> bool:
         socket = _local_socket()
         socket.connectToServer(name)
         if socket.waitForConnected(min(250, timeout)):
+            if not request.get("background"):
+                grant_pipe_foreground(socket.socketDescriptor())
             socket.write(payload)
             socket.flush()
             result = bytearray()
@@ -132,11 +142,15 @@ def read_desktop_state(runtime: Path, name: str) -> dict:
         if marker.stat().st_size > 16384:
             return {}
         state = json.loads(marker.read_text(encoding="utf-8"))
-        return state if isinstance(state, dict) and state.get("instance") == name else {}
+        if not isinstance(state, dict) or state.get("instance") != name:
+            return {}
+        if process_running(state.get("pid")) is False:
+            return {}
+        return state
     except (OSError, ValueError):
         return {}
 
-def wait_until_ready(runtime: Path, name: str, cancelled=None, process=None, connected=True) -> str:
+def wait_until_ready(runtime: Path, name: str, cancelled=None, process=None, connected=True, *, background=False) -> str:
     deadline = time.monotonic() + STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         if cancelled is not None and cancelled.is_set():
@@ -152,7 +166,10 @@ def wait_until_ready(runtime: Path, name: str, cancelled=None, process=None, con
             raise RuntimeError(f"The editor could not start. {detail}\nSee {runtime / 'desktop.log'}")
         if not connected:
             try:
-                connected = forward_request(name, {"mode": "activate", "project": ""}, timeout=300)
+                request = {"mode": "activate", "project": ""}
+                if background:
+                    request["background"] = True
+                connected = forward_request(name, request, timeout=300)
             except EditorConnectionError:
                 # Activation is idempotent; never replay the opening request.
                 pass
@@ -160,7 +177,7 @@ def wait_until_ready(runtime: Path, name: str, cancelled=None, process=None, con
             state = read_desktop_state(runtime, name)
             if state.get("state") == "failed":
                 raise RuntimeError(f"{state.get('error') or 'The editor could not finish starting.'}\nSee {runtime / 'desktop.log'}")
-            if state.get("state") == "ready" or "state" not in state:
+            if state.get("state") == "ready":
                 return "Editor opened in its own window."
         time.sleep(0.12)
     raise RuntimeError(f"The editor is taking too long to become ready. Check its window and try Reopen Editor. Saved projects and recovery files are unchanged.\nSee {runtime / 'desktop.log'}")

@@ -1,5 +1,19 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.82
+
+### More Reliable Editor Startup
+- Fixed leftover startup files preventing the editor from opening after an earlier instance has closed or crashed. Temporary file locks are retried automatically.
+- Improved launching from both KFPS and KFPS Editor.exe. An existing editor is brought forward, including when minimized, instead of opening a duplicate. Dialogs that need attention are brought forward too.
+- Repeated or simultaneous launch attempts reuse one editor. A launch is no longer reported as successful just because an old startup file exists.
+- Failed startup releases its locks before showing an error, so leaving the error message open does not block another attempt. Failed editor pages can be reopened without resetting saved projects or settings.
+
+### Clearer Errors And Diagnostics
+- Added clearer English and Korean messages for locked folders, access problems and an editor or updater that has not responded.
+- Added startup and window-activation details to the existing editor logs. The startup error report can still be created when the log file cannot be written.
+- Projects, recovery data, favorites and settings stay in place. A running but unresponsive editor is not forcibly closed, to protect unsaved work.
+- Windows may prevent focus changes after you interact with another application. In that case, the editor requests taskbar attention instead.
+
 ## 3.1.81
 
 ### Combine Editor Projects

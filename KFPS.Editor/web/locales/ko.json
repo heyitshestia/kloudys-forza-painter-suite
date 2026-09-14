@@ -2,6 +2,11 @@
   "locale": "ko",
   "name": "한국어",
   "messages": {
+    "KFPS Editor could not start": "KFPS 에디터를 시작하지 못했습니다",
+    "The editor cannot write its startup lock. Check folder access and available disk space. Your saved work has not been changed.": "에디터 실행에 필요한 잠금 파일을 쓸 수 없습니다. 폴더 접근 권한과 디스크 여유 공간을 확인해 주세요. 저장된 작업은 변경되지 않았습니다.",
+    "The editor data folder is locked by another process, and no responding editor was found. Close the other editor or application using this folder and try again. Your saved work has not been changed.": "다른 프로세스가 에디터 데이터 폴더를 사용 중이지만, 응답하는 에디터를 찾지 못했습니다. 이 폴더를 사용하는 다른 에디터나 프로그램을 닫은 뒤 다시 시도해 주세요. 저장된 작업은 변경되지 않았습니다.",
+    "The editor or updater still holds this installation, but the editor is not responding. Finish the update or close the existing editor and try again. No running process or saved work was removed.": "에디터 또는 업데이트 프로그램이 아직 이 설치 폴더를 사용 중이며, 에디터가 응답하지 않습니다. 업데이트가 끝날 때까지 기다리거나 기존 에디터를 닫은 뒤 다시 시도해 주세요. 실행 중인 프로세스를 강제로 종료하거나 저장된 작업을 삭제하지 않았습니다.",
+    "The startup lock is not a regular, single-link file.": "시작 잠금 파일이 예상과 다른 파일을 가리키고 있습니다. 해당 파일은 변경하지 않았습니다. '문제 신고' 기능으로 문의해 주세요.",
     "UPDATE": "업데이트",
     "A KFPS update is available. Click to stop blinking.": "KFPS 업데이트가 있어요. 클릭하면 깜빡임이 멈춰요.",
     "KFPS {0} is available. Click to stop blinking. Save your work and update from KFPS when ready.": "KFPS {0} 업데이트가 있어요. 클릭하면 깜빡임이 멈춰요. 작업을 저장하고 준비가 되면 KFPS에서 업데이트해 주세요.",

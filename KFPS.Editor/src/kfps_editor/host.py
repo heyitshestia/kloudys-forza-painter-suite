@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
-from PySide6.QtCore import QFile, QIODevice, QLockFile, QObject, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QFile, QIODevice, QObject, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWebChannel import QWebChannel
@@ -20,6 +20,9 @@ from shiboken6 import delete, isValid
 from .localization import EditorTranslator, editor_system_language
 from .ipc import forward_request, instance_name, validate_request
 from .update_guard import acquire_update_guard, updater_state_root
+from .instance_lock import EditorInstanceLock
+from .activation import present
+from .bootstrap_log import record_startup
 
 
 def load_editor_server(app_root: Path):
@@ -114,8 +117,8 @@ class EditorDesktop(QMainWindow):
         self.instance = QLocalServer(self)
         self.instance.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
         self.instance.newConnection.connect(self._accept_connection)
-        self.lock = QLockFile(str(self.runtime / "desktop.lock"))
-        self.lock.setStaleLockTime(0)
+        self.lock = EditorInstanceLock(self.runtime)
+        self._started_at = time.time()
         self.module = None
         self._server_paths = None
         self._export_root = export_root
@@ -190,7 +193,7 @@ class EditorDesktop(QMainWindow):
 
     def start(self, request: dict) -> bool:
         request = validate_request(request)
-        if not self.lock.tryLock(0):
+        if not self.lock.tryLock(1500):
             return False
         if os.name == "nt" and self._update_guard is None:
             state = updater_state_root(self.app_root) if self.runtime == self.app_root / "runtime" / "fabric-editor" else self.runtime / "update-state"
@@ -288,7 +291,13 @@ class EditorDesktop(QMainWindow):
             self.module._write_json_atomic(self.runtime / "desktop.json", {
                 "service": "kfps-editor-desktop", "pid": os.getpid(), "root": str(self.app_root),
                 "instance": instance_name(self.app_root, self.runtime), "state": state, "error": error[:2000],
+                "started_at": self._started_at, "updated_at": time.time(),
             })
+            record_startup(self.runtime, "instance-state", state=state)
+
+    def present_window(self, *, background=False):
+        focused = present(self, background=background)
+        record_startup(self.runtime, "window-presented", focused=focused, background=background)
 
     def _accept_connection(self):
         while self.instance.hasPendingConnections():
@@ -306,6 +315,7 @@ class EditorDesktop(QMainWindow):
                 try:
                     request = validate_request(json.loads(bytes(buffer).split(b"\n", 1)[0]))
                     if self._closing or self._close_prompt or self._open_uncertain or len(self._queued_requests) >= 8:
+                        self.present_window(background=request.get("background", False))
                         raise ValueError("Editor is busy")
                     self.activate_request(request)
                     socket.write(b"ok\n")
@@ -326,16 +336,13 @@ class EditorDesktop(QMainWindow):
                 read()
 
     def activate_request(self, request):
-        self.showNormal() if self.isMinimized() else self.show()
-        if not self._background:
-            self.raise_()
-            self.activateWindow()
+        self.present_window(background=request.get("background", False))
         if self._failed:
             self._failed = False
             self._write_state("starting")
             # Recreating Chromium's page can take longer than the IPC ACK budget.
             QTimer.singleShot(0, self.reload_editor)
-        if request == {"project": "", "mode": "activate"}:
+        if not request["project"] and request["mode"] == "activate":
             return
         self._queued_requests.append(request)
         self._dispatch_open()
@@ -394,6 +401,8 @@ class EditorDesktop(QMainWindow):
                 self._show_failure(str(exc))
                 return
             self._ready = True
+            if self.isActiveWindow() and self.view:
+                self.view.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
             self.server.diagnostics().record("native-ready", source="native")
             self._dispatch_open()
         self.page.runJavaScript("JSON.stringify({ready: Boolean(window.KfpsDesktop?.ready && window.KfpsDesktopBridge), error: window.KfpsDesktop?.error || ''})", checked)
@@ -672,46 +681,63 @@ class EditorDesktop(QMainWindow):
 
     def shutdown(self):
         if self._stopped:
-            return
+            return getattr(self, "_shutdown_complete", True)
         self._stopped = True
-        self._invalidate_page_commands()
-        self.diagnostic_timer.stop()
+        self._shutdown_complete = False
+        unsafe = []
+
+        def cleanup(phase, operation, *, critical=False):
+            try:
+                operation()
+            except Exception as error:
+                record_startup(self.runtime, "shutdown-error", phase=phase,
+                               error=type(error).__name__, winerror=getattr(error, "winerror", None))
+                if critical:
+                    unsafe.append(phase)
+
+        cleanup("closing-state", lambda: self._write_state("closing"))
+        cleanup("commands", self._invalidate_page_commands)
+        for timer in (self.diagnostic_timer, self.ready_timer, self.startup_timer, self.close_timer):
+            cleanup("timer", timer.stop)
         if self.server:
-            self.server.diagnostics().record("native-close", source="native")
-        self.ready_timer.stop()
-        self.startup_timer.stop()
-        self.close_timer.stop()
+            cleanup("diagnostics", lambda: self.server.diagnostics().record("native-close", source="native"))
         if self._updates is not None:
-            self._updates.close()
-        self.instance.close()
+            cleanup("updates", self._updates.close)
+        cleanup("ipc", self.instance.close)
         for socket in list(self._sockets):
-            socket.abort()
+            cleanup("socket", socket.abort)
         if self.page:
-            self.page.triggerAction(QWebEnginePage.WebAction.Stop)
-        # Chromium must release its pages before the persistent profile and before
-        # QApplication teardown, including when the window is restarted in tests.
+            cleanup("page-stop", lambda: self.page.triggerAction(QWebEnginePage.WebAction.Stop))
+        # Dispose every component even if an earlier one raises. Keep ownership
+        # until process exit if a component that can write user data survives.
         for item in (self.view, self.page, self.profile):
             if item is not None and isValid(item):
-                delete(item)
+                cleanup("webengine-dispose", lambda item=item: delete(item), critical=True)
         self.view = self.page = self.profile = None
         self._commands.clear()
         if self.server:
             if self.server_thread and self.server_thread.is_alive():
-                self.server.shutdown()
-            self.server.server_close()
+                cleanup("server-stop", self.server.shutdown, critical=True)
+            cleanup("server-close", self.server.server_close, critical=True)
         if self.server_thread:
-            self.server_thread.join(timeout=2)
+            cleanup("server-join", lambda: self.server_thread.join(timeout=2), critical=True)
+            if self.server_thread.is_alive():
+                unsafe.append("server-still-running")
         if self.module:
             if self._server_paths is not None:
-                self.module._remove_owned_server_marker(paths=self._server_paths)
+                cleanup("server-marker", lambda: self.module._remove_owned_server_marker(paths=self._server_paths))
             marker = self.runtime / "desktop.json"
             try:
                 if json.loads(marker.read_text(encoding="utf-8")).get("pid") == os.getpid():
                     marker.unlink()
             except (OSError, ValueError):
                 pass
-        if self.lock.isLocked():
-            self.lock.unlock()
-        if self._update_guard is not None:
-            self._update_guard.Close()
-            self._update_guard = None
+        if not unsafe:
+            if self.lock.isLocked():
+                cleanup("instance-unlock", self.lock.unlock, critical=True)
+            if self._update_guard is not None:
+                cleanup("update-unlock", self._update_guard.Close, critical=True)
+                self._update_guard = None
+        self._shutdown_complete = not unsafe
+        record_startup(self.runtime, "shutdown-complete", released=self._shutdown_complete)
+        return self._shutdown_complete
