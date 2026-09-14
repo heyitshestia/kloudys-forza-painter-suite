@@ -1,6 +1,6 @@
 {
   "format": "kfps_fh6_rtti_registry_v1",
-  "updated_utc": "2026-09-08T15:46:06.802Z",
+  "updated_utc": "2026-09-13T13:38:41.660Z",
   "profiles": [
     {
       "game": "fh6",
@@ -12,7 +12,7 @@
       "update_code": "62938450781103",
       "base_class_count": 4,
       "game_build": "3.440.853.0",
-      "created_utc": "2026-09-08T15:46:06Z",
+      "created_utc": "2026-09-13T13:38:41Z",
       "calibrator_version": "4.0.0",
       "evidence": {
         "workflow": "six_step_template_calibration",
