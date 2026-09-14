@@ -151,6 +151,7 @@ export const korean = {
   'Some log entries could not be read or were linked.':'일부 로그를 읽을 수 없거나 연결된 파일이어서 제외했습니다.',
   'Some log folders could not be read or were linked.':'일부 로그 폴더를 읽을 수 없거나 연결된 폴더여서 제외했습니다.',
   'Retained log file limit reached; some logs were not included.':'첨부 가능한 로그 파일 수에 도달해 일부 로그가 제외되었습니다.',
+  'Updater diagnostic location unavailable.':'업데이터 진단 기록의 위치를 확인하지 못했습니다.',
   '{0}: could not copy the complete retained log.':'{0}: 저장된 로그 전체를 복사하지 못했습니다.',
   '{0}: incomplete or unsupported lines omitted ({1}).':'{0}: 불완전하거나 지원하지 않는 기록 {1}개를 제외했습니다.',
   '{0} ({1} original bytes; {2} omitted lines)':'{0} (원본 {1}바이트, 제외된 기록 {2}개)',

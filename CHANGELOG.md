@@ -1,5 +1,18 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.83
+
+### More Helpful Problem Reports
+- Report a Problem now gathers more troubleshooting information automatically, whichever KFPS page you report from. This includes editor startup and desktop logs, previous app sessions, worker logs and this installation's update history, including older log locations.
+- Reports include the editor's latest recorded state, startup and lock-file checks, available memory and disk space, and selected program-file checks. This helps investigate an editor that will not open or a failed update without repeatedly asking you to find more logs.
+- Main-app messages are saved through a bounded background writer. Reports also include recent messages still waiting to appear or be written, when available.
+- Added a private collection checklist showing missing, unreadable or oversized logs. Logs from different KFPS sections share the attachment allowance more fairly.
+- Updated the English and Korean reporting explanations. When technical details are enabled, compressed diagnostics go to the private support channel; screenshots you choose to attach remain public.
+
+### Privacy And Limits
+- Opening a report does not upload anything. You still review it and press Send report. Artwork, project files, recovery saves, game saves, browser profiles and credentials are not automatically attached.
+- Existing size and retention limits remain. Reports capture available logs when opened; events that were never saved cannot be recovered. A particular project or image may still be needed to reproduce an artwork-specific issue.
+
 ## 3.1.82
 
 ### More Reliable Editor Startup

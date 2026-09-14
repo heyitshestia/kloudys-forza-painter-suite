@@ -80,20 +80,17 @@ def _small_mapping(value: object, keys: tuple[str, ...]) -> dict:
 def recent_locator_summary(root: Path, *, since: float, now: float) -> dict:
     path = root / "runtime" / "live-memory" / "reports" / "latest.json"
     try:
-        if not path.resolve().is_relative_to((root / "runtime").resolve()):
+        from .support_logs import read_known_file
+        raw, info = read_known_file(root, path, 2 * 1024 * 1024)
+        if not since <= info.st_mtime <= now + 5:
             return {}
-        stat = path.stat()
-        if stat.st_size > 2 * 1024 * 1024 or not since <= stat.st_mtime <= now + 5:
-            return {}
-        with path.open("rb") as handle:
-            raw = handle.read(2 * 1024 * 1024 + 1)
         report = json.loads(raw)
         if not isinstance(report, dict) or len(raw) > 2 * 1024 * 1024:
             return {}
         created = datetime.fromisoformat(str(report.get("created_utc", "")).replace("Z", "+00:00")).timestamp()
         if not since <= created <= now + 5:
             return {}
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RecursionError):
         return {}
     return {
         "engine_version": redact(report.get("engine_version"), 100),
@@ -166,11 +163,9 @@ def build_support_report(root: Path, context: dict, *, since: float, collect=col
         "page": page, "uptime_seconds": max(0, int(now - since)),
     }
     technical["states"] = states
-    if page == "editor":
-        from tools.fabric_editor_diagnostics import read_support_diagnostics
-        technical["editor"] = read_support_diagnostics(root)
-    if page == "outputs":
-        technical["locator"] = recent_locator_summary(root, since=max(since, now - 3600), now=now)
+    from tools.fabric_editor_diagnostics import read_support_diagnostics
+    technical["editor"] = read_support_diagnostics(root)
+    technical["locator"] = recent_locator_summary(root, since=0, now=now)
     from .support_logs import collect_worker_logs
     disk_logs, warnings = collect_worker_logs(root, since=since, now=now, redact=redact)
     technical["log_collection"] = {"lookback_days": 7, "warnings": warnings}

@@ -49,8 +49,13 @@ def main():
         lines = [" ".join(raw[word:word+8] for word in range(start,min(start+64,len(raw)),8))
                  for start in range(0,len(raw),64)]
         (logs / f"transfer-20260913-01000{index}.log").write_text("\n".join(lines) + "\n",encoding="ascii")
+    editor = fixture / "runtime/fabric-editor"
+    editor.mkdir(parents=True)
+    (editor / "desktop.log").write_text("Synthetic editor startup failure\n")
+    (editor / "desktop.json").write_text(json.dumps({"pid":4294967294,"state":"starting"}))
+    (editor / "desktop.lock").write_text("4294967294\nPRIVATE_NAME\nPRIVATE_HOST\n")
     report = build_support_report(fixture,{"page":"editor","version":"test","log":""},since=time.time(),collect=lambda:{})
-    attachment = collect_retained_log_bundle(fixture)
+    attachment = collect_retained_log_bundle(fixture, snapshot=report["technical"], session_logs={"app":"Synthetic pending app event"})
     report["private_logs"] = attachment[0]
     save_handoff(fixture,report,log_attachment=attachment)
     package = fixture / "runtime/support-reports" / report["id"] / "report.kfps-report.json.gz"
@@ -307,7 +312,7 @@ def main():
         check('stage=session result=authenticated' in collected,'next automatic log bundle retains sign-in diagnostics')
     if console_errors:
         failure.append('Unexpected JavaScript console errors')
-    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":3,"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts,"clockOffsetMs":args.clock_offset_ms,"initialAuthFailure":args.initial_auth_failure}
+    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":attachment[0]["files"],"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts,"clockOffsetMs":args.clock_offset_ms,"initialAuthFailure":args.initial_auth_failure}
     (output / "results.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result))
     return 0 if result["passed"] else 1

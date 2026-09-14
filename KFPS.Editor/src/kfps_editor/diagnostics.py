@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import stat
 import threading
 import time
 import uuid
@@ -328,9 +329,18 @@ def read_support_diagnostics(root: Path):
     """Read only the bounded, schema-checked diagnostic snapshot, never desktop.log."""
     path = Path(root) / "runtime/fabric-editor/diagnostics.json"
     try:
-        if not path.resolve().is_relative_to((Path(root) / "runtime").resolve()):
-            return {}
+        current = Path(root)
+        for part in path.relative_to(current).parts:
+            current /= part
+            before = current.lstat()
+            if stat.S_ISLNK(before.st_mode) or getattr(before, "st_file_attributes", 0) & 0x400:
+                raise ValueError("Linked diagnostic snapshot")
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ValueError("Unsafe diagnostic snapshot")
         with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino) or opened.st_nlink != 1:
+                raise ValueError("Diagnostic snapshot changed")
             raw = handle.read(MAX_SNAPSHOT + 1)
         if len(raw) > MAX_SNAPSHOT:
             return {"unavailable": "snapshot_too_large"}
@@ -356,5 +366,5 @@ def read_support_diagnostics(root: Path):
         result["logging"] = {key: value for key, value in logging.items() if key in {"accepted", "written", "dropped", "last_write"} and type(value) in (int, float) and math.isfinite(value)}
         result["logging"]["failed"] = bool(logging.get("error"))
         return result
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
         return {"unavailable": "snapshot_unreadable"} if path.exists() else {}

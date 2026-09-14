@@ -315,6 +315,81 @@ bundles. The original integration notes are preserved there for local auditing.
 
 ## Server maintenance
 
+### Automatic diagnostic coverage
+
+Every Report a Problem action uses the same source set, independent of the
+selected page. The report remains a snapshot taken when the form is opened, not
+a background upload or a continuously refreshed attachment. A later failure needs
+a fresh report. The technical-details checkbox controls private transmission; a
+checked submission without its compressed attachment is rejected.
+
+Included when present:
+
+- `runtime/fabric-editor/desktop.log` and `.1`/`.2` rotations, and all three
+  `performance*.jsonl` files, with schema-filtered editor events.
+- Legacy `runtime/fabric-editor/server.log` and `.1`/`.2` rotations, plus
+  timestamped `runtime/update-logs/update-*.log` from older installations.
+- Sanitized state from `desktop.json`, `desktop-startup-error.json`, `desktop.lock`
+  and the report window's `window.lock`. Only PID, process liveness, process start
+  time, installation ownership observation, startup state/error and timestamps;
+  no raw lock file, machine name, executable path, command line or process list.
+- Latest editor diagnostic snapshot and live-locator outcome even when reporting
+  from another page or after restarting KFPS. Stale ages remain visible.
+- Main-app history from `runtime/app-logs/app-<pid>.log` and two rotations, plus
+  pending/current in-memory app and worker messages before UI display catches up.
+- Report-window logs and rotations; generation bridge and durable generator,
+  transfer, background-removal, upscale and livery worker/viewer logs.
+- Updater logs and sanitized update outcomes only for this installation's derived
+  updater state directory. Local `runtime/update-reports` copies are a fallback
+  when the updater's separate reports directory has no readable history.
+- Selected program fingerprints and comparison to the recorded local baseline,
+  declared engine versions, available memory and installation-volume disk space.
+  This is diagnostic evidence, not a replacement for signed startup verification.
+- A private collection checklist showing sources, files, missing/unreadable files,
+  omission reasons and limits. New serialized evidence uses allowlisted `.log`
+  entries inside `kfps-private-app-logs/2`, not arbitrary user file attachments.
+
+The app journal performs filtering and disk writes on a bounded background queue.
+It keeps 1 MiB per file and two rotations per process log. In-memory history is
+bounded to 2,500 lines and roughly 1 MiB of characters, with oversized lines
+replaced rather than cut inside private payloads. Queue drops/write failures are
+included in the report. An app killed before queued events reach disk cannot
+recover those unwritten events; current pending history is included when the
+running app prepares a report. Clearing visible logs does not erase retained
+diagnostic history. No artwork or recovery/project contents are journaled by the
+collector, and existing redaction runs before archive creation and validation.
+
+Attachment limits remain 4 MiB per source, 24 MiB expanded and 8 MiB compressed.
+Discovery limits are explicit; interleaving histories prevents one component
+from consuming the entire file allowance. Space is reserved for the collection
+checklist. Unsafe links, hardlinks, malformed records and oversized files are not
+read as arbitrary attachments. Transient file sharing/rotation races get bounded
+retries; inaccessible evidence is identified rather than silently called complete.
+The update summaries omit paths, file change lists and installation identifiers.
+Program hashes are represented as ordered eight-character hexadecimal groups to
+survive generic private-identifier filtering; concatenate groups to compare them.
+
+These changes require the matching `tools/support_worker/public/private-logs.mjs`
+allowlist and EN/KO form deployment before publishing updated app collectors.
+Do not release the app alone: an older live validator rejects the expanded names.
+Legacy editor-only log packages remain accepted unchanged.
+
+Focused qualification:
+
+```text
+python -B -m unittest discover -s KFPS.UI/tests -p test_support*.py
+python -B -m unittest discover -s KFPS.UI/tests -p test_app_log.py
+node --test tools/support_worker/test/*.test.mjs
+python -B KFPS.UI/tools/test_support_window.py runtime/test-runs/<fresh-run> --display-language ko --browser-mode manual --initial-auth-failure
+```
+
+The collector fixture is round-tripped through the actual browser validator and
+submission parser. Native window qualification uses a local service, tests
+automatic attachment, sign-in, reload, missing-cache restoration and restart,
+and sends no Discord messages. Private diagnostics cannot guarantee that a
+specific reference image, project or game-save example will never be needed;
+those are intentionally not automatically collected.
+
 Keep the pinned support guide, start-here message and private diagnostics notice
 aligned with the form. They must explain public/private visibility, explicit Send,
 report IDs, uncertain delivery and manual fallback. The permanent invite and

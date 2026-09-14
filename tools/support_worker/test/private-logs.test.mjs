@@ -65,11 +65,11 @@ test('full history stays intact well beyond the old 16-event report window',asyn
 
 test('application archives preserve all worker sources without changing legacy editor metadata',async()=>{
   const value=make();value.schema=APP_LOG_SCHEMA;
-  const sources=['transfer-worker','generator-bridge','generator-worker','upscale-worker','background-worker','livery-worker','livery-worker-stderr','livery-viewer'];
+  const sources=['app-status','app-session','app-runtime','diagnostic-context','collection-index','updater-worker','updater-legacy','editor-server','report-window','transfer-worker','generator-bridge','generator-worker','upscale-worker','background-worker','livery-worker','livery-worker-stderr','livery-viewer'];
   for(const source of sources)value.files.push({name:source+'-0001.log',modified_utc:new Date().toISOString(),source_bytes:40000,omitted_lines:0,text:'Worker record\n'.repeat(3000)});
   value.warnings=['Log discovery limit reached; some logs were not checked.'];
   const logs=file(value),{metadata,bundle}=await describePrivateLogs(logs,{redact});
-  assert.equal(metadata.files,9);assert.deepEqual(bundle,value);
+  assert.equal(metadata.files,sources.length+1);assert.deepEqual(bundle,value);
   const report=normalizeReport({schema:'kfps-support-report/1',id:crypto.randomUUID(),feature:'Other',description:'All retained workers',private_logs:metadata});
   const accepted=await readSubmission(request(submissionBody(report,[],logs)));
   assert.deepEqual(accepted.report.private_logs,metadata);

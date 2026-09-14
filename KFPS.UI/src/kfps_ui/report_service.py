@@ -63,6 +63,7 @@ class ReportService(QObject):
         # Snapshot QObject properties on their owning thread; the worker receives plain data.
         context = {"page": page, "version": self.version.localVersion,
                    "theme": self.active_theme_name(), "log": self.log.plainText, "services": {}}
+        context["retained_app_log"], context["app_log_writer"] = self.log.diagnostic_snapshot()
         fields = ("status", "running", "lastError", "activeGame", "selectedLayers", "selectedShapes",
                   "candidateCount", "exportedCount", "skippedCount", "viewerReady", "packageAddError",
                   "dependenciesText", "pythonText", "runtimeText", "selectedPresetIndex", "liveLog")
@@ -83,7 +84,11 @@ class ReportService(QObject):
         report = build_support_report(self.paths.app_root, context, since=self._started)
         from .support_log_bundle import collect_retained_log_bundle
         try:
-            attachment = collect_retained_log_bundle(self.paths.app_root, snapshot=report["technical"])
+            session_logs = {"app": context.get("retained_app_log", context.get("log", ""))}
+            session_logs.update({name: values["liveLog"] for name, values in context.get("services", {}).items()
+                                 if isinstance(values.get("liveLog"), str)})
+            snapshot = {**report["technical"], "app_log_writer": context.get("app_log_writer", {})}
+            attachment = collect_retained_log_bundle(self.paths.app_root, snapshot=snapshot, session_logs=session_logs)
         except Exception:
             attachment = None
             report["technical"]["collection_warning"] = "Application logs could not be prepared. Sending with technical details enabled is blocked. Reopen Report a Problem to retry, or explicitly turn technical details off to send without logs."

@@ -8,10 +8,10 @@ export const MAX_LOG_RAW_BYTES=24*1024*1024;
 export const MAX_PACKAGE_BYTES=9*1024*1024;
 const encoder=new TextEncoder();
 const names=new Set(['performance.jsonl','performance.1.jsonl','performance.2.jsonl','desktop.log','desktop.log.1','desktop.log.2']);
-const workerName=/^(?:app-status|report-window|transfer-worker|generator-bridge|generator-worker|upscale-worker|background-worker|livery-worker(?:-stderr)?|livery-viewer(?:-stderr)?)-\d{4}\.log$/;
+const workerName=/^(?:app-status|app-session|app-runtime|diagnostic-context|collection-index|updater-worker|updater-legacy|editor-server|report-window|transfer-worker|generator-bridge|generator-worker|upscale-worker|background-worker|livery-worker(?:-stderr)?|livery-viewer(?:-stderr)?)-\d{4}\.log$/;
 const discoveryWarnings=new Set(['Log discovery limit reached; some logs were not checked.',
   'Some log entries could not be read or were linked.','Some log folders could not be read or were linked.',
-  'Retained log file limit reached; some logs were not included.']);
+  'Retained log file limit reached; some logs were not included.','Updater diagnostic location unavailable.']);
 const validSchema=value=>value===LOG_SCHEMA||value===APP_LOG_SCHEMA;
 const validName=(name,schema)=>names.has(name)||schema===APP_LOG_SCHEMA&&workerName.test(name);
 const timestamp=v=>typeof v==='string'&&/^\d{4}-\d\d-\d\dT[0-9:.+Z-]{8,30}$/.test(v);
@@ -29,7 +29,7 @@ export function validatePrivateMetadata(value) {
   check(object(value)&&validSchema(value.schema));
   check(typeof value.sha256==='string'&&/^[a-f0-9]{64}$/.test(value.sha256));
   check(integer(value.size,MAX_LOG_BYTES)&&value.size>0&&integer(value.raw_size,MAX_LOG_RAW_BYTES)&&value.raw_size>0);
-  const count=value.schema===APP_LOG_SCHEMA?263:6;
+  const count=value.schema===APP_LOG_SCHEMA?310:6;
   check(integer(value.files,count)&&Array.isArray(value.warnings)&&value.warnings.length<=count+4&&value.warnings.every(v=>warning(v,value.schema)));
   return {schema:value.schema,sha256:value.sha256,size:value.size,raw_size:value.raw_size,files:value.files,warnings:value.warnings};
 }
@@ -70,7 +70,7 @@ export async function describePrivateLogs(file,{redact}={}) {
   const raw=await inflate(new Blob([bytes]));
   const bundle=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
   check(object(bundle)&&Object.keys(bundle).every(k=>['schema','created_at','files','warnings'].includes(k))&&validSchema(bundle.schema)&&timestamp(bundle.created_at));
-  const count=bundle.schema===APP_LOG_SCHEMA?263:6;
+  const count=bundle.schema===APP_LOG_SCHEMA?310:6;
   check(Array.isArray(bundle.files)&&bundle.files.length<=count&&new Set(bundle.files.map(f=>f.name)).size===bundle.files.length);
   check(Array.isArray(bundle.warnings)&&bundle.warnings.length<=count+4&&bundle.warnings.every(v=>warning(v,bundle.schema)));
   for(const file of bundle.files) {

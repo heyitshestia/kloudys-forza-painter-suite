@@ -183,6 +183,29 @@ class SupportReportTests(unittest.TestCase):
         self.assertIn("synthetic renderer failure", report["technical"]["logs"][0]["text"])
         self.assertIn("Nothing is sent", service.supportStatus)
 
+    def test_button_archive_contains_pending_history_state_and_coverage(self):
+        import gzip
+        service = self.service()
+        service.log.append("Immediate event before report", update_status=False)
+        service.log.append("password=PRIVATE", update_status=False)
+        marker = self.root / "runtime/fabric-editor/desktop.json"
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({"state":"starting","pid":4294967294,"root":"PRIVATE"}))
+        def build(root, context, **kwargs):
+            return support.build_support_report(root, context, collect=lambda:{}, **kwargs)
+        with patch("kfps_ui.report_service.build_support_report", side_effect=build), \
+             patch("kfps_ui.report_service.open_support_handoff", return_value="review"):
+            service.openSupportForm("create")
+            self.wait(lambda: not service.supportBusy)
+        path = Path(service.latestPath).parent / "report.kfps-report.json.gz"
+        package = json.loads(gzip.decompress(path.read_bytes()))
+        archive = json.loads(gzip.decompress(base64.b64decode(package["logs_base64"])))
+        names = {file["name"] for file in archive["files"]}
+        self.assertTrue({"app-session-0000.log","diagnostic-context-0000.log","collection-index-0000.log"} <= names)
+        self.assertIn("Immediate event before report", json.dumps(archive))
+        self.assertIn("not_running", json.dumps(archive))
+        self.assertNotIn("PRIVATE", json.dumps(archive))
+
     def test_service_failure_clears_busy_and_browser_failure_preserves_report(self):
         service = self.service()
         with patch("kfps_ui.report_service.build_support_report", side_effect=OSError("Permission denied")):

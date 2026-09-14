@@ -101,7 +101,7 @@ class FullEditorLogTests(unittest.TestCase):
             since=0, collect=lambda:{})
         metadata, blob = bundle.collect_retained_log_bundle(self.root, snapshot=report["technical"])
         data = json.loads(gzip.decompress(blob))
-        self.assertEqual(metadata["files"], 1)
+        self.assertEqual(metadata["files"], 3)
         self.assertEqual(data["files"][0]["name"], "app-status-0000.log")
         self.assertIn("3.1.78", data["files"][0]["text"])
         self.assertIn("Application opened", data["files"][0]["text"])
@@ -111,7 +111,7 @@ class FullEditorLogTests(unittest.TestCase):
     def test_session_snapshot_survives_omitted_retained_file(self):
         (self.runtime / "desktop.log").write_bytes(b"X"*(bundle.MAX_FILE_BYTES+1))
         metadata, blob = bundle.collect_retained_log_bundle(self.root, snapshot={"app":{"page":"editor"}})
-        self.assertEqual(metadata["files"], 1)
+        self.assertEqual(metadata["files"], 3)
         self.assertTrue(metadata["warnings"])
         self.assertIn("editor", json.loads(gzip.decompress(blob))["files"][0]["text"])
 
@@ -121,6 +121,10 @@ class FullEditorLogTests(unittest.TestCase):
 
     def test_all_retained_worker_logs_include_old_runs_and_complete_lines(self):
         examples = [
+            "runtime/fabric-editor/server.log",
+            "runtime/fabric-editor/server.log.1",
+            "runtime/fabric-editor/server.log.2",
+            "runtime/update-logs/update-20260709-120000.log",
             "runtime/qml-transfer-logs/transfer-20260801-120000.log",
             "runtime/qml-transfer-logs/transfer-20260913-120000.log",
             "runtime/qml-generation-logs/generation-20260913-120000.log",
@@ -138,12 +142,16 @@ class FullEditorLogTests(unittest.TestCase):
             path.write_text(expected + "token=PRIVATE_TOKEN\n", encoding="utf-8")
             os.utime(path, (1, 1))
         (self.root / "runtime/qml-transfer-logs/project.json").write_text("PRIVATE_PROJECT")
+        (self.runtime / "server.log.secret").write_text("PRIVATE_SECRET")
+        (self.root / "runtime/update-logs/other.log").write_text("PRIVATE_SECRET")
         metadata, blob = bundle.collect_retained_log_bundle(self.root)
         data = json.loads(gzip.decompress(blob))
         self.assertEqual(metadata["schema"], bundle.APP_SCHEMA)
-        self.assertEqual(metadata["files"], len(examples))
+        self.assertEqual(metadata["files"], len(examples) + 2)
         self.assertFalse(metadata["warnings"])
-        self.assertTrue(all(file["text"].startswith(expected) for file in data["files"]))
+        worker_files = [file for file in data["files"] if not file["name"].startswith(("diagnostic-context", "collection-index"))]
+        self.assertEqual(len(worker_files), len(examples))
+        self.assertTrue(all(file["text"].startswith(expected) for file in worker_files))
         self.assertTrue(any(file["name"].startswith("livery-worker-stderr-") for file in data["files"]))
         self.assertNotIn("PRIVATE", json.dumps(data))
         self.assertNotIn("private-art-name", json.dumps(data))
@@ -155,7 +163,8 @@ class FullEditorLogTests(unittest.TestCase):
         original.write_text("PRIVATE")
         os.link(original, folder / "transfer-20260913-120000.log")
         metadata, blob = bundle.collect_retained_log_bundle(self.root)
-        self.assertFalse(json.loads(gzip.decompress(blob))["files"])
+        self.assertEqual({file["name"] for file in json.loads(gzip.decompress(blob))["files"]},
+                         {"diagnostic-context-0000.log", "collection-index-0000.log"})
         self.assertTrue(metadata["warnings"])
 
     def test_large_bundle_uses_visible_file_fallback_without_truncation(self):

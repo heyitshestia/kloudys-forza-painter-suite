@@ -369,7 +369,7 @@ def main():
             thumbnail_seconds=_startup_thumbnail_seconds(),
         )
 
-    logs = LogService()
+    logs = LogService(runtime_root=paths.runtime_root)
     if renderer_policy.warning:
         logs.append(renderer_policy.warning, "warning")
     logs.append(
