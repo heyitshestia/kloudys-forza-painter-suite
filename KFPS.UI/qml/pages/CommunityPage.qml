@@ -71,7 +71,7 @@ Item {
             return
         root.metadataResetForPath = String(path)
         uploadDescription.text = ""
-        uploadTags.text = ""
+        uploadTags.reset("")
         root.uploadClassification = ""
         root.uploadSupporterOnly = false
         rightsConfirmation.checked = false
@@ -108,7 +108,7 @@ Item {
         root.revisionMode = true
         uploadTitle.text = String(selected.title || "")
         uploadDescription.text = String(selected.description || "")
-        uploadTags.text = String(selected.tagsText || "")
+        uploadTags.reset(String(selected.tagsText || ""))
         root.uploadClassification = String(selected.classification || "toolmade")
         root.uploadSupporterOnly = Boolean(selected.supporterOnly)
         var categoryIndex = uploadCategory.find(String(selected.category || "Other"))
@@ -1505,12 +1505,12 @@ Item {
                                 }
 
                                 Label { text: "Tags" }
-                                KfpsTextField {
+                                CommunityTagPicker {
                                     id: uploadTags
+                                    objectName: "CommunityUploadTags"
                                     Layout.fillWidth: true
-                                    placeholderText: "anime, racing, portrait"
-                                    maximumLength: 249
-                                    toolTipText: "Add up to ten comma-separated search tags, each no longer than 24 characters."
+                                    tagService: communityService
+                                    scrollContainer: uploadScroll.contentItem
                                 }
 
                                 Label { text: "Classification" }
@@ -1660,6 +1660,11 @@ Item {
                                                  ? "Validate and publish this replacement as the selected artwork's next revision."
                                                  : "Validate and publish this artwork to the community catalog."
                                     onClicked: {
+                                        if (!uploadTags.commitPending()) {
+                                            uploadScroll.contentItem.contentY = Math.min(uploadTags.y,
+                                                Math.max(0, uploadScroll.contentItem.contentHeight - uploadScroll.contentItem.height))
+                                            return
+                                        }
                                         if (root.revisionMode) {
                                             communityService.submitRevision(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
@@ -3318,11 +3323,11 @@ Item {
         dim: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         width: Math.min(root.width - Theme.px(48), Theme.px(520))
-        height: Theme.px(260)
+        height: Math.max(Theme.px(260), editTagsContent.implicitHeight + padding * 2)
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(18)
-        onAboutToShow: editTagsField.text = String(communityService.selectedArtwork.tagsText || "")
+        onAboutToShow: editTagsField.reset(String(communityService.selectedArtwork.tagsText || ""))
 
         background: KfpsPopupSurface {
             surfaceColor: Theme.surfaceRaised
@@ -3331,6 +3336,7 @@ Item {
         }
 
         contentItem: ColumnLayout {
+            id: editTagsContent
             spacing: Theme.px(10)
 
             SectionHeading {
@@ -3340,12 +3346,11 @@ Item {
             }
 
             Label { text: "Tags" }
-            KfpsTextField {
+            CommunityTagPicker {
                 id: editTagsField
+                objectName: "CommunityEditTags"
                 Layout.fillWidth: true
-                placeholderText: "anime, racing, portrait"
-                maximumLength: 249
-                toolTipText: "Add up to ten comma-separated search tags, each no longer than 24 characters."
+                tagService: communityService
             }
 
             Item { Layout.fillHeight: true }
@@ -3365,6 +3370,8 @@ Item {
                     enabled: communityService.selectedMetadataEditable && !communityService.busy
                     toolTipText: "Save these search tags without changing the uploaded JSON or its classification."
                     onClicked: {
+                        if (!editTagsField.commitPending())
+                            return
                         communityService.updateSelectedTags(editTagsField.text)
                         editTagsDialog.close()
                     }

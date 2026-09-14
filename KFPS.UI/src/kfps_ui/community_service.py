@@ -22,6 +22,7 @@ from .app_paths import AppPaths
 from .community_catalog import normalize_artwork, versioned_asset_url
 from .community_client import CommunityApiClient, CommunityApiError, build_query
 from .community_credentials import CommunityCredentialStore
+from .community_tags import MAX_TAGS, SUGGESTED_TAGS, prepare_tags
 from .community_validation import CommunityUploadInspection, inspect_upload, validate_download
 from .desktop_service import DesktopService
 from .log_service import LogService
@@ -257,6 +258,18 @@ class CommunityService(QObject):
     @Property("QStringList", notify=changed)
     def categories(self):
         return ["All", *[str(value) for value in self._config.get("categories", [])]]
+
+    @Property("QStringList", constant=True)
+    def suggestedTags(self):
+        return list(SUGGESTED_TAGS)
+
+    @Property(int, constant=True)
+    def maximumTags(self):
+        return MAX_TAGS
+
+    @Slot("QStringList", str, result="QVariantMap")
+    def prepareTags(self, current, entered):
+        return prepare_tags(current, entered)
 
     @Property("QStringList", notify=changed)
     def games(self):

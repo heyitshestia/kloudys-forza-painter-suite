@@ -102,6 +102,7 @@ EDITOR_SETTING_KEYS = {
     "kloudyFabricOverlapCycle", "kloudyFabricLanguage", "kloudyFabricLanguageNoticeAcknowledged",
     "kloudyFabricEditorUpdateAcknowledged",
     "kloudyFabricUpdateBlinkAcknowledged",
+    "kloudyFabricCenteredResize",
 }
 
 

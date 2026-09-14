@@ -1613,7 +1613,15 @@ window.KfpsEditorLocales.ko = {
     "add project": "프로젝트 추가",
     "The project has invalid or excessively nested groups.": "프로젝트의 그룹 정보가 올바르지 않거나 중첩 단계가 너무 많습니다.",
     "The project has conflicting group information.": "프로젝트의 그룹 정보가 서로 일치하지 않습니다.",
-    "The asset contains invalid nested groups.": "에셋의 중첩 그룹 정보가 올바르지 않습니다."
+    "The asset contains invalid nested groups.": "에셋의 중첩 그룹 정보가 올바르지 않습니다.",
+    "Keep the center fixed when resizing with handles. Hold Alt to temporarily reverse this setting.": "핸들로 크기를 조절할 때 도형의 중심을 고정합니다. Alt를 누르면 잠시 반대 방식으로 조절합니다.",
+    "Resize from center": "중심 기준 크기 조절",
+    "Resized to the guide or grid with the center fixed.": "중심을 고정한 채 가이드 또는 격자에 맞춰 크기를 조절했습니다.",
+    "Resizing from the center.": "중심을 기준으로 크기를 조절하는 중입니다.",
+    ": Skew instead of uniform scale.": ": 비율을 유지한 크기 조절 대신 도형을 기울입니다.",
+    "Side handles resize one axis. Corner handles scale uniformly. Hold": "변의 핸들은 한 축의 크기를 조절하고, 모서리 핸들은 비율을 유지하며 크기를 조절합니다.",
+    "Skew instead of uniform scale.": "비율을 유지한 크기 조절 대신 도형을 기울입니다.",
+    "while dragging a corner to skew.": "키를 누른 채 모서리를 드래그하면 도형을 기울일 수 있습니다."
   },
   "html": {
     "Choose <b>Open JSON</b>, or add a shape to begin on a blank canvas.": "<b>JSON 열기</b>를 선택하거나 도형을 추가하여 빈 캔버스에서 시작하세요.",

@@ -263,6 +263,7 @@
             </div>
             <div class="propertySection">
               <h3>Transform</h3>
+              <label class="inline" title="Keep the center fixed when resizing with handles. Hold Alt to temporarily reverse this setting."><input id="resizeFromCenter" type="checkbox"> Resize from center</label>
               <div class="fieldGrid">
                 <label><span class="numericDragLabel" data-numeric-for="xInput" title="Drag to adjust X">X</span> <input id="xInput" type="text" inputmode="decimal" data-step="1" autocomplete="off" title="X position; arithmetic expressions are accepted"></label>
                 <label><span class="numericDragLabel" data-numeric-for="yInput" title="Drag to adjust Y">Y</span> <input id="yInput" type="text" inputmode="decimal" data-step="1" autocomplete="off" title="Y position; arithmetic expressions are accepted"></label>
@@ -679,7 +680,7 @@
           <li>Enable the grid when you need repeated spacing or coarse layout checks.</li>
           <li>Hold <b>Control</b> while moving, scaling, skewing, or reshaping a vinyl layer to snap to guides or grid lines.</li>
           <li>For resizing/stretching, the side you drag is the side that should snap. The opposite side stays anchored as much as possible.</li>
-          <li>Side handles resize one axis. Corner handles skew/disform by default. Hold <b>Shift</b> while dragging a corner for uniform/global scale.</li>
+          <li>Side handles resize one axis. Corner handles scale uniformly. Hold <b>Shift</b> while dragging a corner to skew.</li>
           <li>Angled guide snapping can rotate the shape to match the guide. Horizontal/vertical guides can bring it back to straight alignment.</li>
           <li>Use <b>Clear Guides</b> when helpers get in the way. This removes guides only, not vinyl layers.</li>
         </ul>
@@ -707,7 +708,7 @@
           <li><b><span data-shortcut-label="axisLockX">X</span> / <span data-shortcut-label="axisLockY">Y</span> while dragging</b>: Constrain selected shapes to horizontal / vertical movement, Blender-style.</li>
           <li><b data-shortcut-label="selectionLock">Shift+L</b>: Lock the current selection so accidental canvas clicks do not switch to another shape.</li>
           <li><b>Control while dragging/editing</b>: Snap to active guides or grid helpers.</li>
-          <li><b>Shift while dragging a corner</b>: Uniform/global scale instead of skew.</li>
+          <li><b>Shift while dragging a corner</b>: Skew instead of uniform scale.</li>
           <li><b>Delete / Backspace</b>: Delete selected layers.</li>
           <li><b data-shortcut-label="duplicate">Ctrl+D</b>: Duplicate selected layers.</li>
           <li><b><span data-shortcut-label="copy">Ctrl+C</span> / <span data-shortcut-label="paste">Ctrl+V</span></b>: Copy and paste selected editor layers.</li>
@@ -768,7 +769,7 @@
           <b><span data-shortcut-label="axisLockX">X</span> / <span data-shortcut-label="axisLockY">Y</span></b><span>Hold while dragging selected shapes to lock movement to horizontal / vertical.</span>
           <b data-shortcut-label="selectionLock">Shift+L</b><span>Lock current selection against accidental canvas misclicks.</span>
           <b>Ctrl</b><span>Snap while moving, scaling, skewing, or reshaping.</span>
-          <b>Shift + corner drag</b><span>Uniform/global scale instead of corner skew.</span>
+          <b>Shift + corner drag</b><span>Skew instead of uniform scale.</span>
           <b>Mouse wheel</b><span>Zoom.</span>
           <b>Middle/right drag</b><span>Pan.</span>
           <b data-shortcut-label="delete">Delete</b><span>Delete selected layers.</span>

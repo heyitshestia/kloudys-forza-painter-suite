@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 UI = Path(__file__).resolve().parents[1]
 ROOT = UI.parent
@@ -57,6 +58,60 @@ class ViewerOptimizationTests(unittest.TestCase):
         self.service.viewerEvent(self.service.viewerUrl, '{"event":"ready"}')
         self.assertTrue(self.service.viewerReady)
         self.assertFalse(self.service.running)
+
+    def test_wheel_choice_follows_new_sessions_and_native_restart(self):
+        self.open_viewer()
+        self.assertTrue(self.service.viewerWheelsVisible)
+        self.assertEqual(["1"], parse_qs(urlsplit(self.service.viewerUrl).query)["wheels"])
+        old_url = self.service.viewerUrl
+        with patch.object(self.service._inspector, "stop") as stop:
+            self.service.viewerEvent(old_url, '{"event":"wheels","visible":false}')
+        stop.assert_not_called()
+        self.assertEqual(old_url, self.service.viewerUrl, "Toggling must not reload the viewer")
+        self.service._inspector_ready("http://127.0.0.1:9877/next/?test=kept&wheels=1#w")
+        self.assertEqual({"test": ["kept"], "wheels": ["0"]}, parse_qs(urlsplit(self.service.viewerUrl).query))
+        self.assertEqual("w", urlsplit(self.service.viewerUrl).fragment)
+        paths = self.service.paths
+        self.service.close()
+        with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
+            self.service = FullLiveryService(paths, LogService(), demo=True)
+        self.service._active = True
+        self.open_viewer()
+        self.assertFalse(self.service.viewerWheelsVisible)
+        self.assertEqual(["0"], parse_qs(urlsplit(self.service.viewerUrl).query)["wheels"])
+        self.service.viewerEvent(self.service.viewerUrl, '{"event":"wheels","visible":true}')
+        self.assertTrue(json.loads(self.service._settings_file.read_text())["viewer_wheels_visible"])
+
+    def test_wheel_events_require_current_active_session_and_a_boolean(self):
+        self.open_viewer()
+        current = self.service.viewerUrl
+        for value in (None, 0, 1, "false", [], {}):
+            self.service.viewerEvent(current, json.dumps({"event": "wheels", "visible": value}))
+        self.service.viewerEvent("http://127.0.0.1:9876/old/", '{"event":"wheels","visible":false}')
+        self.assertTrue(self.service.viewerWheelsVisible)
+        self.service.deactivate()
+        self.service.viewerEvent(current, '{"event":"wheels","visible":false}')
+        self.assertTrue(self.service.viewerWheelsVisible)
+
+    def test_wheel_preference_failure_preserves_file_and_does_not_stop_viewer(self):
+        self.open_viewer()
+        self.service.viewerEvent(self.service.viewerUrl, '{"event":"wheels","visible":false}')
+        saved = self.service._settings_file.read_bytes()
+        with patch.object(self.service, "_save_settings", side_effect=PermissionError("locked")):
+            self.service.viewerEvent(self.service.viewerUrl, '{"event":"wheels","visible":true}')
+        self.assertTrue(self.service.viewerWheelsVisible)
+        self.assertTrue(self.service.viewerUrl)
+        self.assertIn("could not be saved", self.service.summary)
+        self.assertEqual(saved, self.service._settings_file.read_bytes())
+
+    def test_repeated_wheel_state_does_not_write_settings(self):
+        self.open_viewer()
+        with patch.object(self.service, "_save_settings") as save:
+            for _ in range(4):
+                self.service.viewerEvent(self.service.viewerUrl, '{"event":"wheels","visible":true}')
+            save.assert_not_called()
+            self.service.viewerEvent(self.service.viewerUrl, '{"event":"wheels","visible":false}')
+            save.assert_called_once()
 
     def test_stale_or_malformed_events_cannot_reactivate_a_viewer(self):
         self.open_viewer()

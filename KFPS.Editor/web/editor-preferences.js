@@ -12,6 +12,7 @@ window.KfpsEditorPreferences = (() => {
     "kloudyFabricOverlapCycle", "kloudyFabricLanguage", "kloudyFabricLanguageNoticeAcknowledged",
     "kloudyFabricEditorUpdateAcknowledged",
     "kloudyFabricUpdateBlinkAcknowledged",
+    "kloudyFabricCenteredResize",
   ]);
   const values = new Map();
   let pending = {};

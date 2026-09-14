@@ -74,5 +74,16 @@ function fixture(settings = {}, browser = {}, protocol = "http:") {
   notice.api.setItem("kloudyFabricLanguage", "en");
   await notice.api.flush();
   assert.equal(noticeSettings[noticeKey], "modernization-1");
+  const centerKey = "kloudyFabricCenteredResize";
+  const centeredSettings = { [centerKey]: "1", [key]: "[9]" };
+  const centered = fixture(centeredSettings, { [centerKey]: "0" });
+  await centered.api.ready;
+  assert.equal(centered.api.getItem(centerKey), "1");
+  centered.api.setItem(centerKey, "0"); centered.setFail(true);
+  assert.equal(await centered.api.flush(), false);
+  centered.setFail(false);
+  assert.equal(await centered.api.flush(), true);
+  assert.equal(centeredSettings[centerKey], "0");
+  assert.equal(centeredSettings[key], "[9]");
   console.log("editor-preferences.node.js: hydration, scoped migration, coalescing, retry, concurrent edits, deletion, and direct-file fallback passed");
 })().catch(error => { console.error(error); process.exitCode=1; });

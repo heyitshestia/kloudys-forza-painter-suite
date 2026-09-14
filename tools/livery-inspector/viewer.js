@@ -14,6 +14,10 @@ const title = document.querySelector('#title');
 const vehicle = document.querySelector('#vehicle');
 const resetButton = document.querySelector('#reset');
 const rotateButton = document.querySelector('#rotate');
+const wheelsCheckbox = document.querySelector('#wheels');
+let wheelsVisible = new URLSearchParams(window.location.search).get('wheels') !== '0';
+let inspectionWheels = null;
+wheelsCheckbox.checked = wheelsVisible;
 const partControls = document.querySelector('#parts');
 const sectionButtons = [...document.querySelectorAll('[data-section]')];
 
@@ -65,8 +69,8 @@ let frameTimePeak = 0;
 const gpuBudgetBytes = Math.min(512, Math.max(192, (navigator.deviceMemory || 4) * 64)) * 1024 * 1024;
 let modelResourceBytes = 0;
 
-function viewerEvent(event, message = '') {
-  console.info('KFPS_VIEWER:' + JSON.stringify({event, message, diagnostics: viewerDiagnostics()}));
+function viewerEvent(event, message = '', details = {}) {
+  console.info('KFPS_VIEWER:' + JSON.stringify({event, message, ...details, diagnostics: viewerDiagnostics()}));
 }
 
 function phase(name, message) {
@@ -740,6 +744,7 @@ function addInspectionWheels(assembly) {
   [tireGeometry, rimGeometry, hubGeometry].forEach(geometry => trackedGeometries.add(geometry));
   const wheelGroup = new THREE.Group();
   wheelGroup.name = 'KFPS neutral locator-based inspection wheels';
+  wheelGroup.visible = wheelsVisible;
   for (const name of required) {
     const position = centers[name].map(Number);
     if (!position.every(Number.isFinite)) return 0;
@@ -764,6 +769,7 @@ function addInspectionWheels(assembly) {
     wheelGroup.add(wheel);
   }
   model.add(wheelGroup);
+  inspectionWheels = wheelGroup;
   return required.length;
 }
 
@@ -986,6 +992,14 @@ function toggleAutoRotate() {
   requestRender();
 }
 
+function toggleWheels() {
+  if (viewerDisposed) return;
+  wheelsVisible = wheelsCheckbox.checked;
+  if (inspectionWheels) inspectionWheels.visible = wheelsVisible;
+  requestRender();
+  viewerEvent('wheels', '', {visible: wheelsVisible});
+}
+
 function selectSection(event) {
   const button = event.currentTarget;
   if (!button.disabled) setSectionFilter(button.dataset.section);
@@ -997,6 +1011,7 @@ function resetFromDoubleClick() {
 
 resetButton.addEventListener('click', resetView);
 rotateButton.addEventListener('click', toggleAutoRotate);
+wheelsCheckbox.addEventListener('change', toggleWheels);
 sectionButtons.forEach(button => button.addEventListener('click', selectSection));
 controls.addEventListener('change', requestRender);
 
@@ -1095,6 +1110,7 @@ function disposeViewer(releaseContext = true) {
     controls.dispose();
     resetButton.removeEventListener('click', resetView);
     rotateButton.removeEventListener('click', toggleAutoRotate);
+    wheelsCheckbox.removeEventListener('change', toggleWheels);
     sectionButtons.forEach(button => button.removeEventListener('click', selectSection));
     window.removeEventListener('dblclick', resetFromDoubleClick);
     window.removeEventListener('resize', handleResize);
@@ -1116,6 +1132,7 @@ function disposeViewer(releaseContext = true) {
     trackedTextures.clear();
     scene.clear();
     model = null;
+    inspectionWheels = null;
     modelBounds = null;
     paintMaterials = [];
     glassMaterials = [];
@@ -1130,6 +1147,7 @@ function viewerDiagnostics() {
     contextReleased: rendererContextReleased,
     animationActive: Boolean(animationFrameId),
     ready: firstFrameReady,
+    wheels: {visible: inspectionWheels?.visible ?? wheelsVisible, count: inspectionWheels?.children.length || 0},
     timings: {...timings},
     bytes: resourceBytes(),
     device: {

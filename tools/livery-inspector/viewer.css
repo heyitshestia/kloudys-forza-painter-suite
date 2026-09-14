@@ -77,6 +77,23 @@ html, body, #viewport {
   flex-shrink: 0;
 }
 
+.wheel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: #dce2e7;
+  background: rgba(14, 18, 22, .92);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wheel-toggle input { margin: 0; accent-color: #8be4f3; }
+.wheel-toggle:focus-within { outline: 1px solid #73cfe0; outline-offset: 2px; }
+
 .part-controls {
   display: grid;
   grid-template-columns: auto minmax(120px, 190px);

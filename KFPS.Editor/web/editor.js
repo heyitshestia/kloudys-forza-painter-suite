@@ -1297,7 +1297,16 @@ function styleActiveTransformControls() {
   if (active) styleObjectTransformControls(active);
 }
 
+function centeredHandleResize(object, eventData, mode = "scale") {
+  // The resize preference must not change Shift's existing skew anchor.
+  const centered = Boolean(object.centeredScaling || (mode === "scale" && object.canvas?.centeredScaling));
+  return centered !== Boolean(eventData?.[object.canvas?.centeredKey || "altKey"]);
+}
+
 function editorCornerTransformHandler(eventData, transform, x, y) {
+  // Ignore hover traffic after a lost mouse-up or from another input source.
+  // Touch/legacy callers without a buttons field retain their existing behavior.
+  if (eventData?.buttons === 0) return false;
   const target = interactiveVinylTarget(transform.target);
   if (!target?.kloudy && !isActiveSelectionObject(target)) {
     return eventData?.shiftKey
@@ -1306,13 +1315,13 @@ function editorCornerTransformHandler(eventData, transform, x, y) {
   }
   const mode = eventData?.shiftKey ? "skewX" : "scale";
   const object = transform.target;
-  const centered = Boolean(object.centeredScaling || object.canvas?.centeredScaling)
-    !== Boolean(eventData?.[object.canvas?.centeredKey || "altKey"]);
+  const centered = centeredHandleResize(object, eventData, mode);
   let start = transform.kloudyCornerGesture;
   if (!start || start.mode !== mode || start.centered !== centered) {
     // Handles are deliberately drawn outside the geometry. Rebase from the
     // grabbed pointer, never from that absolute position or an old gesture mode.
     const previous = start;
+    if (previous) captureTransformAnchorSnapshot(object, { e: eventData, transform });
     start = transform.kloudyCornerGesture = {
       mode, centered,
       pointerX: previous?.lastX ?? transform.ex, pointerY: previous?.lastY ?? transform.ey,
@@ -1390,25 +1399,29 @@ function editorSideScaleHandler(axis) {
   const resize = fabric.controlsUtils.wrapWithFireEvent("scaling", (eventData, transform, x, y) => {
     const target = transform.target;
     if (axis === "x" ? target.lockScalingX : target.lockScalingY) return false;
+    const centered = centeredHandleResize(target, eventData);
     let start = transform.kloudySideResize;
-    if (!start) {
-      const matrix = target.calcOwnMatrix();
+    if (!start || start.centered !== centered) {
+      const previous = start;
+      if (previous) captureTransformAnchorSnapshot(target, { e: eventData, transform });
+      const matrix = target.calcOwnMatrix().slice();
       if (Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2]) < 1e-12) return false;
       start = transform.kloudySideResize = {
-        matrix, inverse: fabric.util.invertTransform(matrix),
+        centered, matrix, inverse: fabric.util.invertTransform(matrix),
         scaleX: target.scaleX, scaleY: target.scaleY,
         skewX: Math.tan(fabric.util.degreesToRadians(target.skewX || 0)),
         skewY: Math.tan(fabric.util.degreesToRadians(target.skewY || 0)),
         flipX: target.flipX, flipY: target.flipY,
-        pointer: new fabric.Point(transform.ex, transform.ey),
+        pointer: new fabric.Point(previous?.lastX ?? transform.ex, previous?.lastY ?? transform.ey),
       };
     }
+    start.lastX = x;
+    start.lastY = y;
     const horizontal = axis === "x";
     const dimension = horizontal ? target.width : target.height;
     if (!(dimension > 0)) return false;
     const flipped = horizontal ? start.flipX : start.flipY;
     const side = (["mr", "mb"].includes(transform.corner) ? 1 : -1) * (flipped ? -1 : 1);
-    const centered = (horizontal ? transform.originX : transform.originY) === "center";
     const delta = fabric.util.transformPoint(
       new fabric.Point(x - start.pointer.x, y - start.pointer.y), start.inverse, true,
     );
@@ -1439,6 +1452,7 @@ function editorSideScaleHandler(axis) {
     return target.calcOwnMatrix().some((value, index) => Math.abs(value - before[index]) > 1e-9);
   });
   return (eventData, transform, x, y) => {
+    if (eventData?.buttons === 0) return false;
     const target = interactiveVinylTarget(transform.target);
     return target?.kloudy || isActiveSelectionObject(target)
       ? resize(eventData, transform, x, y)
@@ -3897,6 +3911,7 @@ function initCanvas() {
   const canvasBg = getComputedStyle(document.documentElement).getPropertyValue("--fabric-canvas-bg").trim() || "#fffefe";
   canvas = new fabric.Canvas("canvas", {
     preserveObjectStacking: true,
+    centeredScaling: editorSettings.getItem("kloudyFabricCenteredResize") === "1",
     selection: true,
     selectionKey: "shiftKey",
     fireRightClick: true,
@@ -5769,6 +5784,55 @@ function applyAngledGuideSnap(target, contact, line, options = {}) {
   };
 }
 
+function snapCenteredHandleResize(target, contact, event, threshold) {
+  const kind = transformControlKind(event);
+  const axis = contactScaleAxis(kind);
+  if (!axis && !["tl", "tr", "bl", "br"].includes(kind)) return null;
+  if ((axis !== "y" && target.lockScalingX) || (axis !== "x" && target.lockScalingY)) return null;
+  const point = refreshedGuideContact(target, contact).point;
+  const candidates = guideSnapLines().map(lineObjectForSnap).filter(Boolean)
+    .filter(line => distancePointToSnapLine(point, line) <= threshold);
+  if (!candidates.length) return null;
+  const center = target.getRelativeCenterPoint?.() || target.getCenterPoint();
+  const base = { scaleX: target.scaleX, scaleY: target.scaleY, skewX: target.skewX, skewY: target.skewY };
+  const minimum = Math.max(.0001, target.minScaleLimit || 0)
+    / (axis === "x" ? base.scaleX : axis === "y" ? base.scaleY : Math.min(base.scaleX, base.scaleY));
+  const apply = factor => {
+    const fx = axis === "y" ? 1 : factor, fy = axis === "x" ? 1 : factor;
+    target.set({ scaleX: base.scaleX * fx, scaleY: base.scaleY * fy,
+      skewX: axis ? fabric.util.radiansToDegrees(Math.atan(Math.tan(fabric.util.degreesToRadians(base.skewX)) * fy / fx)) : base.skewX,
+      skewY: axis ? fabric.util.radiansToDegrees(Math.atan(Math.tan(fabric.util.degreesToRadians(base.skewY)) * fx / fy)) : base.skewY });
+    target.setPositionByOrigin(center, "center", "center");
+    target.setCoords();
+    return refreshedGuideContact(target, contact).point;
+  };
+  // Measure this handle's motion in its existing skewed basis. Only the active
+  // object is touched, and only when it is already within snapping distance.
+  let probe;
+  try { probe = apply(1.01); }
+  finally { target.set(base); target.setPositionByOrigin(center, "center", "center"); target.setCoords(); }
+  const velocity = { x: (probe.x - point.x) / .01, y: (probe.y - point.y) / .01 };
+  let best = null;
+  for (const line of candidates) {
+    const nx = line.y1 - line.y2, ny = line.x2 - line.x1;
+    const denominator = nx * velocity.x + ny * velocity.y;
+    if (Math.abs(denominator) < 1e-9) continue;
+    const factor = 1 + (nx * (line.x1 - point.x) + ny * (line.y1 - point.y)) / denominator;
+    const motion = Math.hypot(velocity.x, velocity.y) * Math.abs(factor - 1);
+    if (!Number.isFinite(factor) || factor < minimum || factor > 50 || motion > threshold * 2) continue;
+    if (!best || motion < best.motion) best = { line, factor, motion };
+  }
+  if (!best) return null;
+  const snapped = apply(best.factor);
+  const distance = distancePointToSnapLine(snapped, best.line);
+  if (distance > 1e-5) {
+    target.set(base); target.setPositionByOrigin(center, "center", "center"); target.setCoords();
+    return null;
+  }
+  return { line: best.line, from: point, projection: snapped, distance,
+    contact: refreshedGuideContact(target, contact), anchorKind: "center" };
+}
+
 function snapTargetToGuides(target, event = null) {
   if (!target || target.kloudyGuide || target.kloudyOverlay) return false;
   if (isActiveSelectionObject(target)) {
@@ -5800,6 +5864,19 @@ function snapTargetToGuides(target, event = null) {
     if (!snappingEnabled || !snapAllowed) {
       clearSnapOverlay();
       return false;
+    }
+    const gesture = event?.transform?.kloudyCornerGesture || event?.transform?.kloudySideResize;
+    if (transformAction === "scale" && gesture?.centered) {
+      const snapped = snapCenteredHandleResize(target, contact, event, threshold);
+      renderSnapOverlayForTarget(target, snapped?.contact || refreshedGuideContact(target, contact), snapped);
+      const now = Date.now();
+      if (now - lastSnapMessageAt > 350) {
+        lastSnapMessageAt = now;
+        setText("guideStatus", snapped
+          ? KfpsI18n.t("Resized to the guide or grid with the center fixed.")
+          : KfpsI18n.t("Resizing from the center."));
+      }
+      return Boolean(snapped);
     }
     const anchorResult = stabilizeOppositeTransformAnchor(target, contact, transformAction);
     const sideSnap = transformAction === "scale" && snapAllowed
@@ -12387,6 +12464,11 @@ function bindUi() {
     commitDialogColor(hexToRgb(event.target.value, alpha));
   });
   $("applyFields").addEventListener("click", applySelectionFields);
+  $("resizeFromCenter").checked = canvas.centeredScaling;
+  $("resizeFromCenter").addEventListener("change", event => {
+    canvas.centeredScaling = Boolean(event.target.checked);
+    editorSettings.setItem("kloudyFabricCenteredResize", canvas.centeredScaling ? "1" : "0");
+  });
   $("deleteLayer").addEventListener("click", deleteSelected);
   $("duplicateLayer").addEventListener("click", duplicateSelected);
   $("quickDeleteLayer")?.addEventListener("click", deleteSelected);

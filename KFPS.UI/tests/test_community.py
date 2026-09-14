@@ -826,7 +826,7 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertEqual(page.count("ButtonGroup.group: uploadClassificationGroup"), 2)
         self.assertEqual(page.count("ButtonGroup.group: uploadAudienceGroup"), 2)
         self.assertIn('uploadDescription.text = ""', page)
-        self.assertIn('uploadTags.text = ""', page)
+        self.assertIn('uploadTags.reset("")', page)
         self.assertIn("root.resetMetadataForNewUpload(path)", page)
         self.assertIn('"Get access to supporter vinyl sharing"', page)
         self.assertIn('desktop.openUrl("https://ko-fi.com/s/2d1507698d")', page)

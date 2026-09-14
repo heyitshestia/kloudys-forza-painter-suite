@@ -10,6 +10,26 @@ from test_fabric_editor_server import RunningEditorServer, fabric_server, post_j
 
 
 class EditorPreferencesTests(unittest.TestCase):
+    def test_centered_resize_survives_restart_and_failed_write_without_changing_favorites(self):
+        key = "kloudyFabricCenteredResize"
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "preferences.json"
+            with patch.object(fabric_server, "EDITOR_PREFS_MARKER", marker):
+                with RunningEditorServer() as server:
+                    post_json(server, "/api/fabric-editor/preferences", {"settings": {
+                        key: "1", "kloudyFabricFavorites": "[101,102]"}})
+                    original = marker.read_bytes()
+                    with patch.object(fabric_server, "_write_json_atomic", side_effect=OSError("disk unavailable")):
+                        with self.assertRaises(urllib.error.HTTPError):
+                            post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "0"}})
+                    self.assertEqual(original, marker.read_bytes())
+                for expected in ("1", "0"):
+                    with RunningEditorServer() as server:
+                        with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                            self.assertEqual(json.load(response)["settings"], {
+                                key: expected, "kloudyFabricFavorites": "[101,102]"})
+                        post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "0"}})
+
     def test_update_notice_survives_restart_language_change_and_failed_write(self):
         key = "kloudyFabricEditorUpdateAcknowledged"
         with tempfile.TemporaryDirectory() as temporary:

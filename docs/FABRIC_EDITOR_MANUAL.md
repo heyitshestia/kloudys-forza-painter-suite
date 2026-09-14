@@ -176,6 +176,15 @@ The editor preserves the FH6 export math by converting Fabric transform values b
 
 Scaling changes the visible size of the selected object. Negative scale signs are preserved where needed so imported legacy/generated JSON can round-trip correctly.
 
+Enable **Resize from center** in the Transform section to keep the shape's center
+fixed when dragging a corner or side handle, like resizing in Forza. This also
+works for a selection of several shapes. The editor remembers the setting across
+restarts; it is not stored in or transferred with a project.
+
+Hold **Alt** to temporarily reverse the setting while dragging. You can press or
+release Alt during the drag. **Ctrl** still enables snapping and **Shift** still
+skews from a corner. The checkbox does not change numeric size entry or skewing.
+
 ### Rotation
 
 Rotation uses degrees. The editor normalizes angles when exporting.
@@ -186,7 +195,8 @@ Skew/disform changes the shape slant. This is useful for matching perspective or
 
 Skew is more sensitive than move/scale. The guide snapping code is intentionally conservative during skew so it does not fight Fabric's active transform math.
 
-Corner handles skew by default. Hold Shift while dragging a corner to use uniform/global scale instead of skew. Ctrl remains reserved for snapping, so Shift avoids conflicting with guide/grid behavior.
+Corner handles scale uniformly by default. Hold Shift while dragging a corner to
+skew. Ctrl remains reserved for snapping.
 
 ### Exact Layout
 
@@ -295,6 +305,12 @@ When a shape is resized or skewed, the editor uses the side being pulled to infe
 This matters most for skewed shapes. Without anchoring, a resize can make the entire shape drift away from the intended placement. With anchoring, shortening or elongating a skewed shape changes the pulled side while preserving the opposite side's position.
 
 When Ctrl is held during scale, the editor tries to lock the pulled side to the closest guide that the anchored resize axis can reach. This is not a whole-object move. It changes the shape size around the fixed opposite edge.
+
+With **Resize from center** active, the fixed anchor is the center instead.
+Ctrl snapping adjusts size to a nearby reachable guide or grid line without
+moving that center. A single resize cannot necessarily satisfy two intersecting
+lines at once. Guide snapping for multi-shape selections remains unchanged;
+this option adds centered resizing, not new group-snapping behavior.
 
 ## Rotation Notches
 

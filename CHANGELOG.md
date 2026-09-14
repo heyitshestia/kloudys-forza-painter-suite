@@ -1,5 +1,21 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.84
+
+### Resize Shapes From Their Center
+- Added a remembered Resize from center option in the editor's Transform panel. Corner and side handles can now resize a shape, group or selection without moving its center, making it easier to keep shapes aligned.
+- Hold Alt to temporarily reverse the setting. Ctrl still snaps to guides and the grid; Shift with a corner handle still skews. Centered snapping no longer shifts the shape's center.
+- Fixed stray mouse-hover events moving a resize handle. Updated the English and Korean controls and corrected the resizing instructions in Help.
+
+### Remember Wheel Visibility
+- Added a Wheels checkbox to the 3D livery viewer. Hide the wheels once and subsequently opened cars also appear without them, including after restarting KFPS. Turn the checkbox back on to restore them.
+- This only changes the preview. Your livery files and game import/export data are unchanged.
+
+### Easier Community Tags
+- Added a searchable, scrollable tag bank when uploading, replacing an upload or editing its tags. Choose a suggested tag, or type your own and press Enter.
+- Selected tags appear above the search field with an X to remove each one. Custom and Korean tags are supported; duplicate tags are ignored.
+- Keep up to 10 tags, with up to 24 characters per tag. Invalid entries show a clear message before submission, and unfinished text is checked when you press Upload or Save.
+
 ## 3.1.83
 
 ### More Helpful Problem Reports

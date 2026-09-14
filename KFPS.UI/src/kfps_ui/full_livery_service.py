@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import psutil
 from PySide6.QtCore import QObject, Property, QSortFilterProxyModel, QTimer, Qt, Signal, Slot
@@ -93,6 +94,7 @@ class FullLiveryService(QObject):
         self._selected_package = str(self._settings.get("last_package") or "")
         self._viewer_url = ""
         self._viewer_quality = 2 if self._settings.get("viewer_quality", 2) == 2 else 1
+        self._viewer_wheels_visible = self._settings.get("viewer_wheels_visible") is not False
         self._current_manifest: dict[str, Any] = {}
         self._sources = DictListModel(self.SOURCE_ROLES, self)
         self._source_grid = QSortFilterProxyModel(self)
@@ -212,6 +214,22 @@ class FullLiveryService(QObject):
     @Property(int, notify=changed)
     def viewerQuality(self):
         return self._viewer_quality
+
+    @Property(bool, notify=changed)
+    def viewerWheelsVisible(self):
+        return self._viewer_wheels_visible
+
+    def _set_viewer_wheels_visible(self, visible: bool) -> None:
+        if visible == self._viewer_wheels_visible:
+            return
+        self._viewer_wheels_visible = visible
+        self._settings["viewer_wheels_visible"] = visible
+        try:
+            self._save_settings()
+        except OSError as exc:
+            self._summary = "Wheel visibility changed, but could not be saved for the next KFPS restart."
+            self.log.append(f"{self._summary} {exc}")
+        self.changed.emit()
 
     @Slot(int)
     def setViewerQuality(self, value: int) -> None:
@@ -409,7 +427,11 @@ class FullLiveryService(QObject):
         if not self._active or not url:
             self._inspector.stop()
             return
-        self._viewer_url = url
+        parts = urlsplit(url)
+        query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                 if key != "wheels"]
+        query.append(("wheels", "1" if self._viewer_wheels_visible else "0"))
+        self._viewer_url = urlunsplit(parts._replace(query=urlencode(query)))
         self._viewer_memory_peak = 0
         self._viewer_ready = False
         self._viewer_pid = 0
@@ -445,8 +467,12 @@ class FullLiveryService(QObject):
         except (TypeError, ValueError):
             return
         if not isinstance(event, dict) or event.get("event") not in {
-            "phase", "ready", "error", "context-lost", "sample", "disposed",
+            "phase", "ready", "error", "context-lost", "sample", "disposed", "wheels",
         }:
+            return
+        if event["event"] == "wheels":
+            if isinstance(event.get("visible"), bool):
+                self._set_viewer_wheels_visible(event["visible"])
             return
         self._viewer_stats = event
         self._inspector.record_viewer_event({
