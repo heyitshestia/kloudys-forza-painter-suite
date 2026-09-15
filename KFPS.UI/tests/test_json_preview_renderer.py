@@ -21,6 +21,8 @@ from json_preview_renderer import (
     _resolve_full_type_resource,
     _shape_mask_flag,
     render_json_preview,
+    _resource_triangles,
+    VINYL_RESOURCE_ROOT,
 )
 from start_fabric_editor import _resolve_full_type_resource as editor_resolve_full_type_resource
 
@@ -40,6 +42,38 @@ def _open_preview(data):
 
 
 class JsonPreviewRendererTests(unittest.TestCase):
+    def test_all_fonts_omit_four_transparent_registration_triangles(self):
+        for font in range(1, 12):
+            for block in ("Upper", "Lower"):
+                family = f"{block}_Letters_{font}"
+                for index in range(1, 41):
+                    payload = json.loads((VINYL_RESOURCE_ROOT / family / str(index)).read_text())
+                    self.assertEqual(len(payload["Indices"]) // 3 - 4, len(_resource_triangles(family, index)), (family, index))
+
+    def test_typecode_preview_preserves_vertex_alpha_and_omits_invisible_geometry(self):
+        visible = [(-10, -10), (10, -10), (0, 10)]
+        invisible = [(1000, 1000), (1010, 1000), (1000, 1010)]
+        shape = {"type": 0x100000 + 1901, "data": [0, 0, 1, 1, 0, 0, 0], "color": [10, 20, 30, 255]}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "font.json"
+            path.write_text(json.dumps({"shapes": [shape]}))
+            with patch("json_preview_renderer._resource_alpha_triangles", return_value=[(visible, (0, 128, 255)), (invisible, (0, 0, 0))]):
+                image = _open_preview(render_json_preview(path, max_size=128, transparent_background=True))
+        self.assertLessEqual(max(image.size), 128)
+        histogram = image.getchannel("A").histogram()
+        alphas = [value for value, count in enumerate(histogram) if count]
+        self.assertEqual(0, min(alphas))
+        self.assertGreater(max(alphas), 200)
+        self.assertGreater(len(set(alphas)), 50)
+        self.assertGreater(sum(histogram[1:]), 500)
+
+    def test_partial_vertex_alpha_masks_preserve_partial_coverage(self):
+        image = _open_preview(_render_polygons([
+            {"polygons": [_square(10)], "color": (255, 0, 0, 255)},
+            {"polygons": [[(-8, -8), (8, -8), (0, 8)]], "vertex_alpha": [(128, 128, 128)], "mask": True, "color": None},
+        ], max_size=128, transparent_background=True))
+        self.assertIn(image.getpixel((image.width // 2, image.height // 2))[3], (127, 128))
+
     def test_all_upper_letter_resource_slots_are_resolved(self):
         cases = {
             1051503: ("Upper_Letters_7", 27),

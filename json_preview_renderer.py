@@ -213,8 +213,18 @@ def _resource_triangles(family: str, index: int) -> list[list[tuple[float, float
         return None
     vertices = payload.get("Vertices") or []
     indices = payload.get("Indices") or []
+    try:
+        encoded_alpha = payload.get("VerticesAlpha")
+        alpha = base64.b64decode(encoded_alpha, validate=True) if encoded_alpha else b""
+    except (TypeError, ValueError):
+        alpha = b""
+    if len(alpha) != len(vertices):
+        alpha = b""
     triangles = []
     for pos in range(0, len(indices) - 2, 3):
+        if alpha and all(isinstance(i, int) and 0 <= i < len(alpha) and alpha[i] == 0
+                         for i in indices[pos:pos + 3]):
+            continue
         tri = []
         for raw_index in indices[pos : pos + 3]:
             try:
@@ -224,7 +234,7 @@ def _resource_triangles(family: str, index: int) -> list[list[tuple[float, float
                 break
         if len(tri) == 3:
             triangles.append(tri)
-    if not triangles:
+    if not triangles and not indices:
         points = []
         for vertex in vertices:
             try:
@@ -387,44 +397,26 @@ def _render_polygons(polygons: list[dict], max_size: int = PREVIEW_MAX, transpar
     def to_canvas(point: tuple[float, float]) -> tuple[float, float]:
         return ((point[0] - min_x + padding) * scale, (max_y - point[1] + padding) * scale)
 
-    if not any(item.get("mask") for item in polygons):
-        image = Image.new("RGBA", (width, height), (0, 0, 0, 0)) if transparent_background else _checkerboard((width, height))
-        for item in polygons:
-            color = item["color"]
-            if color[3] <= 0:
-                continue
-            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(layer, "RGBA")
-            for poly in item["polygons"]:
-                points = [to_canvas(point) for point in poly]
-                if len(points) >= 3:
-                    draw.polygon(points, fill=color)
-            image = Image.alpha_composite(image, layer)
-        out = io.BytesIO()
-        image.save(out, format="PNG")
-        return out.getvalue()
-
     artwork = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     for item in polygons:
-        if item.get("mask"):
-            cutout = Image.new("L", (width, height), 0)
-            draw = ImageDraw.Draw(cutout)
-            for poly in item["polygons"]:
-                points = [to_canvas(point) for point in poly]
-                if len(points) >= 3:
-                    draw.polygon(points, fill=255)
-            if cutout.getbbox():
-                artwork.paste((0, 0, 0, 0), (0, 0, width, height), cutout)
+        points = [[to_canvas(point) for point in poly] for poly in item["polygons"]]
+        vertex_alpha = item.get("vertex_alpha")
+        color = (255, 255, 255, 255) if item.get("mask") else item["color"]
+        if color[3] <= 0:
             continue
-
-        color = item["color"]
-        if color[3] > 0:
+        if vertex_alpha:
+            layer = _rasterize_vertex_alpha_triangles(list(zip(points, vertex_alpha)), (0, 0, width, height), color)
+        else:
             layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
             draw = ImageDraw.Draw(layer, "RGBA")
-            for poly in item["polygons"]:
-                points = [to_canvas(point) for point in poly]
-                if len(points) >= 3:
-                    draw.polygon(points, fill=color)
+            for polygon in points:
+                if len(polygon) >= 3:
+                    draw.polygon(polygon, fill=color)
+        if item.get("mask"):
+            cutout = layer.getchannel("A")
+            if cutout.getbbox():
+                artwork.paste((0, 0, 0, 0), (0, 0, width, height), cutout)
+        else:
             artwork = Image.alpha_composite(artwork, layer)
 
     image = artwork if transparent_background else Image.alpha_composite(_checkerboard((width, height)), artwork)
@@ -498,12 +490,17 @@ def _render_typecode_preview(path: Path, max_size: int = PREVIEW_MAX, transparen
         if type_code <= 1000000 and not any(key in shape for key in ("type_word", "typeWord", "shape_word", "shapeWord", "resource_family", "resource_index")):
             continue
         resource = _resolve_vinyl_resource(type_code, shape)
-        triangles = _resource_triangles(*resource) if resource else None
-        if not triangles:
-            triangles = _fallback_triangles(word)
-        transformed = [_transform_resource_polygon(poly, data) for poly in triangles]
+        alpha_triangles = _resource_alpha_triangles(*resource) if resource else None
+        if not alpha_triangles:
+            triangles = _resource_triangles(*resource) if resource else None
+            alpha_triangles = [(poly, (255, 255, 255)) for poly in (triangles or _fallback_triangles(word))]
+        visible = [(poly, values) for poly, values in alpha_triangles if any(values)]
+        transformed = [_transform_resource_polygon(poly, data) for poly, _ in visible]
         if transformed:
-            polygons.append({"polygons": transformed, "color": color, "mask": is_mask})
+            item = {"polygons": transformed, "color": color, "mask": is_mask}
+            if any(values != (255, 255, 255) for _, values in visible):
+                item["vertex_alpha"] = [values for _, values in visible]
+            polygons.append(item)
     return _render_polygons(polygons, max_size=max_size, transparent_background=transparent_background) if polygons else None
 
 

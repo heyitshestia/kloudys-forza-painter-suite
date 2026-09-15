@@ -1,5 +1,22 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.85
+
+### FM8 Conversion And Shape Consistency
+- Fixed FM8 save decoding where nested groups could receive the wrong position, size, rotation or skew. Improved mask handling at group boundaries and when exporting the last shape.
+- Shape conversion now consistently uses the actual shape ID before descriptive names or older metadata. This prevents stale labels from changing a shape during cross-game conversion.
+- Added clearer diagnostics for incomplete groups and unrecognized save records instead of relying on the shape count alone.
+
+### Correct Lettering And Previews
+- Fixed invisible font bounds being drawn as filled geometry in the editor and JSON previews. Letters keep their original alignment and selection bounds.
+- Corrected per-font letter and symbol assignments, including font-specific punctuation. Updated shape names, the named-font import registry, and English/Korean font labels together.
+- Previews now preserve partially transparent mesh details and masks more accurately.
+
+### Compatibility And Testing
+- Added automated coverage for all 1,400 catalog slots across FH4, FH5, FH6 and FM8 conversion paths, all 880 font slots, and transformed designs up to 3,000 shapes. Managed-editor save, reopen and export workflows were also checked.
+- These are local conversion and editor checks; native FM8/FH6 import and export-back confirmation remains a separate community test. This update does not add offline import support for FH4 or FH5.
+- If a previous export already contains incorrect shapes or group positions, export it again from the original game save after updating. Updating KFPS cannot reliably repair data already lost in an older JSON.
+
 ## 3.1.84
 
 ### Resize Shapes From Their Center

@@ -2118,32 +2118,7 @@ function leaveGuideModeForLayerEdit() {
 
 
 function decodeVertexAlphas(payload, count) {
-  const raw = payload?.VerticesAlpha;
-  const alphas = new Uint8Array(Math.max(0, Number(count) || 0));
-  alphas.fill(255);
-  if (typeof raw === "string" && raw.length) {
-    try {
-      const decoded = atob(raw);
-      const limit = Math.min(decoded.length, alphas.length);
-      for (let i = 0; i < limit; i += 1) alphas[i] = decoded.charCodeAt(i) & 0xff;
-    } catch (_err) {
-      // Treat malformed alpha payloads as fully opaque mesh data.
-    }
-    return alphas;
-  }
-  if (Array.isArray(raw)) {
-    const limit = Math.min(raw.length, alphas.length);
-    for (let i = 0; i < limit; i += 1) {
-      const value = raw[i];
-      const alpha = typeof value === "number"
-        ? value
-        : (Array.isArray(value) ? value[value.length - 1] : (value?.A ?? value?.Alpha ?? value?.alpha));
-      if (Number.isFinite(Number(alpha))) {
-        alphas[i] = Math.max(0, Math.min(255, Math.round(Number(alpha))));
-      }
-    }
-  }
-  return alphas;
+  return KfpsEditorCatalog.decodeVertexAlphas(payload, count);
 }
 
 function payloadHasPartialAlpha(payload) {
@@ -2673,6 +2648,11 @@ function typeLabel(typeCode) {
 
 // Display-only helpers. Never use these when writing shape_name or identifiers.
 function localizedShapeDisplayName(family, index) {
+  const font = /^(Upper|Lower)_Letters_(\d+)$/.exec(family);
+  if (font) {
+    const glyph = KfpsEditorCatalog.fontGlyphSlots(Number(font[2]), font[1] === "Lower")[Number(index) - 1];
+    if (glyph) return KfpsI18n.t("Forza Font {0}: {1}", font[2], glyph);
+  }
   const original = editorCatalog.shapeDisplayName(family, index);
   const named = KfpsI18n.shapeLabel(original);
   if (named !== original || KfpsI18n.language !== "ko") return named;
@@ -10428,34 +10408,7 @@ function buildTextVinylSmartFitShapes(rows, layout, color, groupId, groupName) {
 }
 
 function textVinylForzaGlyphResource(char, fontNumber) {
-  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const lower = "abcdefghijklmnopqrstuvwxyz";
-  const symbolMap = {
-    "%": 27,
-    ":": 28,
-    ";": 29,
-    "/": 30,
-    "$": 31,
-    "£": 32,
-    "¥": 33,
-    "€": 34,
-    "æ": 35,
-    "Æ": 35,
-    "^": 36,
-    "ß": 37,
-    "@": 38,
-    "#": 39,
-    "+": 40,
-  };
-  const safeFont = Math.max(1, Math.min(11, Number(fontNumber) || 1));
-  const upperIndex = upper.indexOf(char);
-  if (upperIndex >= 0) return { family: `Upper_Letters_${safeFont}`, index: upperIndex + 1 };
-  const lowerIndex = lower.indexOf(char);
-  if (lowerIndex >= 0) return { family: `Lower_Letters_${safeFont}`, index: lowerIndex + 1 };
-  const digitIndex = "1234567890".indexOf(char);
-  if (digitIndex >= 0) return { family: `Upper_Letters_${safeFont}`, index: digitIndex + 27 };
-  if (symbolMap[char]) return { family: `Lower_Letters_${safeFont}`, index: symbolMap[char] };
-  return null;
+  return KfpsEditorCatalog.forzaGlyphResource(char, fontNumber);
 }
 
 function textVinylForzaLineWidth(line, fontNumber, advance) {

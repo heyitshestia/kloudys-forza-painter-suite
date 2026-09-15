@@ -21,6 +21,7 @@ try:
     from .shape_identity import (
         TYPE_CODE_BASE,
         VINYL_TYPE_BASES,
+        canonical_resource_for_word,
         normalize_game_key,
         normalize_game_shape_word,
     )
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover - direct script execution fallback
     from shape_identity import (
         TYPE_CODE_BASE,
         VINYL_TYPE_BASES,
+        canonical_resource_for_word,
         normalize_game_key,
         normalize_game_shape_word,
     )
@@ -136,6 +138,9 @@ class WalkState:
     pending_mask: bool = False
     decoded_shapes: int = 0
     fm8_legacy_shapes: int = 0
+    fm8_boundary_masks: int = 0
+    unrecognized_byte_count: int = 0
+    unrecognized_offsets: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -314,15 +319,18 @@ def enforce_privacy(path: Path, kind: str, payload: bytes, allow_locked: bool = 
 
 
 def read_transform_payload(data: bytes, pos: int, end: int) -> Transform | None:
-    if pos + 16 > end:
+    if pos < 0 or pos + 16 > end:
         return None
+    x = read_f32(data, pos)
+    y = read_f32(data, pos + 4)
     sx = read_f32(data, pos + 8)
     rotation = read_f32(data, pos + 12)
-    if not (0.0001 <= abs(sx) <= 200.0 and abs(rotation) <= 10000.0):
+    if not (all(math.isfinite(value) for value in (x, y, sx, rotation))
+            and 0.0001 <= abs(sx) <= 200.0 and abs(rotation) <= 10000.0):
         return None
     return Transform(
-        x=read_f32(data, pos),
-        y=read_f32(data, pos + 4),
+        x=x,
+        y=y,
         sx=sx,
         sy=sx,
         rotation=rotation,
@@ -1186,6 +1194,23 @@ def valid_markerless_group_at(
     return None
 
 
+def fm8_child_group_transform_at(data: bytes, pos: int, end: int) -> bool:
+    """Validate FM8's single-byte transform lead at a counted child boundary."""
+    if pos < 0 or pos + 17 >= end or data[pos] != 0x02:
+        return False
+    if read_transform_payload(data, pos + 1, end) is None:
+        return False
+    child = pos + 17
+    if child + 5 <= end and (data[child] & ~0x40) == 0x30:
+        sy = read_f32(data, child + 1)
+        if not math.isfinite(sy) or not 0.0001 <= abs(sy) <= 5000.0:
+            return False
+        child += 5
+    # This is header validation only. Do not recursively reinterpret the child's
+    # FM8 transform here; the walker handles it with the child's own bitmap.
+    return valid_counted_group_at(data, child, end) is not None
+
+
 def valid_counted_group_at(
     data: bytes,
     pos: int,
@@ -1193,6 +1218,7 @@ def valid_counted_group_at(
     livery: bool = False,
     shape_marker: int = CURRENT_SHAPE_MARKER,
     transform_terminator: int = CURRENT_TRANSFORM_MARKER,
+    game: str | None = None,
 ) -> GroupInfo | None:
     if livery:
         if pos + 5 > end or data[pos] not in (0x20, 0x60):
@@ -1268,26 +1294,44 @@ def valid_counted_group_at(
                     control_bytes=data[control_start:bitmap_start],
                 )
             )
-    if data[pos + 3] == child_blocks:
+    # The flat writer's compact header saturates its bitmap length at 255.
+    # The declared child count still includes the remaining flat shapes.
+    compact_blocks = min(child_blocks, 0xFF)
+    if data[pos + 3] == compact_blocks:
         control_start = pos + 4
         bitmap_start = control_start + 2
-        base_size = 4 + 2 + child_blocks
+        base_size = 4 + 2 + compact_blocks
         if pos + base_size <= end:
             candidates.append(
                 GroupInfo(
                     count=count,
-                    child_blocks=child_blocks,
+                    child_blocks=compact_blocks,
                     size=base_size,
                     flags=0x40 if data[pos] == 0x60 else 0,
                     marker=data[pos : pos + 1],
-                    child_bitmap=data[bitmap_start : bitmap_start + child_blocks],
+                    child_bitmap=data[bitmap_start : bitmap_start + compact_blocks],
                     control_bytes=data[control_start:bitmap_start],
                 )
             )
 
+    if normalize_game_key(game) == "fm8":
+        def boundary_score(info: GroupInfo) -> int:
+            extra = pos + info.size
+            is_group = bool(info.child_bitmap and info.child_bitmap[0] & 1)
+            if not is_group:
+                return 8 if (is_valid_shape_at(data, extra, end, shape_marker)
+                             or is_fm8_legacy_shape_at(data, extra, end)) else 0
+            if fm8_child_group_transform_at(data, extra, end):
+                return 8
+            return 4 if extra + 4 <= end and data[extra] in (0x20, 0x60) else 0
+        candidates.sort(key=boundary_score, reverse=True)
+
     for info in candidates:
         extra = pos + info.size
         first_child_is_shape = not bool(info.child_bitmap and info.child_bitmap[0] & 0x01)
+        if (not first_child_is_shape and normalize_game_key(game) == "fm8"
+                and fm8_child_group_transform_at(data, extra, end)):
+            return info
         inline = _read_inline_transform(
             data,
             extra,
@@ -1488,6 +1532,7 @@ def walk_step(
             livery,
             shape_marker=shape_marker,
             transform_terminator=transform_terminator,
+            game=game_key,
         )
         if may_decode_group
         else None
@@ -1653,6 +1698,17 @@ def walk_step(
             state.pending_mask = state.pending_mask or bool(trailing_flags & 0x40)
             return pos + size
 
+    if (not livery and game_key == "fm8" and trailing_mask_state
+            and not state.pending_transform and may_decode_group
+            and data[pos] in (0x00, 0x01)
+            and fm8_child_group_transform_at(data, pos + 1, end)):
+        # This state belongs to the preceding direct shape. In particular, do
+        # not turn a colored mask into a flag on the following group, or mark
+        # the terminal descendant of a group that has already closed.
+        if data[pos] == 0x01 and mark_previous_direct_shape_as_mask(state, authoritative=True):
+            state.fm8_boundary_masks += 1
+        return pos + 1
+
     transform_record = (
         read_transform_record(
             data,
@@ -1700,6 +1756,10 @@ def walk_step(
         state.pending_prefix = b""
     else:
         state.pending_prefix = bytes([byte]) if byte else b""
+        if byte:
+            state.unrecognized_byte_count += 1
+            if len(state.unrecognized_offsets) < 16:
+                state.unrecognized_offsets.append(pos)
     return pos + 1
 
 
@@ -1811,14 +1871,23 @@ def build_cgroup_tree(payload: bytes, game: str | None = "fh6") -> tuple[GroupNo
         pos = next_pos
     if pos < len(layer_data):
         warnings.append(f"decoder stopped before end: 0x{pos:x}/0x{len(layer_data):x}")
+    if state.unrecognized_byte_count:
+        offsets = ", ".join(f"0x{offset:x}" for offset in state.unrecognized_offsets)
+        warnings.append(f"unrecognized layer-data bytes: {state.unrecognized_byte_count}; offsets {offsets}")
     stats = cgroup_tree_stats(root)
+    if stats["incomplete_counted_groups"]:
+        warnings.append(f"incomplete counted groups: {stats['incomplete_counted_groups']}; "
+                        f"missing direct children: {stats['missing_counted_children']}")
     stats["record_generation"] = record_generation
     stats["shape_marker"] = shape_marker
     stats["transform_terminator"] = transform_terminator
     stats["markerless_root_header"] = markerless_root
+    stats["unrecognized_byte_count"] = state.unrecognized_byte_count
+    stats["unrecognized_layer_data_offsets"] = state.unrecognized_offsets
     if game_key == "fm8":
         stats["fm8_pre_group_transform_records"] = count_fm8_pre_group_transform_records(layer_data)
         stats["fm8_legacy_shape_records"] = state.fm8_legacy_shapes
+        stats["fm8_shape_to_group_masks"] = state.fm8_boundary_masks
         stats["offline_decode_profile"] = "fm8_local_save_cgroup_v1"
     else:
         stats["offline_decode_profile"] = "standard_cgroup_v1"
@@ -1851,6 +1920,7 @@ def read_initial_child_transform(
                 end,
                 shape_marker=shape_marker,
                 transform_terminator=transform_terminator,
+                game=game,
             ):
                 return candidate + size, transform, marker
     if pos + 16 <= end and valid_counted_group_at(
@@ -1881,9 +1951,16 @@ def cgroup_tree_stats(root: GroupNode) -> dict[str, Any]:
         "group_nodes": 0,
         "non_identity_group_transforms": 0,
         "max_group_depth": 0,
+        "incomplete_counted_groups": 0,
+        "missing_counted_children": 0,
     }
 
     def walk(node: GroupNode, depth: int) -> None:
+        if node.expected_children is not None:
+            missing = node.expected_children - len(node.items) - node.skipped_children
+            if missing > 0:
+                stats["incomplete_counted_groups"] += 1
+                stats["missing_counted_children"] += missing
         for item in node.items:
             if not isinstance(item, GroupNode):
                 continue
@@ -2242,19 +2319,25 @@ def _load_word_lookup() -> dict[int, list[tuple[str, int, str | None]]]:
     root = Path(__file__).resolve().parents[2]
     words_path = editor_web_root(root) / "shape-words.json"
     names_path = editor_web_root(root) / "shape-names.json"
-    if not words_path.exists():
-        return {}
-    words = json.loads(words_path.read_text(encoding="utf-8")).get("families", {})
+    words = json.loads(words_path.read_text(encoding="utf-8")).get("families", {}) if words_path.exists() else {}
     names = {}
     if names_path.exists():
         names = json.loads(names_path.read_text(encoding="utf-8")).get("families", {})
     lookup: dict[int, list[tuple[str, int, str | None]]] = {}
+    # Numeric slots are the contract, even when an older metadata file remains
+    # in a mixed installation. Legacy aliases may only describe unknown words.
+    for family, base in VINYL_TYPE_BASES.items():
+        for index in range(1, 41):
+            name = names.get(family, {}).get(str(index))
+            lookup[(int(base) & 0xFFFF) + index - 1] = [(family, index, name)]
     for family, entries in words.items():
         for index_text, word in entries.items():
             try:
                 index = int(index_text)
                 word = int(word)
             except (TypeError, ValueError):
+                continue
+            if canonical_resource_for_word(word) is not None:
                 continue
             name = names.get(family, {}).get(index_text) if isinstance(names.get(family, {}), dict) else None
             lookup.setdefault(word, []).append((family, index, name))

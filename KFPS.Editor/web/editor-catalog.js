@@ -4,6 +4,67 @@
   else root.KfpsEditorCatalog = factory();
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
+
+  const LOWER_GLYPH_TAILS = Object.freeze([
+    "$\u00a3\u00a5\u20ac\u00e6^\u00df@#+%;:/",
+    "$\u00a3\u00a5\u20ac()^*#+%;:/",
+    "$\u00a3\u00a5\u20ac\u00e6^\u00df@#+%;:/",
+    "$\u00a3\u00a5\u20ac\u00e6^\u00df@#+%;:\0",
+    "$\u00a3\u00a5\u20ac()\0{}`%;:,",
+    "$\u00a3\u00a5\u20ac()\u00bb*[]%;:,",
+    "$\u00a3\u00a5\u20ac[]\u2021*#\u00a4%;:,",
+    "$\u00a3\u00a5\u20ac()\u00a7*\u00d8\u00a2%;:,",
+    "$\u00a3\u00a5\u20ac()<*#+%;:,",
+    "$\u00a3\u00a5\u20ac()\u2021*\u00a7\u00a2%;:,",
+    "$\u00a3\u00a5\u20ac()\u00a2*#+%;:,",
+  ]);
+
+  function fontGlyphSlots(fontNumber, lower = false) {
+    const font = Math.max(1, Math.min(11, Math.trunc(Number(fontNumber)) || 1));
+    // Unknown decorative symbols remain selectable in the catalog, but have no
+    // guessed typed-character alias. Slot order is native resource order.
+    const text = lower ? "abcdefghijklmnopqrstuvwxyz" + LOWER_GLYPH_TAILS[font - 1]
+      : "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!?" + (font === 6 ? "\0" : "@") + "&";
+    return [...text].map(char => char === "\0" ? null : char);
+  }
+
+  const FONT_GLYPH_MAPS = Array.from({ length: 11 }, (_, i) => {
+    const map = new Map();
+    for (const lower of [false, true]) fontGlyphSlots(i + 1, lower).forEach((char, index) => {
+      if (char && !map.has(char)) map.set(char, Object.freeze({
+        family: `${lower ? "Lower" : "Upper"}_Letters_${i + 1}`, index: index + 1,
+      }));
+    });
+    if (map.has("\u00e6")) map.set("\u00c6", map.get("\u00e6"));
+    return map;
+  });
+
+  function forzaGlyphResource(char, fontNumber) {
+    if (typeof char !== "string" || [...char].length !== 1) return null;
+    const font = Math.max(1, Math.min(11, Math.trunc(Number(fontNumber)) || 1));
+    return FONT_GLYPH_MAPS[font - 1].get(char) || null;
+  }
+
+  function decodeVertexAlphas(payload, count) {
+    const raw = payload?.VerticesAlpha;
+    const alphas = new Uint8Array(Math.max(0, Number(count) || 0));
+    alphas.fill(255);
+    if (typeof raw === "string" && raw.length) {
+      try {
+        const decoded = atob(raw);
+        for (let i = 0; i < Math.min(decoded.length, alphas.length); i++) alphas[i] = decoded.charCodeAt(i) & 255;
+      } catch (_) { /* Preserve the existing opaque fallback for malformed alpha. */ }
+    } else if (Array.isArray(raw)) {
+      for (let i = 0; i < Math.min(raw.length, alphas.length); i++) {
+        const value = raw[i];
+        const alpha = typeof value === "number" ? value
+          : Array.isArray(value) ? value[value.length - 1] : value?.A ?? value?.Alpha ?? value?.alpha;
+        if (Number.isFinite(Number(alpha))) alphas[i] = Math.max(0, Math.min(255, Math.round(Number(alpha))));
+      }
+    }
+    return alphas;
+  }
+
   function create({ VINYL_TYPE_BASES, VINYL_RESOURCE_BASES, format, KfpsI18n,
     fetcher = (...args) => fetch(...args), requestTimeoutMs = 30000 }) {
     const resourceCache = new Map();
@@ -166,13 +227,29 @@
         ensureOpen();
         const vertices = payload.Vertices || [];
         const indices = payload.Indices || [];
+        const alphas = decodeVertexAlphas(payload, vertices.length);
         const chunks = [];
+        let omitted = false;
         for (let i = 0; i + 2 < indices.length; i += 3) {
           const p0 = vertices[indices[i]];
           const p1 = vertices[indices[i + 1]];
           const p2 = vertices[indices[i + 2]];
           if (!p0 || !p1 || !p2) continue;
+          if (indices.slice(i, i + 3).every(index => alphas[index] === 0)) {
+            omitted = true;
+            continue;
+          }
           chunks.push(`M ${format(p0.X)} ${format(p0.Y)} L ${format(p1.X)} ${format(p1.Y)} L ${format(p2.X)} ${format(p2.Y)} Z`);
+        }
+        if (omitted && vertices.length) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const vertex of vertices) {
+            minX = Math.min(minX, vertex.X); minY = Math.min(minY, vertex.Y);
+            maxX = Math.max(maxX, vertex.X); maxY = Math.max(maxY, vertex.Y);
+          }
+          // Move-only anchors preserve the native origin and selection bounds
+          // without filling or stroking the invisible registration triangles.
+          chunks.unshift(`M ${format(minX)} ${format(minY)} M ${format(maxX)} ${format(maxY)}`);
         }
         const d = chunks.join(" ");
         resourceCache.set(cacheKey, d);
@@ -221,9 +298,11 @@
       ensureOpen();
       const vertices = payload.Vertices || [];
       const indices = payload.Indices || [];
+      const alphas = decodeVertexAlphas(payload, vertices.length);
       const edges = new Map();
       for (let i = 0; i + 2 < indices.length; i += 3) {
         const tri = [indices[i], indices[i + 1], indices[i + 2]];
+        if (tri.every(index => alphas[index] === 0)) continue;
         for (const [a, b] of [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]) {
           if (!vertices[a] || !vertices[b]) continue;
           const key = edgeKey(a, b);
@@ -326,5 +405,5 @@
       payloads,
     };
   }
-  return { create };
+  return { create, decodeVertexAlphas, fontGlyphSlots, forzaGlyphResource };
 });

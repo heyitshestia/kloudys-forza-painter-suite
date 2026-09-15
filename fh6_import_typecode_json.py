@@ -14,7 +14,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 from game_profiles import PROFILES
-from tools.cgroup.shape_identity import target_game_shape_word
+from tools.cgroup.shape_identity import explicit_shape_word, target_game_shape_word
 
 
 PROCESS_QUERY_INFORMATION = 0x0400
@@ -286,6 +286,7 @@ def load_font_registry():
     registry = {
         "by_key": {},
         "by_name": {},
+        "by_glyph": {},
     }
     for row in rows:
         try:
@@ -306,11 +307,15 @@ def load_font_registry():
         }
         registry["by_key"][(font, block, glyph)] = item
         registry["by_name"][normalize_name(item["shape_name"])] = item
+        registry["by_glyph"].setdefault((font, glyph), item)
+        if glyph == "\u00e6":
+            registry["by_glyph"].setdefault((font, "\u00c6"), item)
     return registry
 
 
 def normalize_name(value):
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    # Punctuation and non-ASCII glyphs are identities, not disposable separators.
+    return re.sub(r"\s+", " ", str(value or "").lower()).strip()
 
 
 def normalize_font_block(value):
@@ -435,7 +440,11 @@ def resolve_font_from_name(value, registry):
     else:
         glyph = normalize_font_glyph(glyph_text, block)
         block = infer_font_block(glyph, block)
-    return registry.get("by_key", {}).get((font, block, normalize_font_glyph(glyph, block)))
+    glyph = normalize_font_glyph(glyph, block)
+    if block in ("upper", "lower") and not (len(glyph) == 1 and glyph.isascii() and glyph.isalpha()):
+        block = "number" if glyph.isdigit() else block + "_symbol"
+    return (registry.get("by_key", {}).get((font, block, glyph))
+            or registry.get("by_glyph", {}).get((font, glyph)))
 
 
 def resolve_font_shape(shape, registry):
@@ -457,19 +466,20 @@ def resolve_font_shape(shape, registry):
             break
     if font is None or glyph is None:
         return None
-    block = infer_font_block(glyph, shape.get("block") or shape.get("font_block") or shape.get("fontBlock"))
+    explicit_block = shape.get("block") or shape.get("font_block") or shape.get("fontBlock")
+    if not explicit_block:
+        glyph = normalize_font_glyph(glyph)
+        return registry.get("by_glyph", {}).get((int(font), glyph))
+    block = infer_font_block(glyph, explicit_block)
     glyph = normalize_font_glyph(glyph, block)
     return registry.get("by_key", {}).get((int(font), block, glyph))
 
 
 def shape_type_fields(shape, font_registry):
-    explicit_word = parse_numeric_int(shape.get("shape_word", shape.get("shapeWord", shape.get("type_word", shape.get("typeWord")))))
+    explicit_word = explicit_shape_word(shape)
     if explicit_word is not None:
         type_code = parse_numeric_int(shape.get("type")) or explicit_word
         return type_code, explicit_word & 0xFFFF, None
-    type_code = parse_numeric_int(shape.get("type"))
-    if type_code is not None:
-        return type_code, type_code & 0xFFFF, None
     font_item = resolve_font_shape(shape, font_registry)
     if font_item:
         word = int(font_item["shape_word"]) & 0xFFFF

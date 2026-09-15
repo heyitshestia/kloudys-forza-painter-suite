@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Canonical KFPS shape identity helpers.
 
-This module separates visual resources from game shape words. The editor often
-knows both `resource_family/resource_index` and `type_word`; finished export
-code should prefer a verified resource mapping and report conflicts.
+This module separates visual resources from game shape words. Numeric identities
+are authoritative in exported JSON; resource labels are a fallback for resource-
+only inputs, not permission to reinterpret an existing ID.
 """
 
 from __future__ import annotations
@@ -53,11 +53,15 @@ class ShapeIdentity:
 
 
 def explicit_shape_word(shape: dict[str, Any]) -> int | None:
+    type_code = parse_int(shape.get("type"))
+    # Match the editor and preview: a full native type is stronger than a stale
+    # redundant low-word field. Legacy geometry IDs still use their explicit word.
+    if type_code is not None and TYPE_CODE_BASE <= type_code <= TYPE_CODE_BASE + 0xFFFF:
+        return type_code & 0xFFFF
     for key in ("type_word", "typeWord", "shape_word", "shapeWord"):
         value = parse_int(shape.get(key))
         if value is not None:
             return value & 0xFFFF
-    type_code = parse_int(shape.get("type"))
     if type_code is not None:
         return type_code & 0xFFFF
     return None
@@ -65,24 +69,13 @@ def explicit_shape_word(shape: dict[str, Any]) -> int | None:
 
 def resource_shape_word(family: str, index: int) -> int | None:
     family = str(family)
-    try:
-        index = int(index)
-    except (TypeError, ValueError):
+    index = parse_int(index)
+    if index is None or not 1 <= index <= 40:
         return None
-    if index < 1:
-        return None
-    if family == "Primitives":
-        return 100 + index if index <= 40 else None
     base = VINYL_TYPE_BASES.get(family)
     if base is None:
         return None
-    if family.startswith("Upper_Letters_"):
-        return (base & 0xFFFF) + index - 1 if index <= 40 else None
-    if family.startswith("Lower_Letters_"):
-        # Lower-letter tabs have special symbols and historic ordering quirks.
-        # Prefer explicit words for now unless a fixture proves every slot.
-        return None
-    return (base & 0xFFFF) + index - 1 if index <= 40 else None
+    return (base & 0xFFFF) + index - 1
 
 
 def normalize_game_key(game: str | None) -> str:
@@ -122,23 +115,8 @@ def target_game_shape_word(shape: dict[str, Any], identity_word: int, target_gam
             raw_word = explicit_shape_word(shape)
         if raw_word is not None:
             return raw_word & 0xFFFF
-    if game_key != "fm8":
-        return int(identity_word) & 0xFFFF
-
-    raw_word = parse_int(shape.get("source_raw_type_word") or shape.get("sourceRawTypeWord"))
-    if raw_word is not None and normalize_game_key(source_game) == "fm8":
-        return raw_word & 0xFFFF
-
-    family = shape.get("resource_family") or shape.get("resourceFamily")
-    index = parse_int(shape.get("resource_index") or shape.get("resourceIndex"))
-    if family and index is not None:
-        family = str(family)
-        if family in FM8_COMMUNITY_SLOT_WORDS and 1 <= index <= len(FM8_COMMUNITY_SLOT_WORDS[family]):
-            return int(FM8_COMMUNITY_SLOT_WORDS[family][index - 1]) & 0xFFFF
-        for base_word, base_family in FM8_COMPACT_TAB_BASES.items():
-            if family == base_family and 1 <= index <= 40:
-                return (int(base_word) + index - 1) & 0xFFFF
-
+    # All 1,400 verified native slots share IDs across these games. FM8 picker
+    # positions and legacy descriptive labels must not remap a resolved ID.
     return int(identity_word) & 0xFFFF
 
 
@@ -180,15 +158,15 @@ def normalize_game_shape_word(raw_word: int, game: str | None) -> dict[str, Any]
 def canonical_shape_identity(shape: dict[str, Any]) -> ShapeIdentity:
     explicit = explicit_shape_word(shape)
     family = shape.get("resource_family") or shape.get("resourceFamily")
-    index = shape.get("resource_index") or shape.get("resourceIndex")
-    resource_word = resource_shape_word(str(family), int(index)) if family and index is not None else None
-    if resource_word is not None:
-        conflict = None
-        if explicit is not None and explicit != resource_word:
-            conflict = f"explicit word {explicit} disagrees with {family}/{index} -> {resource_word}"
-        return ShapeIdentity(resource_word, TYPE_CODE_BASE + resource_word, "resource", conflict)
+    index = parse_int(shape.get("resource_index") or shape.get("resourceIndex"))
+    resource_word = resource_shape_word(str(family), index) if family and index is not None else None
+    conflict = None
+    if explicit is not None and resource_word is not None and explicit != resource_word:
+        conflict = f"explicit word {explicit} disagrees with {family}/{index} -> {resource_word}"
     if explicit is not None:
-        return ShapeIdentity(explicit, TYPE_CODE_BASE + explicit, "explicit")
+        return ShapeIdentity(explicit, TYPE_CODE_BASE + explicit, "explicit", conflict)
+    if resource_word is not None:
+        return ShapeIdentity(resource_word, TYPE_CODE_BASE + resource_word, "resource")
     raise ValueError("shape has no usable type_word, shape_word, type, or resource identity")
 
 
@@ -198,6 +176,11 @@ def canonicalize_shape(shape: dict[str, Any]) -> tuple[dict[str, Any], ShapeIden
     out["type"] = identity.type_code
     out["type_word"] = identity.word
     out["type_word_hex"] = f"0x{identity.word:04x}"
+    resource = canonical_resource_for_word(identity.word)
+    if resource:
+        out["resource_family"], out["resource_index"] = resource
+        out.pop("resourceFamily", None)
+        out.pop("resourceIndex", None)
     if identity.conflict:
         out["shape_identity_conflict"] = identity.conflict
     return out, identity

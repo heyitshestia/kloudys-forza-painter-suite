@@ -119,3 +119,40 @@ test('one failed metadata response cancels its peer without cancelling unrelated
   assert.equal(await shape, mesh);
   catalog.dispose();
 });
+
+test('transparent fill triangles are omitted while original bounds remain in the path', async () => {
+  const payload = {
+    Vertices: [...mesh.Vertices, { X: -4, Y: -5 }, { X: 4, Y: -5 }, { X: 0, Y: 6 }],
+    Indices: [0, 1, 2, 3, 4, 5], VerticesAlpha: Buffer.from([255, 255, 255, 0, 0, 0]).toString('base64'),
+  };
+  const catalog = create(options(async () => response(payload)));
+  const path = await catalog.loadResourcePathForResolved(resolved);
+  assert.equal(path, 'M -4 -5 M 4 6 M 0 0 L 1 0 L 0 1 Z');
+  const outline = await catalog.loadResourceOutlinePathForResolved(resolved);
+  assert.equal(outline, 'M 0 0 L 1 0 M 1 0 L 0 1 M 0 1 L 0 0');
+  catalog.dispose();
+});
+
+test('all 880 font meshes omit exactly their zero-alpha triangles without losing visible triangles', async () => {
+  const fs = require('node:fs'), path = require('node:path');
+  let count = 0;
+  const catalog = create(options(async url => response(JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../Resources/Vinyls', url.replace(/^\/primary\//, '')), 'utf8')))));
+  for (let font = 1; font <= 11; font++) for (const block of ['Upper', 'Lower']) for (let index = 1; index <= 40; index++) {
+    const resource = { family: `${block}_Letters_${font}`, index };
+    const payload = await catalog.loadResourcePayloadForResolved(resource);
+    const alpha = Buffer.from(payload.VerticesAlpha, 'base64');
+    let visible = 0, hidden = 0;
+    for (let i = 0; i < payload.Indices.length; i += 3) {
+      if (payload.Indices.slice(i, i + 3).some(k => alpha[k] !== 0)) visible++;
+      else hidden++;
+    }
+    assert.equal(hidden, 4, JSON.stringify(resource));
+    const d = await catalog.loadResourcePathForResolved(resource);
+    assert.equal((d.match(/ Z/g) || []).length, visible, JSON.stringify(resource));
+    assert.equal((d.match(/M /g) || []).length, visible + 2, JSON.stringify(resource));
+    count++;
+  }
+  assert.equal(count, 880);
+  catalog.dispose();
+});

@@ -75,6 +75,10 @@ jobs:
 
       - name: Check and test the Fabric editor boundary
         run: |
+          python -B tools/sync_shape_words.py --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tools/sync_font_names.cjs --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B tools/editor_manifest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node KFPS.Editor/web/tests/run-unit.cjs

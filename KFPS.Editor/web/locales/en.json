@@ -2,6 +2,7 @@
   "locale": "en",
   "name": "English",
   "messages": {
+    "Forza Font {0}: {1}": "Forza Font {0}: {1}",
     "KFPS Editor could not start": "KFPS Editor could not start",
     "The editor cannot write its startup lock. Check folder access and available disk space. Your saved work has not been changed.": "The editor cannot write its startup lock. Check folder access and available disk space. Your saved work has not been changed.",
     "The editor data folder is locked by another process, and no responding editor was found. Close the other editor or application using this folder and try again. Your saved work has not been changed.": "The editor data folder is locked by another process, and no responding editor was found. Close the other editor or application using this folder and try again. Your saved work has not been changed.",

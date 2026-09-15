@@ -179,7 +179,7 @@ def build_flat_payload(layers: Iterable[CGroupLayer]) -> bytes:
     for layer in visible:
         payload.extend(pack_shape(layer, trailing_mask_for_previous=previous_was_mask))
         previous_was_mask = bool(layer.mask)
-    payload.extend(b"\x00\x01")
+    payload.extend(bytes((int(previous_was_mask), 0x01)))
     return bytes(payload)
 
 
