@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.86
+
+### Readable Community Descriptions
+- Long artwork descriptions now wrap correctly in the Community details panel and enlarged preview. Tags and other details move down naturally instead of overlapping or disappearing off-screen.
+- Small windows can scroll to reach the full artwork details and controls.
+- Checked long English and Korean descriptions, paragraphs and unbroken text across multiple window sizes and themes.
+
 ## 3.1.85
 
 ### FM8 Conversion And Shape Consistency

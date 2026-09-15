@@ -304,9 +304,15 @@ Item {
             Layout.fillHeight: true
             currentIndex: root.activeTab
 
-            Item {
+            ScrollView {
+                id: browseScroll
+                contentWidth: availableWidth
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
                 GridLayout {
-                    anchors.fill: parent
+                    width: browseScroll.availableWidth
+                    height: Math.max(browseScroll.availableHeight, implicitHeight)
                     columns: root.wide ? 2 : 1
                     columnSpacing: Theme.px(10)
                     rowSpacing: Theme.px(10)
@@ -315,11 +321,13 @@ Item {
                         id: browsePanel
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: browseBody.implicitHeight + Theme.px(root.compactHeight ? 22 : 28)
                         Layout.preferredWidth: root.wide ? Theme.px(760) : -1
                         Layout.columnSpan: root.wide && root.supporterCatalogLocked ? 2 : 1
                         strong: true
 
                         ColumnLayout {
+                            id: browseBody
                             anchors.fill: parent
                             anchors.margins: Theme.px(root.compactHeight ? 11 : 14)
                             spacing: Theme.px(8)
@@ -455,6 +463,7 @@ Item {
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
+                                Layout.minimumHeight: artworkGrid.cellHeight
                                 clip: true
 
                                 GridView {
@@ -691,6 +700,7 @@ Item {
                         visible: !root.supporterCatalogLocked
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: detailBody.implicitHeight + Theme.px(root.compactHeight ? 22 : 28)
                         Layout.preferredWidth: root.wide ? Theme.px(400) : -1
                         Layout.minimumWidth: root.wide ? Theme.px(340) : 0
 
@@ -707,6 +717,7 @@ Item {
                             }
 
                             ColumnLayout {
+                                id: detailBody
                                 anchors.fill: parent
                                 visible: communityService.hasSelection
                                 spacing: Theme.px(8)
@@ -902,19 +913,22 @@ Item {
                                 }
 
                                 ScrollView {
+                                    id: detailTextScroll
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     Layout.minimumHeight: Theme.px(58)
+                                    contentWidth: availableWidth
                                     clip: true
                                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                                     ColumnLayout {
-                                        width: parent.width
+                                        width: detailTextScroll.availableWidth
                                         spacing: Theme.px(6)
 
                                         Text {
                                             Layout.fillWidth: true
                                             text: String(communityService.selectedArtwork.description || "No description was provided.")
+                                            textFormat: Text.PlainText
                                             color: Theme.muted
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(10.4)
@@ -2511,267 +2525,282 @@ Item {
                 }
             }
 
-            GridLayout {
+            ScrollView {
+                id: inspectorBodyScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                columns: artworkInspector.width >= Theme.px(1050) ? 2 : 1
-                columnSpacing: Theme.px(12)
-                rowSpacing: Theme.px(10)
+                contentWidth: availableWidth
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: Theme.px(880)
-                    Layout.minimumHeight: Theme.px(360)
-                    radius: Theme.corner(Theme.px(7))
-                    color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
-                    border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
-                    border.color: Theme.borderStrong
-                    clip: true
+                GridLayout {
+                    width: inspectorBodyScroll.availableWidth
+                    height: Math.max(inspectorBodyScroll.availableHeight, implicitHeight)
+                    columns: artworkInspector.width >= Theme.px(1050) ? 2 : 1
+                    columnSpacing: Theme.px(12)
+                    rowSpacing: Theme.px(10)
 
-                    AngularControlFrame {
-                        anchors.fill: parent
-                        fillColor: Theme.previewSurface
-                        borderColor: Theme.borderStrong
-                        accentColor: Theme.signalSecondary
-                        panelFrame: true
-                        enclosedPanel: true
-                    }
-
-                    ClassicBevel {
-                        anchors.fill: parent
-                        sunken: true
-                        z: 20
-                    }
-
-                    Flickable {
-                        id: previewFlick
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(5)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.px(880)
+                        Layout.minimumHeight: Theme.px(360)
+                        radius: Theme.corner(Theme.px(7))
+                        color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
+                        border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
+                        border.color: Theme.borderStrong
                         clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        contentWidth: width * artworkInspector.previewZoom
-                        contentHeight: height * artworkInspector.previewZoom
 
-                        Item {
-                            width: previewFlick.contentWidth
-                            height: previewFlick.contentHeight
-
-                            ArtworkPreviewBackdrop {
-                                anchors.fill: parent
-                                anchors.margins: Theme.px(8)
-                                visible: String(communityService.selectedArtwork.previewUrl || "").length > 0
-                                         && inspectorImage.status !== Image.Error
-                            }
-
-                            Image {
-                                id: inspectorImage
-                                anchors.fill: parent
-                                anchors.margins: Theme.px(8)
-                                source: String(communityService.selectedArtwork.previewUrl || "")
-                                fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                cache: true
-                                smooth: true
-                            }
+                        AngularControlFrame {
+                            anchors.fill: parent
+                            fillColor: Theme.previewSurface
+                            borderColor: Theme.borderStrong
+                            accentColor: Theme.signalSecondary
+                            panelFrame: true
+                            enclosedPanel: true
                         }
 
-                        ScrollBar.vertical: KfpsScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
-                        ScrollBar.horizontal: ScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
-                    }
-
-                    BusyIndicator {
-                        anchors.centerIn: parent
-                        running: inspectorImage.status === Image.Loading
-                        visible: running
-                        palette.highlight: Theme.primaryBright
-                    }
-
-                    EmptyState {
-                        visible: inspectorImage.status === Image.Error || !communityService.selectedArtwork.previewUrl
-                        anchors.centerIn: parent
-                        iconName: "images"
-                        title: "Preview unavailable"
-                        message: "Refresh the catalog and try again."
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: Theme.px(390)
-                    radius: Theme.corner(Theme.px(7))
-                    color: Theme.surfaceSoft
-                    border.width: Math.max(1, Theme.px(1))
-                    border.color: Theme.borderSoft
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.px(14)
-                        spacing: Theme.px(9)
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: String(communityService.selectedArtwork.title || "Untitled")
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(17)
-                            font.weight: Font.Bold
-                            wrapMode: Text.Wrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
+                        ClassicBevel {
+                            anchors.fill: parent
+                            sunken: true
+                            z: 20
                         }
 
-                        GhostButton {
-                            Layout.fillWidth: true
-                            iconName: "heart"
-                            text: "@" + String(communityService.selectedArtwork.creatorName || "Unknown")
-                            toolTipText: "Open this creator's profile."
-                            onClicked: {
-                                communityService.loadCreator(String(communityService.selectedArtwork.creatorName || ""))
-                                artworkInspector.close()
-                                creatorDialog.open()
-                            }
-                        }
-
-                        CommunityClassificationLine {
-                            Layout.fillWidth: true
-                            supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
-                            classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
-                            categoryLabel: String(communityService.selectedArtwork.category || "Other")
-                            schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
-                            textPixelSize: Theme.px(9.8)
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: Number(communityService.selectedArtwork.shapeCount || 0).toLocaleString(Qt.locale(), "f", 0)
-                                  + " shapes  |  "
-                                  + Number(communityService.selectedArtwork.downloads || 0).toLocaleString(Qt.locale(), "f", 0)
-                                  + " downloads  |  "
-                                  + Number(communityService.selectedArtwork.favorites || 0).toLocaleString(Qt.locale(), "f", 0)
-                                  + " favorites"
-                                  + (Boolean(communityService.selectedArtwork.usesMasks) ? "  |  MASKS" : "")
-                            color: Theme.subtle
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(9.2)
-                            wrapMode: Text.Wrap
-                        }
-
-                        ScrollView {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
+                        Flickable {
+                            id: previewFlick
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(5)
                             clip: true
-                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                            boundsBehavior: Flickable.StopAtBounds
+                            contentWidth: width * artworkInspector.previewZoom
+                            contentHeight: height * artworkInspector.previewZoom
 
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: Theme.px(8)
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: String(communityService.selectedArtwork.description || "No description was provided.")
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.px(10.4)
-                                    wrapMode: Text.Wrap
+                            Item {
+                                width: previewFlick.contentWidth
+                                height: previewFlick.contentHeight
+
+                                ArtworkPreviewBackdrop {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.px(8)
+                                    visible: String(communityService.selectedArtwork.previewUrl || "").length > 0
+                                             && inspectorImage.status !== Image.Error
                                 }
-                                Text {
-                                    visible: String(communityService.selectedArtwork.tagsText || "").length > 0
-                                    Layout.fillWidth: true
-                                    text: "Tags: " + String(communityService.selectedArtwork.tagsText || "")
-                                    color: Theme.muted
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.px(9.5)
-                                    wrapMode: Text.Wrap
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "License: " + String(communityService.selectedArtwork.license || "kfps-community-share-v1")
-                                    color: Theme.subtle
-                                    font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.px(8.8)
-                                    wrapMode: Text.Wrap
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: String(communityService.selectedArtwork.gamesText || "").length > 0
-                                          ? "Detected game origin: " + String(communityService.selectedArtwork.gamesText)
-                                          : "No game-specific origin was declared by this JSON."
-                                    color: Theme.subtle
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.px(9.2)
-                                    wrapMode: Text.Wrap
-                                }
-                                Text {
-                                    visible: !Boolean(communityService.selectedArtwork.schemaKnown)
-                                    Layout.fillWidth: true
-                                    text: String(communityService.selectedArtwork.schemaWarning || "Compatibility is unverified for this JSON format.")
-                                    color: Theme.warning
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.px(9.3)
-                                    font.weight: Font.DemiBold
-                                    wrapMode: Text.Wrap
+
+                                Image {
+                                    id: inspectorImage
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.px(8)
+                                    source: String(communityService.selectedArtwork.previewUrl || "")
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                    cache: true
+                                    smooth: true
                                 }
                             }
+
+                            ScrollBar.vertical: KfpsScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+                            ScrollBar.horizontal: ScrollBar { policy: artworkInspector.previewZoom > 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
                         }
 
-                        Text {
-                            visible: communityService.errorMessage.length > 0
-                            Layout.fillWidth: true
-                            text: communityService.errorMessage
-                            color: Theme.danger
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(9.4)
-                            wrapMode: Text.Wrap
+                        BusyIndicator {
+                            anchors.centerIn: parent
+                            running: inspectorImage.status === Image.Loading
+                            visible: running
+                            palette.highlight: Theme.primaryBright
                         }
 
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.px(66)
-                            radius: Theme.corner(Theme.px(6))
-                            color: Theme.surfaceRaised
-                            border.width: Math.max(1, Theme.px(1))
-                            border.color: Theme.warning
+                        EmptyState {
+                            visible: inspectorImage.status === Image.Error || !communityService.selectedArtwork.previewUrl
+                            anchors.centerIn: parent
+                            iconName: "images"
+                            title: "Preview unavailable"
+                            message: "Refresh the catalog and try again."
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: Theme.px(390)
+                        Layout.minimumHeight: inspectorDetailBody.implicitHeight + Theme.px(28)
+                        radius: Theme.corner(Theme.px(7))
+                        color: Theme.surfaceSoft
+                        border.width: Math.max(1, Theme.px(1))
+                        border.color: Theme.borderSoft
+
+                        ColumnLayout {
+                            id: inspectorDetailBody
+                            anchors.fill: parent
+                            anchors.margins: Theme.px(14)
+                            spacing: Theme.px(9)
 
                             Text {
-                                anchors.fill: parent
-                                anchors.margins: Theme.px(9)
-                                text: "Community content is not reviewed against current Forza enforcement rules. Download, import, and use it at your own risk."
-                                color: Theme.warning
+                                Layout.fillWidth: true
+                                text: String(communityService.selectedArtwork.title || "Untitled")
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(17)
+                                font.weight: Font.Bold
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
+
+                            GhostButton {
+                                Layout.fillWidth: true
+                                iconName: "heart"
+                                text: "@" + String(communityService.selectedArtwork.creatorName || "Unknown")
+                                toolTipText: "Open this creator's profile."
+                                onClicked: {
+                                    communityService.loadCreator(String(communityService.selectedArtwork.creatorName || ""))
+                                    artworkInspector.close()
+                                    creatorDialog.open()
+                                }
+                            }
+
+                            CommunityClassificationLine {
+                                Layout.fillWidth: true
+                                supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
+                                classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
+                                categoryLabel: String(communityService.selectedArtwork.category || "Other")
+                                schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
+                                textPixelSize: Theme.px(9.8)
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: Number(communityService.selectedArtwork.shapeCount || 0).toLocaleString(Qt.locale(), "f", 0)
+                                      + " shapes  |  "
+                                      + Number(communityService.selectedArtwork.downloads || 0).toLocaleString(Qt.locale(), "f", 0)
+                                      + " downloads  |  "
+                                      + Number(communityService.selectedArtwork.favorites || 0).toLocaleString(Qt.locale(), "f", 0)
+                                      + " favorites"
+                                      + (Boolean(communityService.selectedArtwork.usesMasks) ? "  |  MASKS" : "")
+                                color: Theme.subtle
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(9.2)
+                                wrapMode: Text.Wrap
+                            }
+
+                            ScrollView {
+                                id: inspectorTextScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumHeight: Theme.px(58)
+                                contentWidth: availableWidth
+                                clip: true
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                                ColumnLayout {
+                                    width: inspectorTextScroll.availableWidth
+                                    spacing: Theme.px(8)
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: String(communityService.selectedArtwork.description || "No description was provided.")
+                                        textFormat: Text.PlainText
+                                        color: Theme.text
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(10.4)
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Text {
+                                        visible: String(communityService.selectedArtwork.tagsText || "").length > 0
+                                        Layout.fillWidth: true
+                                        text: "Tags: " + String(communityService.selectedArtwork.tagsText || "")
+                                        color: Theme.muted
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(9.5)
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "License: " + String(communityService.selectedArtwork.license || "kfps-community-share-v1")
+                                        color: Theme.subtle
+                                        font.family: Theme.monoFamily
+                                        font.pixelSize: Theme.px(8.8)
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: String(communityService.selectedArtwork.gamesText || "").length > 0
+                                              ? "Detected game origin: " + String(communityService.selectedArtwork.gamesText)
+                                              : "No game-specific origin was declared by this JSON."
+                                        color: Theme.subtle
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(9.2)
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Text {
+                                        visible: !Boolean(communityService.selectedArtwork.schemaKnown)
+                                        Layout.fillWidth: true
+                                        text: String(communityService.selectedArtwork.schemaWarning || "Compatibility is unverified for this JSON format.")
+                                        color: Theme.warning
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.px(9.3)
+                                        font.weight: Font.DemiBold
+                                        wrapMode: Text.Wrap
+                                    }
+                                }
+                            }
+
+                            Text {
+                                visible: communityService.errorMessage.length > 0
+                                Layout.fillWidth: true
+                                text: communityService.errorMessage
+                                color: Theme.danger
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(9.4)
                                 wrapMode: Text.Wrap
-                                verticalAlignment: Text.AlignVCenter
                             }
-                        }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.px(7)
-                            PrimaryButton {
+                            Rectangle {
                                 Layout.fillWidth: true
-                                dense: true
-                                iconName: "transfer"
-                                text: communityService.selectedSupporterLocked
-                                      ? "Supporter Download"
-                                      : (communityService.authenticated ? "Download to Library" : "Connect to Download")
-                                enabled: !communityService.busy
-                                toolTipText: communityService.selectedSupporterLocked
-                                             ? "See how to unlock this supporter vinyl."
-                                             : communityService.authenticated
-                                             ? "Download and verify this JSON, accepting responsibility for its in-game use."
-                                             : "Connect a Community account before downloading this JSON."
-                                onClicked: root.requestSelectedDownload()
+                                Layout.preferredHeight: Theme.px(66)
+                                radius: Theme.corner(Theme.px(6))
+                                color: Theme.surfaceRaised
+                                border.width: Math.max(1, Theme.px(1))
+                                border.color: Theme.warning
+
+                                Text {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.px(9)
+                                    text: "Community content is not reviewed against current Forza enforcement rules. Download, import, and use it at your own risk."
+                                    color: Theme.warning
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.px(9.4)
+                                    wrapMode: Text.Wrap
+                                    verticalAlignment: Text.AlignVCenter
+                                }
                             }
-                            GhostButton {
-                                dense: true
-                                iconName: "heart"
-                                text: Boolean(communityService.selectedArtwork.favorited) ? "Saved" : "Favorite"
-                                enabled: communityService.authenticated && !communityService.busy
-                                toolTipText: communityService.authenticated
-                                             ? "Add or remove this artwork from your favorites."
-                                             : "Connect an account to save favorites."
-                                onClicked: communityService.favoriteSelected()
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.px(7)
+                                PrimaryButton {
+                                    Layout.fillWidth: true
+                                    dense: true
+                                    iconName: "transfer"
+                                    text: communityService.selectedSupporterLocked
+                                          ? "Supporter Download"
+                                          : (communityService.authenticated ? "Download to Library" : "Connect to Download")
+                                    enabled: !communityService.busy
+                                    toolTipText: communityService.selectedSupporterLocked
+                                                 ? "See how to unlock this supporter vinyl."
+                                                 : communityService.authenticated
+                                                 ? "Download and verify this JSON, accepting responsibility for its in-game use."
+                                                 : "Connect a Community account before downloading this JSON."
+                                    onClicked: root.requestSelectedDownload()
+                                }
+                                GhostButton {
+                                    dense: true
+                                    iconName: "heart"
+                                    text: Boolean(communityService.selectedArtwork.favorited) ? "Saved" : "Favorite"
+                                    enabled: communityService.authenticated && !communityService.busy
+                                    toolTipText: communityService.authenticated
+                                                 ? "Add or remove this artwork from your favorites."
+                                                 : "Connect an account to save favorites."
+                                    onClicked: communityService.favoriteSelected()
+                                }
                             }
                         }
                     }
