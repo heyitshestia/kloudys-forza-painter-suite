@@ -8,6 +8,7 @@ import psutil
 import secrets
 import shutil
 import struct
+import tempfile
 import threading
 import time
 import uuid
@@ -56,6 +57,7 @@ class CGroupLibraryService(QObject):
         self._closed = False
         self._cancel_event = threading.Event()
         self._future = None
+        self._pending_fh6_json: Path | None = None
         self._running = False
         self._status = "Ready"
         self._summary = "Scan Forza saves into the offline Library, or create a save-folder vinyl from the selected JSON."
@@ -268,6 +270,7 @@ class CGroupLibraryService(QObject):
         self._summary = adapter.offline_import_summary
         self.changed.emit()
         self.log.append(f"Offline import: creating a new {game_label} vinyl group in supported local save data...")
+        self._pending_fh6_json = source if game_key == "fh6" else None
         self._cancel_event.clear()
         future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
         self._future = future
@@ -300,8 +303,12 @@ class CGroupLibraryService(QObject):
             self._resultReady.emit(self._future_result(future))
 
     def _future_result(self, future):
+        from tools.cgroup.fh6_identity import FH6DestinationChoiceRequired
+
         try:
             return future.result()
+        except FH6DestinationChoiceRequired as exc:
+            return {"ok": False, "choose_fh6_destination": True, "error": str(exc)}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -309,6 +316,25 @@ class CGroupLibraryService(QObject):
     def _apply_result(self, result):
         if self._closed:
             return
+        if result.get("choose_fh6_destination") and self._pending_fh6_json is not None:
+            self._summary = result["error"]
+            self._status = "Choose FH6 save folder"
+            self.log.append(self._summary)
+            self.changed.emit()
+            folder = QFileDialog.getExistingDirectory(
+                None, "Choose the active FH6 account's current save folder", str(self.paths.app_root)
+            )
+            if folder and not self._closed:
+                self._status = "Offline import"
+                self._summary = "Verifying the selected FH6 save account before importing..."
+                self._future = self._executor.submit(
+                    self._create_fh6_layer_group_install_work, self._pending_fh6_json, Path(folder)
+                )
+                self._future.add_done_callback(self._emit_future_result)
+                self.changed.emit()
+                return
+            result = {"ok": False, "error": "FH6 import cancelled. No files were written."}
+        self._pending_fh6_json = None
         self._running = False
         ok = bool(result.get("ok"))
         self._candidate_count = int(result.get("candidates") or 0)
@@ -746,16 +772,24 @@ class CGroupLibraryService(QObject):
         }
 
     def _install_work(self, json_path: Path, target_folder: Path) -> dict[str, Any]:
-        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
+        from tools.cgroup.fh6_identity import account_from_selection, parse_vinyl_header, resolve_creator
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
-        if self._cancel_event.is_set():
-            raise concurrent.futures.CancelledError()
+        self._check_fh6_import_ready(replacing=True)
         json_path = json_path.resolve()
         target_folder = target_folder.resolve()
         self._validate_fh6_layer_group_target(target_folder)
         if not json_path.is_file():
             raise ValueError(f"JSON does not exist: {json_path}")
+
+        identity = resolve_creator(account_from_selection(target_folder.parent))
+        original_header = (target_folder / "header").read_bytes()
+        existing_header = parse_vinyl_header(original_header)
+        if existing_header.creator_id != identity.account.user_id or existing_header.asset_id == bytes(16):
+            raise ValueError("Only a verified local account's existing vinyl can be replaced. Create a new import instead.")
+        if any(path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+               for path in target_folder.rglob("*")):
+            raise ValueError("The target vinyl contains linked files. Choose a normal local vinyl folder.")
 
         existing_cgroup = target_folder / "C_group"
         try:
@@ -766,26 +800,47 @@ class CGroupLibraryService(QObject):
                 "Use a disposable user-created group, not a locked/community design."
             ) from exc
 
-        payload = build_flat_cgroup_from_json(json_path)
-        backup_folder = self._backup_layer_group_folder(target_folder)
-        temp_cgroup = target_folder / "C_group.kfps.tmp"
+        original_cgroup = existing_cgroup.read_bytes()
+        temp_folder = Path(tempfile.mkdtemp(prefix=".kfps-fh6-replace-", dir=target_folder.parent))
+        rollback = temp_folder.with_name(temp_folder.name + ".rollback")
+        installed = False
         try:
-            written = write_cgroup_file(temp_cgroup, payload)
-            parsed = read_flat_cgroup(written)
-            os.replace(temp_cgroup, existing_cgroup)
-
-            title = self._title_for_install_json(json_path)
-            self._write_or_rename_header(target_folder / "header", title)
-            thumb_written = self._write_save_thumb(json_path, target_folder / "thumb.webp")
-        finally:
+            shutil.copytree(target_folder, temp_folder, dirs_exist_ok=True)
+            layers, thumb_written, header, payload_digest = self._prepare_fh6_import(
+                json_path, temp_folder, identity, asset_id=existing_header.asset_id
+            )
+            identity.revalidate()
+            if (existing_cgroup.read_bytes() != original_cgroup
+                    or (target_folder / "header").read_bytes() != original_header):
+                raise ValueError("The target FH6 vinyl changed during import. Close FH6 and retry.")
+            backup_folder = self._backup_layer_group_folder(target_folder)
+            self._check_fh6_import_ready(replacing=True)
+            identity.revalidate()
+            if (existing_cgroup.read_bytes() != original_cgroup
+                    or (target_folder / "header").read_bytes() != original_header):
+                raise ValueError("The target FH6 vinyl changed during backup. Close FH6 and retry.")
+            os.rename(target_folder, rollback)
             try:
-                if temp_cgroup.exists():
-                    temp_cgroup.unlink()
-            except OSError:
-                pass
+                os.rename(temp_folder, target_folder)
+                installed = True
+                identity.account.revalidate()
+                self._verify_fh6_import(target_folder, layers, header, payload_digest)
+            except Exception:
+                try:
+                    if installed:
+                        shutil.rmtree(target_folder)
+                    os.rename(rollback, target_folder)
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"FH6 replacement could not be restored automatically. Keep FH6 closed. "
+                        f"Your original vinyl backup is at {backup_folder}; rollback folder: {rollback}."
+                    ) from exc
+                raise
+            shutil.rmtree(rollback, ignore_errors=True)
+        finally:
+            shutil.rmtree(temp_folder, ignore_errors=True)
 
-        layers = int(parsed.get("count") or 0)
-        thumb_note = "thumbnail refreshed" if thumb_written else "thumbnail left unchanged"
+        thumb_note = "thumbnail refreshed" if thumb_written else "thumbnail unavailable (vinyl data imported completely)"
         return {
             "ok": True,
             "game": "fh6",
@@ -810,22 +865,17 @@ class CGroupLibraryService(QObject):
             )
         return handler(json_path)
 
-    def _create_fh6_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
-        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
+    def _create_fh6_layer_group_install_work(self, json_path: Path, destination: Path | None = None) -> dict[str, Any]:
+        from tools.cgroup.fh6_identity import resolve_creator, select_account
 
-        if self._cancel_event.is_set():
-            raise concurrent.futures.CancelledError()
-
+        self._check_fh6_import_ready()
         json_path = json_path.resolve()
         if not json_path.is_file():
             raise ValueError(f"JSON does not exist: {json_path}")
-
-        source_group = self._latest_fh6_layer_group()
-        if source_group is None:
-            raise ValueError("No existing FH6 LayerGroup folder was found. Save one vinyl group in FH6 first.")
-        containers = source_group.parent
-        if containers.name != "ContainersRoot":
-            raise ValueError(f"Latest LayerGroup is not inside ContainersRoot: {source_group}")
+        roots = self._default_save_roots("fh6") if destination is None else []
+        account = select_account(roots, destination=destination)
+        identity = resolve_creator(account)
+        containers = account.containers
 
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         base_name = f"LayerGroup_0000_{stamp}"
@@ -835,31 +885,27 @@ class CGroupLibraryService(QObject):
             target_folder = containers / f"{base_name}_{suffix}"
             suffix += 1
 
-        temp_folder = containers / f".{target_folder.name}.kfps-tmp"
-        if temp_folder.exists():
-            shutil.rmtree(temp_folder)
-        temp_folder.mkdir(parents=True)
+        temp_folder = Path(tempfile.mkdtemp(prefix=".kfps-fh6-import-", dir=containers))
+        installed = False
         try:
-            payload = build_flat_cgroup_from_json(json_path)
-            cgroup_path = write_cgroup_file(temp_folder / "C_group", payload)
-            parsed = read_flat_cgroup(cgroup_path)
-            title = self._title_for_install_json(json_path)
-            source_header = source_group / "header"
-            if source_header.is_file():
-                self._atomic_write_bytes(temp_folder / "header", self._rename_header(source_header.read_bytes(), title))
-            else:
-                self._atomic_write_bytes(temp_folder / "header", self._build_draft_header(title))
-            thumb_written = self._write_save_thumb(json_path, temp_folder / "thumb.webp")
-            if not thumb_written:
-                source_thumb = source_group / "thumb.webp"
-                if source_thumb.is_file():
-                    shutil.copy2(source_thumb, temp_folder / "thumb.webp")
-            os.replace(temp_folder, target_folder)
+            layers, thumb_written, header, payload_digest = self._prepare_fh6_import(json_path, temp_folder, identity)
+            self._check_fh6_import_ready()
+            identity.revalidate()
+            if select_account(roots, destination=destination) != account:
+                raise ValueError("The active FH6 save account changed during import. Close FH6 and retry.")
+            # rename, not replace: a concurrent import must never overwrite another entry.
+            os.rename(temp_folder, target_folder)
+            installed = True
+            account.revalidate()
+            self._verify_fh6_import(target_folder, layers, header, payload_digest)
+        except Exception:
+            if installed:
+                shutil.rmtree(target_folder)
+            raise
         finally:
-            if temp_folder.exists():
-                shutil.rmtree(temp_folder, ignore_errors=True)
+            shutil.rmtree(temp_folder, ignore_errors=True)
 
-        layers = int(parsed.get("count") or 0)
+        thumb_note = "with a new thumbnail" if thumb_written else "without a thumbnail (vinyl data imported completely)"
         return {
             "ok": True,
             "game": "fh6",
@@ -869,10 +915,54 @@ class CGroupLibraryService(QObject):
             "outputs": [],
             "message": (
                 f"Offline import complete: created FH6 LayerGroup folder {target_folder.name} with {layers} layer(s) "
-                "and a transparent thumbnail. "
+                f"{thumb_note}. "
                 "Reload FH6's vinyl library/editor, or restart FH6 if it does not appear."
             ),
         }
+
+    def _check_fh6_import_ready(self, *, replacing: bool = False) -> None:
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError("FH6 import cancelled before committing save files.")
+        if replacing and any(self._game_process_running(name) for name in get_adapter_or_default("fh6").process_names):
+            raise ValueError(
+                "Close FH6 before replacing an existing vinyl. Adding a new vinyl through Offline Import "
+                "does not require closing the game. No replacement was committed."
+            )
+
+    def _prepare_fh6_import(self, json_path: Path, folder: Path, identity, *, asset_id=None):
+        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
+        from tools.cgroup.fh6_identity import build_vinyl_header
+
+        payload = build_flat_cgroup_from_json(json_path)
+        parsed = read_flat_cgroup(write_cgroup_file(folder / "C_group", payload))
+        payload_digest = hashlib.sha256((folder / "C_group").read_bytes()).digest()
+        layers = int(parsed.get("count") or 0)
+        header = build_vinyl_header(
+            self._title_for_install_json(json_path), identity.account.user_id, identity.name,
+            layers, asset_id=asset_id,
+        )
+        self._atomic_write_bytes(folder / "header", header)
+        # A failed preview must not leave a different vinyl's thumbnail attached.
+        (folder / "thumb.webp").unlink(missing_ok=True)
+        thumb_written = self._write_save_thumb(json_path, folder / "thumb.webp")
+        if not thumb_written:
+            (folder / "thumb.webp").unlink(missing_ok=True)
+            (folder / "thumb.webp.kfps.tmp").unlink(missing_ok=True)
+        self._check_fh6_import_ready()
+        self._verify_fh6_import(folder, layers, header, payload_digest)
+        return layers, thumb_written, header, payload_digest
+
+    @staticmethod
+    def _verify_fh6_import(folder: Path, layers: int, expected_header: bytes, payload_digest: bytes) -> None:
+        from tools.cgroup.fh6_identity import parse_vinyl_header
+        from tools.cgroup.forza_source_decoder import decode_forza_source
+
+        raw = (folder / "header").read_bytes()
+        header = parse_vinyl_header(raw)
+        decoded = decode_forza_source(folder / "C_group", allow_locked=False, game="fh6")
+        if (raw != expected_header or header.layer_count != layers or len(decoded.layers) != layers
+                or hashlib.sha256((folder / "C_group").read_bytes()).digest() != payload_digest):
+            raise ValueError("FH6 import verification failed: header and vinyl data do not agree.")
 
     def _create_fm8_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload
@@ -1124,20 +1214,6 @@ class CGroupLibraryService(QObject):
                 continue
             if latest is None or mtime > latest[0]:
                 latest = (mtime, folder.parent if folder.parent.name == "ContainersRoot" else folder)
-        return latest[1] if latest else None
-
-    def _latest_fh6_layer_group(self) -> Path | None:
-        latest: tuple[float, Path] | None = None
-        for root in self._default_save_roots("fh6"):
-            for cgroup in self._discover_save_artifacts([root], "fh6")[:120]:
-                folder = cgroup.parent
-                if folder.name.startswith("LayerGroup_") and folder.parent.name == "ContainersRoot":
-                    try:
-                        mtime = cgroup.stat().st_mtime
-                    except OSError:
-                        continue
-                    if latest is None or mtime > latest[0]:
-                        latest = (mtime, folder)
         return latest[1] if latest else None
 
     def _latest_fm8_layer_group(self) -> Path | None:

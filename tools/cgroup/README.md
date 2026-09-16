@@ -1,7 +1,8 @@
 # KFPS C_group Prototype Tools
 
-These tools are isolated prototypes. They do not change the default live memory
-importer/exporter and should not be wired into the UI until validated in game.
+These tools provide offline save codecs and the UI's save-library import/export
+helpers. They are separate from the default live-memory importer/exporter.
+New format changes still require in-game qualification.
 
 ## Tools
 
@@ -18,6 +19,50 @@ importer/exporter and should not be wired into the UI until validated in game.
   common Windows save/download/desktop roots.
 - `xbox_wgs.py`: strict FH4 Microsoft Store/Xbox WGS metadata reader and
   additive layer-group writer.
+- `fh6_identity.py`: current-account verification and fresh FH6 vinyl headers.
+
+## FH6 Vinyl Header Safety Contract
+
+Additive FH6 imports allow the game to be open or closed. Offline means save-file
+processing, not a requirement that the game is stopped. The destination is the account's
+`current` save version, not whichever artwork file was modified most recently.
+The account directory, version manifest UserId/GameId, and User profile directory
+must agree. Steam and Microsoft Store last-save pointers are checked against
+those anchors. Ambiguous, stale, or conflicting destinations require a folder
+choice; a pointer to an account without creator evidence cannot fall back to a
+different account.
+
+The creator name comes from a valid v7 vinyl header matching that account ID.
+The newest internal creation date resolves older names after a gamertag change;
+equal-date conflicting names fail closed. A user without such a header must save
+one small vinyl in FH6 first. No Xbox credentials or third-party identity API are
+used. This is local consistency verification, not cryptographic proof of ownership.
+
+New imports construct an unpublished v7 LayerGroup header with a fresh GUID,
+current timestamp, verified account ID/name, and actual decoded shape count.
+They do not copy publication flags, source GUIDs, old counts, or padding. The
+canonical creator-relative tail is 28 zero bytes, `01 02`, seven zero bytes,
+a little-endian u32 count, and a 16-byte Windows GUID. Full-car livery headers
+have a different layout and do not use this helper.
+
+Payload and header are staged in a unique directory, independently reopened,
+then renamed into a new entry without replacing existing entries. Account and
+source identity evidence are rechecked before commit, even while FH6 is running.
+A changing save fails the operation rather than bypassing those checks. New
+entries may require reopening the in-game library or restarting FH6 to become
+visible; file verification does not prove an immediate game-library refresh.
+A preview failure does
+not prevent import or copy another vinyl's thumbnail. Explicit replacement
+requires FH6 to be closed and the local account's target, retains its asset ID, backs up all existing
+files in `runtime/cgroup-folder-import-backups`, and restores the original on
+handled commit/verification failures. Replacement uses two directory renames:
+a process/power loss between them can require restoring the retained backup or
+hidden `.kfps-fh6-replace-*.rollback` directory. This is not a power-loss-proof
+multi-directory transaction.
+
+Existing bad imports are not silently rewritten. Re-import their source JSON.
+Automated file verification is not proof of in-game visibility; test the actual
+game library before publishing changes to this contract.
 
 ## FH4 Xbox WGS Safety Contract
 

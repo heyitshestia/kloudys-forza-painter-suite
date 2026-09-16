@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.87
+
+### More Reliable FH6 Offline Vinyl Imports
+- Fixed imported vinyls sometimes showing KFPS or an incorrect creator name. Imports now verify your current save account and use your own gamertag from a vinyl saved by that account.
+- Each new import gets its own vinyl ID, current creation date and correct shape count instead of copying another vinyl's save details. This addresses reused metadata that could prevent imported vinyls from appearing or loading correctly.
+- Improved save-folder selection for Steam and Xbox/Microsoft Store. If the active account is unclear, KFPS asks you to choose instead of guessing. If your gamertag cannot be verified, save one small vinyl in FH6 first and retry.
+- Added verification before and after writing the new vinyl. A missing preview no longer copies an unrelated thumbnail or prevents the full vinyl data from being imported.
+- Normal Offline Import works with FH6 open or closed. Reopen the in-game vinyl library after importing, or restart FH6 if it has not refreshed. Replacing an existing save-folder vinyl still requires FH6 to be closed.
+- Confirmed in-game imports and correct gamertags on both Steam and Xbox. Previously affected vinyls need to be reimported from their JSON; existing entries are not automatically changed. This update does not change full-car livery imports, live-memory transfers or other games.
+
 ## 3.1.86
 
 ### Readable Community Descriptions

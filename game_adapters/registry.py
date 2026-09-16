@@ -77,7 +77,12 @@ ADAPTERS: Dict[str, GameAdapter] = {
         offline_import_handler="_create_fh6_layer_group_install_work",
         scan_notice="FH6 save-library scan reads supported local LayerGroup files and leaves game saves unchanged.",
         offline_import_summary="Creating a new FH6 vinyl group folder from the selected JSON.",
-        offline_import_help="Write the selected JSON into the FH6 local save library without opening the game.",
+        offline_import_help=(
+            "Import the selected JSON as a new vinyl in the current account's save, with FH6 open or closed. "
+            "KFPS verifies your creator name and ID from that account's own saved vinyls. "
+            "If none can be verified, save one small vinyl in FH6 first. Multiple accounts may require a folder choice. "
+            "Reopen the in-game vinyl library after importing; restart FH6 if its library has not refreshed."
+        ),
     ),
     "fh5": GameAdapter(
         key="fh5",
