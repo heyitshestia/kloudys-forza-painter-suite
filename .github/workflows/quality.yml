@@ -91,6 +91,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python KFPS.Editor/web/tests/editor-bootstrap-log.test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python KFPS.Editor/web/tests/editor-graphics-policy.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test native editor startup and retry
         env:

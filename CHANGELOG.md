@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.88
+
+### Consistent Editor Graphics
+- Opening KFPS Editor.exe directly now uses the same graphics settings as opening the editor from KFPS. This addresses visual corruption and poor responsiveness reported when using the standalone editor.
+- The affected user confirmed the test fix resolved their issue and improved responsiveness. Both launch paths were also checked with 2,950 shapes, a reference image, rotation, dragging, zooming, undo, recovery saves and project reopening.
+- Editor startup logs now record the selected graphics policy to help diagnose future rendering issues. Project files, settings, the report window and the browser-engine version are unchanged.
+
 ## 3.1.87
 
 ### More Reliable FH6 Offline Vinyl Imports

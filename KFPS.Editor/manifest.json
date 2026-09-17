@@ -42,6 +42,7 @@
     {"path":"KFPS.Editor/editor.py","owner":"O18","role":"entry"},
     {"path":"KFPS.Editor/src/kfps_editor/__init__.py","owner":"O01","role":"package"},
     {"path":"KFPS.Editor/src/kfps_editor/cli.py","owner":"O18","role":"cli"},
+    {"path":"KFPS.Editor/src/kfps_editor/graphics.py","owner":"O18","role":"graphics-policy"},
     {"path":"KFPS.Editor/src/kfps_editor/ipc.py","owner":"O18","role":"ipc"},
     {"path":"KFPS.Editor/src/kfps_editor/activation.py","owner":"O18","role":"activation"},
     {"path":"KFPS.Editor/src/kfps_editor/startup.py","owner":"O18","role":"startup"},
