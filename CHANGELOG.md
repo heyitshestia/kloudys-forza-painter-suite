@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.89
+
+### More Reliable Generation Filenames
+- Generated folders and files now use shorter names, preventing long image names from growing into filenames that Windows cannot save. This includes generation logs, checkpoints, previews, reports and finished vinyl files.
+- Original image names remain recorded in the report. Your source images are not renamed or moved, and KFPS stays together in its existing folder.
+- Repeated runs keep separate output folders. Existing results remain available, and older checkpoints can still be recovered.
+- Checked long names, Korean names, repeated runs, previews and recovery. The naming change does not alter the generated vinyl data.
+- This change addresses generated filenames, not every possible Windows path or installation problem.
+
 ## 3.1.88
 
 ### Consistent Editor Graphics

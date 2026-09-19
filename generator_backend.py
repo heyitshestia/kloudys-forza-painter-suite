@@ -8,6 +8,7 @@ from pathlib import Path
 
 from detail_heatmap import detail_heatmap_preview_bytes
 from geometry_json import drawable_shape_count
+from generation_paths import generation_artifact_stem, generation_run_stem
 from version_info import get_version
 
 
@@ -445,7 +446,8 @@ def best_geometry_jsons(paths):
 
 def generator_preview_path(image_path):
     image_path = Path(image_path)
-    return generator_output_dir(image_path) / PREVIEWS_DIR_NAME / f"{image_path.stem}.preview.png"
+    folder = generator_output_dir(image_path)
+    return folder / PREVIEWS_DIR_NAME / f"{generation_artifact_stem(image_path, folder)}.preview.png"
 
 
 def generated_preview_files(image_path):
@@ -484,33 +486,37 @@ def legacy_generator_output_dir(image_path):
 
 
 def generator_output_dir(image_path):
-    return GENERATED_ROOT / generator_safe_stem(image_path)
+    return GENERATED_ROOT / generation_run_stem(image_path, GENERATED_ROOT)
 
 
 def generator_output_dirs(image_path):
     safe_stem = generator_safe_stem(image_path)
+    stems = [safe_stem]
+    try:
+        stems.append(generation_run_stem(image_path, GENERATED_ROOT))
+    except ValueError:
+        # The budget blocks new writes, not browsing older results.
+        pass
     candidates = []
     if GENERATED_ROOT.exists():
         for path in GENERATED_ROOT.iterdir():
             if not path.is_dir():
                 continue
             name = path.name
-            if name == safe_stem or re.fullmatch(re.escape(safe_stem) + r"v\d+", name):
+            if any(name == stem or re.fullmatch(re.escape(stem) + r"v\d+", name)
+                   for stem in stems):
                 candidates.append(path)
             elif re.fullmatch(re.escape(safe_stem) + r"-[0-9a-f]{8}", name, flags=re.IGNORECASE):
                 candidates.append(path)
-    legacy = legacy_generator_output_dir(image_path)
-    if legacy.exists():
-        candidates.append(legacy)
     return sorted(set(candidates), key=lambda path: path.stat().st_mtime, reverse=True)
 
 
 def next_generator_output_dir(image_path):
-    GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
     base = generator_output_dir(image_path)
+    GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
     if not base.exists():
         return base
-    safe_stem = generator_safe_stem(image_path)
+    safe_stem = base.name
     index = 2
     while True:
         candidate = GENERATED_ROOT / f"{safe_stem}v{index}"
@@ -803,6 +809,7 @@ def checkpoint_step_from_save_at(save_at_text, target_count):
 def build_generator_command(image_path, setting, enable_repair=False, enable_overshoot=False, output_dir=None, seed=0):
     image_path = Path(image_path)
     output_dir = Path(output_dir) if output_dir is not None else generator_output_dir(image_path)
+    stem = generation_artifact_stem(image_path, output_dir)
     reports_dir = generator_run_subdir(output_dir, REPORTS_DIR_NAME)
     values = setting.get("values", {})
     target_shapes = positive_int_text(values.get("stopAt", "3000"), 3000)
@@ -818,9 +825,13 @@ def build_generator_command(image_path, setting, enable_repair=False, enable_ove
         detail_heatmap_mode = "off"
     detail_heatmap_strength = str(values.get("detailHeatmapStrength", "0.10")).strip() or "0.10"
     setting_repair = str(values.get("v2EnableRepair", "false")).strip().lower() in ("1", "true", "yes", "on")
-    run_metadata_path = reports_dir / f"{image_path.stem}.v2.run_metadata.json"
+    run_metadata_path = reports_dir / f"{stem}.v2.run_metadata.json"
     build_info = app_build_info()
     run_metadata = {
+        "source_image": str(image_path.resolve()),
+        "source_name": image_path.name,
+        "artifact_stem": stem,
+        "naming_version": 1,
         "app_version": build_info["app_version"],
         "app_build": build_info,
         "selected_profile": {

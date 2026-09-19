@@ -19,6 +19,7 @@ from PIL import Image
 import cv2
 
 from detail_heatmap import apply_detail_guidance, build_detail_heatmap, heatmap_to_rgba
+from generation_paths import generation_artifact_stem, recovery_checkpoint_stem
 from version_info import get_version
 
 
@@ -2169,7 +2170,7 @@ def stem_from_image(path: Path) -> str:
     # A source like "Untitled_16.01.36.png" otherwise produces
     # "Untitled_16.01.5.json" instead of "...16.01.36.5.json", and V2 cannot
     # find its checkpoints. Keep the run stem extension-safe.
-    return re.sub(r"[^A-Za-z0-9_-]+", "_", path.stem).strip("_") or "image"
+    return generation_artifact_stem(path)
 
 
 def write_forwarded_output(line: str) -> None:
@@ -2362,8 +2363,9 @@ def require_saved_file(path: Path, label: str) -> None:
 
 
 def ensure_source_copy(source_path: Path, out_dir: Path) -> Path | None:
-    dest = out_dir / source_path.name
-    if dest.exists():
+    suffix = source_path.suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", source_path.suffix) else ".img"
+    dest = out_dir / f"source{suffix}"
+    if dest.resolve() == source_path.resolve():
         return dest
     try:
         shutil.copy2(source_path, dest)
@@ -2388,6 +2390,8 @@ def main() -> int:
         print(f"Missing generator binary: {GENERATOR_BIN}", file=sys.stderr)
         return 1
 
+    stem = generation_artifact_stem(image_path, out_dir)
+    checkpoint_stem = recovery_checkpoint_stem(image_path, out_dir) if args.finalize_only else stem
     out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = out_dir / CHECKPOINTS_DIR_NAME
     finals_dir = out_dir / FINALS_DIR_NAME
@@ -2395,7 +2399,6 @@ def main() -> int:
     previews_dir = out_dir / PREVIEWS_DIR_NAME
     for folder in (checkpoint_dir, finals_dir, reports_dir, previews_dir):
         folder.mkdir(parents=True, exist_ok=True)
-    stem = stem_from_image(image_path)
     source_copy_path = ensure_source_copy(image_path, out_dir)
     stop_file = Path(args.stop_file).expanduser().resolve() if args.stop_file else None
     if stop_file is not None:
@@ -2452,16 +2455,7 @@ def main() -> int:
     generation_image_path = image_path
     preprocess_output_path = None
     if alpha_cleanup.get("changed") or logo_hard_edges or args.preprocess_mode != "none" or detail_guided_output_path is not None:
-        prep_parts = []
-        if alpha_cleanup.get("changed"):
-            prep_parts.append("alpha-clean")
-        if logo_hard_edges:
-            prep_parts.append("logo-edges")
-        if args.preprocess_mode != "none":
-            prep_parts.append(args.preprocess_mode.replace("_", "-"))
-        if detail_guided_output_path is not None:
-            prep_parts.append("detail-guided")
-        preprocess_output_path = previews_dir / f"{stem}.{'-'.join(prep_parts)}.png"
+        preprocess_output_path = previews_dir / f"{stem}.prepared.png"
         Image.fromarray(np.clip(processed_rgba, 0, 255).astype(np.uint8), mode="RGBA").save(preprocess_output_path)
         generation_image_path = preprocess_output_path
 
@@ -2528,8 +2522,8 @@ def main() -> int:
     print("Finalized JSONs are the only import-ready vinyl files. Internal checkpoints are not final.", flush=True)
 
     requested_checkpoints = parse_save_points(base_settings.get("saveAt", ""), raw_stop)
-    synthesize_missing_checkpoints(checkpoint_dir, stem, requested_checkpoints, raw_stop)
-    raw_candidates = collect_candidate_jsons(checkpoint_dir, stem, max_checkpoint=raw_stop)
+    synthesize_missing_checkpoints(checkpoint_dir, checkpoint_stem, requested_checkpoints, raw_stop)
+    raw_candidates = collect_candidate_jsons(checkpoint_dir, checkpoint_stem, max_checkpoint=raw_stop)
     if not raw_candidates:
         print("No internal checkpoint JSON outputs found after base build.", file=sys.stderr)
         return 1
@@ -2576,8 +2570,8 @@ def main() -> int:
             raw_generator_name = str(payload.get("generator", "") or "")
             is_modern_raw = raw_generator_name.lower().startswith(("kloudysgeneratorv6", "kloudysgeneratorv7"))
             raw_count = len(drawables)
-            checkpoint_number = raw_checkpoint_number(candidate_path, stem)
-            checkpoint_tag = checkpoint_tag_for_candidate(candidate_path, stem)
+            checkpoint_number = raw_checkpoint_number(candidate_path, checkpoint_stem)
+            checkpoint_tag = checkpoint_tag_for_candidate(candidate_path, checkpoint_stem)
             if checkpoint_number is not None and checkpoint_number > raw_stop:
                 if checkpoint_number == raw_stop + 1 and raw_count <= raw_stop:
                     checkpoint_tag = str(raw_stop)

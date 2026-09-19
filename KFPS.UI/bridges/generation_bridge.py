@@ -3,7 +3,6 @@ import subprocess
 import sys
 import time
 import os
-import re
 from pathlib import Path
 
 def discover_app_root():
@@ -37,6 +36,7 @@ from generator_backend import (
     next_generator_output_dir,
     write_custom_settings,
 )
+from generation_paths import generation_artifact_stem
 
 
 def parse_args():
@@ -67,7 +67,7 @@ def safe_print(line):
 
 
 def worker_log_path(run_dir, image_path):
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", image_path.stem).strip("_") or "image"
+    stem = generation_artifact_stem(image_path, run_dir)
     return run_dir / "reports" / f"{stem}.v2.worker.log"
 
 
