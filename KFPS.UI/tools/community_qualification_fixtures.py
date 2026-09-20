@@ -49,6 +49,9 @@ def build(root):
     packed = zlib.compress(payload)
     source = root / 'synthetic-native'
     source.mkdir(exist_ok=True)
+    thumbnail = Image.new('RGB', (670, 376), (24, 32, 48))
+    ImageDraw.Draw(thumbnail).text((30, 150), 'SYNTHETIC LIVERY THUMBNAIL', fill='white', font_size=30)
+    thumbnail.save(source / 'bigThumb.webp')
     (source / 'C_livery').write_bytes(struct.pack('<II', len(packed), len(payload)) + packed)
     manifest = create_full_livery_package(source / 'C_livery', root / 'synthetic-audi.kfpslivery',
         game_folder=Path('C:/XboxGames/Forza Horizon 6/Content'),

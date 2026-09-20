@@ -223,13 +223,13 @@ class CommunityGalleryService(QObject):
     def prepareTags(self, current, entered): return prepare_tags(current, entered)
 
     def _path(self, page, creator=""):
-        scopes = {"Featured": "featured", "Browse": "browse", "Timed Releases": "timed", "Favorites": "favorites", "Following": "following", "My uploads": "mine"}
+        scopes = {"Featured": "featured", "Browse": "browse", "Timed Releases": "timed", "Livery": "browse", "Favorites": "favorites", "Following": "following", "My uploads": "mine"}
         sorts = {"Newest": "new", "Top rated": "votes", "Most downloaded": "downloads", "Name": "name"}
         filters = self._filters
         values = dict(view="gallery", scope="browse" if creator else scopes[self._scope], sort="new" if creator else sorts[filters["sort"]],
                       page=page, limit=48, creator=creator or filters["creator"])
         if not creator:
-            values.update(search=filters["search"], kind=filters["kind"], game=filters["game"], category=filters["category"],
+            values.update(search=filters["search"], kind="livery" if self._scope == "Livery" else filters["kind"], game=filters["game"], category=filters["category"],
                           classification="" if filters["classification"] == "All" else filters["classification"],
                           supporters="1" if filters["supporters"] else "")
         return build_query("artworks", values)
@@ -347,6 +347,8 @@ class CommunityGalleryService(QObject):
             self._selected["previewUrl"] = self._image_url(record, "preview", record["preview_url"], record.get("preview_sha256", ""))
             self._selected["photoUrls"] = [self._image_url(record, f"photo{index}", path)
                 for index, path in enumerate(record.get("photo_urls", []))] if self.authenticated else []
+            if self._selected["kind"] == "livery" and not (record.get("cover_is_first_photo") and self._selected["photoUrls"]):
+                self._selected["photoUrls"].insert(0, self._selected["previewUrl"])
 
     @Slot(str)
     def select(self, ident):
@@ -358,8 +360,13 @@ class CommunityGalleryService(QObject):
 
     @Slot(str, str)
     def filter(self, key, value):
-        if key == "scope": self._scope = value
-        elif key in self._filters: self._filters[key] = value
+        if key == "scope":
+            if value == "Livery": self._filters["kind"] = "livery"
+            elif self._scope == "Livery": self._filters["kind"] = "All"
+            self._scope = value
+        elif key in self._filters:
+            self._filters[key] = value
+            if key == "kind" and self._scope == "Livery" and value != "livery": self._scope = "Browse"
         else: return
         self.refresh()
 
@@ -588,10 +595,14 @@ class CommunityGalleryService(QObject):
             if fields.get('revision_id'):
                 raise ValueError('Choose a vinyl JSON for this revision.')
             photos = pending.get('photos', [])
-            if not 1 <= len(photos) <= 3: raise ValueError('Add one to three livery photos.')
+            if len(photos) > 3: raise ValueError('Add no more than three livery photos.')
+            if not pending['preview']:
+                raise ValueError('This livery package has no preview. Export it again with its in-game thumbnail.')
+            cover = png_thumbnail(pending['preview'], 900, 700)
             metadata['photo_count'] = len(photos)
             files = {'package': ('artwork.kfpslivery', pending['payload'], 'application/octet-stream'),
-                     'thumbnail': ('thumbnail.png', png_thumbnail(photos[0]), 'image/png')}
+                     'preview': ('preview.png', cover, 'image/png'),
+                     'thumbnail': ('thumbnail.png', png_thumbnail(cover), 'image/png')}
             files.update({f'photo{index}': (f'photo{index}.png', photo, 'image/png') for index, photo in enumerate(photos)})
             return client.multipart('liveries', metadata, files)
         def ready(result):

@@ -65,8 +65,13 @@ class PreviewServiceTests(unittest.TestCase):
 
     def test_validated_livery_roundtrip(self):
         from test_full_livery_package import build_package
+        from PySide6.QtGui import QImage
         path=self.root / "test.kfpslivery"
-        build_package(path)
+        cover = QImage(670, 376, QImage.Format_RGB32)
+        cover.fill('blue')
+        cover_path = self.root / 'cover.webp'
+        cover.save(str(cover_path), 'WEBP')
+        build_package(path, thumbnail=cover_path.read_bytes())
         before=hashlib.sha256(path.read_bytes()).hexdigest()
         self.inspect(path)
         self.assertEqual(self.service.upload["kind"],"livery")

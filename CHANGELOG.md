@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.92
+
+### Easier Community Livery Browsing and Uploads
+- Added a Livery tab between Timed Releases and Favorites for quickly browsing full-car designs.
+- New livery uploads use the package's in-game thumbnail as their cover and first image. Additional photos no longer replace it.
+- Upload a livery without adding photos, or attach up to three additional PNG, JPEG or WebP images. The enlarged viewer shows the cover first, followed by your photos.
+- Existing uploads keep their current covers without showing the same first photo twice. Older KFPS clients remain compatible; account, supporter and timed-release checks are unchanged.
+- Updated English and Korean upload labels. Packages without an embedded preview need to be re-exported with their game thumbnail.
+- Verified real-package upload/download workflows, optional-photo limits, image order and all nine themes. Available through the updater; no new bundled release.
+
 ## 3.1.91
 
 ### More Reliable FH6 Livery Imports

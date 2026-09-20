@@ -95,7 +95,7 @@ class FailureTests(unittest.TestCase):
         self.service.setAccount("Member")
         self.service.filter("scope", "Browse")
         self.assertEqual(self.service.selected["vote"], 1)
-        self.assertEqual(self.service.selected["photoUrls"], [])
+        self.assertEqual(self.service.selected["photoUrls"], [self.service.selected['previewUrl']])
         self.assertEqual(self.store.download(ident, "Member").read_bytes(), b"exact package bytes")
 
     def test_validation_failure_cleans_staging_and_recovers(self):

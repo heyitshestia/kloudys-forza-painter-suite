@@ -1,16 +1,17 @@
 """Real QML + native account service + isolated local Worker integration checks."""
 import hashlib
 import json
+import os
 import time
 import traceback
 import uuid
 import zipfile
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, Qt, QTimer
+from PySide6.QtCore import QObject, QPointF, Qt, QTimer, QBuffer, QIODevice
 from PySide6.QtQml import QQmlEngine, QQmlExpression
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPainter
 
 
 def run_gallery_checks(app, window, service, state, errors):
@@ -129,7 +130,8 @@ def run_gallery_checks(app, window, service, state, errors):
         window.grabWindow().save(str(state / 'creator.png'))
         evaluate('creatorDialog.close()')
         checked('Creator profile uses live catalog and image tiles')
-        original_package = service.repo / 'runtime/community-preview/timed-livery-fixture/audi.kfpslivery'
+        original_package = Path(os.environ.get('KFPS_COMMUNITY_TEST_LIVERY_PACKAGE') or
+                                service.repo / 'runtime/community-preview/timed-livery-fixture/audi.kfpslivery')
         assert original_package.is_file()
         package = state / 'audi-test.kfpslivery'
         with zipfile.ZipFile(original_package) as source_package, zipfile.ZipFile(package, 'w', zipfile.ZIP_DEFLATED) as target_package:
@@ -159,7 +161,83 @@ def run_gallery_checks(app, window, service, state, errors):
         click('Download')
         yield lambda: not service.busy and service.community.downloadedPath.endswith('.kfpslivery')
         assert Path(service.community.downloadedPath).read_bytes() == package.read_bytes()
-        checked('Real Audi package/photos multipart upload and validated native download')
+        checked('Validated car package/photos multipart upload and native download')
+        assert service.selected['photoUrls'][0] == service.selected['previewUrl']
+        assert len(service.selected['photoUrls']) == 2
+        record = service._records[livery['id']]
+        from kfps_ui.community_preview_service import inspect_file
+        from kfps_ui.community_gallery_service import png_thumbnail
+        inspected = inspect_file(str(package), state)
+        expected_cover = png_thumbnail(inspected['preview'], 900, 700)
+        client = service.community.sessionClient()
+        cover_bytes, _ = client.binary(record['preview_url'], authenticated=True)
+        assert cover_bytes == expected_cover
+        assert cover_bytes != (state / 'synthetic-photo.png').read_bytes()
+        click('OpenArtworkImage')
+        yield lambda: evaluate('imageDialog.visible')
+        assert evaluate('imageDialog.photoIndex') == 0
+        assert evaluate('imageDialog.photos.length') == 2
+        evaluate('imageDialog.close()')
+        checked('Embedded game cover stays first in server storage, inspector and enlarged viewer')
+        for count in (0, 3):
+            # Mark only the copied thumbnail so server preview deduplication sees distinct fixtures.
+            with zipfile.ZipFile(original_package) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            thumb_name = 'source/fh6/bigThumb.webp'
+            thumb = QImage.fromData(members[thumb_name])
+            painter = QPainter(thumb)
+            painter.fillRect(0, 0, 32, 32, QColor('cyan' if count == 0 else 'magenta'))
+            painter.end()
+            output = QBuffer(); output.open(QIODevice.WriteOnly); thumb.save(output, 'WEBP')
+            members[thumb_name] = bytes(output.data())
+            manifest = json.loads(members['manifest.json']); manifest['package_id'] = str(uuid.uuid4())
+            for entry in manifest['files']:
+                if entry['path'] == thumb_name:
+                    entry.update(size=len(members[thumb_name]), sha256=hashlib.sha256(members[thumb_name]).hexdigest())
+            members['manifest.json'] = json.dumps(manifest).encode()
+            variant = state / f'audi-{count}-photos.kfpslivery'
+            with zipfile.ZipFile(variant, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for name, raw in members.items(): archive.writestr(name, raw)
+            service.inspectPath(str(variant))
+            yield lambda: not service.busy
+            assert service.upload.get('kind') == 'livery', service.status
+            if count:
+                service.inspectPhotos([str(state / 'synthetic-photo.png')] * count)
+                yield lambda: not service.busy
+                assert len(service.upload['photoUrls']) == count
+            service.publish(dict(fields, title=f'Audi with {count} photos {salt}'))
+            yield lambda: not service.busy
+            assert not service.hasError, service.status
+            yield lambda: any(row['title'] == f'Audi with {count} photos {salt}' for row in service.rows)
+            variant_row = next(row for row in service.rows if row['title'] == f'Audi with {count} photos {salt}')
+            service.select(variant_row['id'])
+            yield settled()
+            assert len(service.selected['photoUrls']) == count + 1
+            assert service.selected['photoUrls'][0] == service.selected['previewUrl']
+            click('OpenArtworkImage')
+            yield lambda: evaluate('imageDialog.visible')
+            assert evaluate('imageDialog.photos.length') == count + 1
+            assert evaluate('imageDialog.photoIndex') == 0
+            window.grabWindow().save(str(state / f'livery-{count}-photos.png'))
+            evaluate('imageDialog.close()')
+            if count:
+                click('LiveryPhoto:3')
+                yield lambda: evaluate('imageDialog.visible')
+                assert evaluate('imageDialog.photoIndex') == 3
+                evaluate('imageDialog.close()')
+            click('Download')
+            yield lambda: not service.busy and service.community.downloadedPath.endswith('.kfpslivery')
+            assert Path(service.community.downloadedPath).read_bytes() == variant.read_bytes()
+            checked(f'Real package upload/download with {count} optional photos and cover-first viewer')
+        click('Scope:Livery')
+        yield lambda: not service.busy and service.scope == 'Livery'
+        assert len(service.rows) == 3 and all(row['kind'] == 'livery' for row in service.rows)
+        yield settled()
+        window.grabWindow().save(str(state / 'livery-tab.png'))
+        click('Scope:Browse')
+        yield lambda: not service.busy and any(row['kind'] == 'vinyl' for row in service.rows)
+        service.select(livery['id'])
+        checked('Livery tab lists only cars; Browse restores vinyls without a leftover type filter')
         service.setLanguage('ko')
         yield present('Scope:Browse')
         yield settled()

@@ -34,8 +34,8 @@ Item {
                     Flow {
                         Layout.fillWidth: true; spacing: Theme.px(4)
                         Repeater {
-                            model: [{key:"Featured", label:root.ui("Featured", "추천 작품")}, {key:"Browse",label:root.ui("Browse", "둘러보기")}, {key:"Timed Releases",label:root.ui("Timed Releases", "기간 한정")}, {key:"Favorites",label:root.ui("Favorites", "즐겨찾기")}, {key:"Following",label:root.ui("Following", "팔로잉")}]
-                            delegate: PreviewButton { required property var modelData; objectName: "Scope:" + modelData.key; text: modelData.label; selected: preview.scope === modelData.key; enabled: ["Featured", "Browse", "Timed Releases"].indexOf(modelData.key) >= 0 || preview.authenticated; onClicked: preview.filter("scope", modelData.key) }
+                            model: [{key:"Featured", label:root.ui("Featured", "추천 작품")}, {key:"Browse",label:root.ui("Browse", "둘러보기")}, {key:"Timed Releases",label:root.ui("Timed Releases", "기간 한정")}, {key:"Livery",label:root.ui("Livery", "리버리")}, {key:"Favorites",label:root.ui("Favorites", "즐겨찾기")}, {key:"Following",label:root.ui("Following", "팔로잉")}]
+                            delegate: PreviewButton { required property var modelData; objectName: "Scope:" + modelData.key; text: modelData.label; selected: preview.scope === modelData.key; enabled: ["Featured", "Browse", "Timed Releases", "Livery"].indexOf(modelData.key) >= 0 || preview.authenticated; onClicked: preview.filter("scope", modelData.key) }
                         }
                         PreviewButton { text: root.ui("My uploads", "내 업로드"); selected: preview.scope === "My uploads"; enabled: preview.authenticated; onClicked: preview.filter("scope", "My uploads") }
                         PreviewButton { objectName: "ClearCreator"; visible: !!preview.filters.creator; text: "@" + preview.filters.creator + " [x]"; hint: root.ui("Show all creators", "모든 작성자 보기"); onClicked: preview.filter("creator", "") }

@@ -48,8 +48,8 @@ PreviewDialog {
                 ColumnLayout {
                     visible: preview.upload.kind === "livery"
                     Layout.fillWidth: true
-                    PreviewText { text: dialog.ui("Livery photos (1-3)", "리버리 사진 (1~3장)") }
-                    PreviewText { Layout.fillWidth: true; textSize: 12; color: Theme.muted; text: dialog.ui("PNG, JPEG or WebP, up to 20 MiB each. The first photo is the cover.", "PNG, JPEG, WebP 파일, 한 장당 최대 20 MiB. 첫 번째 사진이 대표 이미지로 표시됩니다.") }
+                    PreviewText { text: dialog.ui("Additional photos (optional, up to 3)", "추가 사진 (선택, 최대 3장)") }
+                    PreviewText { Layout.fillWidth: true; textSize: 12; color: Theme.muted; text: dialog.ui("The in-game thumbnail stays first. PNG, JPEG or WebP, up to 20 MiB each.", "게임 내 썸네일이 항상 맨 앞에 표시됩니다. PNG, JPEG, WebP 파일, 한 장당 최대 20 MiB.") }
                     RowLayout {
                         Layout.fillWidth: true
                         Repeater {

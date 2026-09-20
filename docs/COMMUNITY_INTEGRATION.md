@@ -1,5 +1,26 @@
 # Community Integration
 
+## Livery Covers and Quick Filter (3.1.92)
+
+New livery uploads retain the package's extracted in-game cover separately from
+zero to three optional photos. The cover supplies the gallery thumbnail and is
+first in the inspector and enlarged viewer. Livery, between Timed Releases and
+Favorites, reuses the existing gallery kind filter; leaving that tab clears its
+type filter. Vinyl uploads and creator catalogs keep their existing behavior.
+
+The Worker accepts a separate PNG preview part and optional photos. Older clients
+without that part retain their first-photo cover behavior. Existing stored covers
+are not rewritten; comparing the stored first-photo and preview hashes avoids
+showing legacy covers twice. This needs no database migration or account reset.
+Deploy the Worker before the desktop update: the previous Worker requires a photo.
+Per-file limits remain unchanged; the multipart envelope allows 26 MiB for the
+package, cover, thumbnail and up to three separately bounded photos.
+
+Validation covers zero through three photos, invalid counts/images, old-client
+uploads, cover order, filtered discovery, existing authorization, native upload
+and exact-byte download, viewer cleanup, and all nine themes in English/Korean.
+No private fixtures or qualification logs are part of the public source.
+
 ## Scope and Delivery
 
 Replace the Community page inside KFPS with the reviewed gallery. Develop and

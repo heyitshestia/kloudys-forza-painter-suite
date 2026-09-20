@@ -174,7 +174,7 @@ beforeEach(async () => {
 });
 
 describe('integrated gallery', () => {
-  async function liveryRequest(token: string, extra = {}) {
+  async function liveryRequest(token: string, extra = {}, options: { photos?: number; cover?: string; extraPhoto?: boolean } = {}) {
     const entries = { 'source/fh6/C_livery': strToU8('synthetic'), 'livery/layers.json': strToU8('{}'),
       'mesh/vehicle.json': strToU8('{}'), 'projection/index.json': strToU8('{}') };
     const manifest = { format: 'kfps_full_livery_package_v1', format_version: 1, compiler_revision: 11,
@@ -185,12 +185,58 @@ describe('integrated gallery', () => {
     const archive = zipSync({ ...entries, 'manifest.json': strToU8(JSON.stringify(manifest)) },
       { mtime: new Date('2026-01-01T00:00:00Z') });
     const form = new FormData();
-    form.set('metadata', JSON.stringify({ ...uploadBody(), photo_count: 1, ...extra }));
+    form.set('metadata', JSON.stringify({ ...uploadBody(), photo_count: options.photos ?? 1, ...extra }));
     form.set('package', new File([archive], 'test.kfpslivery'));
-    form.set('photo0', new File([Uint8Array.from(atob(PREVIEW), c => c.charCodeAt(0))], 'photo.png'));
+    for (let index = 0; index < (options.photos ?? 1); index++) {
+      form.set(`photo${index}`, new File([Uint8Array.from(atob(PREVIEW), c => c.charCodeAt(0))], 'photo.png'));
+    }
+    if (options.cover !== undefined) form.set('preview', new File([Uint8Array.from(atob(options.cover), c => c.charCodeAt(0))], 'cover.png'));
+    if (options.extraPhoto) form.set('photo3', new File(['unexpected'], 'extra.png'));
     form.set('thumbnail', new File([Uint8Array.from(atob(PREVIEW_TWO), c => c.charCodeAt(0))], 'thumb.png'));
     return SELF.fetch('https://community.test/v1/liveries', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
   }
+
+  it.each([0, 1, 2, 3])('keeps the game cover separate from %i optional photos', async (photos) => {
+    const token = await account('x', 'CoverTester');
+    const response = await liveryRequest(token, {}, { photos, cover: PREVIEW_TWO });
+    expect(response.status).toBe(201);
+    const { artwork: { id } } = await response.json() as any;
+    await env.DB.prepare("UPDATE artworks SET status = 'published' WHERE id = ?1").bind(id).run();
+    const detail = await (await jsonFetch(`/v1/artworks/${id}`, 'GET', undefined, token)).json() as any;
+    expect(detail.artwork.photo_urls).toHaveLength(photos);
+    expect(detail.artwork.cover_is_first_photo).toBe(false);
+    const cover = new Uint8Array(await (await jsonFetch(`/v1/artworks/${id}/preview`, 'GET', undefined, token)).arrayBuffer());
+    expect(cover).toEqual(Uint8Array.from(atob(PREVIEW_TWO), c => c.charCodeAt(0)));
+    expect(detail.artwork.preview_sha256).toBe(await sha256Hex(cover));
+    for (let index = 0; index < photos; index++) {
+      const photo = new Uint8Array(await (await jsonFetch(`/v1/artworks/${id}/photos/${index}`, 'GET', undefined, token)).arrayBuffer());
+      expect(photo).toEqual(Uint8Array.from(atob(PREVIEW), c => c.charCodeAt(0)));
+    }
+    expect((await jsonFetch(`/v1/artworks/${id}/photos/${photos}`, 'GET', undefined, token)).status).toBe(404);
+    const vinyl = await published(token, { title: 'Separate vinyl' });
+    const catalog = await (await jsonFetch('/v1/artworks?view=gallery&scope=browse&kind=livery')).json() as any;
+    expect(catalog.items.map((item: any) => item.id)).toEqual([id]);
+    expect(catalog.items.map((item: any) => item.id)).not.toContain(vinyl);
+  });
+
+  it.each([-1, 4, 0.5, '0', null])('rejects an invalid photo count %s without writing assets', async (count) => {
+    const token = await account('x', 'CoverTester');
+    const response = await liveryRequest(token, { photo_count: count }, { photos: 0, cover: PREVIEW_TWO });
+    expect(response.status).toBe(400);
+    expect((await env.ASSETS.list()).objects).toHaveLength(0);
+  });
+
+  it('rejects undeclared or missing photos and invalid covers', async () => {
+    const token = await account('x', 'CoverTester');
+    for (const [extra, options] of [
+      [{}, { photos: 0, cover: PREVIEW_TWO, extraPhoto: true }],
+      [{ photo_count: 1 }, { photos: 0, cover: PREVIEW_TWO }],
+      [{}, { photos: 0, cover: btoa('invalid image') }],
+    ] as const) {
+      expect((await liveryRequest(token, extra, options)).status).toBe(400);
+      expect((await env.ASSETS.list()).objects).toHaveLength(0);
+    }
+  });
 
   it('stores livery packages/photos privately, hides them from old clients, and supports owner restoration', async () => {
     const token = await account('x', 'GalleryTester');
@@ -199,6 +245,8 @@ describe('integrated gallery', () => {
     const { artwork: { id } } = await uploaded.json() as any;
     await env.DB.prepare("UPDATE artworks SET status = 'published' WHERE id = ?1").bind(id).run();
     expect((await (await jsonFetch('/v1/artworks?view=gallery&scope=browse')).json() as any).items).toHaveLength(1);
+    const detail = await (await jsonFetch(`/v1/artworks/${id}`, 'GET', undefined, token)).json() as any;
+    expect(detail.artwork.cover_is_first_photo).toBe(true);
     expect((await (await jsonFetch('/v1/artworks?scope=browse')).json() as any).items).toHaveLength(0);
     for (const asset of ['download', 'photos/0']) {
       expect((await jsonFetch(`/v1/artworks/${id}/${asset}`)).status).toBe(401);

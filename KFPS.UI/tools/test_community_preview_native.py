@@ -69,7 +69,7 @@ def run_theme_checks(app, window, service, state, errors):
             if gallery.height() < 200 or gallery.width() < 200:
                 entry["issues"].append("Gallery has insufficient usable space")
             for control_name in ("CommunitySearch", "OpenUpload", "BackToKfps", "Download", "Favorite",
-                                 "Scope:Featured", "Scope:Browse", "Scope:Favorites", "Scope:Following"):
+                                 "Scope:Featured", "Scope:Browse", "Scope:Timed Releases", "Scope:Livery", "Scope:Favorites", "Scope:Following"):
                 control = find(control_name)
                 assert control.isVisible(), "Hidden control: " + control_name
                 point = control.mapToScene(QPointF(0, 0))
@@ -635,7 +635,8 @@ def run_checks(app, window, service, state, errors):
             evaluate(page, "uploadDialog.close()")
             service.publish({"title": "Community 3D qualification", "rights": True, "compatibility": True})
             assert not service.hasError, service.status
-            assert len(service.selected["photoUrls"]) == 3
+            assert len(service.selected["photoUrls"]) == 4
+            assert service.selected['photoUrls'][0] == service.selected['previewUrl']
             QTest.qWait(500)
             assert not evaluate(page, "uploadDialog.visible")
             evaluate(find("InspectorScroll"), "contentItem.contentY = 0")

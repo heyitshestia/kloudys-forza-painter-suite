@@ -273,6 +273,7 @@ class CommunityPreviewService(QObject):
             if self.scope_value == "Favorites" and not row["favorite"]: continue
             if self.scope_value == "Following" and not row["followed"]: continue
             if self.scope_value == "Timed Releases" and row["ends"] is None: continue
+            if self.scope_value == "Livery" and row["kind"] != "livery": continue
             if row["ignored"] and self.scope_value not in ("My uploads", "Moderation"): continue
             if self.kind_value != "All" and row["kind"] != self.kind_value: continue
             if self.game_value != "All" and row["game"] != self.game_value: continue
@@ -313,6 +314,8 @@ class CommunityPreviewService(QObject):
     def _selection_media(self):
         if self.selected_value:
             self.selected_value["photoUrls"] = [data_url(raw) for raw in self.store.photos(self.selected_id, self.mode, self.now())]
+            if self.selected_value["kind"] == "livery":
+                self.selected_value["photoUrls"].insert(0, self.selected_value["previewUrl"])
         if self._render_session and (self.selected_id != self._render_id or self.selected_value.get("state") != "available" or self.selected_value.get("locked")):
             self.closeRender()
 
@@ -345,6 +348,11 @@ class CommunityPreviewService(QObject):
                       "category": "category_value", "classification": "classification_value", "sort": "sort_value",
                       "creator": "creator_filter"}
         if key in attributes:
+            if key == "scope":
+                if value == "Livery": self.kind_value = "livery"
+                elif self.scope_value == "Livery": self.kind_value = "All"
+            elif key == "kind" and self.scope_value == "Livery" and value != "livery":
+                self.scope_value = "Browse"
             setattr(self, attributes[key], value)
             self.refresh()
 
@@ -550,8 +558,10 @@ class CommunityPreviewService(QObject):
             if not self.pending: raise PreviewError("Choose a file first.")
             if self.working: raise PreviewError("Wait for file checking to finish.")
             photos = self.pending.get("photos", [])
-            if self.pending["kind"] == "livery" and not 1 <= len(photos) <= 3:
-                raise PreviewError("Add one to three photos of your livery before publishing.")
+            if self.pending["kind"] == "livery":
+                if len(photos) > 3: raise PreviewError("Add no more than three livery photos.")
+                if not self.pending["preview"]:
+                    raise PreviewError("This livery package has no preview. Export it again with its in-game thumbnail.")
             if not fields.get("rights"): raise PreviewError("Confirm that you have permission to share this artwork.")
             if self.pending.get("warning") and not fields.get("compatibility"):
                 raise PreviewError("Acknowledge the compatibility warning.")
@@ -571,7 +581,7 @@ class CommunityPreviewService(QObject):
                         category=fields.get("category", "Original Artwork"), classification=fields.get("classification", "handmade"),
                         supporter=bool(fields.get("supporter")), license=fields.get("license", "KFPS Community Share"),
                         tags=tags["tags"], featured=False, sample=False)
-            cover = image_bytes(photos[0]) if photos else self.pending["preview"]
+            cover = self.pending["preview"]
             self.selected_id = self.store.add(meta, self.pending["payload"], cover, self.mode,
                                                starts=starts, ends=ends, now=self.now(), photos=photos)
             self.scope_value = "My uploads"

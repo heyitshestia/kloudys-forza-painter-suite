@@ -8,7 +8,7 @@ import type { Env } from './types';
 export const MAX_LIVERY_BYTES = 16 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 32 * 1024 * 1024;
 const MAX_MEMBER_BYTES = 8 * 1024 * 1024;
-const MAX_BODY_BYTES = 24 * 1024 * 1024;
+const MAX_BODY_BYTES = 26 * 1024 * 1024;
 
 function invalid(message = 'The livery package is invalid.'): never {
   throw new HttpError(400, 'invalid_livery', message);
@@ -127,10 +127,18 @@ export async function handleLiveryUpload(request: Request, env: Env): Promise<Re
   const bytes = new Uint8Array(await source.arrayBuffer());
   const livery = await validateLivery(bytes);
   const photoCount = body.photo_count;
-  if (!Number.isInteger(photoCount) || Number(photoCount) < 1 || Number(photoCount) > 3) throw new HttpError(400, 'photos_required');
+  if (!Number.isInteger(photoCount) || Number(photoCount) < 0 || Number(photoCount) > 3) throw new HttpError(400, 'invalid_photo_count');
+  for (const key of form.keys()) {
+    if (key.startsWith('photo') && !Array.from({ length: Number(photoCount) }, (_, index) => `photo${index}`).includes(key)) {
+      throw new HttpError(400, 'invalid_photo_count');
+    }
+  }
   const photos: Uint8Array[] = [];
   for (let index = 0; index < Number(photoCount); index++) photos.push(await imagePart(form, `photo${index}`, 2 * 1024 * 1024, 2048));
   const thumbnail = await imagePart(form, 'thumbnail', 512 * 1024, 640);
+  // New clients send the package's in-game cover separately from optional photos.
+  // Preserve uploads from older clients that used their first photo as the cover.
+  const preview = form.has('preview') ? await imagePart(form, 'preview', 2 * 1024 * 1024, 2048) : photos[0] || thumbnail;
   const hash = await sha256Hex(bytes);
   const published = env.AUTO_PUBLISH_VALIDATED_UPLOADS === '1'
     || (env.ALLOW_TEST_AUTH === '1' && env.AUTO_APPROVE_TEST_UPLOADS === '1' && user.provider === 'local-test');
@@ -164,12 +172,13 @@ export async function handleLiveryUpload(request: Request, env: Env): Promise<Re
   const prefix = `artworks/${id}/r1/`;
   const keys = [prefix + 'design.kfpslivery', prefix + 'preview.png', prefix + 'thumbnail.png'];
   const photoHashes = await Promise.all(photos.map(photo => sha256Hex(photo)));
+  const previewHash = await sha256Hex(preview);
   const thumbHash = await sha256Hex(thumbnail);
-  if (await env.DB.prepare('SELECT artwork_id FROM artwork_revisions WHERE preview_hash = ?1 LIMIT 1').bind(photoHashes[0]).first()) {
-    throw new HttpError(409, 'duplicate_preview', 'This cover photo is already used by another upload. Choose a different cover photo.');
+  if (await env.DB.prepare('SELECT artwork_id FROM artwork_revisions WHERE preview_hash = ?1 LIMIT 1').bind(previewHash).first()) {
+    throw new HttpError(409, 'duplicate_preview', 'This livery cover is already used by another upload. Check your existing uploads.');
   }
   try {
-    for (const [key, data, type] of [[keys[0]!, bytes, 'application/octet-stream'], [keys[1]!, photos[0]!, 'image/png'], [keys[2]!, thumbnail, 'image/png']] as const) {
+    for (const [key, data, type] of [[keys[0]!, bytes, 'application/octet-stream'], [keys[1]!, preview, 'image/png'], [keys[2]!, thumbnail, 'image/png']] as const) {
       await env.ASSETS.put(key, data, { httpMetadata: { contentType: type, cacheControl: 'private, no-store' } });
     }
     const statements = [env.DB.prepare(`INSERT INTO artworks(id, creator_id, title, description, category, classification,
@@ -179,11 +188,11 @@ export async function handleLiveryUpload(request: Request, env: Env): Promise<Re
       ?12, ?13, ?14, ?15, ?16, ?16, ?17, ?18, ?19, ?20)`)
       .bind(id, user.id, upload.title, upload.description, upload.category, upload.classification,
         Number(upload.supporterOnly), JSON.stringify(upload.tags), upload.license, livery.car, livery.shapes,
-        status, hash, photoHashes[0], thumbHash, now, published ? now : null, upload.startsAt, upload.endsAt, photos.length),
+        status, hash, previewHash, thumbHash, now, published ? now : null, upload.startsAt, upload.endsAt, photos.length),
       env.DB.prepare(`INSERT INTO artwork_revisions(artwork_id, revision, content_hash, preview_hash, thumbnail_hash,
         design_key, preview_key, thumbnail_key, design_bytes, preview_bytes, thumbnail_bytes, shape_count, manifest_json, status, created_at)
         VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`)
-        .bind(id, hash, photoHashes[0], thumbHash, keys[0], keys[1], keys[2], bytes.length, photos[0]!.length,
+        .bind(id, hash, previewHash, thumbHash, keys[0], keys[1], keys[2], bytes.length, preview.length,
           thumbnail.length, livery.shapes, JSON.stringify({ kind: 'livery', ...upload, ...livery }), status, now),
       env.DB.prepare(`INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at)
         VALUES (?1, ?2, ?3, ?4, 'Livery package integrity and images validated.', ?5)`)

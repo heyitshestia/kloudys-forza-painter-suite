@@ -74,6 +74,7 @@ function artworkJson(row: Record<string, unknown>, user: SessionUser | null = nu
     vote_score: integerValue(row.vote_score),
     vote: integerValue(row.user_vote),
     photo_urls: Array.from({ length: integerValue(row.photo_count) }, (_, index) => `/v1/artworks/${encodeURIComponent(id)}/photos/${index}`),
+    cover_is_first_photo: Boolean(row.first_photo_hash) && row.first_photo_hash === row.preview_hash,
     title: String(row.title || "Untitled"),
     description: String(row.description || ""),
     category: String(row.category || "Other"),
@@ -125,6 +126,7 @@ const ARTWORK_COLUMNS = `
   a.featured, a.current_revision, a.content_hash, a.preview_hash, a.thumbnail_hash,
   a.download_count, a.favorite_count, a.created_at,
   a.updated_at, a.published_at, a.kind, a.car, a.starts_at, a.ends_at, a.purged_at, a.vote_score, a.photo_count,
+  (SELECT ap.sha256 FROM artwork_photos ap WHERE ap.artwork_id = a.id AND ap.position = 0) AS first_photo_hash,
   u.username, u.avatar_url, u.bio AS creator_bio,
   (SELECT COUNT(*) FROM follows ff WHERE ff.creator_id = u.id) AS creator_followers`;
 

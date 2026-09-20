@@ -38,6 +38,11 @@ class MediaTests(unittest.TestCase):
             path = self.root / f"photo-{i}.png"
             image.save(str(path))
             self.photos.append(str(path))
+        cover = QImage(670, 376, QImage.Format_RGB32)
+        cover.fill('yellow')
+        cover_path = self.root / 'game.webp'
+        cover.save(str(cover_path), 'WEBP')
+        build_package(self.package, thumbnail=cover_path.read_bytes())
 
     def tearDown(self):
         self.service.close()
@@ -81,10 +86,17 @@ class MediaTests(unittest.TestCase):
             stream.truncate(20 * 1024 * 1024 + 1)
         with self.assertRaises(PreviewError): read_photos([str(bad)])
 
-    def test_upload_requires_photos_and_failed_replace_preserves_them(self):
+    def test_upload_without_photos_keeps_game_cover(self):
         self.prepare()
+        cover = self.service.upload['previewUrl']
         self.publish()
-        self.assertTrue(self.service.hasError)
+        self.assertFalse(self.service.hasError, self.service.status)
+        self.assertEqual(self.service.selected['previewUrl'], cover)
+        self.assertEqual(self.service.selected['photoUrls'], [cover])
+
+    def test_optional_photos_and_failed_replace_preserves_them(self):
+        self.prepare()
+        cover = self.service.upload['previewUrl']
         self.service.inspectPhotos(self.photos)
         self.wait()
         old = self.service.upload["photoUrls"][:]
@@ -97,13 +109,24 @@ class MediaTests(unittest.TestCase):
         self.publish()
         self.assertFalse(self.service.hasError, self.service.status)
         ident = self.service.selected["id"]
-        self.assertEqual(len(self.service.selected["photoUrls"]), 2)
+        self.assertEqual(len(self.service.selected["photoUrls"]), 3)
+        self.assertEqual(self.service.selected['photoUrls'][0], cover)
+        self.assertEqual(self.service.selected['previewUrl'], cover)
         self.assertEqual(self.service.store.render_payload(ident, "Member"), self.package.read_bytes())
         self.service.close()
         self.service = CommunityPreviewService(ROOT, self.root / "state")
         self.service.filter("scope", "Browse")
-        self.assertEqual(len(self.service.selected["photoUrls"]), 2)
+        self.assertEqual(len(self.service.selected["photoUrls"]), 3)
+        self.assertEqual(self.service.selected['photoUrls'][0], cover)
         self.assertEqual(self.service.selected["downloads"], 0)
+
+    def test_livery_tab_only_lists_liveries_and_browse_restores_vinyls(self):
+        self.service.store.add(dict(title='Car', kind='livery'), b'car', b'', 'Creator')
+        self.service.store.add(dict(title='Vinyl', kind='vinyl'), b'vinyl', b'', 'Creator')
+        self.service.filter('scope', 'Livery')
+        self.assertEqual([row['title'] for row in self.service.rows], ['Car'])
+        self.service.filter('scope', 'Browse')
+        self.assertEqual(len(self.service.rows), 2)
 
     def test_timed_filter_browse_boundaries_and_photo_purge(self):
         store = self.service.store

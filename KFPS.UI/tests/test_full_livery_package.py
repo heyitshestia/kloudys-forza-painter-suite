@@ -162,7 +162,8 @@ def raster_livery_payload(*, raster_id: int, car_id: int = 3304, state: int = 0)
     return bytes(payload)
 
 
-def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | None = None) -> dict:
+def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | None = None,
+                  thumbnail: bytes | None = None) -> dict:
     payload = payload_override or livery_payload(car_id=car_id)
     _, counts, payload_meta = extract_livery_payload(payload)
     source_car_id = struct.unpack_from("<I", payload, 0x10)[0]
@@ -197,6 +198,8 @@ def build_package(path: Path, *, car_id: int = 3304, payload_override: bytes | N
         "mesh/vehicle.json": vehicle,
         "projection/index.json": projection,
     }
+    if thumbnail is not None:
+        members['source/fh6/bigThumb.webp'] = thumbnail
     manifest = {
         "format": PACKAGE_FORMAT,
         "format_version": 1,
