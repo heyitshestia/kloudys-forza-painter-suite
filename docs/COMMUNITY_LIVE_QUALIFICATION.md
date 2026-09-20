@@ -103,3 +103,23 @@ Fresh interactive
 GitHub authorization is unchanged and was not repeated; account exchange and
 expiry failures are covered by the isolated Worker tests. Detailed server errors
 can remain English even when native labels are Korean.
+
+## Timed Thumbnail Badge Follow-Up
+
+- One shared clock badge is used on gallery thumbnails, creator thumbnails and
+  the inspector image. It is red before availability and green while available;
+  an expired owner entry is red. Untimed artwork has no clock badge.
+- A white Lucide clock remains visible even in the Command Prompt theme. The
+  tooltip and accessibility name give the status and release window in EN/KO.
+  Existing left-side badges and thumbnail click handling are preserved.
+- Native offscreen rendering passed 54 cases (nine themes, two languages, three
+  states), plus 18 untimed cases. Pixel checks confirm the clock renders, and
+  clicking through the badge still chooses the artwork. Saved representative
+  images were inspected. Evidence remains under DIRTY
+  `runtime/community-preview/live-qualification-20260920/timed-badge/`.
+- Lookback: the existing schedule refresh already supplies availability changes,
+  so no new timer, storage schema, authentication or Worker change is needed.
+  This is a display-only follow-up to the live boundary tests above.
+- CLEAN follow-up regression: 1,069 tests passed in 137.634 s, including the
+  rendered badge test. All four touched QML components passed the lint gate;
+  existing context-property and shutdown warnings remain as noted above.

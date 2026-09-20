@@ -106,6 +106,7 @@ PreviewDialog {
                             asynchronous: false
                             cache: false
                         }
+                        PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 7; artwork: tile.artwork; ui: dialog.ui }
                     }
                     PreviewText {
                         anchors.top: picture.bottom

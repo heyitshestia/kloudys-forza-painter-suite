@@ -12,6 +12,7 @@
 - Share supported FH6 full-livery packages with one to three PNG, JPEG or WebP photos. Open a photo to access a large interactive 3D preview using your locally installed FH6 car assets.
 - Closing the 3D preview stops its workers and removes its temporary files. Car assets are not included in community downloads.
 - Schedule an artwork's start and end time in your local time. Active releases appear in normal browsing and the dedicated Timed Releases tab.
+- Timed thumbnails have a clock badge: red before opening and green while available. Hover to see the release window, including in creator profiles and the larger preview.
 - Downloads stop at expiry; private files are then deleted by the scheduled cleanup job. Previously downloaded copies are unaffected.
 - Artwork files remain in private storage behind the existing account and supporter checks. This update adds no private messaging or new paid tier.
 

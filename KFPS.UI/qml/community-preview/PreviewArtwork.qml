@@ -26,11 +26,12 @@ Item {
         Image { anchors.fill: parent; anchors.margins: 7; source: tile.artwork.previewUrl || ""; fillMode: Image.PreserveAspectFit; sourceSize: Qt.size(560, 400); asynchronous: false }
         C.ClassicBevel { anchors.fill: parent; sunken: true; depth: 1 }
         Rectangle {
-            visible: tile.artwork.supporter || tile.artwork.state !== "available" || tile.artwork.kind === "livery" || !!tile.artwork.ends
+            visible: tile.artwork.supporter || tile.artwork.state !== "available" || tile.artwork.kind === "livery"
             anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 9
             width: badge.implicitWidth + 14; height: 23; radius: Theme.corner(3); color: Theme.surfaceStrong
-            PreviewText { id: badge; anchors.centerIn: parent; textSize: 12; color: tile.artwork.supporter ? Theme.warning : Theme.text; text: tile.artwork.state !== "available" ? tile.artwork.state : [tile.artwork.supporter ? tile.ui("Supporter", "서포터") : "", tile.artwork.ends ? tile.ui("Timed", "기간 한정") : "", tile.artwork.kind === "livery" ? tile.ui("Livery", "리버리") : ""].filter(Boolean).join(" / ") }
+            PreviewText { id: badge; anchors.centerIn: parent; textSize: 12; color: tile.artwork.supporter ? Theme.warning : Theme.text; text: tile.artwork.state !== "available" ? tile.artwork.state : [tile.artwork.supporter ? tile.ui("Supporter", "서포터") : "", tile.artwork.kind === "livery" ? tile.ui("Livery", "리버리") : ""].filter(Boolean).join(" / ") }
         }
+        PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; artwork: tile.artwork; ui: tile.ui }
     }
     ColumnLayout {
         anchors.top: picture.bottom; anchors.topMargin: Theme.px(5); width: parent.width; spacing: Theme.px(2)

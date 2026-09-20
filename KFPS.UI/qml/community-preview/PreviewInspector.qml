@@ -39,6 +39,7 @@ ColumnLayout {
                 C.ArtworkPreviewBackdrop { anchors.fill: parent; opacity: 0.45 }
                 Image { anchors.fill: parent; anchors.margins: 8; fillMode: Image.PreserveAspectFit; source: inspector.artwork.previewUrl || ""; sourceSize: Qt.size(900,700); asynchronous: false }
                 MouseArea { objectName: "OpenArtworkImage"; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: inspector.inspectImage(0) }
+                PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; artwork: inspector.artwork; ui: inspector.ui }
             }
             RowLayout {
                 Layout.fillWidth: true
