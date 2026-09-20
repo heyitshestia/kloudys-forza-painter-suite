@@ -1,11 +1,12 @@
 import { base64ToBytes, HttpError, plainText, sha256Hex } from "./security";
+import { validateSchedule } from './availability';
 import type { ArtworkClassification, CanonicalDesign, CanonicalShape, DetectedSchema, ValidatedUpload } from "./types";
 
 export const CATEGORIES = [
   "Characters", "Motorsport", "Logos", "Gaming", "Abstract",
   "Patterns", "Humor", "Original Artwork", "Other",
 ] as const;
-export const GAMES = ["FH5", "FH6", "FM8"] as const;
+export const GAMES = ["FH4", "FH5", "FH6", "FM8"] as const;
 export const LICENSES = ["kfps-community-share-v1", "cc-by-4.0", "cc-by-nc-4.0", "cc0-1.0"] as const;
 export const CLASSIFICATIONS = ["handmade", "toolmade"] as const;
 
@@ -317,11 +318,11 @@ export function validateClientVersion(value: unknown, minimumVersion: string): s
   return clientVersion;
 }
 
-export async function validateUpload(
+export function validateUploadMetadata(
   value: Record<string, unknown>,
   minimumClientVersion: string,
   requireModernClient = true,
-): Promise<ValidatedUpload> {
+) {
   const clientVersion = value.client_version == null && !requireModernClient
     ? "legacy"
     : validateClientVersion(value.client_version, minimumClientVersion);
@@ -343,6 +344,16 @@ export async function validateUpload(
   const selectedTags = validateTags(value.tags);
   const license = plainText(value.license, "license", 40, true);
   if (!(LICENSES as readonly string[]).includes(license)) throw new HttpError(400, "invalid_license");
+  return { clientVersion, title, description, category, classification, supporterOnly, tags: selectedTags,
+    license, ...validateSchedule(value) };
+}
+
+export async function validateUpload(
+  value: Record<string, unknown>,
+  minimumClientVersion: string,
+  requireModernClient = true,
+): Promise<ValidatedUpload> {
+  const metadata = validateUploadMetadata(value, minimumClientVersion, requireModernClient);
   const decodedDesign = decodeDesign(value.design);
   const extracted = extractShapes(decodedDesign);
   const schema = detectDesignSchema(decodedDesign, extracted.shapes);
@@ -364,15 +375,8 @@ export async function validateUpload(
     : base64ToBytes(value.thumbnail_base64, MAX_THUMBNAIL_BYTES);
   if (value.thumbnail_base64 != null) validatePng(thumbnailBytes, 640);
   return {
-    clientVersion,
-    title,
-    description,
-    category,
-    classification,
-    supporterOnly,
-    tags: selectedTags,
+    ...metadata,
     games: schema.games,
-    license,
     design,
     designBytes,
     previewBytes,

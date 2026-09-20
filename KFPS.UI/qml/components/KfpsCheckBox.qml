@@ -9,6 +9,10 @@ CheckBox {
     objectName: "KfpsCheckBox:" + root.text
 
     property bool dense: false
+    property bool crispText: true
+    font.pixelSize: Theme.px(dense ? 13 : 14)
+    font.family: Theme.fontFamily
+    font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
     property string toolTipText: ""
     readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : text
 
@@ -101,12 +105,10 @@ CheckBox {
         leftPadding: indicatorItem.implicitWidth + root.spacing
         rightPadding: 0
         text: root.text
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
-        font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
+        font: root.font
+        renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
         color: root.enabled ? Theme.text : Theme.subtle
-        opacity: root.hovered ? 1.0 : 0.92
-        Behavior on opacity { enabled: !Theme.reducedMotion; NumberAnimation { duration: 100 } }
+        opacity: 1.0
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
         maximumLineCount: 2

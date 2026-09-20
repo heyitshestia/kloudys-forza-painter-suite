@@ -12,13 +12,14 @@ import type { ArtworkClassification, Env, SessionUser, ValidatedUpload } from ".
 import { CATEGORIES, GAMES, validateClassification, validateTags, validateUpload } from "./validation";
 import { compareKfpsVersions, effectiveMinimumUploadVersion, getVersionPolicy, maybeSyncVersionPolicy } from "./version_policy";
 import { hasActiveSupporter, requireActiveSupporter } from "./supporter";
+import { assertAvailable, AVAILABLE_SQL } from "./availability";
 
 const MAX_UPLOAD_BODY = 34 * 1024 * 1024;
 export const NEW_ARTWORK_UPLOAD_LIMIT = 50;
 export const NEW_ARTWORK_UPLOAD_WINDOW_SECONDS = 30 * 60;
 export const FEATURED_ARTWORK_LIMIT = 8;
-const SORTS = new Set(["featured", "trending", "new", "downloads", "favorites", "name"]);
-const SCOPES = new Set(["featured", "browse", "supporters", "mine", "favorites", "following"]);
+const SORTS = new Set(["featured", "trending", "new", "downloads", "favorites", "name", "votes"]);
+const SCOPES = new Set(["featured", "browse", "supporters", "mine", "favorites", "following", "timed"]);
 const SCHEMA_LABELS: Record<string, string> = {
   "legacy-kfps": "Legacy KFPS-compatible JSON",
   "kfps-community": "KFPS Community JSON",
@@ -66,6 +67,13 @@ function artworkJson(row: Record<string, unknown>, user: SessionUser | null = nu
   const schemaKnown = Boolean(row.schema_known);
   return {
     id,
+    kind: String(row.kind || 'vinyl'),
+    car: String(row.car || ''),
+    starts_at: row.starts_at || null,
+    ends_at: row.ends_at || null,
+    vote_score: integerValue(row.vote_score),
+    vote: integerValue(row.user_vote),
+    photo_urls: Array.from({ length: integerValue(row.photo_count) }, (_, index) => `/v1/artworks/${encodeURIComponent(id)}/photos/${index}`),
     title: String(row.title || "Untitled"),
     description: String(row.description || ""),
     category: String(row.category || "Other"),
@@ -116,10 +124,11 @@ const ARTWORK_COLUMNS = `
   a.status, a.rejection_reason,
   a.featured, a.current_revision, a.content_hash, a.preview_hash, a.thumbnail_hash,
   a.download_count, a.favorite_count, a.created_at,
-  a.updated_at, a.published_at, u.username, u.avatar_url, u.bio AS creator_bio,
+  a.updated_at, a.published_at, a.kind, a.car, a.starts_at, a.ends_at, a.purged_at, a.vote_score, a.photo_count,
+  u.username, u.avatar_url, u.bio AS creator_bio,
   (SELECT COUNT(*) FROM follows ff WHERE ff.creator_id = u.id) AS creator_followers`;
 
-async function visibleArtwork(
+export async function visibleArtwork(
   env: Env,
   id: string,
   user: SessionUser | null,
@@ -127,12 +136,14 @@ async function visibleArtwork(
 ): Promise<Record<string, unknown>> {
   const row = await env.DB.prepare(
     `SELECT ${ARTWORK_COLUMNS},
+       (SELECT value FROM artwork_votes av WHERE av.artwork_id = a.id AND av.user_id = ?2) AS user_vote,
        EXISTS(SELECT 1 FROM favorites f WHERE f.artwork_id = a.id AND f.user_id = ?2) AS is_favorite,
        EXISTS(SELECT 1 FROM follows fw WHERE fw.creator_id = u.id AND fw.follower_id = ?2) AS is_followed
      FROM artworks a JOIN users u ON u.id = a.creator_id
      WHERE a.id = ?1 AND (a.status = 'published' OR a.creator_id = ?2) LIMIT 1`,
   ).bind(id, user?.id || "").first<Record<string, unknown>>();
   if (!row) throw new HttpError(404, "artwork_not_found");
+  assertAvailable(row, user, true);
   const publicFeaturedThumbnail = allowFeaturedSupporterThumbnail
     && Boolean(row.featured)
     && String(row.status) === "published";
@@ -145,6 +156,7 @@ async function visibleArtwork(
 export async function handleListArtworks(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const user = await optionalUser(request, env);
+  const gallery = url.searchParams.get('view') === 'gallery';
   const search = (url.searchParams.get("search") || "").trim().slice(0, 100).toLocaleLowerCase("en-US");
   const category = url.searchParams.get("category") || "All";
   const game = url.searchParams.get("game") || "All";
@@ -168,6 +180,15 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   if (scope === "supporters") requireActiveSupporter(user);
 
   const conditions: string[] = [];
+  if (!gallery) conditions.push("a.kind = 'vinyl'");
+  if (gallery && url.searchParams.get('kind') && url.searchParams.get('kind') !== 'All') {
+    if (!['vinyl', 'livery'].includes(url.searchParams.get('kind')!)) throw new HttpError(400, 'invalid_kind');
+    conditions.push(url.searchParams.get('kind') === 'livery' ? "a.kind = 'livery'" : "a.kind = 'vinyl'");
+  }
+  if (scope !== 'mine') conditions.push(AVAILABLE_SQL);
+  else conditions.push("a.purged_at IS NULL AND (a.ends_at IS NULL OR a.ends_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
+  if (scope === 'timed') conditions.push('a.ends_at IS NOT NULL');
+  if (gallery && url.searchParams.get('supporters') === '1') conditions.push('a.supporter_only = 1');
   const parameters: unknown[] = [];
   const bind = (value: unknown): string => {
     parameters.push(value);
@@ -188,7 +209,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   }
   if (scope === "featured") {
     conditions.push("a.featured = 1");
-  } else if (scope === "browse" || scope === "supporters" || scope === "following") {
+  } else if (!gallery && (scope === "browse" || scope === "supporters" || scope === "following")) {
     conditions.push("a.featured = 0");
   }
   if (scope === "favorites") {
@@ -197,7 +218,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   if (scope === "following") {
     conditions.push(`EXISTS(SELECT 1 FROM follows sw WHERE sw.creator_id = a.creator_id AND sw.follower_id = ${bind(user?.id || "")})`);
   }
-  if (scope === "featured") {
+  if (scope === "featured" || gallery) {
     // Curated metadata and compact thumbnails are visible to everyone. Full
     // supporter previews and JSON downloads remain protected by asset routes.
   } else if (scope === "supporters") {
@@ -205,7 +226,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   } else if (scope === "browse" || !supporterActive) {
     conditions.push("a.supporter_only = 0");
   }
-  if (search && scope !== "featured") {
+  if (search && (gallery || scope !== "featured")) {
     const fts = scope === "mine" ? "" : fullTextQuery(search);
     if (fts) {
       conditions.push(`a.id IN (SELECT artwork_id FROM artwork_search WHERE artwork_search MATCH ${bind(fts)})`);
@@ -215,18 +236,19 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
       conditions.push(`(lower(a.title) LIKE ${token} ESCAPE '\\' OR lower(a.description) LIKE ${token} ESCAPE '\\' OR lower(a.tags_json) LIKE ${token} ESCAPE '\\' OR lower(u.username) LIKE ${token} ESCAPE '\\')`);
     }
   }
-  if (category !== "All" && scope !== "featured") {
+  if (category !== "All" && (gallery || scope !== "featured")) {
     if (!(CATEGORIES as readonly string[]).includes(category)) throw new HttpError(400, "invalid_category");
     conditions.push(`a.category = ${bind(category)}`);
   }
-  if (game !== "All" && scope !== "featured") {
+  if (game !== "All" && (gallery || scope !== "featured")) {
     if (!(GAMES as readonly string[]).includes(game)) throw new HttpError(400, "invalid_game");
     conditions.push(`EXISTS(SELECT 1 FROM json_each(a.games_json) WHERE value = ${bind(game)})`);
   }
-  if (classification && scope !== "featured") conditions.push(`a.classification = ${bind(classification)}`);
-  if (creator && scope !== "featured") conditions.push(`u.username_norm = ${bind(creator)}`);
+  if (classification && (gallery || scope !== "featured")) conditions.push(`a.classification = ${bind(classification)}`);
+  if (creator && (gallery || scope !== "featured")) conditions.push(`u.username_norm = ${bind(creator)}`);
 
   const orderBy: Record<string, string> = {
+    votes: "a.vote_score DESC, a.published_at DESC, a.id DESC",
     featured: "a.featured DESC, a.published_at DESC, a.id DESC",
     trending: "((a.download_count + a.favorite_count * 4.0 + a.featured * 20.0) / MAX(2.0, julianday('now') - julianday(a.published_at) + 2.0)) DESC, a.published_at DESC",
     new: "a.published_at DESC, a.id DESC",
@@ -240,6 +262,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   const offsetToken = bind((page - 1) * limit);
   const query = `
     SELECT ${ARTWORK_COLUMNS},
+      (SELECT value FROM artwork_votes av WHERE av.artwork_id = a.id AND av.user_id = ${userToken}) AS user_vote,
       EXISTS(SELECT 1 FROM favorites f WHERE f.artwork_id = a.id AND f.user_id = ${userToken}) AS is_favorite,
       EXISTS(SELECT 1 FROM follows fw WHERE fw.creator_id = u.id AND fw.follower_id = ${userToken}) AS is_followed
     FROM artworks a JOIN users u ON u.id = a.creator_id
@@ -375,6 +398,8 @@ async function ownerRemovedArtwork(
          ON r.artwork_id = a.id AND r.revision = a.current_revision
       WHERE a.creator_id = ?1
         AND a.status = 'removed'
+        AND a.kind = 'vinyl' AND a.purged_at IS NULL
+        AND (a.ends_at IS NULL OR julianday(a.ends_at) > julianday('now'))
         AND a.content_hash = ?2
         AND r.content_hash = ?2
         AND (SELECT me.action FROM moderation_events me
@@ -525,6 +550,7 @@ async function restoreOwnerRemovedArtwork(
                 license = ?14, shape_count = ?15, group_count = ?16, uses_masks = ?21,
                  content_hash = ?3, preview_hash = ?17, thumbnail_hash = ?18,
                 updated_at = ?19, classification = ?20, supporter_only = ?22,
+                starts_at = ?23, ends_at = ?24,
                 published_at = CASE WHEN ?6 = 'published' THEN COALESCE(published_at, ?19) ELSE published_at END
           WHERE id = ?1 AND creator_id = ?2 AND status = 'removed' AND content_hash = ?3
             AND EXISTS(
@@ -541,6 +567,7 @@ async function restoreOwnerRemovedArtwork(
         upload.license, upload.shapeCount, upload.groupCount,
          upload.previewHash, upload.thumbnailHash, now,
         classification, upload.usesMasks ? 1 : 0, supporterOnly ? 1 : 0,
+        upload.startsAt, upload.endsAt,
        ),
     ];
     if (autoPublish) {
@@ -598,6 +625,7 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
     effectiveMinimumUploadVersion(env, versionPolicy),
     env.REQUIRE_MODERN_UPLOAD_CLIENT !== "0",
   );
+  const schedule = { startsAt: upload.startsAt || null, endsAt: upload.endsAt || null };
   if (upload.clientVersion !== "legacy"
       && compareKfpsVersions(upload.clientVersion, versionPolicy.minimumVersion) > 0) {
     ctx.waitUntil(maybeSyncVersionPolicy(env).catch((error) => {
@@ -621,8 +649,8 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
           id, creator_id, title, description, category, classification, supporter_only, tags_json, games_json,
           source_schema, schema_known, license, shape_count, group_count, status,
           content_hash, preview_hash, thumbnail_hash,
-          created_at, updated_at, published_at, uses_masks
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19, ?20, ?21)`,
+          created_at, updated_at, published_at, uses_masks, starts_at, ends_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19, ?20, ?21, ?22, ?23)`,
       ).bind(
         id, user.id, upload.title, upload.description, upload.category, upload.classification,
         upload.supporterOnly ? 1 : 0, JSON.stringify(upload.tags),
@@ -630,6 +658,7 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
         upload.license, upload.shapeCount, upload.groupCount, status,
         upload.contentHash, upload.previewHash, upload.thumbnailHash, now, autoPublish ? now : null,
         upload.usesMasks ? 1 : 0,
+        schedule.startsAt, schedule.endsAt,
       ),
       env.DB.prepare(
         `INSERT INTO artwork_revisions(
@@ -670,16 +699,22 @@ export async function handleCreateRevision(
 ): Promise<Response> {
   const user = await requireUser(request, env);
   const current = await env.DB.prepare(
-    "SELECT creator_id, current_revision, status, classification, supporter_only FROM artworks WHERE id = ?1 AND status <> 'removed' LIMIT 1",
+    "SELECT creator_id, current_revision, status, classification, supporter_only, kind, starts_at, ends_at, purged_at FROM artworks WHERE id = ?1 AND status <> 'removed' LIMIT 1",
   ).bind(id).first<{
     creator_id: string;
     current_revision: number;
     status: string;
     classification: ArtworkClassification;
     supporter_only: number;
+    kind: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    purged_at: string | null;
   }>();
   if (!current) throw new HttpError(404, "artwork_not_found");
   if (current.creator_id !== user.id) throw new HttpError(403, "not_artwork_owner");
+  assertAvailable(current, user, true);
+  if (current.kind !== 'vinyl' || current.ends_at) throw new HttpError(409, 'revision_not_supported', 'Upload a new livery or timed release instead of replacing its files.');
   await enforceRateLimit(env, user.id, "revision", 8, 3600);
   const value = await readJsonObject(request, MAX_UPLOAD_BODY);
   const changeNote = plainText(value.change_note, "change_note", 240, true);
@@ -816,14 +851,14 @@ export async function handleArtworkAsset(
   if (kind !== "download") {
     headers.set(
       "Cache-Control",
-      row.status === "published" && (!Boolean(row.supporter_only) || (kind === "thumbnail" && Boolean(row.featured)))
+      !row.ends_at && row.status === "published" && (!Boolean(row.supporter_only) || (kind === "thumbnail" && Boolean(row.featured)))
         ? "public, max-age=3600, stale-while-revalidate=86400"
         : "private, no-store",
     );
   } else {
     if (!user) throw new HttpError(401, "authentication_required");
     const safeTitle = String(row.title || "community-artwork").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) || "community-artwork";
-    headers.set("Content-Disposition", `attachment; filename="${safeTitle}.json"`);
+    headers.set("Content-Disposition", `attachment; filename="${safeTitle}${row.kind === 'livery' ? '.kfpslivery' : '.json'}"`);
     headers.set("Cache-Control", "private, no-store");
     if (row.status === "published") {
       ctx.waitUntil(recordDownload(env, id, user));

@@ -74,7 +74,8 @@ Item {
         visible: root.currentPage === "community"
         active: root.retainAfterFirstLoad(communityLoader, visible)
         asynchronous: true
-        source: "../pages/CommunityPage.qml"
+        source: (typeof communityPreviewMode !== "undefined" && communityPreviewMode) || (typeof communityGalleryMode !== "undefined" && communityGalleryMode)
+                ? "../community-preview/CommunityPreview.qml" : "../pages/CommunityPage.qml"
         onLoaded: root.pageLoaded("community", item)
     }
 

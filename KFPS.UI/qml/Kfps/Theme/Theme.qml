@@ -297,6 +297,10 @@ QtObject {
         return Math.round(value)
     }
 
+    function typeSize(value) {
+        return Math.max(12, Math.round(value))
+    }
+
     function logical(value) {
         return value
     }

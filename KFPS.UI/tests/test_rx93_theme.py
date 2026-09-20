@@ -85,14 +85,18 @@ class Rx93ThemeTests(unittest.TestCase):
         for token in ("comboHighlight", "helpCategorySelected", "helpTopicSelected", "helpBadgeSelected", "checkboxCheckedSurface"):
             self.assertGreaterEqual(contrast(palette["primaryText"], palette[token]), 4.5, token)
 
-    def test_old_palettes_leave_new_hooks_empty(self):
+    def test_old_palettes_leave_custom_surfaces_empty_and_reserve_frame_space(self):
+        frame_metrics = {
+            "PaletteApexVector.qml": "({workspaceLeftInset: 34, workspaceRightInset: 24})",
+            "PaletteNightCity2077.qml": "({workspaceLeftInset: 34, workspaceRightInset: 30, workspaceBottomInset: 24})",
+        }
         for path in PALETTE.parent.glob("Palette*.qml"):
             if path == PALETTE:
                 continue
             source = path.read_text(encoding="utf-8")
             for hook in ("controlSurfaceComponentFile", "panelSurfaceComponentFile", "sidebarSurfaceComponentFile", "sidebarHeaderComponentFile", "titleBarContentComponentFile"):
                 self.assertIn(f'property string {hook}: ""', source, path.name)
-            self.assertIn('property var chromeMetrics: ({})', source)
+            self.assertIn('property var chromeMetrics: ' + frame_metrics.get(path.name, '({})'), source, path.name)
 
     def test_custom_buttons_do_not_construct_legacy_decoration(self):
         for name in ("PrimaryButton.qml", "GhostButton.qml", "NavButton.qml"):

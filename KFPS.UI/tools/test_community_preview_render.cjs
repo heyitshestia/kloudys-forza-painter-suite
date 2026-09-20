@@ -1,0 +1,50 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const {chromium} = require('playwright');
+const sharp = require('sharp');
+const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+
+(async () => {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${config.port}`, {noDefaults: true});
+  const page = browser.contexts().flatMap(c => c.pages()).find(p => p.url() === config.url);
+  assert.ok(page, 'The actual embedded Community viewer must be open');
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  await page.waitForFunction(() => window.__kfpsViewerDiagnostics?.().ready);
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  const canvas = page.locator('#canvas');
+  const before = await canvas.screenshot({path: path.join(config.output, '3d-before.png')});
+  const box = await canvas.boundingBox();
+  await page.mouse.move(box.x + box.width * .55, box.y + box.height * .55);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * .7, box.y + box.height * .65, {steps: 24});
+  await page.mouse.up();
+  await page.mouse.wheel(0, -180);
+  await page.waitForTimeout(500);
+  const after = await canvas.screenshot({path: path.join(config.output, '3d-after-orbit-zoom.png')});
+  assert.ok(!before.equals(after), 'Dragging/zooming must change the real rendered image');
+  await page.mouse.down({button: 'right'});
+  await page.mouse.move(box.x + box.width * .6, box.y + box.height * .55, {steps: 16});
+  await page.mouse.up({button: 'right'});
+  await page.locator('#wheels').click();
+  await page.locator('#wheels').click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Viewer status/preference updates must not reload the page');
+  const cases = [];
+  for (const [width, height] of [[1600, 900], [460, 700]]) {
+    await page.setViewportSize({width, height});
+    await page.locator('#reset').click();
+    await page.waitForTimeout(500);
+    const png = await canvas.screenshot({path: path.join(config.output, `3d-${width}.png`)});
+    const stats = await sharp(png).stats();
+    assert.ok(stats.channels.slice(0, 3).some(channel => channel.stdev > 12), 'Blank or nearly blank canvas');
+    const diagnostics = await page.evaluate(() => window.__kfpsViewerDiagnostics());
+    assert.ok(diagnostics.ready && diagnostics.rendering.triangles > 0);
+    cases.push({width, height, triangles: diagnostics.rendering.triangles, deviation: stats.channels.slice(0, 3).map(c => c.stdev)});
+  }
+  assert.deepEqual(errors, []);
+  fs.writeFileSync(path.join(config.output, 'render-checks.json'), JSON.stringify({passed: true, cases, errors}, null, 2));
+  console.log('PASS: real Community car orbit, pan, zoom, desktop and narrow canvas pixels');
+  await browser.close();
+})().catch(error => { console.error(error); process.exitCode = 1; });

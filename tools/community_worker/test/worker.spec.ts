@@ -7,6 +7,10 @@ import {
   NEW_ARTWORK_UPLOAD_WINDOW_SECONDS,
 } from "../src/catalog";
 import { validateUpload } from "../src/validation";
+import { purgeExpiredArtwork } from '../src/availability';
+import { validateLivery } from '../src/livery_upload';
+import { sha256Hex } from '../src/security';
+import { zipSync, strToU8 } from 'fflate';
 
 const ADMIN_TOKEN = "local-test-admin-token-that-is-at-least-32-characters";
 const PREVIEW = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAABY0lEQVR42u3bu3HCQBQFUNhRSCjqIXcVDinJIVWQUw9FyJFDm2GMdi9658Z8du7x20Vg7efDvOxkWJoKAAAQAAAEAAABAEAAAJB+mZ59wv30pbUHOd7OJsAWJAAACAAAAgCAAAAgAAAIAAACAIAASMn0diu+fDx+zOcVQPfSf3t8OMa0qeL/eo1QiLbp8td8vU0DrFVWIEIrU34oQitVfiBCK1d+GEIrWX4QQitbfsj7+yqi9ASkHIYD12ECHMIAam8/g9djAmxBAAQAAAEAQAAA6Je0H8kHrccE2IIAlBv7pHWYgPJb0OgpGPz+rfQWELAF5mxBvcsIOX+yzoBepQRdg+QdwmuXE3YBmPkpaK2SAv9FPfdj6KvLCr0/IPsGjZ/S/vODuTtkXvzX6x6x4hduZc6AIgEAAIAAACAAAAgAAAIAgAAAIAAACIDtZz8f5kUNJgCAAAAgAAAIAAACAID0yTeWyzlJHL1/wAAAAABJRU5ErkJggg==";
@@ -167,6 +171,166 @@ beforeEach(async () => {
     env.DB.prepare("DELETE FROM users"),
   ]);
   await clearR2();
+});
+
+describe('integrated gallery', () => {
+  async function liveryRequest(token: string, extra = {}) {
+    const entries = { 'source/fh6/C_livery': strToU8('synthetic'), 'livery/layers.json': strToU8('{}'),
+      'mesh/vehicle.json': strToU8('{}'), 'projection/index.json': strToU8('{}') };
+    const manifest = { format: 'kfps_full_livery_package_v1', format_version: 1, compiler_revision: 11,
+      source: { game: 'fh6', owned: true }, sharing: { exportable: true, contains_foreign_vinyl_groups: false },
+      livery: { target_car_id: 100, decoded_layer_count: 42 },
+      files: await Promise.all(Object.entries(entries).map(async ([path, data]) => ({ path, size: data.length, sha256: await sha256Hex(data) }))),
+    };
+    const archive = zipSync({ ...entries, 'manifest.json': strToU8(JSON.stringify(manifest)) },
+      { mtime: new Date('2026-01-01T00:00:00Z') });
+    const form = new FormData();
+    form.set('metadata', JSON.stringify({ ...uploadBody(), photo_count: 1, ...extra }));
+    form.set('package', new File([archive], 'test.kfpslivery'));
+    form.set('photo0', new File([Uint8Array.from(atob(PREVIEW), c => c.charCodeAt(0))], 'photo.png'));
+    form.set('thumbnail', new File([Uint8Array.from(atob(PREVIEW_TWO), c => c.charCodeAt(0))], 'thumb.png'));
+    return SELF.fetch('https://community.test/v1/liveries', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+  }
+
+  it('stores livery packages/photos privately, hides them from old clients, and supports owner restoration', async () => {
+    const token = await account('x', 'GalleryTester');
+    const uploaded = await liveryRequest(token);
+    expect(uploaded.status).toBe(201);
+    const { artwork: { id } } = await uploaded.json() as any;
+    await env.DB.prepare("UPDATE artworks SET status = 'published' WHERE id = ?1").bind(id).run();
+    expect((await (await jsonFetch('/v1/artworks?view=gallery&scope=browse')).json() as any).items).toHaveLength(1);
+    expect((await (await jsonFetch('/v1/artworks?scope=browse')).json() as any).items).toHaveLength(0);
+    for (const asset of ['download', 'photos/0']) {
+      expect((await jsonFetch(`/v1/artworks/${id}/${asset}`)).status).toBe(401);
+      const response = await jsonFetch(`/v1/artworks/${id}/${asset}`, 'GET', undefined, token);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+    }
+    const file = await jsonFetch(`/v1/artworks/${id}/download`, 'GET', undefined, token);
+    expect(file.headers.get('content-disposition')).toContain('.kfpslivery');
+    expect((await jsonFetch(`/v1/artworks/${id}`, 'DELETE', undefined, token)).status).toBe(200);
+    const restored = await liveryRequest(token);
+    expect(restored.status).toBe(201);
+    expect(await restored.json()).toMatchObject({ restored: true, original_details_retained: true });
+  });
+
+  it('enforces supporter authorization on livery photos, files and votes', async () => {
+    const token = await account('x', 'GalleryTester');
+    const viewer = await account('y', 'GalleryVisitor');
+    await verifySupporter(token);
+    const uploaded = await liveryRequest(token, { supporter_only: true });
+    expect(uploaded.status).toBe(201);
+    const { artwork: { id } } = await uploaded.json() as any;
+    await env.DB.prepare("UPDATE artworks SET status = 'published' WHERE id = ?1").bind(id).run();
+    for (const path of ['download', 'photos/0', 'preview']) {
+      expect((await jsonFetch(`/v1/artworks/${id}/${path}`, 'GET', undefined, viewer)).status).toBe(404);
+      expect((await jsonFetch(`/v1/artworks/${id}/${path}`, 'GET', undefined, token)).status).toBe(200);
+    }
+    expect((await jsonFetch(`/v1/artworks/${id}/vote`, 'POST', { vote: 1 }, viewer)).status).toBe(404);
+  });
+
+  it('retries cleanup after an R2 failure without marking retained files purged', async () => {
+    const token = await account('x', 'GalleryTester');
+    const id = await published(token);
+    await env.DB.prepare("UPDATE artworks SET ends_at = '2000-01-01T00:00:00.000Z' WHERE id = ?1").bind(id).run();
+    const failing = new Proxy(env.ASSETS, { get(target, key) {
+      if (key === 'delete') return async () => { throw new Error('synthetic storage outage'); };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    expect(await purgeExpiredArtwork({ ...env, ASSETS: failing })).toEqual({ purged: 0, failed: 1 });
+    const row = await env.DB.prepare('SELECT purged_at FROM artworks WHERE id = ?1').bind(id).first();
+    expect(row?.purged_at).toBeNull();
+    expect(await purgeExpiredArtwork(env)).toEqual({ purged: 1, failed: 0 });
+  });
+
+  async function published(token: string, extra = {}) {
+    const result = await jsonFetch('/v1/artworks', 'POST', { ...uploadBody(), ...extra }, token);
+    expect(result.status).toBe(201);
+    const data = await result.json() as { artwork: { id: string } };
+    await env.DB.prepare("UPDATE artworks SET status = 'published' WHERE id = ?1").bind(data.artwork.id).run();
+    return data.artwork.id;
+  }
+
+  it('supports idempotent upvotes, switching, clearing and authentication', async () => {
+    const token = await account('x', 'GalleryTester');
+    const id = await published(token);
+    expect((await jsonFetch(`/v1/artworks/${id}/vote`, 'POST', { vote: 1 })).status).toBe(401);
+    for (const vote of [1, 1, -1, -1, 0, 0]) {
+      const response = await jsonFetch(`/v1/artworks/${id}/vote`, 'POST', { vote }, token);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ vote, vote_score: vote });
+    }
+    for (const vote of [true, 2, '1', 0.1, null]) {
+      expect((await jsonFetch(`/v1/artworks/${id}/vote`, 'POST', { vote }, token)).status).toBe(400);
+    }
+  });
+
+  it('keeps featured entries discoverable in the new browse without changing the old browse', async () => {
+    const token = await account('x', 'GalleryTester');
+    const id = await published(token);
+    await env.DB.prepare('UPDATE artworks SET featured = 1 WHERE id = ?1').bind(id).run();
+    const old = await (await jsonFetch('/v1/artworks?scope=browse')).json() as any;
+    const gallery = await (await jsonFetch('/v1/artworks?scope=browse&view=gallery')).json() as any;
+    expect(old.items).toHaveLength(0);
+    expect(gallery.items.map((item: any) => item.id)).toEqual([id]);
+    expect(gallery.items[0]).toMatchObject({ kind: 'vinyl', photo_urls: [], vote: 0, vote_score: 0 });
+  });
+
+  it('hides upcoming and expired releases through every normal route and deletes all revisions', async () => {
+    const token = await account('x', 'GalleryTester');
+    const other = await account('y', 'GalleryVisitor');
+    const starts_at = new Date(Date.now() + 3600000).toISOString();
+    const ends_at = new Date(Date.now() + 7200000).toISOString();
+    const id = await published(token, { starts_at, ends_at });
+    expect((await jsonFetch(`/v1/artworks/${id}/download`, 'GET', undefined, other)).status).toBe(404);
+    expect((await jsonFetch(`/v1/artworks/${id}/download`, 'GET', undefined, token)).status).toBe(200);
+    let catalog = await (await jsonFetch('/v1/artworks?view=gallery&scope=timed')).json() as any;
+    expect(catalog.items).toHaveLength(0);
+    await env.DB.prepare('UPDATE artworks SET starts_at = ?2 WHERE id = ?1').bind(id, new Date(Date.now() - 10000).toISOString()).run();
+    catalog = await (await jsonFetch('/v1/artworks?view=gallery&scope=timed')).json() as any;
+    expect(catalog.items).toHaveLength(1);
+    const image = await jsonFetch(`/v1/artworks/${id}/preview`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('cache-control')).toBe('private, no-store');
+    await env.ASSETS.put(`artworks/${id}/r4/old-file`, 'older revision');
+    await env.DB.prepare('UPDATE artworks SET ends_at = ?2 WHERE id = ?1').bind(id, new Date(Date.now() - 1).toISOString()).run();
+    for (const route of ['', '/preview', '/thumbnail', '/download', '/photos/0']) {
+      expect((await jsonFetch(`/v1/artworks/${id}${route}`, 'GET', undefined, token)).status).toBe(404);
+    }
+    expect((await jsonFetch(`/v1/artworks/${id}/vote`, 'POST', { vote: 1 }, token)).status).toBe(404);
+    expect(await purgeExpiredArtwork(env)).toEqual({ purged: 1, failed: 0 });
+    expect((await env.ASSETS.list({ prefix: `artworks/${id}/` })).objects).toHaveLength(0);
+    expect(await purgeExpiredArtwork(env)).toEqual({ purged: 0, failed: 0 });
+  });
+
+  it('rejects invalid or already-ended schedules without publishing', async () => {
+    const token = await account('x', 'GalleryTester');
+    for (const schedule of [{ starts_at: 'tomorrow', ends_at: 'later' },
+      { starts_at: '2020-01-01T00:00:00Z', ends_at: '2020-01-02T00:00:00Z' },
+      { starts_at: new Date(Date.now() + 10000).toISOString() }]) {
+      expect((await jsonFetch('/v1/artworks', 'POST', { ...uploadBody(), ...schedule }, token)).status).toBe(400);
+    }
+    expect((await env.ASSETS.list()).objects).toHaveLength(0);
+  });
+
+  it('validates package paths, hashes and sharing policy before storage', async () => {
+    const entries: Record<string, Uint8Array> = {
+      'source/fh6/C_livery': strToU8('synthetic source'), 'livery/layers.json': strToU8('{}'),
+      'mesh/vehicle.json': strToU8('{}'), 'projection/index.json': strToU8('{}'),
+    };
+    const manifest = { format: 'kfps_full_livery_package_v1', format_version: 1, compiler_revision: 11,
+      source: { game: 'fh6', owned: true }, sharing: { exportable: true, contains_foreign_vinyl_groups: false },
+      livery: { target_car_id: 1478, decoded_layer_count: 1000 },
+      files: await Promise.all(Object.entries(entries).map(async ([path, data]) => ({ path, size: data.length, sha256: await sha256Hex(data) }))),
+    };
+    const build = (meta = manifest) => zipSync({ ...entries, 'manifest.json': strToU8(JSON.stringify(meta)) });
+    expect(await validateLivery(build())).toEqual({ car: '1478', shapes: 1000 });
+    await expect(validateLivery(build({ ...manifest, source: { game: 'fh6', owned: false } }))).rejects.toThrow();
+    await expect(validateLivery(zipSync({ ...entries, '../secret.exe': strToU8('no'), 'manifest.json': strToU8(JSON.stringify(manifest)) }))).rejects.toThrow();
+    entries['livery/layers.json'] = strToU8('tampered');
+    await expect(validateLivery(build())).rejects.toThrow();
+  });
 });
 
 describe("community worker", () => {
@@ -1007,6 +1171,22 @@ describe("community worker", () => {
       "SELECT action FROM moderation_events WHERE artwork_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
     ).bind(first.artwork.id).first<{ action: string }>())?.action).toBe("owner_restored");
     expect((await env.ASSETS.list()).objects).toHaveLength(3);
+  });
+
+  it('preserves a new schedule when restoring and never resurrects expired files', async () => {
+    const token = await account('schedule-restore', 'ScheduleRestore');
+    const body = uploadBody(6251);
+    const first = await (await jsonFetch('/v1/artworks', 'POST', body, token)).json() as any;
+    const id = first.artwork.id;
+    expect((await jsonFetch(`/v1/artworks/${id}`, 'DELETE', undefined, token)).status).toBe(200);
+    const starts_at = new Date(Date.now() + 3600000).toISOString();
+    const ends_at = new Date(Date.now() + 7200000).toISOString();
+    const restored = await jsonFetch('/v1/artworks', 'POST', { ...body, starts_at, ends_at }, token);
+    expect(restored.status).toBe(201);
+    expect(await restored.json()).toMatchObject({ restored: true, artwork: { id, starts_at, ends_at } });
+    expect((await jsonFetch(`/v1/artworks/${id}`, 'DELETE', undefined, token)).status).toBe(200);
+    await env.DB.prepare("UPDATE artworks SET ends_at = '2020-01-01T00:00:00.000Z' WHERE id = ?1").bind(id).run();
+    expect((await jsonFetch('/v1/artworks', 'POST', body, token)).status).toBe(409);
   });
 
   it("lets an owner choose a new audience only when restoring an owner-removed design", async () => {

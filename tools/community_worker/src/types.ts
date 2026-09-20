@@ -66,6 +66,8 @@ export interface DetectedSchema {
 export type ArtworkClassification = "handmade" | "toolmade";
 
 export interface ValidatedUpload {
+  startsAt?: string | null;
+  endsAt?: string | null;
   clientVersion: string;
   title: string;
   description: string;

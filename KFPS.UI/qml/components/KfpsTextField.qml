@@ -29,11 +29,9 @@ TextField {
     selectedTextColor: Theme.primaryText
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(Theme.technicalTypographyEnabled
-                             ? (dense ? 11.75 : 13.0)
-                             : (dense ? 10.5 : 11.5))
+    font.pixelSize: Theme.px(dense ? 13 : 14)
     font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
-    renderType: TextInput.NativeRendering
+    renderType: TextInput.CurveRendering
     font.hintingPreference: Font.PreferFullHinting
     verticalAlignment: TextInput.AlignVCenter
     selectByMouse: true

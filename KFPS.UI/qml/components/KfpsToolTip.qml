@@ -36,7 +36,7 @@ ToolTip {
         font.letterSpacing: 0
         wrapMode: Text.Wrap
         lineHeight: 1.2
-        renderType: Text.NativeRendering
+        renderType: Text.CurveRendering
     }
 
     background: Item {

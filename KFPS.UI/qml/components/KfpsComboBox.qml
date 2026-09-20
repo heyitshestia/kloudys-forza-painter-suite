@@ -9,6 +9,7 @@ ComboBox {
     objectName: "KfpsComboBox"
 
     property bool dense: false
+    property bool crispText: true
     property real minimumWidth: Theme.px(96)
     property string toolTipText: ""
     property bool auditAllowOutsideFeedback: Theme.panelLocatorEnabled
@@ -27,7 +28,8 @@ ComboBox {
     topPadding: 0
     bottomPadding: 0
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+    font.pixelSize: Theme.px(dense ? 13 : 14)
+    font.weight: Font.Medium
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
 
@@ -41,6 +43,7 @@ ComboBox {
         text: root.displayText
         color: root.enabled ? Theme.text : Theme.subtle
         font: root.font
+        renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
         verticalAlignment: Text.AlignVCenter
         horizontalAlignment: Text.AlignLeft
         wrapMode: Text.NoWrap
@@ -212,6 +215,7 @@ ComboBox {
             }
             color: delegateRoot.highlighted ? Theme.primaryText : Theme.text
             font: root.font
+            renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignLeft
             elide: Text.ElideRight

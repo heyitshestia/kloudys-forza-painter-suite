@@ -41,6 +41,9 @@ import type { Env } from "./types";
 import { CATEGORIES, CLASSIFICATIONS, GAMES, LICENSES } from "./validation";
 import { effectiveMinimumUploadVersion, getVersionPolicy, publicVersionPolicy, syncVersionPolicy } from "./version_policy";
 import { handleClearSupporter, handleVerifySupporter } from "./supporter";
+import { handlePhoto, handleVote } from './gallery';
+import { purgeExpiredArtwork } from './availability';
+import { handleLiveryUpload, MAX_LIVERY_BYTES } from './livery_upload';
 
 const HTML_HEADERS = {
   "Cache-Control": "no-store",
@@ -88,6 +91,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     const versionPolicy = await getVersionPolicy(env);
     return jsonResponse({
       protocol: 1,
+      gallery: { version: 1, votes: true, timed_releases: true, livery_uploads: true,
+        maximum_livery_bytes: MAX_LIVERY_BYTES, maximum_photos: 3, maximum_photo_bytes: 2 * 1024 * 1024 },
       categories: CATEGORIES,
       games: GAMES,
       licenses: LICENSES,
@@ -124,6 +129,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   if (path === "/v1/artworks" && method === "GET") return handleListArtworks(request, env);
   if (path === "/v1/artworks" && method === "POST") return handleCreateArtwork(request, env, ctx);
+  if (path === '/v1/liveries' && method === 'POST') return handleLiveryUpload(request, env);
 
   let match = pathMatch(path, /^\/v1\/artworks\/([^/]+)$/);
   if (match && method === "GET") return handleArtworkDetail(request, env, match[0]!);
@@ -137,6 +143,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (match && method === "GET") return handleArtworkAsset(request, env, ctx, match[0]!, "download");
   match = pathMatch(path, /^\/v1\/artworks\/([^/]+)\/favorite$/);
   if (match && method === "POST") return handleFavorite(request, env, match[0]!);
+  match = pathMatch(path, /^\/v1\/artworks\/([^/]+)\/vote$/);
+  if (match && method === 'POST') return handleVote(request, env, match[0]!);
+  match = pathMatch(path, /^\/v1\/artworks\/([^/]+)\/photos\/([0-2])$/);
+  if (match && method === 'GET') return handlePhoto(request, env, match[0]!, Number(match[1]));
   match = pathMatch(path, /^\/v1\/artworks\/([^/]+)\/report$/);
   if (match && method === "POST") return handleReport(request, env, match[0]!);
   match = pathMatch(path, /^\/v1\/artworks\/([^/]+)\/revisions$/);
@@ -188,6 +198,7 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(purgeExpiredArtwork(env));
     const now = new Date().toISOString();
     const oldWindow = Math.floor(Date.now() / 1000) - 48 * 60 * 60;
     ctx.waitUntil(env.DB.batch([

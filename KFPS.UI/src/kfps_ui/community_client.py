@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -89,6 +90,29 @@ class CommunityApiClient:
             headers["Authorization"] = f"Bearer {self.token}"
         request = urllib.request.Request(self.url(path), method="GET", headers=headers)
         return self._open(request, maximum)
+
+    def multipart(self, path: str, metadata: dict, files: dict[str, tuple[str, bytes, str]]):
+        if not self.token:
+            raise CommunityApiError(401, "authentication_required", "Sign in before uploading artwork.")
+        boundary = "kfps-" + uuid.uuid4().hex
+        chunks = [f'--{boundary}\r\nContent-Disposition: form-data; name="metadata"\r\n\r\n'.encode(),
+                  json.dumps(metadata, ensure_ascii=False).encode("utf-8"), b"\r\n"]
+        for name, (filename, raw, content_type) in files.items():
+            if not name.isalnum() or any(c in filename + content_type for c in '\r\n"'):
+                raise ValueError("Invalid upload part.")
+            chunks.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\nContent-Type: {content_type}\r\n\r\n'.encode(), raw, b"\r\n"])
+        chunks.append(f'--{boundary}--\r\n'.encode())
+        if sum(map(len, chunks)) > 24 * 1024 * 1024:
+            raise CommunityApiError(413, "request_too_large", "The livery and its photos exceed the 24 MiB upload limit.")
+        request = urllib.request.Request(self.url(path), data=b"".join(chunks), method="POST", headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {self.token}",
+            "Accept": "application/json", "User-Agent": "KFPS-Community-Client/1",
+        })
+        raw, _ = self._open(request, 1024 * 1024)
+        try:
+            return json.loads(raw)
+        except ValueError as exc:
+            raise CommunityApiError(502, "invalid_service_response", "The upload response could not be read.") from exc
 
     @staticmethod
     def _open(request: urllib.request.Request, maximum: int):

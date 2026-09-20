@@ -46,7 +46,11 @@ def run_request(request_file: str | Path, result_file: str | Path, parent_pid: i
     try:
         diagnostic.event("operation_started")
         def progress(message: str) -> None:
-            write_json_atomic(session_dir / "progress.json", {"request_id": request_id, "message": message})
+            try:
+                write_json_atomic(session_dir / "progress.json", {"request_id": request_id, "message": message})
+            except OSError as exc:
+                # Windows readers may briefly deny replacement of this optional snapshot.
+                diagnostic.event("progress_update_failed", error_type=type(exc).__name__, error=str(exc))
             diagnostic.event("progress", message=message)
 
         value = execute_operation(request, cancel_event, progress=progress)

@@ -149,6 +149,19 @@ class SettingsService(QObject):
     def koreanDisplayLanguage(self):
         return self._korean_display_language
 
+    @Property(str, notify=changed)
+    def communityLanguage(self):
+        value = self._data.get("communityLanguage")
+        return value if value in ("en", "ko") else ("ko" if self._korean_display_language else "en")
+
+    @Slot(str)
+    def setCommunityLanguage(self, value):
+        if value not in ("en", "ko"):
+            return
+        self._data["communityLanguage"] = value
+        self.save()
+        self.changed.emit()
+
     @Property(bool, notify=changed)
     def dcinsideKoreanNoticeAcknowledged(self):
         return self._get("dcinsideKoreanNotice202609Acknowledged") is True

@@ -13,12 +13,16 @@ class QmlRefinementTests(unittest.TestCase):
     def read(self, relative: str) -> str:
         return (QML / relative).read_text(encoding="utf-8")
 
-    def test_buttons_use_symmetric_center_slots_and_fit_text(self):
+    def test_buttons_use_symmetric_center_slots_and_crisp_fixed_size_text(self):
         for name in ("PrimaryButton.qml", "GhostButton.qml"):
             text = self.read(f"components/{name}")
             self.assertIn("reserveSideSlots", text)
             self.assertIn("anchors.horizontalCenter: parent.horizontalCenter", text)
-            self.assertIn("fontSizeMode: Text.HorizontalFit", text)
+            self.assertIn("property bool crispText: true", text)
+            self.assertIn("fontSizeMode: root.crispText ? Text.FixedSize : Text.HorizontalFit", text)
+            self.assertIn("renderType: root.crispText ? Text.CurveRendering", text)
+            self.assertIn("elide: Text.ElideRight", text)
+            self.assertIn("buttonLabel.implicitWidth", text)
             self.assertIn("minimumPixelSize", text)
             self.assertIn("Layout.minimumHeight", text)
 

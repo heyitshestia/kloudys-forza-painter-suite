@@ -34,8 +34,26 @@ export async function readJsonObject(request: Request, maximumBytes: number): Pr
   if (contentType !== "application/json") throw new HttpError(415, "content_type_required");
   const declared = Number(request.headers.get("content-length") || "0");
   if (declared > maximumBytes) throw new HttpError(413, "request_too_large");
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > maximumBytes) throw new HttpError(413, "request_too_large");
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        length += part.value.byteLength;
+        if (length > maximumBytes) {
+          await reader.cancel();
+          throw new HttpError(413, 'request_too_large');
+        }
+        chunks.push(part.value);
+      }
+    } finally { reader.releaseLock(); }
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

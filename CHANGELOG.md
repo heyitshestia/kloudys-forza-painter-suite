@@ -1,5 +1,24 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.90
+
+### A New Community Gallery
+- Community now opens directly inside KFPS with a clearer artwork grid, search and filters, larger image previews, and theme-matched text and controls.
+- Open a creator's name to see their profile and scroll through their artwork. Favorites, follows, ignored creators, tags, revisions and your uploads remain available.
+- Added upvotes and downvotes, including changing or clearing your vote. Download and Favorite have equally sized, clearly labeled buttons.
+- Existing GitHub sign-ins and supporter verification are reused. Normal downloads remain available to signed-in members; supporter-only artwork still requires a verified key, with a Ko-Fi link when locked.
+
+### Livery Sharing and Timed Releases
+- Share supported FH6 full-livery packages with one to three PNG, JPEG or WebP photos. Open a photo to access a large interactive 3D preview using your locally installed FH6 car assets.
+- Closing the 3D preview stops its workers and removes its temporary files. Car assets are not included in community downloads.
+- Schedule an artwork's start and end time in your local time. Active releases appear in normal browsing and the dedicated Timed Releases tab.
+- Downloads stop at expiry; private files are then deleted by the scheduled cleanup job. Previously downloaded copies are unaffected.
+- Artwork files remain in private storage behind the existing account and supporter checks. This update adds no private messaging or new paid tier.
+
+### Validation
+- Tested live synthetic uploads, 3,000-shape vinyls, a 1,200-shape livery, photos, downloads, voting, revisions, scheduling and repeated 3D shutdowns. Test artwork is removed after qualification.
+- Existing app, Worker and updater compatibility checks remain part of publication. Full-livery sharing currently supports the existing FH6 package format, not new cross-game import support.
+
 ## 3.1.89
 
 ### More Reliable Generation Filenames

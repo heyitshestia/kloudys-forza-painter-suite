@@ -28,7 +28,7 @@ TextArea {
     font.family: Theme.fontFamily
     font.pixelSize: Theme.px(Theme.technicalTypographyEnabled ? 13.0 : 11.5)
     font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
-    renderType: TextEdit.NativeRendering
+    renderType: TextEdit.CurveRendering
     font.hintingPreference: Font.PreferFullHinting
     wrapMode: TextEdit.Wrap
     selectByMouse: true

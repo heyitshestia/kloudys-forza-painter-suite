@@ -76,6 +76,11 @@ def parse_args():
     parser.add_argument("--motion-capture-dir", help=argparse.SUPPRESS)
     parser.add_argument("--motion-preview", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--page", default="create")
+    parser.add_argument("--community-preview", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--community-preview-state", default="review", help=argparse.SUPPRESS)
+    parser.add_argument("--community-preview-test", nargs="?", const="workflows", choices=("workflows", "themes", "gallery"), help=argparse.SUPPRESS)
+    parser.add_argument("--community-preview-background", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--community-preview-minimized", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--community-tab", choices=("browse", "upload", "profile"), help=argparse.SUPPRESS)
     parser.add_argument(
         "--community-scope",
@@ -269,6 +274,17 @@ def run_source_download_blocker(
 
 def main():
     args = parse_args()
+    if args.community_preview_test:
+        args.community_preview = args.demo = True
+    gallery_test = args.community_preview_test == "gallery"
+    if gallery_test and os.environ.get("KFPS_COMMUNITY_API_URL") != "http://127.0.0.1:8793/v1":
+        raise SystemExit("Gallery qualification requires the isolated local Worker on port 8793.")
+    if args.community_preview:
+        if not (ROOT / ".git").exists():
+            raise SystemExit("The local Community preview is available only in a source checkout.")
+        name = args.community_preview_state
+        if len(name) > 64 or not name.replace("-", "").replace("_", "").isalnum():
+            raise SystemExit("Invalid local Community state name.")
     if args.theme_preview and not args.demo:
         raise SystemExit("--theme-preview is available only with --demo.")
     if args.thumbnail_worker:
@@ -327,11 +343,25 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     QQuickStyle.setStyle("Basic")
+    QQuickWindow.setTextRenderType(QQuickWindow.CurveTextRendering)
     QtWebEngineQuick.initialize()
     app = QApplication(sys.argv[:1])
     app.setApplicationDisplayName("KFPS")
 
     paths = AppPaths.discover()
+    community_preview = None
+    if args.community_preview:
+        if paths.app_root != ROOT:
+            raise SystemExit("The local Community preview must use this source checkout.")
+        from kfps_ui.community_preview_service import CommunityPreviewService, seed_catalog
+        state = ROOT / "runtime" / "community-preview" / args.community_preview_state
+        if not gallery_test:
+            community_preview = CommunityPreviewService(ROOT, state)
+            seed_catalog(community_preview.store, ROOT)
+            community_preview.refresh()
+        if args.community_preview_test:
+            from dataclasses import replace
+            paths = replace(paths, runtime_root=state / "shell")
     icon_path = paths.asset_root / "kfps-logo.png"
     app_icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
     if not app_icon.isNull():
@@ -340,6 +370,11 @@ def main():
     if source_guard.blocked:
         return run_source_download_blocker(app, paths, source_guard, args, app_icon)
     settings = SettingsService(paths.settings_file)
+    if args.community_preview_test:
+        settings._data.update(reducedMotion=True, ambientMotion=False,
+                              supportUpscalerNoticeAcknowledged=True,
+                              communityJoinNoticeAcknowledged=True,
+                              dcinsideKoreanNotice202609Acknowledged=True)
     theme_preview = normalize_theme(args.theme_preview) if args.theme_preview else ""
     if theme_preview:
         settings._data["theme"] = theme_preview
@@ -385,9 +420,16 @@ def main():
     background_remover = BackgroundRemoveService(paths, desktop, source, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
     community = CommunityService(
-        paths, desktop, logs, jsons=jsons, app_version=version.localVersion, demo=args.demo,
+        replace(paths, app_root=state / "sandbox") if gallery_test else paths,
+        desktop, logs, jsons=jsons, app_version=version.localVersion,
+        demo=False if gallery_test else args.demo or args.community_preview,
     )
-    supporter = SupporterService(paths.app_root)
+    community_gallery = None
+    if gallery_test or (not args.community_preview and not args.demo):
+        from kfps_ui.community_gallery_service import CommunityGalleryService
+        community_gallery = CommunityGalleryService(ROOT, community, settings)
+    supporter = (SupporterService(state / "shell", endpoint="") if args.community_preview_test
+                 else SupporterService(paths.app_root))
     community.supporterEntitlementRequested.connect(supporter.requestCommunityEntitlement)
     supporter.communityEntitlementReady.connect(community.applySupporterEntitlement)
     community.supporterRepairRequested.connect(supporter.repairActivation)
@@ -403,6 +445,8 @@ def main():
     supporter.changed.connect(enforce_available_theme)
     cgroup_library = CGroupLibraryService(paths, preview, jsons, logs, supporter=supporter, demo=args.demo)
     full_livery = FullLiveryService(paths, logs, supporter=supporter, demo=args.demo)
+    if community_gallery is not None:
+        community_gallery.liveryDownloaded.connect(full_livery.refreshPackages)
     generation = GenerationService(paths, logs)
     generation.generatedOutputsChanged.connect(jsons.refreshGeneratedOutputs)
     transfer = TransferService(paths, logs, jsons)
@@ -459,6 +503,15 @@ def main():
     )
     ctx.setContextProperty("demoMode", args.demo)
     ctx.setContextProperty("themePreviewUnlocked", bool(theme_preview))
+    ctx.setContextProperty("communityPreviewMode", bool(args.community_preview))
+    ctx.setContextProperty("communityGalleryMode", community_gallery is not None)
+    if args.community_preview_test:
+        ctx.setContextProperty("screenshotMode", True)
+    ctx.setContextProperty("preview", community_preview or community_gallery)
+    if community_preview is not None:
+        engine.addImageProvider("community-preview", community_preview.images)
+    if community_gallery is not None:
+        engine.addImageProvider("community-gallery", community_gallery.images)
 
     qml = paths.qml_root / "Main.qml"
     engine.addImportPath(str(paths.qml_root))
@@ -539,14 +592,30 @@ def main():
         app.aboutToQuit.connect(save_window_state)
 
     controller.navigate(args.page)
-    if placement.maximized and persist_window_state:
+    if args.community_preview_background:
+        window.setFlag(Qt.WindowDoesNotAcceptFocus, True)
+        window.setFlag(Qt.WindowStaysOnBottomHint, True)
+    if args.community_preview_minimized:
+        window.showMinimized()
+    elif placement.maximized and persist_window_state:
         window.showMaximized()
     else:
         window.show()
     development_harness = install_development_harness(
         app, window, controller, community, settings, jsons, args,
     )
+    if args.community_preview_test:
+        sys.path.insert(0, str(UI_ROOT / "tools"))
+        from test_community_preview_native import run_checks, run_theme_checks, QML_ERRORS
+        if gallery_test:
+            from test_community_gallery_native import run_gallery_checks
+            QTimer.singleShot(1500, lambda: run_gallery_checks(app, window, community_gallery, state, QML_ERRORS))
+        else:
+            check = run_theme_checks if args.community_preview_test == "themes" else run_checks
+            QTimer.singleShot(1500, lambda: check(app, window, community_preview, state, QML_ERRORS))
     shutdown_order = [
+        community_preview,
+        community_gallery,
         upscaler,
         background_remover,
         reports,

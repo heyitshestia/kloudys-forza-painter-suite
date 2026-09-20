@@ -24,5 +24,8 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
     "wrangler": "^4.110.0"
+  },
+  "dependencies": {
+    "fflate": "0.8.3"
   }
 }

@@ -1,7 +1,7 @@
 import QtQuick 6.7
 
 QtObject {
-    readonly property var chromeMetrics: ({})
+    readonly property var chromeMetrics: ({workspaceLeftInset: 34, workspaceRightInset: 30, workspaceBottomInset: 24})
     readonly property string titleBarContentComponentFile: ""
     readonly property string controlSurfaceComponentFile: ""
     readonly property string panelSurfaceComponentFile: ""

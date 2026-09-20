@@ -16,11 +16,12 @@ Button {
     property color labelColor: accentText ? Theme.primaryBright : Theme.text
     property bool showArrow: false
     property bool dense: false
+    property bool crispText: true
     property bool floatingOption: false
     property bool auditAllowOutsideFeedback: false
     property real minimumWidth: Theme.px(dense ? 74 : 96)
     property real maximumTextWidth: Number.POSITIVE_INFINITY
-    property real textPixelSize: Theme.px(dense ? 10.2 : 11.2)
+    property real textPixelSize: Theme.px(dense ? 13 : 14)
 
     readonly property bool checkedState: root.selected || (root.checkable && root.checked)
     readonly property color effectiveLabelColor: (Theme.terminalMode || Theme.angularControlsEnabled) && (checkedState || down)
@@ -51,11 +52,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.982 : 1.0)
+    scale: crispText || Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.982 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1) : 0
+        y: !root.crispText && root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1) : 0
         Behavior on y { enabled: !Theme.reducedMotion; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     }
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
@@ -393,7 +394,7 @@ Button {
         implicitHeight: Math.max(buttonLabel.implicitHeight, root.sideSlotWidth)
         clip: true
         transform: Translate {
-            y: root.down ? Theme.px(0.9) : 0
+            y: root.crispText ? 0 : (root.down ? Theme.px(0.9) : 0)
             Behavior on y {
                 enabled: !Theme.reducedMotion
                 NumberAnimation { duration: 82; easing.type: Easing.OutCubic }
@@ -423,14 +424,15 @@ Button {
             text: root.text
             color: root.effectiveLabelColor
             font.family: Theme.fontFamily
-            font.pixelSize: root.textPixelSize
+            font.pixelSize: Theme.typeSize(root.textPixelSize)
             font.weight: Font.DemiBold
-            font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
+            font.capitalization: Font.MixedCase
+            renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.NoWrap
             elide: Text.ElideRight
-            fontSizeMode: Text.HorizontalFit
+            fontSizeMode: root.crispText ? Text.FixedSize : Text.HorizontalFit
             minimumPixelSize: Theme.px(root.dense ? 8.2 : 9.2)
         }
 

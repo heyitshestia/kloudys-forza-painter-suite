@@ -15,7 +15,8 @@ Button {
     property bool dense: false
     property real minimumWidth: Theme.px(dense ? 88 : 112)
     property real maximumTextWidth: Number.POSITIVE_INFINITY
-    property real textPixelSize: Theme.px(dense ? 10.5 : 11.5)
+    property real textPixelSize: Theme.px(dense ? 13 : 14)
+    property bool crispText: true
 
     readonly property bool reserveSideSlots: Theme.iconGlyphsVisible && (iconName.length > 0 || showArrow)
     readonly property bool terminalInverted: Theme.terminalMode && root.hovered && !root.down
@@ -44,11 +45,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
-    scale: Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.978 : 1.0)
+    scale: crispText || Theme.terminalMode || Theme.classicMode ? 1.0 : (down ? 0.978 : 1.0)
 
     transform: Translate {
         id: hoverLift
-        y: root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1.2) : 0
+        y: !root.crispText && root.hovered && !root.down && !Theme.customFrameExclusive && !Theme.terminalMode && !Theme.classicMode ? -Theme.px(1.2) : 0
 
         Behavior on y {
             enabled: !Theme.reducedMotion
@@ -445,7 +446,7 @@ Button {
         implicitHeight: Math.max(buttonLabel.implicitHeight, root.sideSlotWidth)
         clip: true
         transform: Translate {
-            y: root.down ? Theme.px(1.2) : 0
+            y: root.crispText ? 0 : (root.down ? Theme.px(1.2) : 0)
             Behavior on y {
                 enabled: !Theme.reducedMotion
                 NumberAnimation { duration: 82; easing.type: Easing.OutCubic }
@@ -481,16 +482,17 @@ Button {
                       ? (root.hovered || root.down ? Theme.primaryText : Theme.text)
                       : Theme.primaryButtonText)
             font.family: Theme.fontFamily
-            font.pixelSize: root.textPixelSize
+            font.pixelSize: Theme.typeSize(root.textPixelSize)
             font.weight: Font.DemiBold
-            font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
-            style: Theme.terminalMode || Theme.classicMode || Theme.angularControlsEnabled ? Text.Normal : Text.Raised
+            font.capitalization: Font.MixedCase
+            renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
+            style: root.crispText || Theme.terminalMode || Theme.classicMode || Theme.angularControlsEnabled ? Text.Normal : Text.Raised
             styleColor: Theme.terminalMode || Theme.classicMode ? "transparent" : Theme.primaryButtonGlassTop
             verticalAlignment: Text.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.NoWrap
             elide: Text.ElideRight
-            fontSizeMode: Text.HorizontalFit
+            fontSizeMode: root.crispText ? Text.FixedSize : Text.HorizontalFit
             minimumPixelSize: Theme.px(root.dense ? 8.5 : 9.5)
         }
 

@@ -475,13 +475,6 @@ Button {
 
     contentItem: Loader {
         sourceComponent: root.compact ? compactContent : wideContent
-        transform: Translate {
-            y: root.down && root.active ? Theme.px(0.8) : 0
-            Behavior on y {
-                enabled: !Theme.reducedMotion
-                NumberAnimation { duration: 82; easing.type: Easing.OutCubic }
-            }
-        }
     }
 
     Component {
@@ -500,7 +493,7 @@ Button {
                     text: root.active ? ">" : (root.hovered ? ":" : " ")
                     color: root.active ? Theme.primaryText : Theme.text
                     font.family: Theme.monoFamily
-                    font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
+                    font.pixelSize: Theme.typeSize(root.dense ? 13 : 14)
                     font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -529,7 +522,8 @@ Button {
                               ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
                               : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted))
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(root.dense ? 11.5 : 13)
+                    font.pixelSize: Theme.typeSize(root.dense ? 13 : 14)
+                    renderType: Text.CurveRendering
                     font.weight: root.active ? Font.DemiBold : Font.Medium
                     font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
                     anchors.verticalCenter: parent.verticalCenter
@@ -589,7 +583,8 @@ Button {
                           ? (Theme.angularControlsEnabled ? Theme.primaryText : Theme.primaryButtonText)
                           : (Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted))
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.px(root.dense ? 8 : 9)
+                font.pixelSize: Theme.typeSize(12)
+                renderType: Text.CurveRendering
                 font.weight: Font.DemiBold
                 font.capitalization: Theme.terminalMode || Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
                 horizontalAlignment: Text.AlignHCenter

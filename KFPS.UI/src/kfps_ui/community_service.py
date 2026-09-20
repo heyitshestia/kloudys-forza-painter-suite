@@ -121,6 +121,7 @@ def configured_community_api_url(app_root):
 
 
 class CommunityService(QObject):
+    catalogInvalidated = Signal()
     changed = Signal()
     supporterEntitlementRequested = Signal(str)
     supporterRepairRequested = Signal()
@@ -645,6 +646,9 @@ class CommunityService(QObject):
 
     @Slot()
     def refresh(self):
+        if getattr(self, "gallery_managed", False):
+            self.catalogInvalidated.emit()
+            return
         if self.demo:
             self._apply_demo_catalog()
             self.changed.emit()
@@ -1376,6 +1380,19 @@ class CommunityService(QObject):
     def clearError(self):
         self._error = ""
         self.changed.emit()
+
+    def sessionClient(self):
+        """Capture credentials before dispatching a gallery background operation."""
+        return CommunityApiClient(self._base_url, self._token)
+
+    def galleryConfiguration(self):
+        return dict(self._config)
+
+    def downloadGalleryVinyl(self, record, client):
+        return self._download_artwork(normalize_artwork(record, client.url), client.token)
+
+    def acceptGalleryDownload(self, result):
+        self._apply_result("download", {"ok": True, "value": result})
 
     def _schedule_private_previews(self):
         if not self._token:

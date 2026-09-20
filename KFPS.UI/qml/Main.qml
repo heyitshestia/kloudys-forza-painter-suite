@@ -49,11 +49,13 @@ ApplicationWindow {
         }
     }
 
+    readonly property bool communityReviewPage: ((typeof communityPreviewMode !== "undefined" && communityPreviewMode)
+                                               || (typeof communityGalleryMode !== "undefined" && communityGalleryMode)) && appController.currentPage === "community"
     property bool compactSidebar: Theme.logical(width) < 1240
     property bool shortWindow: Theme.logical(height) < 760
     property bool compactHeader: Theme.logical(width) < 1280
     property real sidebarWidth: Theme.px(compactSidebar ? Metrics.compactSidebar : Metrics.wideSidebar)
-    property real headerHeight: Theme.px(shortWindow ? Metrics.compactHeaderHeight : Metrics.headerHeight)
+    property real headerHeight: Theme.px(communityReviewPage ? 40 : (shortWindow ? Metrics.compactHeaderHeight : Metrics.headerHeight))
     property real consoleExpandedHeight: Theme.px(shortWindow ? Metrics.compactConsoleHeight : Metrics.consoleHeight)
     property real consoleHeight: settings.consoleCollapsed
                                  ? Theme.px(Metrics.consoleCollapsedHeight)
@@ -280,13 +282,13 @@ ApplicationWindow {
                     id: joinServerButton
                     objectName: "JoinSupportServer"
                     text: "Join the server"
-                    iconName: "community"
+                    iconName: "heart"
                     dense: true
                     height: announcementTicker.height
                     textPixelSize: Theme.px(window.compactHeader ? 9.4 : 10.2)
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
-                    x: workspace.headerBannerX + Theme.px(5)
+                    x: window.communityReviewPage ? workspaceLayout.x : workspace.headerBannerX + Theme.px(5)
                     z: 24
                     toolTipText: "Join the KFPS Support Discord server."
                     onClicked: reportService.openDiscord()
@@ -294,17 +296,20 @@ ApplicationWindow {
 
                 AnnouncementTicker {
                     id: announcementTicker
-                    compact: window.compactHeader
+                    compact: window.communityReviewPage || window.compactHeader
                     visible: settings.liveStatusVisible
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
                     x: joinServerButton.x + joinServerButton.width + Theme.px(8)
-                    width: Math.max(Theme.px(1), workspace.headerBannerWidth - joinServerButton.width - Theme.px(18))
+                    width: Math.max(Theme.px(1), window.communityReviewPage
+                                   ? parent.width - x - Theme.px(14)
+                                   : workspace.headerBannerWidth - joinServerButton.width - Theme.px(18))
                     z: 24
                 }
 
                 HeaderControls {
                     id: headerControls
+                    visible: !window.communityReviewPage
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.right: parent.right
@@ -315,6 +320,7 @@ ApplicationWindow {
 
                 VersionPill {
                     id: versionPill
+                    visible: !window.communityReviewPage
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin
@@ -325,6 +331,7 @@ ApplicationWindow {
                 }
 
                 SupporterPill {
+                    visible: supporterService.unlocked && !window.communityReviewPage
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin + Theme.px(2)
@@ -357,10 +364,10 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: Theme.terminalMode ? 0 : Theme.px(12)
-                    anchors.rightMargin: Theme.terminalMode ? 0 : Theme.px(14)
+                    anchors.leftMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceLeftInset", 12))
+                    anchors.rightMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceRightInset", 14))
                     anchors.topMargin: window.headerHeight
-                    anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(11)
+                    anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceBottomInset", 11))
                     spacing: Theme.terminalMode ? 0 : Theme.px(10)
 
                     CachedPageHost {

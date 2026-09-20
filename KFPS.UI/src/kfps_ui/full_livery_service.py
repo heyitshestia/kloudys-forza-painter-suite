@@ -54,14 +54,14 @@ class FullLiveryService(QObject):
     )
     DECISION_ROLES = ("action", "item", "detail")
 
-    def __init__(self, paths: AppPaths, log: LogService, supporter=None, demo: bool = False, parent=None):
+    def __init__(self, paths: AppPaths, log: LogService, supporter=None, demo: bool = False, parent=None, *, experiment_paths=None):
         super().__init__(parent)
         self._closed = False
         self.paths = paths
         self.log = log
         # Retained for compatibility with launchers from the supporter-gated prototype.
         del supporter
-        self._experiment_paths = FullLiveryPaths.for_app(paths)
+        self._experiment_paths = experiment_paths or FullLiveryPaths.for_app(paths)
         self._experiment_paths.ensure()
         try:
             app_version = (paths.app_root / "VERSION").read_text(encoding="utf-8").strip()
@@ -81,6 +81,7 @@ class FullLiveryService(QObject):
             self._save_settings()
         self._save_root = str(self._settings.get("fh6_save_root") or "")
         self._active = False
+        self._package_preview_only = False
         self._resume_after_cancel = False
         self._running = False
         self._status = "Experimental · " + self._gate.stage.title()
@@ -748,6 +749,15 @@ class FullLiveryService(QObject):
             )
 
     @Slot(str)
+    def openPreviewPackage(self, path: str):
+        """Open a package without scanning saves or resuming a previous selection."""
+        if self._closed or not self._gate.can_preview:
+            return
+        self._active = True
+        self._package_preview_only = True
+        self.selectPackage(path)
+
+    @Slot(str)
     def selectPackage(self, path: str):
         if not self._gate.can_preview:
             return
@@ -1190,6 +1200,10 @@ class FullLiveryService(QObject):
                 f"Indexed {int(payload.get('vehicle_count') or 0):,} FH6 cars and projection contracts."
             )
             self.changed.emit()
+            if self._package_preview_only:
+                if self._current_manifest and self._selected_package:
+                    self._prepare_local_mesh(self._current_manifest, self._selected_package)
+                return
             self.scanSaves()
             return
         elif kind == "export":
