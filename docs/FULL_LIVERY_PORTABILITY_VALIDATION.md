@@ -51,8 +51,10 @@ projection sections.
 
 - Installation requires the package car ID and model code to match the local
   FH6 asset index exactly.
-- The exact-car source header supplies car-specific metadata; only recipient
-  identity and a fresh local asset identity are written into the new entry.
+- The original installer borrowed metadata from the exact-car source header.
+  As of the 2026-09-20 DIRTY fix, that header is only a car/count consistency
+  check. The destination gets a newly generated type-3 saved header, verified
+  recipient identity, and fresh GUID, without copied online/base metadata.
 - The source and rewritten payloads decode to identical artwork and warnings.
 - The destination is hash-inventoried before staging. A concurrent change aborts
   the transaction before commit.
@@ -63,6 +65,12 @@ projection sections.
   real 10-placement package, preserved all 645 existing file hashes, added only
   `C_livery`, `header`, and `bigThumb.webp`, and left the live save's complete
   hash inventory unchanged.
+- The 2026-09-20 isolated-worker check installed a real 2,559-placement package
+  twice into a 714-file save copy, plus an 8,793-placement synthetic package
+  into a vinyl-only account. Existing and live file hashes remained unchanged.
+  The account and header regressions are in
+  `KFPS.UI/tests/test_fh6_livery_identity.py`. This is save-file validation;
+  the affected user's package still needs an in-game retry.
 
 ## Chassis validation
 

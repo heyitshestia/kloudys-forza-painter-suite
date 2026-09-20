@@ -26,6 +26,10 @@ class FH6IdentityError(ValueError):
     pass
 
 
+class FH6CreatorNameNotFound(FH6IdentityError):
+    """The account is verified, but no usable vinyl creator name exists."""
+
+
 class FH6DestinationChoiceRequired(FH6IdentityError):
     pass
 
@@ -214,13 +218,14 @@ def _pointer_accounts(local_app_data: Path) -> tuple[dict[Path, SaveAccount], bo
 
 
 def select_account(roots: Iterable[Path], *, destination: Path | None = None,
-                   local_app_data: Path | None = None) -> SaveAccount:
+                   local_app_data: Path | None = None,
+                   use_saved_locations: bool = True) -> SaveAccount:
     if destination is not None:
         return account_from_selection(destination)
-    if local_app_data is None:
+    if use_saved_locations and local_app_data is None:
         value = os.environ.get("LOCALAPPDATA")
         local_app_data = Path(value) if value else None
-    if local_app_data is not None:
+    if use_saved_locations and local_app_data is not None:
         pointers, invalid = _pointer_accounts(local_app_data)
         if invalid or len(pointers) > 1:
             raise FH6DestinationChoiceRequired(
@@ -267,7 +272,7 @@ def resolve_creator(account: SaveAccount) -> CreatorIdentity:
         except (OSError, ValueError):
             continue
     if not matches:
-        raise FH6IdentityError("No verified local FH6 creator name was found. " + SAVE_ONE)
+        raise FH6CreatorNameNotFound("No verified local FH6 creator name was found. " + SAVE_ONE)
     newest = max(item[0] for item in matches)
     latest = [item for item in matches if item[0] == newest]
     if len({item[1] for item in latest}) != 1:

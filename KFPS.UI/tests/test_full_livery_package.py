@@ -33,7 +33,6 @@ from tools.livery.inspector_server import LiveryInspectorServer
 from tools.livery.fh6_save_installer import (
     FullLiveryConcurrentChangeError,
     FullLiveryInstallError,
-    HeaderMetadata,
     _wrap_payload,
     build_destination_header,
     install_full_livery_package,
@@ -300,41 +299,31 @@ def installable_livery_payload(*, car_id: int = 3304, creator_tag: bytes = b"SOU
 
 
 def destination_header(*, car_id: int = 3304, creator_tag: bytes = b"DEST0001") -> bytes:
-    template = HeaderMetadata(
-        format_version=7,
-        title="Template",
-        published=False,
-        description="",
-        year=2026,
-        month=8,
-        day_of_week=0,
-        day=0,
-        hour=0,
-        minute=0,
-        second=0,
-        millisecond=0,
-        date_trailing=struct.pack("<HH", 3, 0),
-        creator_tag=creator_tag,
-        creator_name="Destination",
-        section_prefix=bytes(28),
-        type_value=1,
-        car_id=car_id,
-        asset_guid=bytes(16),
-        trailing=b"",
-    )
     return build_destination_header(
-        template,
         title="Template",
         car_id=car_id,
         placement_count=1,
         creator_tag=creator_tag,
+        creator_name="Destination",
         now=datetime(2026, 8, 13).astimezone(),
         asset_guid=bytes.fromhex("00112233445566778899aabbccddeeff"),
     )
 
 
 def build_install_destination(root: Path, *, car_id: int = 3304, creator_tag: bytes = b"DEST0001") -> Path:
-    containers = root / "pgs" / "account" / "slot" / "ContainersRoot"
+    user_id = int.from_bytes(creator_tag, "little")
+    account = root / "pgs" / f"u_{user_id}_16D460"
+    version = account / "7"
+    containers = version / "ContainersRoot"
+    (containers / f"User_{user_id:x}").mkdir(parents=True)
+    (account / "7.json").write_text(json.dumps({"Manifest": {
+        "UserId": str(user_id), "GameId": "16D460", "Version": 7,
+    }}), encoding="utf-8")
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(version), str(account / "current"))
+    else:
+        (account / "current").symlink_to(version, target_is_directory=True)
     folder = containers / f"Livery_{car_id:04d}_20260801000000"
     folder.mkdir(parents=True)
     (folder / "C_livery").write_bytes(_wrap_payload(installable_livery_payload(car_id=car_id, creator_tag=creator_tag)))
@@ -1436,6 +1425,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                     backup_root=root / "backups",
                     expected_model_code="TEST_CAR",
                     now=installed_at,
+                    destination=containers,
                 )
 
             self.assertEqual(existing, sorted(path.name for path in containers.iterdir() if path != result.installed_folder))
@@ -1466,10 +1456,10 @@ class FullLiveryPackageTests(unittest.TestCase):
                 ),
             )
 
-    def test_same_car_installer_converts_a_published_source_header_to_a_local_draft(self):
+    def test_same_car_installer_does_not_copy_source_description(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_install_destination(root)
+            containers = build_install_destination(root)
             package = root / "fixture.kfpslivery"
             manifest = build_install_package(package)
             with zipfile.ZipFile(package) as bundle:
@@ -1498,9 +1488,10 @@ class FullLiveryPackageTests(unittest.TestCase):
                     scan_roots=[root],
                     backup_root=root / "backups",
                     expected_model_code="TEST_CAR",
+                    destination=containers,
                 )
             installed_header = parse_fh6_header((result.installed_folder / "header").read_bytes())
-            self.assertFalse(installed_header.published)
+            self.assertEqual("saved", installed_header.record_kind)
             self.assertEqual("", installed_header.description)
 
     def test_same_car_installer_blocks_model_mismatch_before_touching_save(self):
@@ -1525,8 +1516,8 @@ class FullLiveryPackageTests(unittest.TestCase):
             root = Path(temp)
             build_install_destination(root / "first", creator_tag=b"ACCOUNT1")
             build_install_destination(root / "second", creator_tag=b"ACCOUNT2")
-            with self.assertRaisesRegex(FullLiveryInstallError, "More than one FH6 account"):
-                select_destination_identity([root], car_id=3304)
+            with self.assertRaisesRegex(FullLiveryInstallError, "no single verified destination"):
+                select_destination_identity([root / "first", root / "second"], local_app_data=root)
 
     def test_same_car_installer_aborts_if_save_changes_while_staging(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1547,6 +1538,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                         scan_roots=[root],
                         backup_root=root / "backups",
                         expected_model_code="TEST_CAR",
+                        destination=containers,
                     )
             self.assertEqual(before, sorted(path.name for path in containers.iterdir()))
 
@@ -1558,15 +1550,8 @@ class FullLiveryPackageTests(unittest.TestCase):
             manifest = build_install_package(package)
             before = sorted(path.name for path in containers.iterdir())
             decoded = ([{"type": 1, "source_section": "left"}], {"warnings": []})
-            real_unwrap = unwrap_forza_container
-            calls = 0
-
             def fail_committed_reopen(path):
-                nonlocal calls
-                calls += 1
-                if calls == 2:
-                    raise ValueError("simulated committed-file corruption")
-                return real_unwrap(path)
+                raise ValueError("simulated committed-file corruption")
 
             with (
                 patch("tools.livery.fh6_save_installer.validate_full_livery_package", return_value=manifest),
@@ -1579,6 +1564,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                         scan_roots=[root],
                         backup_root=root / "backups",
                         expected_model_code="TEST_CAR",
+                        destination=containers,
                     )
             self.assertEqual(before, sorted(path.name for path in containers.iterdir()))
 

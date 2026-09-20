@@ -17,13 +17,22 @@ import struct
 import uuid
 import zipfile
 import zlib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from PIL import Image
 
+from tools.cgroup.fh6_identity import (
+    ACCOUNT_NAME,
+    CreatorIdentity,
+    FH6CreatorNameNotFound,
+    FH6IdentityError,
+    SaveAccount,
+    resolve_creator,
+    select_account,
+)
 from tools.cgroup.forza_source_decoder import (
     clivery_to_layers,
     extract_livery_payload,
@@ -47,7 +56,6 @@ class FullLiveryConcurrentChangeError(FullLiveryInstallError):
 class HeaderMetadata:
     format_version: int
     title: str
-    published: bool
     description: str
     year: int
     month: int
@@ -66,15 +74,43 @@ class HeaderMetadata:
     asset_guid: bytes
     trailing: bytes
 
+    @property
+    def record_kind(self) -> str:
+        # This is the save record kind, not proof of server publication state.
+        return {3: "saved", 4: "base", 5: "soulbound"}.get(
+            int.from_bytes(self.date_trailing, "little"), "unknown"
+        )
+
 
 @dataclass(frozen=True)
 class DestinationIdentity:
-    containers_root: Path
-    template_folder: Path
-    creator_tag: bytes
-    creator_name: str
-    header_template: HeaderMetadata
-    latest_owned_mtime_ns: int
+    creator: CreatorIdentity
+    livery_evidence: Path | None = None
+    livery_digest: str = ""
+
+    @property
+    def containers_root(self) -> Path:
+        return self.creator.account.containers
+
+    @property
+    def creator_tag(self) -> bytes:
+        return self.creator.account.user_id.to_bytes(8, "little")
+
+    @property
+    def creator_name(self) -> str:
+        return self.creator.name
+
+    def revalidate(self) -> None:
+        try:
+            self.creator.revalidate()
+            if self.livery_evidence is not None:
+                if _sha256(self.livery_evidence.read_bytes()) != self.livery_digest:
+                    raise FH6IdentityError("FH6 livery identity evidence changed.")
+        except (OSError, ValueError) as exc:
+            raise FullLiveryConcurrentChangeError(
+                "The FH6 account or creator evidence changed during installation. "
+                "Select the active account's current save and try again."
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -122,20 +158,19 @@ def _read_utf16(data: bytes, offset: int, units: int, label: str) -> tuple[str, 
 
 
 def parse_fh6_header(data: bytes) -> HeaderMetadata:
-    if len(data) < 8:
-        raise FullLiveryInstallError("FH6 livery header is too small.")
+    if not 8 <= len(data) <= 65536:
+        raise FullLiveryInstallError("FH6 livery header size is invalid.")
     offset = 0
     format_version = _read_u32(data, offset, "header version")
+    if format_version != 7:
+        raise FullLiveryInstallError("Unsupported FH6 livery header version.")
     offset += 4
     title_units = _read_u32(data, offset, "header title")
     offset += 4
     title, offset = _read_utf16(data, offset, title_units, "header title")
     description_units = _read_u32(data, offset, "header description")
     offset += 4
-    published = description_units != 0
-    description = ""
-    if published:
-        description, offset = _read_utf16(data, offset, description_units, "header description")
+    description, offset = _read_utf16(data, offset, description_units, "header description")
     if offset + _HEADER_DATE_BYTES > len(data):
         raise FullLiveryInstallError("FH6 livery header date is truncated.")
     year, month, day_of_week, day, hour, minute, second, millisecond = struct.unpack_from(
@@ -174,7 +209,6 @@ def parse_fh6_header(data: bytes) -> HeaderMetadata:
     return HeaderMetadata(
         format_version=format_version,
         title=title,
-        published=published,
         description=description,
         year=year,
         month=month,
@@ -196,28 +230,36 @@ def parse_fh6_header(data: bytes) -> HeaderMetadata:
 
 
 def build_destination_header(
-    template: HeaderMetadata,
     *,
     title: str,
     car_id: int,
     placement_count: int,
     creator_tag: bytes,
+    creator_name: str,
     now: datetime,
     asset_guid: bytes | None = None,
 ) -> bytes:
-    clean_title = " ".join(str(title).replace("\x00", " ").split())[:64] or "KFPS Livery"
-    clean_creator = " ".join(template.creator_name.replace("\x00", " ").split())[:128]
-    if len(creator_tag) != _HEADER_CREATOR_TAG_BYTES:
-        raise FullLiveryInstallError("Destination FH6 creator identity must be exactly 8 bytes.")
-    guid = bytes(asset_guid or uuid.uuid4().bytes)
-    if len(guid) != _HEADER_GUID_BYTES:
-        raise FullLiveryInstallError("Destination FH6 asset GUID must be exactly 16 bytes.")
+    """Create a local saved-livery record; never copy base/online metadata."""
+    clean_title = " ".join(str(title).replace("\x00", " ").split()) or "KFPS Livery"
+    title_bytes = clean_title.encode("utf-16le")[:128]
+    clean_title = title_bytes.decode("utf-16le", errors="ignore")
+    title_bytes = clean_title.encode("utf-16le")
+    clean_creator = creator_name.strip()
+    if (not clean_creator or clean_creator.casefold() == "kfps"
+            or any(ord(char) < 32 for char in clean_creator)
+            or len(clean_creator.encode("utf-16le")) > 512):
+        raise FullLiveryInstallError("A verified FH6 creator name is required.")
+    creator_bytes = clean_creator.encode("utf-16le")
+    if len(creator_tag) != _HEADER_CREATOR_TAG_BYTES or not any(creator_tag):
+        raise FullLiveryInstallError("Destination FH6 creator identity must be 8 nonzero-identity bytes.")
+    if not (0 < car_id < 2**32 and 0 < placement_count < 2**32):
+        raise FullLiveryInstallError("Invalid FH6 car or placement count.")
+    guid = uuid.uuid4().bytes_le if asset_guid is None else bytes(asset_guid)
+    if len(guid) != _HEADER_GUID_BYTES or not any(guid):
+        raise FullLiveryInstallError("Destination FH6 asset GUID must be 16 bytes and not zero.")
     moment = now.astimezone()
-    date_trailing = template.date_trailing[:_HEADER_DATE_TRAILING_BYTES].ljust(
-        _HEADER_DATE_TRAILING_BYTES, b"\x00"
-    )
-    output = bytearray(struct.pack("<II", 7, len(clean_title)))
-    output.extend(clean_title.encode("utf-16le"))
+    output = bytearray(struct.pack("<II", 7, len(title_bytes) // 2))
+    output.extend(title_bytes)
     output.extend(struct.pack("<I", 0))
     output.extend(
         struct.pack(
@@ -232,19 +274,20 @@ def build_destination_header(
             moment.microsecond // 1000,
         )
     )
-    output.extend(date_trailing)
+    output.extend(struct.pack("<I", 3))
     output.extend(creator_tag)
-    output.extend(struct.pack("<I", len(clean_creator)))
-    output.extend(clean_creator.encode("utf-16le"))
-    output.extend(template.section_prefix[:_HEADER_SECTION_PREFIX_BYTES].ljust(_HEADER_SECTION_PREFIX_BYTES, b"\x00"))
+    output.extend(struct.pack("<I", len(creator_bytes) // 2))
+    output.extend(creator_bytes)
+    output.extend(bytes(_HEADER_SECTION_PREFIX_BYTES))
     output.extend(b"\x01\x02" + b"\x00" * 7)
     output.extend(struct.pack("<II", int(placement_count), int(car_id)))
     output.extend(guid)
-    output.extend(template.trailing)
     parsed = parse_fh6_header(bytes(output))
     if parsed.title != clean_title or parsed.car_id != car_id or parsed.type_value != placement_count:
         raise FullLiveryInstallError("Destination FH6 header failed independent verification.")
-    if parsed.creator_tag != creator_tag or parsed.asset_guid != guid:
+    if (parsed.creator_tag != creator_tag or parsed.asset_guid != guid
+            or parsed.creator_name != clean_creator or parsed.record_kind != "saved"
+            or parsed.description or any(parsed.section_prefix) or parsed.trailing):
         raise FullLiveryInstallError("Destination FH6 header identity failed independent verification.")
     if (
         parsed.year,
@@ -305,84 +348,88 @@ def _wrap_payload(payload: bytes) -> bytes:
     return struct.pack("<II", len(compressed), len(payload)) + compressed
 
 
-def _containers_roots(scan_roots: Iterable[Path | str]) -> list[Path]:
-    found: dict[str, Path] = {}
-    for raw in scan_roots:
-        root = Path(raw)
-        candidates: list[Path] = []
-        if root.is_dir() and root.name.casefold() == "containersroot":
-            candidates.append(root)
-        if root.is_dir():
-            try:
-                candidates.extend(path for path in root.rglob("ContainersRoot") if path.is_dir())
-            except OSError:
-                pass
-        for candidate in candidates:
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                continue
-            found[str(resolved).casefold()] = resolved
-    return sorted(found.values(), key=lambda path: str(path).casefold())
-
-
-def inspect_destination_identity(containers_root: Path | str, *, car_id: int) -> DestinationIdentity:
-    root = Path(containers_root).resolve()
-    if not root.is_dir() or root.name.casefold() != "containersroot":
-        raise FullLiveryInstallError("Choose an FH6 ContainersRoot save folder.")
-    records: list[tuple[int, bool, Path, bytes, HeaderMetadata]] = []
-    creator_tags: set[bytes] = set()
-    for folder in root.iterdir():
-        if not folder.is_dir() or folder.name.startswith("."):
+def _creator_from_livery(account: SaveAccount) -> DestinationIdentity:
+    records = []
+    for folder in account.containers.iterdir():
+        if not folder.name.startswith(("Livery_", "BaseLivery_")):
             continue
         source = folder / "C_livery"
         header_path = folder / "header"
-        if not source.is_file() or not header_path.is_file():
-            continue
         try:
-            payload = unwrap_forza_container(source)
-            privacy = inspect_clivery_privacy(payload)
-            if not privacy["source_owned"]:
+            if (folder.resolve().parent != account.containers
+                    or source.resolve().parent != folder.resolve()
+                    or header_path.resolve().parent != folder.resolve()
+                    or header_path.stat().st_size > 65536):
                 continue
-            source_car_id = _read_u32(payload, _CLIVERY_CAR_ID_OFFSET, "C_livery car identity")
-            tag = _clivery_creator_tag(payload)
-            header = parse_fh6_header(header_path.read_bytes())
-            modified = max(source.stat().st_mtime_ns, header_path.stat().st_mtime_ns)
+            raw_header = header_path.read_bytes()
+            header = parse_fh6_header(raw_header)
+            expected_tag = account.user_id.to_bytes(8, "little")
+            if (header.creator_tag != expected_tag or header.record_kind not in ("saved", "base")
+                    or not header.creator_name.strip() or header.creator_name.strip().casefold() == "kfps"
+                    or any(ord(char) < 32 for char in header.creator_name)
+                    or len(header.creator_name.encode("utf-16le")) > 512 or not any(header.asset_guid)):
+                continue
+            raw_source = source.read_bytes()
+            payload = unwrap_forza_container_bytes(raw_source, source)
+            privacy = inspect_clivery_privacy(payload)
+            if (not privacy["source_owned"] or _clivery_creator_tag(payload) != expected_tag
+                    or _read_u32(payload, _CLIVERY_CAR_ID_OFFSET, "C_livery car identity") != header.car_id):
+                continue
+            created = datetime(header.year, header.month, header.day, header.hour,
+                               header.minute, header.second, header.millisecond * 1000)
+            creator = CreatorIdentity(account, header.creator_name.strip(), header_path, raw_header)
+            records.append((created, creator, source, _sha256(raw_source)))
         except (OSError, FullLiveryInstallError, ValueError, zlib.error):
             continue
-        creator_tags.add(tag)
-        records.append((modified, source_car_id == car_id, folder, tag, header))
     if not records:
         raise FullLiveryInstallError(
-            "No owned FH6 livery was found in this account save. Save one personal livery in FH6 first."
+            "The FH6 account is verified, but its creator name could not be confirmed. "
+            "Save one small vinyl or personal design in FH6, then retry."
         )
-    if len(creator_tags) != 1:
+    newest = max(row[0] for row in records)
+    latest = [row for row in records if row[0] == newest]
+    if len({row[1].name for row in latest}) != 1:
         raise FullLiveryInstallError(
-            "This FH6 save contains conflicting local ownership identities. Choose the exact account ContainersRoot."
+            "Conflicting FH6 creator names were found. Save one small vinyl in FH6, then retry."
         )
-    records.sort(key=lambda row: (row[1], row[0]), reverse=True)
-    modified, _, folder, tag, header = records[0]
-    return DestinationIdentity(root, folder, tag, header.creator_name, header, modified)
+    _, creator, source, digest = latest[0]
+    return DestinationIdentity(creator, source, digest)
 
 
-def select_destination_identity(scan_roots: Iterable[Path | str], *, car_id: int) -> DestinationIdentity:
-    identities: list[DestinationIdentity] = []
-    for root in _containers_roots(scan_roots):
-        try:
-            identities.append(inspect_destination_identity(root, car_id=car_id))
-        except FullLiveryInstallError:
-            continue
-    if not identities:
-        raise FullLiveryInstallError(
-            "No writable FH6 account save with an owned livery was found. Choose that account's ContainersRoot folder."
+def _select_destination_account(
+    scan_roots: Iterable[Path | str], *, destination: Path | str | None = None,
+    local_app_data: Path | None = None,
+) -> SaveAccount:
+    try:
+        selected = Path(destination).resolve(strict=True) if destination is not None else None
+        if selected is not None and not selected.is_dir():
+            raise FH6IdentityError("Select an FH6 account save folder.")
+        exact = selected is not None and any(
+            ACCOUNT_NAME.fullmatch(path.name) for path in (selected, *selected.parents)
         )
-    identity_tags = {item.creator_tag for item in identities}
-    if len(identity_tags) != 1:
-        raise FullLiveryInstallError(
-            "More than one FH6 account save was found. Choose the exact account's ContainersRoot folder."
+        return select_account(
+            [selected] if selected is not None else (Path(root) for root in scan_roots),
+            destination=selected if exact else None,
+            local_app_data=local_app_data,
+            use_saved_locations=selected is None,
         )
-    identities.sort(key=lambda item: item.latest_owned_mtime_ns, reverse=True)
-    return identities[0]
+    except (OSError, FH6IdentityError) as exc:
+        raise FullLiveryInstallError(f"FH6 destination could not be verified: {exc}") from exc
+
+
+def select_destination_identity(
+    scan_roots: Iterable[Path | str], *, destination: Path | str | None = None,
+    local_app_data: Path | None = None,
+) -> DestinationIdentity:
+    account = _select_destination_account(
+        scan_roots, destination=destination, local_app_data=local_app_data
+    )
+    try:
+        return DestinationIdentity(resolve_creator(account))
+    except FH6CreatorNameNotFound:
+        return _creator_from_livery(account)
+    except (OSError, FH6IdentityError) as exc:
+        raise FullLiveryInstallError(f"FH6 creator name could not be verified: {exc}") from exc
 
 
 def _snapshot(root: Path, *, exclude: Path | None = None) -> tuple[tuple[str, int, str], ...]:
@@ -403,10 +450,6 @@ def _snapshot(root: Path, *, exclude: Path | None = None) -> tuple[tuple[str, in
 def _check_cancelled(cancel_event) -> None:
     if cancel_event is not None and cancel_event.is_set():
         raise concurrent.futures.CancelledError()
-
-
-def _published_header_as_draft(header: HeaderMetadata) -> HeaderMetadata:
-    return replace(header, published=False, description="")
 
 
 def _write_exclusive(path: Path, data: bytes) -> None:
@@ -462,6 +505,8 @@ def install_full_livery_package(
     scan_roots: Iterable[Path | str],
     backup_root: Path | str,
     expected_model_code: str,
+    destination: Path | str | None = None,
+    local_app_data: Path | None = None,
     now: datetime | None = None,
     cancel_event=None,
 ) -> FullLiveryInstallResult:
@@ -483,7 +528,25 @@ def install_full_livery_package(
         raise FullLiveryInstallError(
             "Same-car safety check failed: the package car model does not match this FH6 installation."
         )
-    identity = select_destination_identity(scan_roots, car_id=car_id)
+    scan_roots = tuple(scan_roots)
+    identity = select_destination_identity(
+        scan_roots, destination=destination, local_app_data=local_app_data
+    )
+
+    def revalidate_destination() -> None:
+        identity.revalidate()
+        try:
+            current = _select_destination_account(
+                scan_roots, destination=destination, local_app_data=local_app_data
+            )
+            if current != identity.creator.account:
+                raise FullLiveryInstallError("FH6 destination selection changed.")
+        except FullLiveryInstallError as exc:
+            raise FullLiveryConcurrentChangeError(
+                "The active FH6 save selection changed during installation. "
+                "Select the intended account's current save and retry."
+            ) from exc
+
     with zipfile.ZipFile(package) as bundle:
         raw_container = bundle.read("source/fh6/C_livery")
         source_payload = unwrap_forza_container_bytes(raw_container, package)
@@ -499,6 +562,9 @@ def install_full_livery_package(
     if source_header.car_id != car_id or source_header.type_value != placement_count:
         raise FullLiveryInstallError("Package header does not match its declared FH6 car or placement count.")
     _check_cancelled(cancel_event)
+    privacy = inspect_clivery_privacy(source_payload)
+    if not privacy["source_owned"] or privacy["contains_foreign_groups"]:
+        raise FullLiveryInstallError("The source livery is not eligible for identity rewriting.")
     source_layers, source_report = clivery_to_layers(source_payload)
     rewritten_payload = rewrite_destination_identity(source_payload, identity.creator_tag)
     _, counts, _ = extract_livery_payload(rewritten_payload)
@@ -513,22 +579,19 @@ def install_full_livery_package(
     if moment.tzinfo is None:
         moment = moment.astimezone()
     title = str(livery.get("title") or "KFPS Livery")
-    destination_template = replace(
-        _published_header_as_draft(source_header),
-        creator_name=identity.creator_name,
-    )
     header = build_destination_header(
-        destination_template,
         title=title,
         car_id=car_id,
         placement_count=placement_count,
         creator_tag=identity.creator_tag,
+        creator_name=identity.creator_name,
         now=moment,
     )
     container = _wrap_payload(rewritten_payload)
     if unwrap_forza_container_bytes(container, "staged FH6 livery") != rewritten_payload:
         raise FullLiveryInstallError("Staged FH6 C_livery failed compression verification.")
     root = identity.containers_root
+    revalidate_destination()
     original_snapshot = _snapshot(root)
     _check_cancelled(cancel_event)
     stamp = moment.strftime("%Y%m%d%H%M%S")
@@ -549,7 +612,8 @@ def install_full_livery_package(
         "package_sha256": _sha256(package.read_bytes()),
         "containers_root": str(root),
         "installed_folder_name": final_folder.name,
-        "template_folder_name": identity.template_folder.name,
+        "identity_evidence_folder": identity.creator.evidence.parent.name,
+        "header_record_kind": "saved",
         "target_car_id": car_id,
         "model_code": package_model,
         "placement_count": placement_count,
@@ -562,6 +626,7 @@ def install_full_livery_package(
     _write_exclusive(backup / "install.json", (json.dumps(transaction, indent=2) + "\n").encode("utf-8"))
     committed = False
     try:
+        revalidate_destination()
         staging.mkdir()
         _write_exclusive(staging / "C_livery", container)
         _write_exclusive(staging / "header", header)
@@ -573,10 +638,14 @@ def install_full_livery_package(
                 "The FH6 save changed while KFPS staged the livery. Nothing was installed."
             )
         _check_cancelled(cancel_event)
+        revalidate_destination()
         os.replace(staging, final_folder)
         committed = True
         installed_payload = unwrap_forza_container(final_folder / "C_livery")
-        installed_header = parse_fh6_header((final_folder / "header").read_bytes())
+        installed_header_bytes = (final_folder / "header").read_bytes()
+        installed_header = parse_fh6_header(installed_header_bytes)
+        if installed_header_bytes != header:
+            raise FullLiveryInstallError("Installed FH6 header differs from the verified staging record.")
         installed_privacy = inspect_clivery_privacy(installed_payload)
         installed_layers, installed_report = clivery_to_layers(installed_payload)
         if installed_payload != rewritten_payload:
@@ -597,6 +666,7 @@ def install_full_livery_package(
                 if image.format != "WEBP" or image.size != (670, 376):
                     raise FullLiveryInstallError("Installed FH6 thumbnail failed verification.")
                 image.verify()
+        revalidate_destination()
         return FullLiveryInstallResult(
             package_path=package,
             containers_root=root,

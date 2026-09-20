@@ -44,7 +44,7 @@ contains:
 | Path | Purpose |
 | --- | --- |
 | `source/fh6/C_livery` | Exact compressed FH6 livery record for lossless provenance and future same-game installation. |
-| `source/fh6/header` | Exact-car FH6 title/header template. Required for installation. |
+| `source/fh6/header` | Exact-car FH6 source header for car/count verification. Required for installation, but never copied as the destination header. |
 | `source/fh6/bigThumb.webp` | Original FH6 thumbnail when available. Older packages receive a deterministic fallback during installation. |
 | `livery/layers.json` | Canonical section-aware KFPS layer representation for future reprojection and cross-game recompilation. |
 | `mesh/vehicle.json` | Car ID, model/archive identity, archive hash, proxy entry, and projection inventory. It contains no game mesh bytes. |
@@ -80,6 +80,15 @@ Installation is deliberately fail-closed:
   aborts before commit rather than writing over a concurrent change.
 - A single destination account identity must be unambiguous. The user can select
   the exact `ContainersRoot` when more than one account exists.
+- Account directory, current save junction, version manifest, and user profile
+  must agree, using the same verifier as FH6 vinyl imports. Explicit selection
+  cannot fall back to a different profile. Selection is rechecked at commit.
+- An existing full-car livery is not required. A verified local vinyl supplies
+  the creator name; matching owned saved/base livery metadata is a fallback.
+  Missing or conflicting evidence prompts for a small personal vinyl/design.
+- Every install generates a fresh type-3 saved-livery header with recipient
+  identity, a new GUID, and no copied online metadata or source tail. A base
+  design's type 4 is not copied. Descriptions do not prove publication state.
 - Source artwork is decoded before and after destination identity rewriting and
   must remain identical.
 - KFPS hashes the destination save before staging and aborts if any pre-existing

@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.91
+
+### More Reliable FH6 Livery Imports
+- Importing a shared full-car livery no longer requires an existing personal full-car livery. KFPS verifies the active save account and can use a saved vinyl or an owned working design to confirm the creator name.
+- Each import creates a fresh local saved-livery header with the recipient's identity and a new design ID. Source working-design or online metadata is not copied into the new header.
+- FH6 can remain open. There is no close-the-game requirement for adding a livery. If the save or selected account changes during installation, KFPS stops safely and asks you to retry.
+- Improved checks for explicit save selections, Steam and Xbox save locations, stale account information, Unicode names, repeated imports, cancellation, and rollback. Existing artwork and protected-design checks remain in place.
+- Verified with 145 targeted regression tests, a real 2,559-shape livery imported twice into an isolated save copy, and an 8,793-shape synthetic livery. Existing save files and decoded artwork remained unchanged. These are save-file checks; the affected user's package still needs an in-game retry.
+- Includes the Community gallery, livery sharing, and timed-release improvements from 3.1.90 in the bundled download.
+
 ## 3.1.90
 
 ### A New Community Gallery

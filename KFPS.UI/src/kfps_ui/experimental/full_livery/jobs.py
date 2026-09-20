@@ -738,6 +738,7 @@ def install_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> d
     result = install_full_livery_package(
         package,
         scan_roots=_scan_roots(str(payload.get("save_root") or "")),
+        destination=str(payload.get("save_root") or "").strip() or None,
         backup_root=paths.recovery / "install-backups",
         expected_model_code=asset.model_code,
         cancel_event=cancel_event,
