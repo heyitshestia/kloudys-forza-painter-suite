@@ -136,6 +136,7 @@ class CommunityPreviewService(QObject):
     clockChanged = Signal()
     uploadFinished = Signal(object)
     published = Signal()
+    searchReset = Signal(str)
     photosFinished = Signal(object)
     renderChanged = Signal()
     renderOpened = Signal()
@@ -471,6 +472,7 @@ class CommunityPreviewService(QObject):
         self.creator_filter = self.creator_value
         self.scope_value = "Browse"
         self.query = ""
+        self.searchReset.emit("")
         self.kind_value = self.game_value = self.category_value = self.classification_value = "All"
         self.supporters_only = False
         if ident:
@@ -587,6 +589,7 @@ class CommunityPreviewService(QObject):
             self.scope_value = "My uploads"
             self.creator_filter = ""
             self.query = ""
+            self.searchReset.emit("")
             self.kind_value = self.game_value = self.category_value = self.classification_value = "All"
             self.supporters_only = False
             self.pending = None

@@ -20,8 +20,45 @@ Item {
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.px(8)
                 PreviewText { text: root.ui("Community", "커뮤니티"); textSize: Theme.px(18); textWeight: Font.DemiBold; Layout.rightMargin: Theme.px(8) }
-                C.KfpsTextField { font.pixelSize: Math.round(Theme.px(14)); renderType: TextInput.CurveRendering; id: search; objectName: "CommunitySearch"; dense: true; implicitHeight: Math.round(Theme.px(36)); Layout.fillWidth: true; text: preview.filters.search; placeholderText: root.ui("Search artwork, tags or creators", "작품, 태그, 작성자 검색"); onTextEdited: searchTimer.restart() }
-                Timer { id: searchTimer; interval: 180; onTriggered: preview.filter("search", search.text) }
+                C.KfpsTextField {
+                    id: search
+                    objectName: "CommunitySearch"
+                    font.pixelSize: Math.round(Theme.px(14))
+                    renderType: TextInput.CurveRendering
+                    dense: true
+                    implicitHeight: Math.round(Theme.px(36))
+                    Layout.fillWidth: true
+                    placeholderText: root.ui("Search artwork, tags or creators", "작품, 태그, 작성자 검색")
+
+                    // Keep the editable draft independent of unrelated service notifications.
+                    readonly property string appliedQuery: preview.filters.search
+                    property bool ready: false
+                    function resetQuery(value) {
+                        searchTimer.stop()
+                        if (text !== value || inputMethodComposing) {
+                            if (activeFocus && inputMethodComposing) Qt.inputMethod.reset()
+                            text = value
+                        }
+                    }
+                    function submitQuery() {
+                        searchTimer.stop()
+                        if (!inputMethodComposing && text !== appliedQuery)
+                            preview.filter("search", text)
+                    }
+                    onAppliedQueryChanged: if (ready) resetQuery(appliedQuery)
+                    Component.onCompleted: { ready = true; resetQuery(appliedQuery) }
+                    onTextEdited: if (!inputMethodComposing) searchTimer.restart()
+                    onInputMethodComposingChanged: {
+                        if (inputMethodComposing) searchTimer.stop()
+                        else if (text !== appliedQuery) searchTimer.restart()
+                    }
+                    onAccepted: submitQuery()
+                    Connections {
+                        target: preview
+                        function onSearchReset(value) { search.resetQuery(value) }
+                    }
+                }
+                Timer { id: searchTimer; interval: 300; onTriggered: search.submitQuery() }
                 PreviewPrimaryButton { objectName: "OpenUpload"; dense: true; text: root.ui("Upload artwork", "작품 업로드"); iconName: "arrow-up"; enabled: preview.authenticated; onClicked: { uploadDialog.revision = false; uploadDialog.open() } }
                 PreviewButton { objectName: "OwnProfile"; Layout.maximumWidth: Theme.px(170); text: preview.username ? "@" + preview.username : root.ui("Profile", "프로필"); enabled: preview.authenticated; onClicked: root.openCreator(preview.username) }
                 PreviewButton { objectName: "CommunityAccount"; visible: root.liveMode; text: communityService.authenticated ? root.ui("Account", "계정") : root.ui("Sign in with GitHub", "GitHub로 로그인"); onClicked: accountDialog.open() }

@@ -58,6 +58,7 @@ class CommunityGalleryService(QObject):
     changed = Signal()
     clockChanged = Signal()
     published = Signal()
+    searchReset = Signal(str)
     renderChanged = Signal()
     renderOpened = Signal()
     renderClosed = Signal()
@@ -610,6 +611,7 @@ class CommunityGalleryService(QObject):
             self._pending = None
             self._scope = 'My uploads'
             self._filters.update(kind='All', game='All', category='All', classification='All', creator='', search='', supporters=False)
+            self.searchReset.emit("")
             if result.get('original_details_retained'):
                 self._notice('Your previous upload was restored with its original details and photos.', '이전 업로드를 원래의 설명과 사진으로 복구했습니다.')
             else:

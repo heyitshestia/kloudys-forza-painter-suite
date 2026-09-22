@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.93
+
+### Reliable Community Search
+- Fixed Community search losing or restoring characters while background results and thumbnails update.
+- Search now preserves the text and cursor you are editing, waits 300 ms after typing stops, and searches immediately on Enter without a duplicate request.
+- Korean text composition is not searched before it is committed. Backspace, selection replacement, undo, paste and intentional search resets retain normal behavior.
+- Added native input regression coverage for both Community adapters and all nine themes, including delayed out-of-order responses. Account access, artwork and Cloudflare services are unchanged.
+- Available through the updater; no new bundled release.
+
 ## 3.1.92
 
 ### Easier Community Livery Browsing and Uploads
