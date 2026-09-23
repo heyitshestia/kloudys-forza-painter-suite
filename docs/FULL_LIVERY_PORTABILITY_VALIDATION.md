@@ -1,5 +1,40 @@
 # FH6 Full-Livery Portability Validation
 
+## Record-Aware Ownership Follow-up (3.1.96)
+
+The 3.1.95 fix below missed short-marker transforms. Privacy inspection now
+collects candidate protected wrappers independently, then uses the existing
+artwork walker's selected record boundaries to exclude numeric interiors. This
+covers short, repeated and extended markers, inline and markerless transforms,
+optional scale fields, and shape/raster payloads. Actual trailer/header bytes
+remain eligible for protection checks. Incomplete or unrecognized sections and
+parser failures do not clear suspicious candidates. A complete decode alone is
+not an ownership verdict. No scale-specific or source-specific exceptions exist.
+
+Source-index revision 4 and source-preview revision 5 rebuild stale verdicts.
+The package format and artwork-decoding decisions are unchanged.
+
+Qualification used 80 distinct real payloads, including both reported cases and
+local owned/unowned sources with up to 12,504 decoded placements. All decoded
+artwork hashes and warnings matched the frozen 3.1.95 baseline. The production
+worker completed 95 operations: eight eligible sources exported and reopened,
+59 unowned sources and one genuinely protected source stayed blocked, and one
+pre-existing incomplete owned source remained rejected. Eleven empty sources
+stayed hidden. All 52 exported section renders were pixel-identical to baseline;
+226 original input files were hash-verified unchanged. Old scan/preview caches
+were replaced and subsequent requests reused the corrected caches.
+
+The final livery regression run passed 174 tests, with another 53 shared-decoder
+and cross-game tests passing. One five-second UI-worker timeout occurred during
+concurrent qualification; its isolated and full-suite reruns passed without a
+product change. The pre-existing Qt shutdown ResourceWarning remains.
+
+Seven-repeat median privacy-check times were 89/114 ms for the reported sources
+and 287 ms for a 10,368-placement protected source. Candidate-free examples were
+faster than baseline. This is a bounded scan/export-time correctness cost, not a
+render-loop change or a claim that every game save format is now understood.
+Qualification did not launch FH6, install packages, or change live saves.
+
 ## Ownership Boundary Regression (3.1.95)
 
 Privacy inspection must not reinterpret numeric fields inside a validated

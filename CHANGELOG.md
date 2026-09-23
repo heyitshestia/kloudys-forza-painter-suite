@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.96
+
+### Broader FH6 Livery Ownership Validation
+- Fixed another false Preview only warning caused by ordinary numeric data in short and inline group transforms resembling protected-vinyl markers.
+- Ownership checks now use parsed record boundaries across supported transform formats. Genuine protected groups, unowned liveries and incomplete artwork remain restricted.
+- Saved scan and preview verdicts refresh automatically; source artwork and the package format are unchanged.
+- Verified 80 distinct real livery payloads, eight successful exports and reopenings, 52 unchanged section images, and 227 regression tests.
+- Available through the updater; no new bundled release.
+
 ## 3.1.95
 
 ### Correct FH6 Livery Export Ownership Checks

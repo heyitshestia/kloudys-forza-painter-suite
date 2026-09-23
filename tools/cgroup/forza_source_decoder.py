@@ -119,6 +119,7 @@ class GroupInfo:
     inline_for_first_child: bool = False
     child_bitmap: bytes = b""
     control_bytes: bytes = b""
+    inline_payload_offset: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ class WalkState:
     fm8_boundary_masks: int = 0
     unrecognized_byte_count: int = 0
     unrecognized_offsets: list[int] = field(default_factory=list)
+    numeric_spans: list[tuple[int, int]] | None = None
 
 
 @dataclass
@@ -1034,6 +1036,7 @@ def _livery_markerless_candidate(
         size, transform, marker, transform_for_first_child = inline
         info.size += size
         info.inline_transform = transform
+        info.inline_payload_offset = pos + base_size + len(marker)
         info.inline_for_first_child = transform_for_first_child
         info.marker = marker
     elif info.child_bitmap and (info.child_bitmap[0] & 0x01):
@@ -1056,6 +1059,7 @@ def _livery_markerless_candidate(
                     transform.sy = trailer.sy
             if group_at_or_after_control_byte(data, child, end, True):
                 info.inline_transform = transform
+                info.inline_payload_offset = extra
                 info.inline_for_first_child = True
                 info.size += transform_size
     return info, _livery_child_boundary_score(data, pos + info.size, end)
@@ -1161,6 +1165,7 @@ def valid_markerless_group_at(
             size, transform, marker, transform_for_first_child = inline
             info.size += size
             info.inline_transform = transform
+            info.inline_payload_offset = extra + len(marker)
             info.inline_for_first_child = transform_for_first_child
             info.marker = marker
             return info
@@ -1254,6 +1259,7 @@ def valid_counted_group_at(
             size, transform, marker, transform_for_first_child = inline
             info.size += size
             info.inline_transform = transform
+            info.inline_payload_offset = extra + len(marker)
             info.inline_for_first_child = transform_for_first_child
             info.marker = marker
             return info
@@ -1345,6 +1351,7 @@ def valid_counted_group_at(
             size, transform, marker, transform_for_first_child = inline
             info.size += size
             info.inline_transform = transform
+            info.inline_payload_offset = extra + len(marker)
             info.inline_for_first_child = transform_for_first_child
             info.marker = marker
             return info
@@ -1463,7 +1470,21 @@ def consume_root_close_suffix(
     return True
 
 
+def _record_transform_numeric_spans(
+    data: bytes, payload_pos: int | None, end: int, state: WalkState
+) -> None:
+    if state.numeric_spans is None or payload_pos is None:
+        return
+    stop = payload_pos + 16
+    state.numeric_spans.append((payload_pos, stop))
+    if stop + 5 <= end and (data[stop] & ~0x40) == 0x30:
+        sy = read_f32(data, stop + 1)
+        if math.isfinite(sy) and 0.0001 <= abs(sy) <= 5000.0:
+            state.numeric_spans.append((stop + 1, stop + 5))
+
+
 def push_markerless_group(data: bytes, pos: int, end: int, info: GroupInfo, state: WalkState, livery: bool = False) -> int:
+    _record_transform_numeric_spans(data, info.inline_payload_offset, end, state)
     inline_for_first = bool(info.inline_transform and info.inline_for_first_child)
     node = GroupNode(offset=pos)
     apply_group_record(
@@ -1538,6 +1559,7 @@ def walk_step(
         else None
     )
     if counted:
+        _record_transform_numeric_spans(data, counted.inline_payload_offset, end, state)
         inline_for_first = bool(counted.inline_transform and counted.inline_for_first_child)
         node = GroupNode(offset=pos, child_bitmap=counted.child_bitmap)
         apply_group_record(
@@ -1585,6 +1607,8 @@ def walk_step(
         livery_logo_record_size_at(data, pos, end) if livery and may_decode_shape else 0
     )
     if logo_record_size:
+        if state.numeric_spans is not None:
+            state.numeric_spans.append((pos + logo_record_size - 28, pos + logo_record_size))
         if bytes_at(data, pos, b"\x01\x02", end):
             mark_previous_terminal_shape_as_mask(state)
         flags = state.pending_flags | (0x01 if bytes_at(data, pos, b"\x01\x02", end) else 0)
@@ -1602,6 +1626,8 @@ def walk_step(
         shape_record_size_at(data, pos, end, shape_marker) if may_decode_shape else 0
     )
     if shape_record_size:
+        if state.numeric_spans is not None:
+            state.numeric_spans.append((pos + shape_record_size - 28, pos + shape_record_size))
         control_shape = data[pos] == 0x01 and shape_record_size == 32
         if trailing_mask_state and control_shape:
             # In livery streams the previous drawable can be the terminal
@@ -1689,6 +1715,7 @@ def walk_step(
         )
         if livery_transform:
             size, transform, marker, trailing_flags = livery_transform
+            _record_transform_numeric_spans(data, pos + len(marker), end, state)
             if marker and marker[0] & 0x01:
                 mark_previous_terminal_shape_as_mask(state)
             state.pending_transform = transform
@@ -1724,6 +1751,7 @@ def walk_step(
     )
     if transform_record:
         size, transform, marker, trailing_flags = transform_record
+        _record_transform_numeric_spans(data, pos + len(marker), end, state)
         if trailing_mask_state and marker and marker[0] & 0x01:
             mark_previous_terminal_shape_as_mask(state)
         state.pending_transform = transform
@@ -2163,7 +2191,7 @@ def _privacy_markerless_group_at(data: bytes, pos: int, end: int) -> GroupInfo |
 
 
 def _protected_livery_group_at(data: bytes, pos: int, end: int) -> tuple[int, GroupInfo] | None:
-    """Return the protected group wrapper at a structurally valid livery boundary."""
+    """Return a potential privacy wrapper for record-boundary validation."""
     trailer = livery_transform_trailer(data, pos, end)
     if trailer is None:
         return None
@@ -2172,9 +2200,9 @@ def _protected_livery_group_at(data: bytes, pos: int, end: int) -> tuple[int, Gr
     if group is None:
         return None
 
-    # The wrapper must immediately follow a valid livery transform. This keeps
-    # coincidental byte patterns inside shape/color records from becoming a
-    # privacy decision.
+    # A plausible preceding transform is a first-stage filter, not proof of
+    # alignment. inspect_clivery_privacy checks candidates against parsed
+    # numeric interiors before making an ownership decision.
     direct_transform = pos >= 16 and read_transform_payload(data, pos - 16, end) is not None
     scaled_transform = (
         pos >= 21
@@ -2187,32 +2215,33 @@ def _protected_livery_group_at(data: bytes, pos: int, end: int) -> tuple[int, Gr
 
 
 def inspect_clivery_privacy(payload: bytes) -> dict[str, Any]:
-    """Inspect ownership and embedded-group privacy without decoding artwork."""
+    """Inspect privacy wrappers, excluding proven numeric record interiors."""
     if len(payload) < 12 or payload[:4] != b"vlrc":
         raise DecodeError("C_livery privacy inspection requires a valid livery payload")
-    body, _, _ = extract_livery_payload(payload)
-    protected_offsets: list[int] = []
-    pos = 0
+    body, counts, _ = extract_livery_payload(payload)
+    candidates: list[int] = []
     end = len(body)
-    while pos < end:
-        if body[pos] == 0x00 and is_extended_livery_transform_at(body, pos, end):
-            transform = read_livery_transform(body, pos, end)
-            if transform is not None and len(transform[2]) == 8:
-                # Numeric bytes inside a proven transform are not privacy markers.
-                # Stop before its trailer so genuine protected groups stay visible.
-                pos += len(transform[2]) + 16
-                if pos + 5 <= end and (body[pos] & ~0x40) == 0x30:
-                    sy = read_f32(body, pos + 1)
-                    if math.isfinite(sy) and 0.0001 <= abs(sy) <= 5000.0:
-                        pos += 5
-                continue
-        protected = _protected_livery_group_at(body, pos, end)
-        if protected is None:
-            pos += 1
-            continue
-        trailer_size, group = protected
-        protected_offsets.append(pos)
-        pos += trailer_size + max(1, group.size)
+    for pos, lead in enumerate(body):
+        if (lead & ~0x50) == 0x21 and _protected_livery_group_at(body, pos, end):
+            candidates.append(pos)
+    protected_offsets = candidates
+    if candidates:
+        # The independent scan remains authoritative for wrappers the artwork
+        # grammar cannot decode. Only proven numeric interiors can remove hits;
+        # markers, headers and real trailers are never part of these spans.
+        numeric_spans: list[tuple[int, int]] = []
+        try:
+            build_livery_sections(body, counts, numeric_spans=numeric_spans)
+        except (DecodeError, ValueError, IndexError, struct.error, RecursionError):
+            numeric_spans.clear()
+        spans = iter(sorted(numeric_spans))
+        start, stop = next(spans, (end, end))
+        protected_offsets = []
+        for pos in candidates:
+            while stop <= pos:
+                start, stop = next(spans, (end, end))
+            if not start <= pos < stop:
+                protected_offsets.append(pos)
     return {
         "source_owned": read_u32(payload, 8) != 1,
         "foreign_group_count": len(protected_offsets),
@@ -2221,7 +2250,9 @@ def inspect_clivery_privacy(payload: bytes) -> dict[str, Any]:
     }
 
 
-def build_livery_sections(body: bytes, counts: list[int]) -> tuple[list[dict[str, Any]], list[str]]:
+def build_livery_sections(
+    body: bytes, counts: list[int], *, numeric_spans: list[tuple[int, int]] | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
     warnings: list[str] = []
     layers: list[dict[str, Any]] = []
     pos = 0
@@ -2235,7 +2266,8 @@ def build_livery_sections(body: bytes, counts: list[int]) -> tuple[list[dict[str
         section_root = GroupNode(source="livery_section", offset=pos, section=name)
         holder = GroupNode(source="livery_holder")
         holder.items.append(section_root)
-        state = WalkState(stack=[holder, section_root])
+        state = WalkState(stack=[holder, section_root],
+                          numeric_spans=[] if numeric_spans is not None else None)
         reserved_tail = LIVERY_POPULATED_REMNANT_SIZE
         for later_slot in range(slot + 1, len(LIVERY_SECTION_NAMES)):
             later_target = counts[later_slot] if later_slot < len(counts) else 0
@@ -2304,6 +2336,9 @@ def build_livery_sections(body: bytes, counts: list[int]) -> tuple[list[dict[str
                     data[4] = normalize_rotation(float(data[4]) + 180.0)
         if len(decoded) != target:
             warnings.append(f"{name}: decoded {len(decoded)} layer(s), stats target is {target}")
+        elif numeric_spans is not None and not state.unrecognized_byte_count:
+            # Incomplete or unrecognized sections cannot disprove privacy hits.
+            numeric_spans.extend(state.numeric_spans or [])
         for layer in decoded:
             layer["section_start"] = section_start
             layers.append(layer)
