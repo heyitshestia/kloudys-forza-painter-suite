@@ -818,7 +818,7 @@ describe("community worker", () => {
     expect((await jsonFetch("/v1/artworks?scope=supporters")).status).toBe(401);
     expect((await jsonFetch("/v1/artworks?scope=supporters", "GET", undefined, regular)).status).toBe(403);
     expect((await jsonFetch(`/v1/artworks/${artwork.id}`, "GET", undefined, regular)).status).toBe(404);
-    expect((await jsonFetch(`/v1/artworks/${artwork.id}/thumbnail`, "GET", undefined, regular)).status).toBe(404);
+    expect((await jsonFetch(`/v1/artworks/${artwork.id}/thumbnail`, "GET", undefined, regular)).status).toBe(200);
     expect((await jsonFetch(`/v1/artworks/${artwork.id}/download`, "GET", undefined, regular)).status).toBe(404);
 
     const supporters = await jsonFetch("/v1/artworks?scope=supporters&search=Gallery", "GET", undefined, supporter);
@@ -829,7 +829,7 @@ describe("community worker", () => {
     });
     const thumbnail = await jsonFetch(`/v1/artworks/${artwork.id}/thumbnail`, "GET", undefined, supporter);
     expect(thumbnail.status).toBe(200);
-    expect(thumbnail.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(thumbnail.headers.get("Cache-Control")).toContain("public");
     expect((await jsonFetch(`/v1/artworks/${artwork.id}/download`, "GET", undefined, supporter)).status).toBe(200);
 
     const publicRevision = await jsonFetch(`/v1/artworks/${artwork.id}/revisions`, "POST", {
@@ -877,6 +877,57 @@ describe("community worker", () => {
     ).bind("SupporterCreator", new Date(Date.now() - 1000).toISOString()).run();
     expect((await jsonFetch("/v1/artworks?scope=supporters", "GET", undefined, supporter)).status).toBe(403);
     expect((await jsonFetch(`/v1/artworks/${artwork.id}`, "GET", undefined, supporter)).status).toBe(404);
+  });
+
+  it("shows all published supporter thumbnails without unlocking artwork files", async () => {
+    const supporter = await account("discover-supporter", "DiscoverSupporter");
+    const regular = await account("discover-regular", "DiscoverRegular");
+    await verifySupporter(supporter);
+    const upload = await jsonFetch("/v1/artworks", "POST", {
+      ...uploadBody(716), title: "Discoverable supporter artwork", supporter_only: true,
+      preview_base64: PREVIEW_TWO, thumbnail_base64: PREVIEW,
+    }, supporter);
+    expect(upload.status).toBe(201);
+    const { artwork } = await upload.json() as { artwork: { id: string } };
+    await jsonFetch("/v1/artworks", "POST", uploadBody(717), regular);
+    const path = `/v1/artworks/${artwork.id}`;
+    for (const featured of [0, 1]) {
+      await env.DB.prepare("UPDATE artworks SET featured = ?2 WHERE id = ?1").bind(artwork.id, featured).run();
+      for (const token of ["", regular, supporter]) {
+        const catalog = await jsonFetch("/v1/artworks?view=gallery&scope=browse&supporters=1", "GET", undefined, token);
+        expect(catalog.status).toBe(200);
+        expect(await catalog.json()).toMatchObject({ total: 1, items: [{ id: artwork.id, supporter_only: true }] });
+        const thumbnail = await jsonFetch(`${path}/thumbnail`, "GET", undefined, token);
+        expect(thumbnail.status).toBe(200);
+        expect(thumbnail.headers.get("Cache-Control")).toContain("public");
+        expect(new Uint8Array(await thumbnail.arrayBuffer())).toEqual(Uint8Array.from(atob(PREVIEW), c => c.charCodeAt(0)));
+        expect((await jsonFetch(`${path}/preview`, "GET", undefined, token)).status).toBe(token === supporter ? 200 : 404);
+        expect((await jsonFetch(`${path}/download`, "GET", undefined, token)).status).toBe(!token ? 401 : token === supporter ? 200 : 404);
+      }
+    }
+    await env.DB.prepare("UPDATE users SET supporter_verified_until = NULL WHERE username = 'DiscoverSupporter'").run();
+    expect((await jsonFetch(`${path}/thumbnail`, "GET", undefined, supporter)).status).toBe(200);
+    expect((await jsonFetch(`${path}/download`, "GET", undefined, supporter)).status).toBe(404);
+
+    for (const status of ["pending", "rejected", "removed"]) {
+      await env.DB.prepare("UPDATE artworks SET status = ?2 WHERE id = ?1").bind(artwork.id, status).run();
+      for (const token of ["", regular, supporter]) {
+        expect((await jsonFetch(`${path}/thumbnail`, "GET", undefined, token)).status).toBe(404);
+      }
+    }
+    await env.DB.prepare("UPDATE artworks SET status = 'published', starts_at = ?2, ends_at = ?3 WHERE id = ?1")
+      .bind(artwork.id, new Date(Date.now() - 1000).toISOString(), new Date(Date.now() + 60000).toISOString()).run();
+    const timed = await jsonFetch(`${path}/thumbnail`);
+    expect(timed.status).toBe(200);
+    expect(timed.headers.get("Cache-Control")).toBe("private, no-store");
+    await env.DB.prepare("UPDATE artworks SET ends_at = ?2 WHERE id = ?1").bind(artwork.id, new Date(Date.now() - 500).toISOString()).run();
+    expect((await jsonFetch(`${path}/thumbnail`)).status).toBe(404);
+    await env.DB.prepare("UPDATE artworks SET starts_at = ?2, ends_at = ?3 WHERE id = ?1")
+      .bind(artwork.id, new Date(Date.now() + 60000).toISOString(), new Date(Date.now() + 120000).toISOString()).run();
+    expect((await jsonFetch(`${path}/thumbnail`)).status).toBe(404);
+    await env.DB.prepare("UPDATE artworks SET starts_at = NULL, ends_at = NULL, purged_at = ?2 WHERE id = ?1")
+      .bind(artwork.id, new Date().toISOString()).run();
+    expect((await jsonFetch(`${path}/thumbnail`)).status).toBe(404);
   });
 
   it("shows featured supporter thumbnails publicly while enforcing eight curated slots", async () => {

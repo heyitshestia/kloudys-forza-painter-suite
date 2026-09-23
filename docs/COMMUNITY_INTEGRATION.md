@@ -1,5 +1,24 @@
 # Community Integration
 
+## Supporter Discovery and Wide Gallery (3.1.94)
+
+The always-visible Supporters tab uses the existing public gallery query with
+`supporters=1`. Published, currently available compact thumbnails are visible
+without a supporter entitlement, including non-Featured artwork. Full previews,
+photos, design downloads and 3D packages retain their existing access checks.
+Unpublished, expired, upcoming and purged public assets remain unavailable;
+scheduled thumbnails retain their private, non-cacheable response policy.
+
+Deploy the Worker before the desktop update. No migration, account reset or
+storage move is required. The legacy supporter-only catalog scope remains
+unchanged for older clients. The new tab resets its audience filter on exit.
+
+Wide galleries are capped at six columns; smaller windows remain responsive.
+Existing aspect-ratio sizing enlarges thumbnails without cropping. Profile grids,
+window geometry and theme fonts are unchanged. Verification covers the API access
+matrix, native interactions, and nine themes at four window sizes in English/Korean.
+Private fixtures, credentials and qualification captures are not published.
+
 ## Livery Covers and Quick Filter (3.1.92)
 
 New livery uploads retain the package's extracted in-game cover separately from

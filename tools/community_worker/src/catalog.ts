@@ -134,7 +134,7 @@ export async function visibleArtwork(
   env: Env,
   id: string,
   user: SessionUser | null,
-  allowFeaturedSupporterThumbnail = false,
+  allowPublishedSupporterThumbnail = false,
 ): Promise<Record<string, unknown>> {
   const row = await env.DB.prepare(
     `SELECT ${ARTWORK_COLUMNS},
@@ -146,10 +146,8 @@ export async function visibleArtwork(
   ).bind(id, user?.id || "").first<Record<string, unknown>>();
   if (!row) throw new HttpError(404, "artwork_not_found");
   assertAvailable(row, user, true);
-  const publicFeaturedThumbnail = allowFeaturedSupporterThumbnail
-    && Boolean(row.featured)
-    && String(row.status) === "published";
-  if (Boolean(row.supporter_only) && !hasActiveSupporter(user) && !publicFeaturedThumbnail) {
+  const publicThumbnail = allowPublishedSupporterThumbnail && String(row.status) === "published";
+  if (Boolean(row.supporter_only) && !hasActiveSupporter(user) && !publicThumbnail) {
     throw new HttpError(404, "artwork_not_found");
   }
   return row;
@@ -221,7 +219,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
     conditions.push(`EXISTS(SELECT 1 FROM follows sw WHERE sw.creator_id = a.creator_id AND sw.follower_id = ${bind(user?.id || "")})`);
   }
   if (scope === "featured" || gallery) {
-    // Curated metadata and compact thumbnails are visible to everyone. Full
+    // Gallery metadata and published compact thumbnails are visible to everyone. Full
     // supporter previews and JSON downloads remain protected by asset routes.
   } else if (scope === "supporters") {
     conditions.push("a.supporter_only = 1");
@@ -853,7 +851,7 @@ export async function handleArtworkAsset(
   if (kind !== "download") {
     headers.set(
       "Cache-Control",
-      !row.ends_at && row.status === "published" && (!Boolean(row.supporter_only) || (kind === "thumbnail" && Boolean(row.featured)))
+      !row.ends_at && row.status === "published" && (!Boolean(row.supporter_only) || kind === "thumbnail")
         ? "public, max-age=3600, stale-while-revalidate=86400"
         : "private, no-store",
     );

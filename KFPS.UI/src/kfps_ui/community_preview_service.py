@@ -275,6 +275,7 @@ class CommunityPreviewService(QObject):
             if self.scope_value == "Following" and not row["followed"]: continue
             if self.scope_value == "Timed Releases" and row["ends"] is None: continue
             if self.scope_value == "Livery" and row["kind"] != "livery": continue
+            if self.scope_value == "Supporters" and not row.get("supporter"): continue
             if row["ignored"] and self.scope_value not in ("My uploads", "Moderation"): continue
             if self.kind_value != "All" and row["kind"] != self.kind_value: continue
             if self.game_value != "All" and row["game"] != self.game_value: continue
@@ -352,6 +353,8 @@ class CommunityPreviewService(QObject):
             if key == "scope":
                 if value == "Livery": self.kind_value = "livery"
                 elif self.scope_value == "Livery": self.kind_value = "All"
+                if value == "Supporters": self.supporters_only = True
+                elif self.scope_value == "Supporters": self.supporters_only = False
             elif key == "kind" and self.scope_value == "Livery" and value != "livery":
                 self.scope_value = "Browse"
             setattr(self, attributes[key], value)
@@ -360,6 +363,7 @@ class CommunityPreviewService(QObject):
     @Slot(bool)
     def filterSupporters(self, value):
         self.supporters_only = value
+        if not value and self.scope_value == "Supporters": self.scope_value = "Browse"
         self.refresh()
 
     @Slot(str)

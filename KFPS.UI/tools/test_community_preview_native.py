@@ -21,7 +21,7 @@ def run_theme_checks(app, window, service, state, errors):
     result = {"passed": False, "qml_errors": errors, "screenshots": [], "cases": []}
     engine.incubationController().incubateFor(100)
     cases = [(preset.name, width, height, language) for preset in THEME_PRESETS
-             for width, height, language in ((1760, 1040, "en"), (1280, 800, "en"), (1000, 660, "ko"))]
+             for width, height, language in ((2560, 1440, "en"), (1760, 1040, "en"), (1280, 800, "en"), (1000, 660, "ko"))]
     case_index = 0
     ready_deadline = 0.0
 
@@ -64,12 +64,22 @@ def run_theme_checks(app, window, service, state, errors):
             gallery = find("CommunityGallery")
             entry.update(columns=gallery.property("columns"), gallery_width=round(gallery.width(), 1),
                          gallery_top=round(gallery.mapToScene(QPointF(0, 0)).y(), 1))
+            if width == 2560:
+                assert entry["columns"] == 6, "Wide gallery must show six columns"
+                old_columns = max(1, int(gallery.width() / evaluate("Theme.px(200)")))
+                old_thumbnail_width = int(gallery.width() / old_columns) - evaluate("Theme.px(10)")
+                thumbnail_width = gallery.property("cellWidth") - evaluate("Theme.px(10)")
+                entry.update(thumbnail_width=thumbnail_width,
+                             previous_thumbnail_width=old_thumbnail_width,
+                             thumbnail_growth=round(thumbnail_width / old_thumbnail_width, 3))
+                assert thumbnail_width > old_thumbnail_width, "Wide thumbnails did not get larger"
+                assert evaluate("contentItem.children.filter(function(c) { return c.artwork !== undefined && c.y === 0 }).length", gallery) == 6
             if width == 1280 and entry["columns"] != 3:
                 entry["issues"].append("Expected three gallery columns at medium size")
             if gallery.height() < 200 or gallery.width() < 200:
                 entry["issues"].append("Gallery has insufficient usable space")
             for control_name in ("CommunitySearch", "OpenUpload", "BackToKfps", "Download", "Favorite",
-                                 "Scope:Featured", "Scope:Browse", "Scope:Timed Releases", "Scope:Livery", "Scope:Favorites", "Scope:Following"):
+                                 "Scope:Featured", "Scope:Browse", "Scope:Timed Releases", "Scope:Livery", "Scope:Supporters", "Scope:Favorites", "Scope:Following"):
                 control = find(control_name)
                 assert control.isVisible(), "Hidden control: " + control_name
                 point = control.mapToScene(QPointF(0, 0))
@@ -319,7 +329,9 @@ def run_checks(app, window, service, state, errors):
         assert gallery.property("columns") == 3, ("Expected three columns at 1280", gallery.width())
         gallery_top = gallery.mapToScene(QPointF(0, 0)).y()
         assert gallery_top <= 280, ("Oversized Community header", gallery_top)
-        assert gallery.height() >= gallery.property("cellHeight") * 2
+        # Check actual tiles, excluding the empty gutter after the second row.
+        assert evaluate(gallery, "(function() { var tiles = contentItem.children.filter(function(c) { return c.artwork !== undefined && c.y < cellHeight * 2 }); return tiles.length === columns * 2 && tiles.every(function(c) { return c.y + c.height <= height }); })()"), (
+            "Second-row artwork is clipped", gallery.height(), gallery.property("cellHeight"))
         assert window.property("communityReviewPage") and window.property("headerHeight") == 40
         result["layout"] = {"viewport": [window.width(), window.height()],
                             "gallery_top": round(gallery_top, 1),
@@ -389,6 +401,12 @@ def run_checks(app, window, service, state, errors):
         QTest.qWait(100)
         assert not find("Download").isEnabled() and not find("Upvote").isEnabled()
         result["checks"].append("Visitor UI gates")
+        click("Scope:Supporters")
+        QTest.qWait(100)
+        assert service.scope == "Supporters" and service.rows
+        assert all(a["supporter"] and a["previewUrl"] for a in service.rows)
+        assert service.selected["locked"] and find("Download").property("text") == "Ko-Fi"
+        capture("supporter-discovery-visitor")
         service.setAccount("Member")
         gated = next(a for a in service.rows if a["supporter"])
         service.select(gated["id"])
@@ -400,7 +418,10 @@ def run_checks(app, window, service, state, errors):
         assert abs(find("Download").width() - find("Favorite").width()) < 1
         service.setAccount("Supporter")
         assert not service.selected["locked"]
-        result["checks"].append("Member/supporter entitlement states")
+        click("Scope:Browse")
+        assert not service.filters["supporters"]
+        assert any(not a["supporter"] for a in service.rows)
+        result["checks"].append("Supporters tab: visitor/member thumbnails and Ko-Fi, supporter access, Browse resets filter")
         service.setAccount("Moderator")
         service.filter("scope", "Featured")
         service.setLanguage("ko")

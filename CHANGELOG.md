@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.94
+
+### Supporter Artwork Discovery and Larger Thumbnails
+- Added a Supporters tab visible to everyone, with English and Korean labels.
+- Published, currently available supporter artwork now shows its compact thumbnail without a supporter key, whether Featured or not. Full-size previews and downloads remain protected; non-supporters still get the Ko-Fi action instead of Download.
+- Wide Community galleries now show at most six larger thumbnails per row. Smaller windows keep fewer columns, and artwork stays proportional and uncropped.
+- Verified anonymous, member, supporter and expired-key access, scheduled availability, native interactions and all nine themes. Existing sign-ins, personal settings and artwork files are unchanged.
+- Available through the updater; no new bundled release.
+
 ## 3.1.93
 
 ### Reliable Community Search

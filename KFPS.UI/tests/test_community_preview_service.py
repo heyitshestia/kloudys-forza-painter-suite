@@ -43,6 +43,26 @@ class PreviewServiceTests(unittest.TestCase):
         self.assertFalse(self.service.busy)
         self.assertFalse(self.service.hasError, self.service.status)
 
+    def test_supporter_discovery_for_visitors_members_and_supporters(self):
+        artwork = inspect_file(self.input, self.root)
+        for supporter in (False, True):
+            self.service.store.add(dict(title='Discovery fixture', kind='vinyl', supporter=supporter),
+                                   artwork['payload'], artwork['preview'], 'Supporter', seed=True)
+        for account in ('Visitor', 'Member', 'Supporter'):
+            with self.subTest(account=account):
+                self.service.setAccount(account)
+                self.service.filter('scope', 'Supporters')
+                self.assertTrue(self.service.rows)
+                self.assertTrue(all(row['supporter'] for row in self.service.rows))
+                self.assertTrue(all(row['previewUrl'] for row in self.service.rows))
+                self.assertEqual(self.service.selected['locked'], account != 'Supporter')
+                self.service.filterSupporters(False)
+                self.assertEqual(self.service.scope, 'Browse')
+                self.assertTrue(any(not row['supporter'] for row in self.service.rows))
+        self.service.filter('scope', 'Supporters')
+        self.service.filter('scope', 'Browse')
+        self.assertFalse(self.service.filters['supporters'])
+
     def fields(self, **kw):
         return dict(title="Local upload", description="A test", tags="racing, 테스트", category="Patterns",
                     classification="handmade", rights=True, compatibility=True, **kw)

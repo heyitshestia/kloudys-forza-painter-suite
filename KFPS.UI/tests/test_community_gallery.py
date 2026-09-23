@@ -95,6 +95,48 @@ class GalleryLiveryCoverTests(unittest.TestCase):
         self.assertIn('추가 사진 (선택, 최대 3장)', upload)
 
 
+class GallerySupporterDiscoveryTests(unittest.TestCase):
+    def test_supporter_tab_is_public_and_filters_without_legacy_key_gate(self):
+        service = SimpleNamespace(_scope='Browse', refresh=Mock(), _filters=dict(
+            kind='All', sort='Newest', creator='', search='', game='All', category='All',
+            classification='All', supporters=False))
+        CommunityGalleryService.filter(service, 'scope', 'Supporters')
+        query = parse_qs(urlparse(CommunityGalleryService._path(service, 2)).query)
+        self.assertEqual(query['scope'], ['browse'])
+        self.assertEqual(query['view'], ['gallery'])
+        self.assertEqual(query['supporters'], ['1'])
+        self.assertEqual(query['page'], ['2'])
+        creator = parse_qs(urlparse(CommunityGalleryService._path(service, 1, 'Artist')).query)
+        self.assertNotIn('supporters', creator)
+        CommunityGalleryService.filter(service, 'scope', 'Browse')
+        self.assertFalse(service._filters['supporters'])
+        CommunityGalleryService.filter(service, 'scope', 'Supporters')
+        CommunityGalleryService.filterSupporters(service, False)
+        self.assertEqual(service._scope, 'Browse')
+        CommunityGalleryService.filter(service, 'scope', 'Livery')
+        CommunityGalleryService.filter(service, 'scope', 'Supporters')
+        self.assertEqual(service._filters['kind'], 'All')
+
+    def test_non_supporter_keeps_thumbnail_but_cannot_unlock_media(self):
+        for authenticated in (False, True):
+            service = SimpleNamespace(supporter=False, authenticated=authenticated, username='Viewer',
+                _records={}, _image_url=lambda r, k, p, *args: p)
+            record = dict(id='locked', kind='vinyl', supporter_only=True, status='published',
+                thumbnail_url='thumbnail', preview_url='full-preview', photo_urls=['photo'])
+            row = CommunityGalleryService._row(service, record)
+            service._selected = row
+            CommunityGalleryService._selected_media(service)
+            self.assertEqual(row['previewUrl'], 'thumbnail')
+            self.assertTrue(row['locked'])
+            self.assertFalse(row['downloadable'])
+            self.assertEqual(row['photoUrls'], [])
+
+    def test_supporter_tab_is_bilingual_and_not_sign_in_gated(self):
+        qml = (UI / 'qml/community-preview/CommunityPreview.qml').read_text(encoding='utf-8')
+        self.assertIn('key:"Supporters",label:root.ui("Supporters", "서포터 전용")', qml)
+        self.assertIn('["Featured", "Browse", "Timed Releases", "Livery", "Supporters"].indexOf', qml)
+
+
 class GalleryLifecycleTests(unittest.TestCase):
     def test_closing_while_downloading_cannot_reopen_renderer(self):
         selected = {'id': 'test', 'kind': 'livery'}
