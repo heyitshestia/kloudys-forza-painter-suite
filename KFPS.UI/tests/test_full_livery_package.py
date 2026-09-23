@@ -1103,6 +1103,53 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertNotEqual(first, renderer_revised)
             self.assertNotEqual(package_revised, renderer_revised)
 
+    def test_privacy_revision_refreshes_cached_scan_and_preview(self):
+        from test_livery_privacy_boundaries import group_record, livery_payload as boundary_payload, transform_record
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "saves" / "Livery_test" / "C_livery"
+            source.parent.mkdir(parents=True)
+            payload = boundary_payload(transform_record() + group_record())
+            compressed = zlib.compress(payload)
+            source.write_bytes(struct.pack("<II", len(compressed), len(payload)) + compressed)
+            paths = AppPaths(root, UI, UI / "qml", UI / "assets", root / "runtime",
+                             root / "python" / "python.exe")
+            worker_paths = full_livery_job_paths(paths)
+            scan_payload = {"save_root": str(source.parent), "game_folder": ""}
+            preview_payload = {"source": str(source), "game_folder": ""}
+            old_verdict = {"source_owned": True, "contains_foreign_groups": True,
+                           "foreign_group_count": 1, "protected_group_offsets": [16]}
+            with (
+                patch.object(full_livery_jobs, "SOURCE_INDEX_REVISION",
+                             full_livery_jobs.SOURCE_INDEX_REVISION - 1),
+                patch.object(full_livery_jobs, "inspect_clivery_privacy", return_value=old_verdict),
+            ):
+                old_scan = full_livery_jobs.scan_saves(worker_paths, scan_payload, threading.Event())
+            self.assertFalse(old_scan["rows"][0]["exportable"])
+
+            scan = full_livery_jobs.scan_saves(worker_paths, scan_payload, threading.Event())
+            self.assertEqual(0, scan["cache_hits"])
+            self.assertTrue(scan["rows"][0]["exportable"])
+            repeated = full_livery_jobs.scan_saves(worker_paths, scan_payload, threading.Event())
+            self.assertEqual(1, repeated["cache_hits"])
+            self.assertTrue(repeated["rows"][0]["exportable"])
+
+            with (
+                patch.object(full_livery_jobs, "SOURCE_PREVIEW_CACHE_REVISION",
+                             full_livery_jobs.SOURCE_PREVIEW_CACHE_REVISION - 1),
+                patch("tools.livery.package.inspect_clivery_privacy", return_value=old_verdict),
+            ):
+                old_preview = full_livery_jobs.preview_source(worker_paths, preview_payload, threading.Event())
+            self.assertTrue(old_preview["manifest"]["sharing"]["contains_foreign_vinyl_groups"])
+            preview = full_livery_jobs.preview_source(worker_paths, preview_payload, threading.Event())
+            self.assertFalse(preview["cache_hit"])
+            self.assertNotEqual(old_preview["path"], preview["path"])
+            self.assertFalse(preview["manifest"]["sharing"]["contains_foreign_vinyl_groups"])
+            repeated = full_livery_jobs.preview_source(worker_paths, preview_payload, threading.Event())
+            self.assertTrue(repeated["cache_hit"])
+            self.assertFalse(repeated["manifest"]["sharing"]["contains_foreign_vinyl_groups"])
+
     def test_save_scan_hides_unowned_liveries_and_marks_foreign_groups_preview_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

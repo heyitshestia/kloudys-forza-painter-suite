@@ -2195,6 +2195,17 @@ def inspect_clivery_privacy(payload: bytes) -> dict[str, Any]:
     pos = 0
     end = len(body)
     while pos < end:
+        if body[pos] == 0x00 and is_extended_livery_transform_at(body, pos, end):
+            transform = read_livery_transform(body, pos, end)
+            if transform is not None and len(transform[2]) == 8:
+                # Numeric bytes inside a proven transform are not privacy markers.
+                # Stop before its trailer so genuine protected groups stay visible.
+                pos += len(transform[2]) + 16
+                if pos + 5 <= end and (body[pos] & ~0x40) == 0x30:
+                    sy = read_f32(body, pos + 1)
+                    if math.isfinite(sy) and 0.0001 <= abs(sy) <= 5000.0:
+                        pos += 5
+                continue
         protected = _protected_livery_group_at(body, pos, end)
         if protected is None:
             pos += 1

@@ -1,5 +1,23 @@
 # FH6 Full-Livery Portability Validation
 
+## Ownership Boundary Regression (3.1.95)
+
+Privacy inspection must not reinterpret numeric fields inside a validated
+extended livery transform as protected-group trailers. Those fields are skipped,
+but the following trailer and group are still inspected. Genuine compact, wide,
+mirrored and nested protected wrappers retain their existing restrictions.
+
+Regression coverage includes scale-byte collisions, protected groups after normal
+records, unowned sources, truncated input and stale scan/preview cache refresh.
+Source-index revision 3 and source-preview revision 4 invalidate earlier cached
+verdicts. The package format and placement decoder are unchanged.
+
+A private 3,188-placement reference passed the scan, local-preview, export and
+fresh-process package-reopen workflow. All nine populated section renders matched
+the baseline pixels, and the packaged source/header bytes were unchanged. Original
+save files and private fixture data are not part of the repository. These checks
+validate the export workflow, not a new in-game import or visual game comparison.
+
 ## Scope
 
 This milestone makes the existing FH6 full-livery viewer distributable without

@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.95
+
+### Correct FH6 Livery Export Ownership Checks
+- Fixed some owned FH6 liveries being incorrectly marked Preview only because ordinary group scale values resembled protected-content markers.
+- The ownership scan now skips numeric fields inside validated extended transforms while continuing to detect genuine protected groups after them. Unowned and incomplete liveries remain blocked.
+- Cached livery scan and local-preview results refresh automatically when rebuilt, without changing saved artwork.
+- Verified export and reopening of a 3,188-placement livery, unchanged source bytes and rendered sections, protected-content rejection, and cache refresh regression coverage.
+- Available through the updater; no new bundled release.
+
 ## 3.1.94
 
 ### Supporter Artwork Discovery and Larger Thumbnails
