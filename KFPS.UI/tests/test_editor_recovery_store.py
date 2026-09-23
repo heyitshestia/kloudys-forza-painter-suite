@@ -177,6 +177,95 @@ class RecoveryStoreTests(unittest.TestCase):
             self.store.write(self.payload(1, reference))
         self.assertFalse(self.marker.exists())
 
+    def test_checkpoint_browser_reads_both_without_writes_or_reference_materialization(self):
+        reference, source = self.reference()
+        older = {**self.payload(10, reference), "name": "Earlier", "saved_at": "2026-09-23T12:00:00Z"}
+        newer = {**self.payload(20), "name": "Newest"}
+        self.store.write(older)
+        self.store.write(newer)
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.marker.parent.rglob("*") if p.is_file()}
+        with patch.object(self.store, "_materialize", side_effect=AssertionError("Listing inflated reference")):
+            result = self.store.checkpoints()
+        self.assertEqual(0, result["unavailable"])
+        self.assertEqual(["Newest", "Earlier"], [e["title"] for e in result["entries"]])
+        self.assertEqual(["current", "previous"], [e["slot"] for e in result["entries"]])
+        self.assertNotIn("shapes", result["entries"][0])
+        restored = self.store.checkpoint(result["entries"][1]["id"])
+        self.assertEqual(source["data_url"], restored["editor_source_overlay"]["data_url"])
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.marker.parent.rglob("*") if p.is_file()})
+
+    def test_checkpoint_identity_survives_rotation_but_never_selects_replacement(self):
+        self.store.write(self.payload(10))
+        identity = self.store.checkpoints()["entries"][0]["id"]
+        self.store.write(self.payload(20))
+        self.assertEqual(10, self.store.checkpoint(identity)["recovery_revision"])
+        self.store.write(self.payload(30))
+        with self.assertRaises(FileNotFoundError):
+            self.store.checkpoint(identity)
+        for invalid in ("../autosave.json", "current", "", "A" * 64):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.store.checkpoint(invalid)
+
+    def test_checkpoint_browser_keeps_valid_previous_when_current_or_reference_is_broken(self):
+        self.store.write(self.payload(10))
+        reference, _ = self.reference()
+        self.store.write(self.payload(20, reference))
+        self.store.reference_path(reference["sha256"]).unlink()
+        result = self.store.checkpoints()
+        self.assertEqual(1, result["unavailable"])
+        self.assertEqual([10], [e["revision"] for e in result["entries"]])
+        self.marker.write_text("{broken")
+        self.assertEqual(result, self.store.checkpoints())
+
+    def test_checkpoint_browser_does_not_resurrect_discarded_work(self):
+        self.store.write(self.payload(10))
+        identity = self.store.checkpoints()["entries"][0]["id"]
+        self.store.write({"action": "clear", "shapes": [], "recovery_revision": 20})
+        for corrupt in (False, True):
+            if corrupt:
+                self.marker.write_text("broken")
+            self.assertEqual([], self.store.checkpoints()["entries"])
+            with self.assertRaises(FileNotFoundError):
+                self.store.checkpoint(identity)
+
+    def test_checkpoint_browser_empty_reference_only_guides_only_and_duplicate(self):
+        self.assertEqual({"entries": [], "unavailable": 0}, self.store.checkpoints())
+        self.store.write({"shapes": [], "recovery_revision": 10})
+        self.assertEqual([], self.store.checkpoints()["entries"])
+        reference, source = self.reference()
+        payload = {**self.payload(20, reference), "shapes": []}
+        self.store.write(payload)
+        self.store.write(payload)
+        self.assertEqual(1, len(self.store.checkpoints()["entries"]))
+        restored = self.store.checkpoint(self.store.checkpoints()["entries"][0]["id"])
+        self.assertEqual(source["data_url"], restored["editor_source_overlay"]["data_url"])
+        self.store.write({"shapes": [], "recovery_revision": 30, "editor_guides": {"guides": [{"axis": "x", "value": 50}]}})
+        self.assertEqual([30, 20], [e["revision"] for e in self.store.checkpoints()["entries"]])
+
+    def test_checkpoint_http_listing_selection_clear_and_invalid_identity(self):
+        import urllib.error
+        import urllib.request
+        with patch.object(fabric_server, "EDITOR_AUTOSAVE_MARKER", self.marker), RunningEditorServer() as server:
+            base = f"{server}{fabric_server.EDITOR_AUTOSAVE_API}"
+            def get(query):
+                with urllib.request.urlopen(base + query) as response:
+                    self.assertIn("no-store", response.headers["Cache-Control"])
+                    return json.load(response)
+            for revision in (10, 20):
+                self.assertTrue(post_json(server, fabric_server.EDITOR_AUTOSAVE_API, self.payload(revision))[1]["applied"])
+            entries = get("?history=1")["entries"]
+            identity = entries[1]["id"]
+            self.assertEqual(10, get("?checkpoint=" + identity)["payload"]["recovery_revision"])
+            self.assertEqual(20, get("")["payload"]["recovery_revision"])
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                get("?checkpoint=../file")
+            self.assertEqual(400, error.exception.code)
+            post_json(server, fabric_server.EDITOR_AUTOSAVE_API, {"shapes": [], "action": "clear", "recovery_revision": 30})
+            self.assertEqual([], get("?history=1")["entries"])
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                get("?checkpoint=" + identity)
+            self.assertEqual(409, error.exception.code)
+
     def test_http_compact_and_legacy_read_share_exact_data(self):
         import urllib.request
         with patch.object(fabric_server, "EDITOR_AUTOSAVE_MARKER", self.marker), RunningEditorServer() as server:

@@ -483,6 +483,21 @@ reference-image changes. If storage is full or unavailable, the editor continues
 working and reports that recovery was skipped. Saving the project clears the
 temporary recovery copy.
 
+### Manual Autosave Recovery
+
+Open **Open Project > Recent Autosaves** to list complete recovery checkpoints
+retained in this app folder, even when no startup prompt appears. Select a row
+and choose **Open Autosave**, or double-click it. Unsaved changes require the
+usual replacement confirmation. **Saved Projects** returns to ordinary saves.
+
+The list contains the existing current and previous checkpoints, with project
+name, save time and layer count. It is not an archive of every edit or project:
+new edits still rotate the same two files. Browsing does not save, delete or
+change them. Deliberately cleared copies are not offered; unreadable copies are
+skipped with a notice. Refresh if a selected copy has already rotated out.
+Opening a copy uses normal recovery, including groups, guides and reference
+images. Browser-storage fallback and automatic startup recovery are unchanged.
+
 ## Export Check And Export JSON
 
 The Export inspector validates continuously and again before saving.

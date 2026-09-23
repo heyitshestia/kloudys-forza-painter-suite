@@ -1620,7 +1620,22 @@
     ": Skew instead of uniform scale.": ": Skew instead of uniform scale.",
     "Side handles resize one axis. Corner handles scale uniformly. Hold": "Side handles resize one axis. Corner handles scale uniformly. Hold",
     "Skew instead of uniform scale.": "Skew instead of uniform scale.",
-    "while dragging a corner to skew.": "while dragging a corner to skew."
+    "while dragging a corner to skew.": "while dragging a corner to skew.",
+    "This autosave is no longer available. Refresh the list and choose another copy.": "This autosave is no longer available. Refresh the list and choose another copy.",
+    "Invalid recovery checkpoint identity.": "Invalid recovery checkpoint identity.",
+    "Available autosaves: {0}": "Available autosaves: {0}",
+    "Choose an autosave to open.": "Choose an autosave to open.",
+    "Latest checkpoint": "Latest checkpoint",
+    "Loading recent autosaves...": "Loading recent autosaves...",
+    "No recent autosaves are available.": "No recent autosaves are available.",
+    "Open Autosave": "Open Autosave",
+    "Previous checkpoint": "Previous checkpoint",
+    "Project source": "Project source",
+    "Recent Autosaves": "Recent Autosaves",
+    "Refresh the selected project list.": "Refresh the selected project list.",
+    "Saved Projects": "Saved Projects",
+    "Some autosaves could not be read. Available copies are listed.": "Some autosaves could not be read. Available copies are listed.",
+    "The autosave could not be opened. The current workspace was kept.": "The autosave could not be opened. The current workspace was kept."
   },
   "html": {
     "Choose <b>Open JSON</b>, or add a shape to begin on a blank canvas.": "Choose <b>Open JSON</b>, or add a shape to begin on a blank canvas.",

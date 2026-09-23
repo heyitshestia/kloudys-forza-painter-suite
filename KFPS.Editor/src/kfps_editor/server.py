@@ -1121,6 +1121,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if (query.get("head") or [""])[0] == "1":
                     self._send_json(head)
                     return
+                if (query.get("history") or [""])[0] == "1":
+                    self._send_json(store.checkpoints())
+                    return
+                if "checkpoint" in query:
+                    try:
+                        payload = store.checkpoint(query["checkpoint"][0])
+                    except ValueError as err:
+                        self._send_json({"error": str(err)}, status=400)
+                    except FileNotFoundError as err:
+                        self._send_json({"error": str(err), "code": "recovery_unavailable"}, status=409)
+                    else:
+                        self._send_json({"payload": payload, **head})
+                    return
                 payload, fallback, error = store.read(materialize=not compact)
             shapes = payload.get("shapes") if isinstance(payload, dict) else None
             self._send_json({

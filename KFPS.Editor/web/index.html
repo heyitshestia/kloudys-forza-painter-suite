@@ -918,12 +918,16 @@
     <div class="helpHeader">
       <div>
         <h2>Editor Projects</h2>
-        <p>These are internal KFPS project saves from runtime/fabric-editor/projects. They are not shown in the Import JSON browser.</p>
       </div>
       <button id="closeProjectBrowser" type="button" title="Close the project browser without changing the current project.">Close</button>
     </div>
+    <div class="projectBrowserTabs" role="tablist" aria-label="Project source">
+      <button id="savedProjectsTab" type="button" role="tab" aria-selected="true" aria-controls="projectBrowserPanel" title="Saved Projects">Saved Projects</button>
+      <button id="recentAutosavesTab" type="button" role="tab" aria-selected="false" aria-controls="projectBrowserPanel" tabindex="-1" title="Recent Autosaves">Recent Autosaves</button>
+    </div>
+    <section id="projectBrowserPanel" role="tabpanel" aria-labelledby="savedProjectsTab">
     <div class="projectBrowserToolbar">
-      <button id="refreshProjectBrowser" type="button" title="Rescan the internal editor project folder.">Refresh</button>
+      <button id="refreshProjectBrowser" type="button" title="Refresh the selected project list.">Refresh</button>
       <button id="openProjectFolder" class="compactIconButton" type="button" title="Open the internal project folder so you can drop old project files here in bulk.">Open folder</button>
       <span id="projectBrowserSummary">No projects loaded.</span>
     </div>
@@ -933,6 +937,7 @@
       <button id="addProjectEntry" type="button" title="Add an independent copy of this project's shapes and nested groups to the current project. Reference images and guides are not added." disabled><span aria-hidden="true">+</span> Add to Current Project</button>
       <button id="selectProjectEntry" class="primary" type="button" title="Replace the current workspace with the selected editable project." disabled>Load Project</button>
     </div>
+    </section>
   </dialog>
 
   <dialog id="themeAdjustDialog" class="themeAdjustDialog">

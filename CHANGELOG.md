@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.97
+
+### Manual Editor Autosave Recovery
+- Added Open Project > Recent Autosaves so retained recovery copies can be opened without the startup recovery prompt.
+- Shows the current and previous available checkpoints with project names, save times and layer counts. The tab only lists, selects and opens copies; it has no copy, delete or add-to-project actions.
+- Keeps existing autosave timing, rotation, retention and startup recovery unchanged. Unsaved-work confirmation, exact-checkpoint selection and discarded-copy protection remain in place.
+- Includes English and Korean text and verified recovery with 2,400 shapes, groups, guides and a reference image, plus 3,000-shape autosave regression coverage.
+- Available through the updater; no new bundled release.
+
 ## 3.1.96
 
 ### Broader FH6 Livery Ownership Validation

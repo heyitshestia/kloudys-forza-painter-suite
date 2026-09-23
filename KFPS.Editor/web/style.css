@@ -2367,6 +2367,18 @@ dialog::backdrop {
   overflow-y: auto;
 }
 
+.projectBrowserTabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.projectBrowserTabs [aria-selected="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
 .projectBrowserEntry {
   width: 100%;
   display: grid;

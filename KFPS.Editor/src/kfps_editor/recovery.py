@@ -128,13 +128,70 @@ class RecoveryStore:
         if identity:
             self.validate_reference(identity, payload[REFERENCE_KEY]["size"])
             if materialize:
-                reference = self.reference_bytes(identity)
-                overlay = payload.get("editor_source_overlay")
-                if not isinstance(overlay, dict):
-                    raise ValueError("Recovery reference metadata is missing.")
-                payload["editor_source_overlay"] = {**overlay, **json.loads(reference)}
-                del payload[REFERENCE_KEY]
+                self._materialize(payload)
         return payload
+
+    def _materialize(self, payload: dict) -> None:
+        identity = _reference_id(payload)
+        if identity:
+            reference = self.reference_bytes(identity)
+            overlay = payload.get("editor_source_overlay")
+            if not isinstance(overlay, dict):
+                raise ValueError("Recovery reference metadata is missing.")
+            payload["editor_source_overlay"] = {**overlay, **json.loads(reference)}
+            del payload[REFERENCE_KEY]
+
+    @staticmethod
+    def _checkpoint_id(payload: dict) -> str:
+        return hashlib.sha256(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _available(payload: dict, cleared: int) -> bool:
+        if payload.get("action") == "clear" or cleared and payload.get("recovery_revision", 0) <= cleared:
+            return False
+        return bool(payload["shapes"] or payload.get("editor_source_overlay")
+                    or (payload.get("editor_guides") or {}).get("guides")
+                    or (payload.get("editor_session") or {}).get("project_name"))
+
+    def checkpoints(self) -> dict:
+        """Metadata only; browsing never writes or extends checkpoint retention."""
+        entries, unavailable = [], 0
+        cleared = self.head()["clearedRevision"]
+        for slot, path in (("current", self.marker), ("previous", self.previous)):
+            try:
+                payload = self._read(path, False)
+                if not self._available(payload, cleared):
+                    continue
+                identity = self._checkpoint_id(payload)
+                if any(entry["id"] == identity for entry in entries):
+                    continue
+                entries.append({"id": identity, "slot": slot,
+                                "title": str(payload.get("name") or "autosave"),
+                                "layers": len(payload["shapes"]),
+                                "saved_at": payload.get("saved_at") or payload.get("created"),
+                                "mtime": path.stat().st_mtime,
+                                "revision": payload.get("recovery_revision", 0)})
+            except FileNotFoundError:
+                unavailable += int(path.exists())
+            except (OSError, ValueError, TypeError, AttributeError):
+                unavailable += 1
+        entries.sort(key=lambda entry: (entry["revision"], entry["mtime"]), reverse=True)
+        return {"entries": entries, "unavailable": unavailable}
+
+    def checkpoint(self, identity: str) -> dict:
+        if not isinstance(identity, str) or not REFERENCE_ID.fullmatch(identity):
+            raise ValueError("Invalid recovery checkpoint identity.")
+        cleared = self.head()["clearedRevision"]
+        # A selected current copy may rotate to previous while the dialog is open.
+        for path in (self.marker, self.previous):
+            try:
+                payload = self._read(path, False)
+                if self._available(payload, cleared) and self._checkpoint_id(payload) == identity:
+                    self._materialize(payload)
+                    return payload
+            except (OSError, ValueError, TypeError, AttributeError):
+                continue
+        raise FileNotFoundError("This autosave is no longer available. Refresh the list and choose another copy.")
 
     def read(self, *, materialize=True) -> tuple[dict | None, bool, str]:
         errors = []

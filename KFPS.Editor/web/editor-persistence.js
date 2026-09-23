@@ -78,7 +78,8 @@
         if (String(data.text).length > maxBytes) inputBytes = maxBytes + 1;
         else inputBytes = new Blob([String(data.text)]).size;
       }
-      if (operation === "fetchJSON" && /^\/api\/fabric-editor\/(?:json-file|project-file)(?:\?|$)/.test(data.url || "")) inputBytes = maxBytes;
+      if (operation === "fetchJSON" && (/^\/api\/fabric-editor\/(?:json-file|project-file)(?:\?|$)/.test(data.url || "")
+        || /^\/api\/fabric-editor\/autosave\?checkpoint=/.test(data.url || ""))) inputBytes = maxBytes;
       if (inputBytes > maxBytes) return Promise.reject(Object.assign(new Error("File exceeds the editor input limit. Choose a smaller file."), { code: "input_too_large" }));
       const protection = ["recovery", "browserRecovery", "recoveryHead"].includes(operation);
       const outstanding = [...this.pending.values()];

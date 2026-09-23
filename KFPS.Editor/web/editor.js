@@ -441,9 +441,12 @@ let jsonBrowserState = {
   request: null,
 };
 let projectBrowserState = {
+  source: "projects",
   entries: [],
   selectedIndex: -1,
   loading: false,
+  request: null,
+  restoring: false,
 };
 let pendingGlobalShapeReplacement = null;
 let exportSaveInProgress = false;
@@ -6353,19 +6356,44 @@ function setProjectBrowserStatus(message) {
   setText("projectBrowserStatus", message);
 }
 
+function projectBrowserSelectionMessage() {
+  return projectBrowserState.source === "autosaves"
+    ? KfpsI18n.t("Choose an autosave to open.")
+    : KfpsI18n.t("Choose Load Project or Add to Current Project.");
+}
+
+async function setProjectBrowserSource(source) {
+  if (projectBrowserState.restoring) return;
+  projectBrowserState.source = source;
+  const autosaves = source === "autosaves";
+  for (const id of ["savedProjectsTab", "recentAutosavesTab"]) {
+    const active = id === (autosaves ? "recentAutosavesTab" : "savedProjectsTab");
+    $(id).setAttribute("aria-selected", String(active));
+    $(id).tabIndex = active ? 0 : -1;
+  }
+  $("projectBrowserPanel").setAttribute("aria-labelledby", autosaves ? "recentAutosavesTab" : "savedProjectsTab");
+  $("openProjectFolder").hidden = autosaves;
+  $("addProjectEntry").hidden = autosaves;
+  setText("selectProjectEntry", autosaves ? KfpsI18n.t("Open Autosave") : KfpsI18n.t("Load Project"));
+  await refreshProjectBrowser();
+}
+
 function renderProjectBrowser() {
   const container = $("projectBrowserEntries");
   if (!container) return;
   container.innerHTML = "";
   const selected = selectedProjectEntry();
-  $("selectProjectEntry").disabled = !selected;
-  $("addProjectEntry").disabled = !selected || projectAdditionPending;
+  const autosaves = projectBrowserState.source === "autosaves";
+  $("selectProjectEntry").disabled = !selected || projectBrowserState.loading || projectBrowserState.restoring;
+  $("addProjectEntry").disabled = !selected || projectAdditionPending || autosaves || projectBrowserState.loading;
+  if (projectBrowserState.loading) return;
   if (!projectBrowserState.entries.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = KfpsI18n.t("No saved projects found yet. Use Save to create an editable project.");
+    empty.textContent = autosaves ? KfpsI18n.t("No recent autosaves are available.")
+      : KfpsI18n.t("No saved projects found yet. Use Save to create an editable project.");
     container.appendChild(empty);
-    setProjectBrowserStatus(KfpsI18n.t("No internal project saves found."));
+    setProjectBrowserStatus(autosaves ? KfpsI18n.t("No recent autosaves are available.") : KfpsI18n.t("No internal project saves found."));
     return;
   }
   projectBrowserState.entries.forEach((entry, index) => {
@@ -6376,46 +6404,67 @@ function renderProjectBrowser() {
     const title = document.createElement("b");
     title.textContent = entry.title || entry.name || KfpsI18n.t("Untitled project");
     const meta = document.createElement("span");
-    meta.textContent = `${layerLabel(entry.layers)} - ${formatBrowserDate(entry.mtime)}`;
+    const savedAt = autosaves && Date.parse(entry.saved_at);
+    meta.textContent = `${layerLabel(entry.layers)} - ${formatBrowserDate(savedAt ? savedAt / 1000 : entry.mtime)}`;
     textWrap.append(title, meta);
     const file = document.createElement("span");
-    file.textContent = entry.name || "";
+    file.textContent = autosaves ? (entry.slot === "previous" ? KfpsI18n.t("Previous checkpoint") : KfpsI18n.t("Latest checkpoint")) : entry.name || "";
     button.append(textWrap, file);
     button.addEventListener("click", () => {
+      if (projectBrowserState.restoring) return;
       projectBrowserState.selectedIndex = index;
       setBrowserActiveRow(container, ".projectBrowserEntry", index);
       $("selectProjectEntry").disabled = false;
-      $("addProjectEntry").disabled = projectAdditionPending;
-      setProjectBrowserStatus(KfpsI18n.t("Choose Load Project or Add to Current Project."));
+      $("addProjectEntry").disabled = projectAdditionPending || autosaves;
+      setProjectBrowserStatus(projectBrowserSelectionMessage());
     });
     button.addEventListener("dblclick", () => loadSelectedProject());
     container.appendChild(button);
   });
-  setProjectBrowserStatus(selected ? KfpsI18n.t("Choose Load Project or Add to Current Project.") : KfpsI18n.t("Select a project."));
+  setProjectBrowserStatus(selected ? projectBrowserSelectionMessage() : KfpsI18n.t("Select a project."));
 }
 
 async function refreshProjectBrowser() {
-  if (projectBrowserState.loading) return;
+  if (projectBrowserState.restoring) return;
+  projectBrowserState.request?.abort();
+  const request = new AbortController();
+  projectBrowserState.request = request;
+  const autosaves = projectBrowserState.source === "autosaves";
   projectBrowserState.loading = true;
-  setText("projectBrowserSummary", KfpsI18n.t("Loading internal projects..."));
-  setProjectBrowserStatus(KfpsI18n.t("Scanning runtime/fabric-editor/projects..."));
+  projectBrowserState.entries = [];
+  projectBrowserState.selectedIndex = -1;
+  renderProjectBrowser();
+  setText("projectBrowserSummary", autosaves ? KfpsI18n.t("Loading recent autosaves...") : KfpsI18n.t("Loading internal projects..."));
+  setProjectBrowserStatus(autosaves ? KfpsI18n.t("Loading recent autosaves...") : KfpsI18n.t("Scanning runtime/fabric-editor/projects..."));
+  const timeout = setTimeout(() => request.abort(), 15000);
   try {
-    const response = await fetch(PROJECT_BROWSER_API, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    const response = await fetch(autosaves ? `${EDITOR_AUTOSAVE_API}?history=1` : PROJECT_BROWSER_API,
+      { cache: "no-store", signal: request.signal });
     const data = await response.json();
+    if (projectBrowserState.request !== request) return;
     if (!response.ok) throw new Error(KfpsI18n.error(data.error || KfpsI18n.t("HTTP {0}", response.status)));
     projectBrowserState.entries = Array.isArray(data.entries) ? data.entries : [];
     projectBrowserState.selectedIndex = projectBrowserState.entries.length ? 0 : -1;
-    setText("projectBrowserSummary", KfpsI18n.t("{0} project{1} saved inside KFPS.", data.total_entries || 0, data.total_entries === 1 ? "" : "s"));
+    projectBrowserState.loading = false;
+    setText("projectBrowserSummary", autosaves ? KfpsI18n.t("Available autosaves: {0}", projectBrowserState.entries.length)
+      : KfpsI18n.t("{0} project{1} saved inside KFPS.", data.total_entries || 0, data.total_entries === 1 ? "" : "s"));
     renderProjectBrowser();
+    if (autosaves && data.unavailable) setProjectBrowserStatus(KfpsI18n.t("Some autosaves could not be read. Available copies are listed."));
   } catch (err) {
+    if (projectBrowserState.request !== request) return;
     console.error(err);
+    projectBrowserState.loading = false;
     projectBrowserState.entries = [];
     projectBrowserState.selectedIndex = -1;
     renderProjectBrowser();
     setText("projectBrowserSummary", KfpsI18n.t("Project browser failed to load."));
     setProjectBrowserStatus(err.message || String(err));
   } finally {
-    projectBrowserState.loading = false;
+    clearTimeout(timeout);
+    if (projectBrowserState.request === request) {
+      projectBrowserState.loading = false;
+      projectBrowserState.request = null;
+    }
   }
 }
 
@@ -6447,10 +6496,44 @@ async function openProjectBrowser() {
   } catch (_err) {
     dialog.setAttribute("open", "");
   }
-  await refreshProjectBrowser();
+  await setProjectBrowserSource("projects");
+}
+
+async function loadSelectedAutosave() {
+  const entry = selectedProjectEntry();
+  if (!entry || projectBrowserState.loading || projectBrowserState.restoring) return;
+  const dialog = $("projectBrowserDialog");
+  const generation = documentGeneration;
+  let cancelled = false;
+  const cancel = () => { cancelled = true; };
+  dialog.addEventListener("close", cancel);
+  projectBrowserState.restoring = true;
+  for (const id of ["selectProjectEntry", "savedProjectsTab", "recentAutosavesTab", "refreshProjectBrowser"]) $(id).disabled = true;
+  setProjectBrowserStatus(KfpsI18n.t("Loading {0}...", entry.title));
+  try {
+    // Read the exact selection before confirmation; later saves may rotate it out.
+    const data = await readEditorDocument(`${EDITOR_AUTOSAVE_API}?checkpoint=${encodeURIComponent(entry.id)}`);
+    if (cancelled || generation !== documentGeneration || !dialog.open) return;
+    if (!await confirmWorkspaceReplacement(entry.title) || cancelled || generation !== documentGeneration || !dialog.open) {
+      setProjectBrowserStatus(KfpsI18n.t("Current unsaved work was kept."));
+      return;
+    }
+    editorRecovery.observe(data.recovery_revision || 0);
+    if (await recoverAutosavePayload(data.payload)) dialog.close();
+    else setProjectBrowserStatus(KfpsI18n.t("The autosave could not be opened. The current workspace was kept."));
+  } catch (err) {
+    if (!cancelled) setProjectBrowserStatus(KfpsI18n.error(err.message || String(err)));
+  } finally {
+    dialog.removeEventListener("close", cancel);
+    projectBrowserState.restoring = false;
+    for (const id of ["savedProjectsTab", "recentAutosavesTab", "refreshProjectBrowser"]) $(id).disabled = false;
+    $("selectProjectEntry").disabled = !selectedProjectEntry();
+  }
 }
 
 async function loadSelectedProject() {
+  if (projectBrowserState.source === "autosaves") return loadSelectedAutosave();
+  if (projectBrowserState.loading) return;
   const entry = selectedProjectEntry();
   if (!entry) {
     setProjectBrowserStatus(KfpsI18n.t("Select a project first."));
@@ -6475,6 +6558,7 @@ async function loadSelectedProject() {
 
 let projectAdditionPending = false;
 async function addSelectedProject() {
+  if (projectBrowserState.source === "autosaves" || projectBrowserState.loading) return;
   const entry = selectedProjectEntry();
   if (!entry || projectAdditionPending) return;
   projectAdditionPending = true;
@@ -12277,6 +12361,17 @@ function bindUi() {
   $("loadProject")?.addEventListener("click", openProjectBrowser);
   $("closeProjectBrowser")?.addEventListener("click", () => $("projectBrowserDialog")?.close());
   $("refreshProjectBrowser")?.addEventListener("click", refreshProjectBrowser);
+  for (const [id, source] of [["savedProjectsTab", "projects"], ["recentAutosavesTab", "autosaves"]]) {
+    $(id).addEventListener("click", () => setProjectBrowserSource(source));
+    $(id).addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? "savedProjectsTab" : event.key === "End" ? "recentAutosavesTab"
+        : id === "savedProjectsTab" ? "recentAutosavesTab" : "savedProjectsTab";
+      $(next).focus();
+      $(next).click();
+    });
+  }
   $("openProjectFolder")?.addEventListener("click", openProjectFolder);
   $("selectProjectEntry")?.addEventListener("click", loadSelectedProject);
   $("addProjectEntry")?.addEventListener("click", addSelectedProject);

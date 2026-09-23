@@ -1622,7 +1622,22 @@ window.KfpsEditorLocales.ko = {
     ": Skew instead of uniform scale.": ": 비율을 유지한 크기 조절 대신 도형을 기울입니다.",
     "Side handles resize one axis. Corner handles scale uniformly. Hold": "변의 핸들은 한 축의 크기를 조절하고, 모서리 핸들은 비율을 유지하며 크기를 조절합니다.",
     "Skew instead of uniform scale.": "비율을 유지한 크기 조절 대신 도형을 기울입니다.",
-    "while dragging a corner to skew.": "키를 누른 채 모서리를 드래그하면 도형을 기울일 수 있습니다."
+    "while dragging a corner to skew.": "키를 누른 채 모서리를 드래그하면 도형을 기울일 수 있습니다.",
+    "This autosave is no longer available. Refresh the list and choose another copy.": "이 자동 저장본은 더 이상 사용할 수 없어요. 목록을 새로 고침한 뒤 다른 저장본을 선택해 주세요.",
+    "Invalid recovery checkpoint identity.": "자동 저장본의 식별 정보가 올바르지 않아요.",
+    "Available autosaves: {0}": "사용 가능한 자동 저장본: {0}개",
+    "Choose an autosave to open.": "열고 싶은 자동 저장본을 선택해 주세요.",
+    "Latest checkpoint": "최신 저장본",
+    "Loading recent autosaves...": "최근 자동 저장본을 불러오는 중...",
+    "No recent autosaves are available.": "사용 가능한 최근 자동 저장본이 없어요.",
+    "Open Autosave": "자동 저장본 열기",
+    "Previous checkpoint": "이전 저장본",
+    "Project source": "프로젝트 위치",
+    "Recent Autosaves": "최근 자동 저장",
+    "Refresh the selected project list.": "선택한 프로젝트 목록을 새로 고칩니다.",
+    "Saved Projects": "저장된 프로젝트",
+    "Some autosaves could not be read. Available copies are listed.": "일부 자동 저장본을 읽지 못했어요. 사용할 수 있는 저장본만 표시됩니다.",
+    "The autosave could not be opened. The current workspace was kept.": "자동 저장본을 열지 못했어요. 현재 작업은 그대로 유지됩니다."
   },
   "html": {
     "Choose <b>Open JSON</b>, or add a shape to begin on a blank canvas.": "<b>JSON 열기</b>를 선택하거나 도형을 추가하여 빈 캔버스에서 시작하세요.",
