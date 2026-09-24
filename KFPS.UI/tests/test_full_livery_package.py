@@ -354,7 +354,8 @@ class FullLiveryPackageTests(unittest.TestCase):
             content = drive / "XboxGames" / "Forza Horizon 6" / "Content"
             cars = content / "media" / "cars"
             cars.mkdir(parents=True)
-            (cars / "test-car.zip").write_bytes(b"fixture")
+            with zipfile.ZipFile(cars / "test-car.zip", "w") as bundle:
+                bundle.writestr("Scene/clip/carclips_3304.clipd", b"clip")
 
             resolved = discover_fh6_game_folder(
                 drive_roots=[drive],
@@ -370,7 +371,8 @@ class FullLiveryPackageTests(unittest.TestCase):
             game = library / "steamapps" / "common" / "Forza Horizon 6"
             cars = game / "media" / "cars"
             cars.mkdir(parents=True)
-            (cars / "test-car.zip").write_bytes(b"fixture")
+            with zipfile.ZipFile(cars / "test-car.zip", "w") as bundle:
+                bundle.writestr("Scene/clip/carclips_3304.clipd", b"clip")
 
             resolved = discover_fh6_game_folder(
                 drive_roots=[],
@@ -1208,6 +1210,58 @@ class FullLiveryPackageTests(unittest.TestCase):
             self.assertFalse(rows[str(protected.resolve())]["exportable"])
             self.assertIn("Link the local FH6 folder", rows[str(shareable.resolve())]["detail"])
             self.assertIn("Remove every foreign vinyl group", rows[str(protected.resolve())]["privacyDetail"])
+
+    def test_save_scan_combines_sibling_slots_without_expanding_manual_selection(self):
+        from test_livery_privacy_boundaries import livery_payload as boundary_payload, shape_record
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            account = root / "GameSave" / "pgs" / "account-one"
+            first = account / "427" / "ContainersRoot" / "Livery_A" / "C_livery"
+            second = account / "428" / "ContainersRoot" / "Livery_B" / "C_livery"
+            duplicate = account / "current" / "ContainersRoot" / "Livery_A" / "C_livery"
+            other_account = root / "GameSave" / "pgs" / "account-two" / "current" / "ContainersRoot" / "Livery_C" / "C_livery"
+            locked = account / "428" / "ContainersRoot" / "Livery_locked" / "C_livery"
+            for source, count, state in ((first, 1, 0), (second, 2, 0), (duplicate, 1, 0),
+                                         (other_account, 3, 0), (locked, 4, 1)):
+                source.parent.mkdir(parents=True)
+                source.write_bytes(_wrap_payload(boundary_payload(shape_record() * count, count, state=state)))
+            originals = {source: source.read_bytes() for source in (first, second, duplicate, other_account, locked)}
+            paths = AppPaths(root, UI, UI / "qml", UI / "assets", root / "runtime", Path(sys.executable))
+            worker_paths = full_livery_job_paths(paths)
+            result = full_livery_jobs.scan_saves(worker_paths, {"save_root": str(account)}, threading.Event())
+            self.assertEqual(4, result["inspected"])
+            self.assertEqual(1, result["locked"])
+            self.assertEqual({str(duplicate.resolve()), str(second.resolve())}, {row["path"] for row in result["rows"]})
+            self.assertTrue(all(row["exportable"] for row in result["rows"]))
+            repeated = full_livery_jobs.scan_saves(worker_paths, {"save_root": str(account)}, threading.Event())
+            self.assertEqual(4, repeated["cache_hits"])
+            self.assertEqual(result["rows"], repeated["rows"])
+            narrow = full_livery_jobs.scan_saves(worker_paths, {"save_root": str(second.parents[1])}, threading.Event())
+            self.assertEqual([str(second.resolve())], [row["path"] for row in narrow["rows"]])
+            self.assertEqual(originals, {source: source.read_bytes() for source in originals})
+
+    def test_save_scan_combines_separate_roots_and_deduplicates_identical_liveries(self):
+        from test_livery_privacy_boundaries import livery_payload as boundary_payload, shape_record
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            saves_a, saves_b = root / "drive-a" / "GameSave", root / "drive-b" / "GameSave"
+            for save_root, name, count in ((saves_a, "A", 1), (saves_b, "A-copy", 1), (saves_b, "B", 2)):
+                source = save_root / "pgs" / "account" / "428" / "ContainersRoot" / name / "C_livery"
+                source.parent.mkdir(parents=True)
+                source.write_bytes(_wrap_payload(boundary_payload(shape_record() * count, count)))
+            paths = AppPaths(root, UI, UI / "qml", UI / "assets", root / "runtime", Path(sys.executable))
+            worker_paths = full_livery_job_paths(paths)
+            with patch.object(full_livery_jobs, "_scan_roots", return_value=[saves_a.resolve(), saves_b.resolve()]):
+                result = full_livery_jobs.scan_saves(worker_paths, {}, threading.Event())
+                repeated = full_livery_jobs.scan_saves(worker_paths, {}, threading.Event())
+            self.assertEqual(3, result["inspected"])
+            self.assertEqual(2, len(result["rows"]))
+            self.assertEqual({1, 2}, {row["placementCount"] for row in result["rows"]})
+            self.assertTrue(all(row["exportable"] for row in result["rows"]))
+            self.assertEqual(3, repeated["cache_hits"])
+            self.assertEqual(result["rows"], repeated["rows"])
 
     def test_save_scan_marks_incomplete_owned_source_preview_only(self):
         with tempfile.TemporaryDirectory() as temp:

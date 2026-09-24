@@ -95,6 +95,19 @@ class FullLiveryExperimentContractTests(unittest.TestCase):
             self.assertEqual(sys.executable, program)
             self.assertIn("--full-livery-inspector", arguments)
 
+    def test_auto_scan_discovers_multiple_drives_without_duplicate_roots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            drives = [Path(temporary) / "drive-a", Path(temporary) / "drive-b"]
+            roots = [drive / "XboxGames" / "GameSave" for drive in drives]
+            for root in roots:
+                root.mkdir(parents=True)
+            partitions = [SimpleNamespace(mountpoint=str(drive)) for drive in (*drives, drives[0])]
+            with patch.object(full_livery_jobs.psutil, "disk_partitions", return_value=partitions):
+                discovered = full_livery_jobs._scan_roots("")
+                self.assertTrue({root.resolve() for root in roots}.issubset(discovered))
+                self.assertEqual(len(discovered), len(set(discovered)))
+                self.assertEqual([roots[1].resolve()], full_livery_jobs._scan_roots(str(roots[1])))
+
     def test_missing_configured_root_never_falls_back_to_another_drive(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

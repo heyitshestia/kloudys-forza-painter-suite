@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.98
+
+### Reliable FH6 Game Folder Linking
+- Fixed unrelated ZIPs beside the game executable causing the livery inspector to link an empty car index. Steam and Xbox installations now prefer their actual media/Cars directory and verify readable car identifiers.
+- Old empty or wrong-directory indexes rebuild automatically. Invalid or unreadable car folders now report a linking error instead of success with zero cars.
+- Verified manual selection, automatic discovery, cache recovery, multiple save folders and duplicate handling with 183 regression tests. Both local Steam and Xbox installations indexed all 671 available cars through the background worker.
+- Save scanning, ownership restrictions, artwork and game files are unchanged. This does not change which liveries the ownership filter displays.
+- Available through the updater; no new bundled release.
+
 ## 3.1.97
 
 ### Manual Editor Autosave Recovery

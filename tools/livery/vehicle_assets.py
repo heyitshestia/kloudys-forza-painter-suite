@@ -45,20 +45,42 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def _car_clip_in_archive(archive: Path) -> tuple[int, str] | None:
+    with zipfile.ZipFile(archive) as bundle:
+        for name in bundle.namelist():
+            match = CAR_CLIP_RE.search(name.replace("\\", "/"))
+            if match:
+                return int(match.group(1)), name
+    return None
+
+
 def resolve_fh6_cars_dir(game_folder: Path | str) -> Path:
     root = Path(game_folder).expanduser()
+    # A ZIP beside the game executable is not evidence of a car directory.
     candidates = [
-        root,
         root / "media" / "cars",
         root / "Content" / "media" / "cars",
+        root,
     ]
-    if root.name.lower() == "content":
-        candidates.insert(1, root / "media" / "cars")
+    read_errors: list[str] = []
     for candidate in candidates:
-        if candidate.is_dir() and any(candidate.glob("*.zip")):
-            return candidate.resolve()
+        try:
+            if not candidate.is_dir():
+                continue
+            for archive in candidate.glob("*.zip"):
+                try:
+                    if _car_clip_in_archive(archive) is not None:
+                        return candidate.resolve()
+                except (OSError, zipfile.BadZipFile) as exc:
+                    if len(read_errors) < 3:
+                        read_errors.append(f"{archive}: {exc}")
+        except OSError as exc:
+            if len(read_errors) < 3:
+                read_errors.append(f"{candidate}: {exc}")
+    detail = " Archive read errors: " + "; ".join(read_errors) if read_errors else ""
     raise VehicleAssetError(
-        f"FH6 car archives were not found below {root}. Choose the game folder or its Content folder."
+        f"No readable FH6 car archives were found below {root}. "
+        f"Choose the game folder or its Content folder containing media/Cars.{detail}"
     )
 
 
@@ -236,28 +258,27 @@ def build_vehicle_asset_index(cars_dir: Path | str) -> dict[int, VehicleAsset]:
     index: dict[int, VehicleAsset] = {}
     for archive in sorted(cars.glob("*.zip"), key=lambda p: p.name.casefold()):
         try:
-            with zipfile.ZipFile(archive) as bundle:
-                for name in bundle.namelist():
-                    match = CAR_CLIP_RE.search(name.replace("\\", "/"))
-                    if not match:
-                        continue
-                    car_id = int(match.group(1))
-                    stat = archive.stat()
-                    index.setdefault(
-                        car_id,
-                        VehicleAsset(
-                            car_id=car_id,
-                            model_code=archive.stem,
-                            archive_path=str(archive.resolve()),
-                            archive_name=archive.name,
-                            archive_size=stat.st_size,
-                            archive_mtime_ns=stat.st_mtime_ns,
-                            clip_entry=name,
-                        ),
-                    )
-                    break
+            clip = _car_clip_in_archive(archive)
+            if clip is None:
+                continue
+            car_id, name = clip
+            stat = archive.stat()
+            index.setdefault(
+                car_id,
+                VehicleAsset(
+                    car_id=car_id,
+                    model_code=archive.stem,
+                    archive_path=str(archive.resolve()),
+                    archive_name=archive.name,
+                    archive_size=stat.st_size,
+                    archive_mtime_ns=stat.st_mtime_ns,
+                    clip_entry=name,
+                ),
+            )
         except (OSError, zipfile.BadZipFile):
             continue
+    if not index:
+        raise VehicleAssetError(f"No readable FH6 car identifiers were found in {cars}. Relink the FH6 folder.")
     return index
 
 
@@ -271,7 +292,13 @@ def load_or_build_vehicle_asset_index(
     if cache and cache.is_file():
         try:
             payload = json.loads(cache.read_text(encoding="utf-8"))
-            if payload.get("format") == "kfps_fh6_vehicle_asset_index_v1" and payload.get("signature") == signature:
+            if (
+                isinstance(payload, dict)
+                and payload.get("format") == "kfps_fh6_vehicle_asset_index_v1"
+                and payload.get("signature") == signature
+                and isinstance(payload.get("vehicles"), dict)
+                and payload["vehicles"]
+            ):
                 return {
                     int(key): VehicleAsset(**value)
                     for key, value in payload.get("vehicles", {}).items()

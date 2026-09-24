@@ -13,7 +13,8 @@ separate later milestone.
 ## User workflow
 
 1. Open the public `Liveries` tab.
-2. Choose the FH6 `Content` folder if KFPS did not find it automatically.
+2. Choose the Steam FH6 installation folder or Xbox FH6 `Content` folder if KFPS
+   did not find it automatically. The Xbox parent game folder is also accepted.
 3. Scan local FH6 saves. KFPS deduplicates identical slot/current records.
 4. Select an owned local livery. KFPS can preview it even when it contains vinyls
    by another player, but export remains unavailable until those vinyls are
@@ -31,6 +32,20 @@ The scan is read-only; only the explicit install action writes. Liveries owned b
 liveries containing another player's vinyl groups remain available for private
 visual inspection, but every package creation and validation path rejects them.
 The UI explains that the foreign vinyls must be removed in FH6 before export.
+
+The FH6 link stores the installation root, while the car index uses its
+`media/Cars` directory. Canonical Steam and Xbox car directories take precedence
+over ZIPs in the selected root. Direct car-archive folders remain supported only
+when readable archives contain car identifiers. An empty index is not a successful
+link; old empty or wrong-directory indexes are rebuilt automatically. This does
+not change livery ownership or sharing rules.
+
+Save discovery is separate from this game-asset link. Automatic save scans cover
+detected `XboxGames/GameSave` roots across drives and recursively find liveries in
+their account/version subfolders. Identical source records are shown once. A
+manually selected folder remains authoritative: choose an account folder or
+`GameSave` to include sibling save slots, or `ContainersRoot` to scan only that
+slot. An unavailable explicit selection never silently switches to another root.
 
 Private source previews contain rendered inspection material only. They omit the
 original livery record, its header, and canonical layer data, and cannot be added
