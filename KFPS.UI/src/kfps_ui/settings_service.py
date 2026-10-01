@@ -21,6 +21,7 @@ class SettingsService(QObject):
 
     DEFAULTS = {
         "theme": DEFAULT_THEME,
+        "editorGraphics": "auto",
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
@@ -54,6 +55,8 @@ class SettingsService(QObject):
         except Exception:
             pass
         self._data["theme"] = normalize_theme(self._data.get("theme"))
+        if self._data.get("editorGraphics") not in ("auto", "opengl", "d3d11"):
+            self._data["editorGraphics"] = "auto"
         if not isinstance(self._data.get("windowGeometry"), dict):
             self._data["windowGeometry"] = {}
 
@@ -88,6 +91,20 @@ class SettingsService(QObject):
     def theme(self): return str(self._get("theme"))
     @theme.setter
     def theme(self, value): self._set_theme(value)
+    @Property(str, notify=changed)
+    def editorGraphics(self): return self._get("editorGraphics")
+    @editorGraphics.setter
+    def editorGraphics(self, value):
+        if value not in ("auto", "opengl", "d3d11") or value == self.editorGraphics:
+            return
+        previous = self.editorGraphics
+        self._data["editorGraphics"] = value
+        try:
+            self.save()
+        except OSError:
+            self._data["editorGraphics"] = previous
+            logging.getLogger(__name__).warning("Could not persist editor graphics choice", exc_info=True)
+        self.changed.emit()
     @Property(bool, notify=changed)
     def manualOverrides(self): return bool(self._get("manualOverrides"))
     @manualOverrides.setter

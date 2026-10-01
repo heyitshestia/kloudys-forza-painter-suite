@@ -437,6 +437,17 @@ Item {
                     onClicked: editorService.resetTutorial()
                 }
 
+                Label { text: "Editor graphics (restart editor)" }
+                KfpsComboBox {
+                    objectName: "editorGraphicsSelector"
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    model: ["Auto", "OpenGL", "Direct3D 11"]
+                    currentIndex: ["auto", "opengl", "d3d11"].indexOf(settings.editorGraphics)
+                    toolTipText: "Auto preserves OpenGL except for confirmed hardware and driver compatibility rules. Applies to both editor launch methods after closing and reopening the editor."
+                    onActivated: settings.editorGraphics = ["auto", "opengl", "d3d11"][currentIndex]
+                }
+
                 GhostButton {
                     Layout.fillWidth: true
                     text: jsonService.thumbnailRegenerating ? "Regenerating..." : "Regenerate Local Thumbnails"

@@ -45,8 +45,9 @@ def main() -> int:
                 if not args.background:
                     grant_foreground(child.pid)
                 return child.wait()
-        from .graphics import configure_environment, configure_qt
-        configure_environment(os.environ)
+        from .graphics import configure_environment, configure_qt, select_policy
+        graphics_selection = select_policy(APP_ROOT)
+        configure_environment(os.environ, graphics_selection)
         if args.test_debug_port is not None:
             os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = str(args.test_debug_port)
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--remote-allow-origins=*"
@@ -64,7 +65,7 @@ def main() -> int:
                 wait_until_ready(runtime, name, background=args.background)
                 return 0
         baseline = verify(APP_ROOT)
-        graphics = configure_qt()
+        graphics = configure_qt(graphics_selection)
         record_startup(runtime, "graphics-policy", from_kfps=args.from_kfps, **graphics)
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QMessageBox

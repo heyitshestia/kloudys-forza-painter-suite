@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.99
+
+### Shared Editor Graphics Selection
+- Added Auto, OpenGL and Direct3D 11 under Settings > Maintenance > Editor graphics. The standalone editor and the editor opened from KFPS read the same saved choice after closing and reopening the editor.
+- Auto preserves OpenGL except for the confirmed faulty AMD board and exact driver combination. Detection reads current Windows device properties at each launch, so a driver update cannot inherit a cached match. Unknown or multiple adapters retain the existing default; manual choices take precedence.
+- Keeps Fabric, project formats, saving, Chromium acceleration and the main KFPS renderer unchanged. This is not a blanket graphics change for AMD users.
+- Verified all nine themes at two window sizes, both editor launch paths, 3,000-shape projects, motion, saving and clean shutdown. Physical retesting on the affected AMD system remains outstanding.
+- Available through the signed updater and a new bundled release with the managed editor runtime.
+
 ## 3.1.98
 
 ### Reliable FH6 Game Folder Linking

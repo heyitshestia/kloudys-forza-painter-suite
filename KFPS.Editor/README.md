@@ -40,6 +40,20 @@ installation. The old `KFPS.UI/editor.py` entry and Python import locations are
 compatibility adapters. Do not put a second copy of web sources under
 `tools/fabric-editor/`.
 
+## Graphics Selection
+
+In KFPS Settings > Maintenance, Editor graphics offers Auto, OpenGL and
+Direct3D 11. Both the standalone executable and the in-app launch read the
+installation's `runtime/qml-shell-settings.json`. Close and reopen the editor
+after changing this setting; it does not change an already-running editor or
+the main KFPS renderer.
+
+Auto normally preserves OpenGL. Only the confirmed faulty PCI board and exact
+installed driver combination selects Direct3D 11 automatically. Windows device
+properties are read afresh at launch; driver updates are not matched using a
+cached name or previous result. Unknown or multiple adapters preserve OpenGL,
+and an explicit manual choice takes precedence.
+
 ## Update Awareness
 
 The standalone editor checks the same published stable update channel as KFPS at
