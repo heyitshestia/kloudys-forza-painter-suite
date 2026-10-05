@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.100
+
+### Find Individual Shapes From The Layer List
+- Double-click an individual shape row in the editor's layer list to center it on the canvas and highlight the selection, without changing the current zoom.
+- Group rows do not recenter, even if a group has only one shape. Individual shapes inside groups can still be centered. Visibility, locks, shape transforms and undo history are preserved.
+- Control buttons, modified clicks and layer drags do not trigger centering. Existing single-click selection, group selection and drag reordering are unchanged.
+- Verified dense 3,000-shape navigation, filtered and virtualized rows, nested groups, hidden/locked/transformed shapes, gesture boundaries, save/export roundtrips and editor regressions.
+- Available through the signed updater; no new bundled release.
+
 ## 3.1.99
 
 ### Shared Editor Graphics Selection

@@ -372,6 +372,7 @@ let maskPreviewOutlines = new Map();
 let maskPreviewCutouts = new Map();
 let layerListRows = new Map();
 let layerListEntries = [];
+let recentLayerPointerDowns = [];
 let layerVirtualLayout = KfpsEditorCore.buildVirtualLayout([]);
 let layerVirtualRenderFrame = null;
 let renderedLayerEntries = [];
@@ -6078,6 +6079,22 @@ function fitSelectedView() {
   setStatus(KfpsI18n.t("Fit view to {0} selected layer(s).", objects.length));
 }
 
+function centerCanvasOnObject(object) {
+  if (!object || !canvas) return;
+  const center = object.getCenterPoint();
+  if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) return;
+  // Move only the viewport; preserve zoom and the object's saved transform.
+  const transform = canvas.viewportTransform.slice();
+  transform[4] = canvas.width / 2 - transform[0] * center.x - transform[2] * center.y;
+  transform[5] = canvas.height / 2 - transform[1] * center.x - transform[3] * center.y;
+  canvas.setViewportTransform(transform);
+  syncCanvasObjectCoords();
+  syncSelectedShapeOutlines();
+  updateVisualGridLayer();
+  canvas.requestRenderAll();
+  updateHud();
+}
+
 async function loadJsonFile(file) {
   const generation = beginDocumentLoad();
   setBusy(KfpsI18n.t("Loading JSON: {0}", file.name));
@@ -7139,6 +7156,7 @@ function registerLayerListRow(element, key, objects, displayIndex) {
   entry.element = element;
   layerListRows.set(key, entry);
   element.addEventListener("pointerdown", handleLayerPointerDown);
+  element.addEventListener("dblclick", handleLayerDoubleClick);
 }
 
 function layerRowFromEventTarget(target) {
@@ -7147,6 +7165,21 @@ function layerRowFromEventTarget(target) {
 
 function isLayerControlTarget(target) {
   return Boolean(target?.closest?.("button, input, select, textarea, .layerGroupBadge"));
+}
+
+function handleLayerDoubleClick(event) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
+    || isLayerControlTarget(event.target) || layerDragState?.active) return;
+  const key = layerRowFromEventTarget(event.target)?.dataset.layerListKey;
+  const entry = layerListRows.get(key);
+  if (entry?.kind !== "layer" || entry.objects.length !== 1) return;
+  // Controls can rebuild rows and drags finish before dblclick is dispatched.
+  // Check both original gestures, not just the browser's final row target.
+  if (recentLayerPointerDowns.some(pointer => pointer.key === key && (pointer.control || pointer.dragged))) return;
+  event.preventDefault();
+  event.stopPropagation();
+  selectLayerEntryByKey(key, KfpsI18n.t("layer row"));
+  centerCanvasOnObject(canvas.getActiveObject());
 }
 
 function layerDragLabel(objects = []) {
@@ -7457,15 +7490,20 @@ function dropLayerBlockAtSlot(dragObjects, slot) {
 }
 
 function handleLayerPointerDown(event) {
-  if (event.button !== 0 || isLayerControlTarget(event.target)) return;
+  if (event.button !== 0) return;
   const row = layerRowFromEventTarget(event.target);
   const key = row?.dataset.layerListKey;
+  const control = isLayerControlTarget(event.target);
+  const pointerDown = { key, control, dragged: false };
+  recentLayerPointerDowns = [...recentLayerPointerDowns.slice(-1), pointerDown];
+  if (control) return;
   const entry = layerListRows.get(key);
   if (!row || !entry) return;
   event.preventDefault();
   row.setPointerCapture?.(event.pointerId);
   layerDragState = {
     key,
+    pointerDown,
     objects: entry.objects.slice(),
     sourceElement: row,
     mode: event.shiftKey ? "group" : "reorder",
@@ -7485,6 +7523,7 @@ function handleLayerPointerMove(event) {
   const distance = Math.hypot(event.clientX - layerDragState.startX, event.clientY - layerDragState.startY);
   if (distance < 5) return;
   layerDragState.active = true;
+  layerDragState.pointerDown.dragged = true;
   suppressLayerClick = true;
   layerDragState.sourceElement?.classList.add("layerDragSource");
   ensureLayerDragGhost(layerDragState);

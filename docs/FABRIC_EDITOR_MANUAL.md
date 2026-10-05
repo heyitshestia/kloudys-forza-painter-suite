@@ -403,6 +403,7 @@ The layer panel shows editable vinyl layers.
 Features:
 
 - Select layers from the list.
+- Double-click an individual shape row to center it on the canvas and show its selection outline, without changing zoom. Group rows do not recenter, including groups with only one shape. Shapes inside groups can still be centered individually.
 - Search/filter layers.
 - Hide/show layers.
 - Lock/unlock layers.
