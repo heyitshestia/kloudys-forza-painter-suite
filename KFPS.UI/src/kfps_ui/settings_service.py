@@ -22,6 +22,7 @@ class SettingsService(QObject):
     DEFAULTS = {
         "theme": DEFAULT_THEME,
         "editorGraphics": "auto",
+        "editorUseChrome": False,
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
@@ -57,6 +58,7 @@ class SettingsService(QObject):
         self._data["theme"] = normalize_theme(self._data.get("theme"))
         if self._data.get("editorGraphics") not in ("auto", "opengl", "d3d11"):
             self._data["editorGraphics"] = "auto"
+        self._data["editorUseChrome"] = self._data.get("editorUseChrome") is True
         if not isinstance(self._data.get("windowGeometry"), dict):
             self._data["windowGeometry"] = {}
 
@@ -104,6 +106,20 @@ class SettingsService(QObject):
         except OSError:
             self._data["editorGraphics"] = previous
             logging.getLogger(__name__).warning("Could not persist editor graphics choice", exc_info=True)
+        self.changed.emit()
+    @Property(bool, notify=changed)
+    def editorUseChrome(self): return self._get("editorUseChrome") is True
+    @editorUseChrome.setter
+    def editorUseChrome(self, value):
+        if not isinstance(value, bool) or value == self.editorUseChrome:
+            return
+        previous = self.editorUseChrome
+        self._data["editorUseChrome"] = value
+        try:
+            self.save()
+        except OSError:
+            self._data["editorUseChrome"] = previous
+            logging.getLogger(__name__).warning("Could not persist editor launch choice", exc_info=True)
         self.changed.emit()
     @Property(bool, notify=changed)
     def manualOverrides(self): return bool(self._get("manualOverrides"))

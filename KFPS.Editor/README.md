@@ -75,3 +75,76 @@ browser origin, reset favorites or replay acknowledged notices.
 
 See the [editor guide](web/README.md), [architecture](docs/ARCHITECTURE.md),
 [validation](docs/VALIDATION.md), and [localization workflow](web/locales/README.md).
+
+## Google Chrome Editor Option
+
+This is an opt-in compatibility option for native-window artifacting,
+not a confirmed fix to Qt/Chromium. The ordinary editor remains the default.
+An installed Google Chrome is required. Edge and the system's default browser
+are not used as fallbacks.
+No browser is downloaded and personal browser profiles/extensions are not used.
+
+### English
+
+1. Save your work and close the editor normally. KFPS itself can stay open.
+2. Go to Settings > Maintenance and enable
+   **Use Google Chrome for editor**. If the status says **Google Chrome: not
+   found**, click **Install Google Chrome...** to open Google's official setup
+   page and complete the installation there. While Settings is visible, KFPS
+   checks automatically and changes the status to **Google Chrome: installed**.
+   There is no silent installation or change to your default browser by KFPS.
+3. Launch the Editor from KFPS or `KFPS Editor.exe`. Both respect this setting.
+4. Open a saved project, move and group a few shapes, then save and reopen it.
+   Use the project/background colors that caused the original flickering.
+5. Close the window normally. Save, Discard and Cancel use the existing editor
+   close checks; Discard still keeps the recovery copy.
+6. To return to the normal editor, turn the setting off, close the editor and
+   reopen it. Nothing has to be uninstalled. The previous Editor graphics choice
+   is retained and applies again in the normal editor.
+
+`KFPS.Editor/Launch Browser Editor.cmd` remains a one-launch Chrome override.
+It does not change the saved setting. The setting is stored in the existing
+`runtime/qml-shell-settings.json` file as the Boolean `editorUseChrome`.
+
+If an editor is already open, either launcher activates that existing instance;
+it does not switch its display mode or start a second writer. Projects, saved
+assets, preferences and disk autosaves remain in `runtime/fabric-editor`.
+The separate browser cache/recovery profile is `runtime/fabric-editor/browser-profile`.
+Do not delete it while the browser editor is running. Do not use Chrome's reload
+or developer tools while editing; F5/Ctrl+R are intercepted to protect the session.
+
+For feedback, state whether flickering remained, whether saving/reopening worked,
+and roughly how long you edited. Use KFPS's normal Report a problem action with
+technical details enabled. Browser version/startup and normal editor diagnostics
+are recorded locally; screenshots may miss a display-only fault, so attach a
+short recording if it happens again.
+
+### 한국어
+
+1. 작업을 저장하고 에디터를 정상적으로 닫아 주세요. KFPS 본체는 켜 두셔도 됩니다.
+2. 설정 > Maintenance에서 **Use Google Chrome for editor**를
+   켜 주세요. **Google Chrome: not found**가 표시되면 **Install Google Chrome...**으로
+   Google 공식 설치 페이지를 열고 설치를 완료해 주세요. 설정 화면이 열려 있으면
+   KFPS가 자동으로 확인하여 **Google Chrome: installed**로 표시합니다.
+   KFPS가 몰래 설치하거나 기본 브라우저를 변경하지는 않습니다.
+3. KFPS의 에디터 버튼이나 `KFPS Editor.exe`로 실행해 주세요. 두 실행 방법 모두
+   같은 설정을 사용합니다.
+4. 저장한 프로젝트를 열고 도형 이동이나 그룹 편집을 해 본 뒤, 저장하고 다시 열어 주세요.
+   화면 깨짐이 발생했던 프로젝트와 배경색으로 확인해 주시면 좋습니다.
+5. 창을 평소처럼 닫아 주세요. 저장, 변경 사항 버리기, 취소는 기존 에디터와 같은
+   확인 절차를 거칩니다. 변경 사항을 버려도 복구용 임시 저장본은 유지됩니다.
+6. 기존 에디터로 돌아가려면 위 설정을 끈 뒤 에디터를 닫고 다시 실행해 주세요.
+   따로 삭제할 항목은 없습니다. 이전 Editor graphics 설정은 유지되며 기존
+   에디터로 돌아왔을 때 다시 적용됩니다.
+
+에디터가 이미 열려 있으면 새 창을 만들지 않고 기존 창으로 연결됩니다.
+프로젝트, 에셋, 설정, 디스크 자동 저장본은 기존 위치를 그대로 사용합니다.
+Google Chrome이 설치되어 있어야 하며 Edge나 기본 브라우저로 대신 실행하지
+않습니다. 개인 브라우저의 로그인 정보나 확장
+프로그램은 사용하지 않습니다. 작업 중에는 브라우저 새로고침이나 개발자 도구를
+사용하지 말아 주세요. F5와 Ctrl+R은 작업 보호를 위해 차단됩니다.
+
+테스트 후에는 화면 깨짐이 다시 발생했는지, 저장 후 다시 열기가 정상인지,
+대략 몇 분 동안 작업했는지 알려 주세요. KFPS의 문제 신고에서 기술 정보 포함을
+선택해 보내 주시면 됩니다. 다시 깨지는 경우에는 짧은 영상도 함께 부탁드립니다.
+일반 캡처에는 화면 표시 오류가 잡히지 않을 수 있습니다.

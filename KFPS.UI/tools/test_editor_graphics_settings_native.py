@@ -30,6 +30,7 @@ def main():
     isolated.mkdir()
     paths = AppPaths(isolated, UI, UI / "qml", UI / "assets", isolated / "runtime", Path(sys.executable))
     result = {"cases": [], "errors": [], "qmlErrors": []}
+    detected_chrome = {"path": None}
 
     def messages(kind, context, text):
         if any(word in text for word in ("ReferenceError", "TypeError", "Cannot assign", "Binding loop")):
@@ -58,6 +59,9 @@ def main():
                 controller.navigate("settings")
                 yield 700
                 selector = next(i for i in items() if i.objectName() == "editorGraphicsSelector")
+                chrome = next(i for i in items() if i.objectName() == "editorChromeToggle")
+                download = next(i for i in items() if i.objectName() == "editorChromeDownload")
+                chrome_status = next(i for i in items() if i.objectName() == "editorChromeStatus")
                 for theme in THEME_PRESETS:
                     settings.theme = theme.name
                     for width, height in ((1760, 1040), (1280, 800)):
@@ -73,6 +77,38 @@ def main():
                         assert position.x() >= 0 and position.y() >= 0
                         assert position.x() + selector.width() <= window.width() + 1
                         assert position.y() + selector.height() <= window.height() + 1
+                        for enabled in (True, False):
+                            center = chrome.mapToScene(QPointF(chrome.width()/2, chrome.height()/2)).toPoint()
+                            QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, center)
+                            yield 80
+                            assert settings.editorUseChrome is enabled, (theme.name, enabled)
+                            assert SettingsService(paths.settings_file).editorUseChrome is enabled
+                            assert evaluate(chrome, "checked") is enabled
+                            assert selector.isEnabled() is not enabled
+                            assert download.isVisible() is enabled
+                            assert chrome.width() > 100 and chrome.height() >= chrome.implicitHeight()
+                            if enabled:
+                                assert evaluate(chrome_status, "text") == "Google Chrome: not found"
+                                count = opened.call_count
+                                center = download.mapToScene(QPointF(download.width()/2, download.height()/2)).toPoint()
+                                QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, center)
+                                yield 80
+                                assert opened.call_count == count + 1
+                                assert opened.call_args.args[0].toString() == "https://www.google.com/chrome/"
+                                detected_chrome["path"] = Path("C:/test-only/chrome.exe")
+                                if not result["cases"]:
+                                    # Exercise automatic detection after installing outside KFPS.
+                                    yield 2200
+                                else:
+                                    evaluate(download, "desktop.refreshChromeStatus()")
+                                    yield 80
+                                assert not download.isVisible()
+                                assert evaluate(chrome_status, "text") == "Google Chrome: installed"
+                                assert settings.editorUseChrome is True
+                                detected_chrome["path"] = None
+                                evaluate(download, "desktop.refreshChromeStatus()")
+                                yield 80
+                                assert download.isVisible()
                         for index, mode in ((0, "auto"), (1, "opengl"), (2, "d3d11")):
                             # Native Qt input to this window, without moving the OS pointer.
                             center = selector.mapToScene(QPointF(selector.width()/2, selector.height()/2)).toPoint()
@@ -88,7 +124,10 @@ def main():
                             assert evaluate(selector, "currentText") == ["Auto", "OpenGL", "Direct3D 11"][index]
                         result["cases"].append({"theme": theme.name, "size": [width, height], "passed": True})
                         if width == 1760 and theme.name in ("Windows 94", "Apex Vector", "Night Blossom"):
+                            settings.editorUseChrome = True
+                            yield 80
                             assert window.grabWindow().save(str(out / (theme.name.replace(" ", "-") + ".png")))
+                            settings.editorUseChrome = False
                 result["passed"] = True
             except Exception:
                 result["errors"].append(traceback.format_exc())
@@ -113,6 +152,8 @@ def main():
              patch.object(FullLiveryService, "scanSaves"), patch.object(FullLiveryService, "refreshPackages"), \
              patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None), \
              patch.object(CommunityApiClient, "json", side_effect=AssertionError("Unexpected network request")), \
+             patch("kfps_ui.desktop_service.find_chrome", side_effect=lambda: detected_chrome["path"]), \
+             patch("kfps_ui.desktop_service.QDesktopServices.openUrl", return_value=True) as opened, \
              patch.object(application, "install_development_harness", side_effect=install):
             code = application.main()
     finally:

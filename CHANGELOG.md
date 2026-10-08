@@ -1,5 +1,16 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.101
+
+### Optional Google Chrome Editor
+- Added Settings > Maintenance > Use Google Chrome for editor. The KFPS editor button and KFPS Editor.exe use the same saved setting after the editor is closed and reopened. The ordinary editor remains the default.
+- Chrome uses a separate KFPS profile, not personal browser tabs or extensions. Existing projects, saved assets, preferences, autosaves and Save/Discard/Cancel behavior remain in place. Opening another launcher reuses the existing editor instead of creating a second writer.
+- Settings detects installed Google Chrome and offers an Install Google Chrome button when it is missing. That button opens Google's official setup page; KFPS does not silently install, bundle Chrome, change the default browser or fall back to Edge.
+- Keeps the previous Auto/OpenGL/Direct3D 11 choice for returning to the ordinary editor. This optional host is a compatibility alternative, not a guarantee against every GPU or driver fault.
+- Fixed unnecessary large allocations while scanning project files, retaining the existing size ceiling, cancellation and malformed-file handling.
+- Verified all nine themes at two window sizes, both launcher paths, 3,000-shape editing with a large embedded reference, exact save/reopen and undo/redo, interruption recovery and owned-browser cleanup.
+- Available through the signed updater and a new bundled release. The separate production updater remains version 1.0.4.
+
 ## 3.1.100
 
 ### Find Individual Shapes From The Layer List

@@ -223,6 +223,15 @@ class EditorDesktop(QMainWindow):
         self.url = QUrl(f"http://127.0.0.1:{port}/tools/fabric-editor/index.html#session={quote(self.server.editor_session_token, safe='')}")
         startup_url = QUrl(self.url)
         startup_url.setQuery(query.lstrip("?"))
+        self._create_page()
+        if request["mode"] == "tutorial":
+            self._queued_requests.append({"mode": "tutorial", "project": ""})
+        self.startup_timer.start()
+        self.page.load(startup_url)
+        self.diagnostic_timer.start()
+        return True
+
+    def _create_page(self):
         self.profile = QWebEngineProfile("KFPS-Editor", self)
         self.profile.setPersistentStoragePath(str(self.runtime / "web-profile"))
         self.profile.setCachePath(str(self.runtime / "web-cache"))
@@ -263,12 +272,6 @@ class EditorDesktop(QMainWindow):
         self.page.loadingChanged.connect(self._loading_changed)
         self.page.renderProcessTerminated.connect(self._renderer_stopped)
         self.page.titleChanged.connect(lambda title: self.setWindowTitle(title or self.translator.tr("KFPS Vinyl Editor")))
-        if request["mode"] == "tutorial":
-            self._queued_requests.append({"mode": "tutorial", "project": ""})
-        self.startup_timer.start()
-        self.page.load(startup_url)
-        self.diagnostic_timer.start()
-        return True
 
     def _diagnostic_tick(self):
         if self._stopped or not self.server:

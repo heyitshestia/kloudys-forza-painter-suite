@@ -16,6 +16,8 @@ from .models import DictListModel
 from .preview_service import PreviewService
 from .editor_launch import launch_editor
 
+PROJECT_SCAN_MAX_BYTES = 150 * 1024 * 1024
+
 
 class EditorService(QObject):
     changed = Signal()
@@ -321,10 +323,12 @@ class EditorService(QObject):
 
     def _project_shape_count(self, path: Path) -> int | None:
         try:
-            if self._cancel_event.is_set() or path.stat().st_size > 150 * 1024 * 1024:
+            if self._cancel_event.is_set() or path.stat().st_size > PROJECT_SCAN_MAX_BYTES:
                 return None
             with path.open("r", encoding="utf-8") as stream:
                 prefix = stream.read(64 * 1024)
+                if len(prefix) > PROJECT_SCAN_MAX_BYTES:
+                    return None
                 match = re.search(
                     r'"layer_count"\s*:\s*(\d+)',
                     prefix,
@@ -333,10 +337,19 @@ class EditorService(QObject):
                     return int(match.group(1))
                 if self._cancel_event.is_set():
                     return None
-                remainder = stream.read(150 * 1024 * 1024 + 1)
-                if len(remainder) + len(prefix) > 150 * 1024 * 1024:
-                    return None
-                data = json.loads(prefix + remainder)
+                # A large read(size) allocates that size even for tiny files.
+                chunks, size = [prefix], len(prefix)
+                while True:
+                    if self._cancel_event.is_set():
+                        return None
+                    chunk = stream.read(min(64 * 1024, PROJECT_SCAN_MAX_BYTES - size + 1))
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > PROJECT_SCAN_MAX_BYTES:
+                        return None
+                    chunks.append(chunk)
+                data = json.loads("".join(chunks))
             items = data.get("shapes", data.get("layers", [])) if isinstance(data, dict) else data
             return len(items) if isinstance(items, list) else None
         except (OSError, ValueError, TypeError):

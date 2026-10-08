@@ -14,6 +14,7 @@ from kfps_editor.ipc import (EditorConnectionError, forward_request, instance_na
 from kfps_editor.bootstrap_log import open_desktop_log
 from kfps_editor.baseline import launch_command
 from kfps_editor.activation import grant_foreground
+from kfps_editor.launch_preferences import find_chrome
 
 
 

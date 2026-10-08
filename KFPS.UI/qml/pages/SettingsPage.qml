@@ -22,6 +22,14 @@ Item {
     readonly property real headerBannerLeftX: interfaceCard.x
     readonly property real headerBannerRightX: foldersCard.x + foldersCard.width
 
+    Timer {
+        interval: 2000
+        repeat: true
+        triggeredOnStart: true
+        running: root.visible && settings.editorUseChrome
+        onTriggered: desktop.refreshChromeStatus()
+    }
+
     FastScrollView {
         id: pageScroll
         anchors.fill: parent
@@ -437,11 +445,47 @@ Item {
                     onClicked: editorService.resetTutorial()
                 }
 
-                Label { text: "Editor graphics (restart editor)" }
+                KfpsCheckBox {
+                    objectName: "editorChromeToggle"
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    text: "Use Google Chrome for editor"
+                    checked: settings.editorUseChrome
+                    toolTipText: "Applies after closing and reopening the editor, including KFPS Editor.exe. Uses installed Google Chrome with a separate KFPS profile, not your personal tabs."
+                    onToggled: settings.editorUseChrome = checked
+                }
+
+                Label {
+                    objectName: "editorChromeStatus"
+                    Layout.fillWidth: true
+                    visible: settings.editorUseChrome
+                    text: desktop.chromeInstalled ? "Google Chrome: installed" : "Google Chrome: not found"
+                    wrapMode: Text.WordWrap
+                }
+
+                GhostButton {
+                    objectName: "editorChromeDownload"
+                    Layout.fillWidth: true
+                    visible: settings.editorUseChrome && !desktop.chromeInstalled
+                    text: "Install Google Chrome..."
+                    iconName: "external"
+                    toolTipText: "Open Google's official setup page. Complete installation there; KFPS detects it automatically. No silent install or default-browser change."
+                    onClicked: desktop.openChromeInstallPage()
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: settings.editorUseChrome && desktop.chromeInstallError !== ""
+                    text: desktop.chromeInstallError
+                    wrapMode: Text.WordWrap
+                }
+
+                Label { text: "Editor graphics (restart editor)"; enabled: !settings.editorUseChrome }
                 KfpsComboBox {
                     objectName: "editorGraphicsSelector"
                     Layout.fillWidth: true
                     dense: root.compactHeight
+                    enabled: !settings.editorUseChrome
                     model: ["Auto", "OpenGL", "Direct3D 11"]
                     currentIndex: ["auto", "opengl", "d3d11"].indexOf(settings.editorGraphics)
                     toolTipText: "Auto preserves OpenGL except for confirmed hardware and driver compatibility rules. Applies to both editor launch methods after closing and reopening the editor."

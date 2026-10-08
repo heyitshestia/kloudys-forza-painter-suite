@@ -3,19 +3,57 @@ from __future__ import annotations
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, Slot
+from PySide6.QtCore import QObject, Property, Signal, Slot, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog
 
 from .app_paths import AppPaths
+from .editor_launch import find_chrome
 from .log_service import LogService
 from .qt_utils import open_path
 
 
 class DesktopService(QObject):
+    chromeStatusChanged = Signal()
+
     def __init__(self, paths: AppPaths, log: LogService, parent=None):
         super().__init__(parent)
         self.paths = paths
         self.log = log
+        self._chrome_installed = find_chrome() is not None
+        self._chrome_install_error = ""
+
+    @Property(bool, notify=chromeStatusChanged)
+    def chromeInstalled(self):
+        return self._chrome_installed
+
+    @Property(str, notify=chromeStatusChanged)
+    def chromeInstallError(self):
+        return self._chrome_install_error
+
+    @Slot()
+    def refreshChromeStatus(self):
+        installed = find_chrome() is not None
+        if installed != self._chrome_installed:
+            self._chrome_installed = installed
+            if installed:
+                self._chrome_install_error = ""
+            self.chromeStatusChanged.emit()
+
+    @Slot()
+    def openChromeInstallPage(self):
+        self.refreshChromeStatus()
+        if self._chrome_installed:
+            return
+        self._chrome_install_error = ""
+        try:
+            if not QDesktopServices.openUrl(QUrl("https://www.google.com/chrome/")):
+                raise RuntimeError("Windows could not open the official Chrome download page.")
+            self.log.append("Opened Google's Chrome installation page at the user's request.")
+        except Exception as exc:
+            self._chrome_install_error = "Could not open the browser. Visit google.com/chrome to install."
+            self.log.append(f"Could not open Chrome installation page: {exc}", "error")
+        self.chromeStatusChanged.emit()
 
     @Property(str, constant=True)
     def appRoot(self):

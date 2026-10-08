@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--runtime-root", type=Path, help="Editor data directory; defaults to the installation runtime/fabric-editor directory.")
     parser.add_argument("--from-kfps", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--background", action="store_true", help="Open without raising the window or taking focus.")
+    parser.add_argument("--browser", action="store_true", help="Use an isolated Google Chrome window for graphics compatibility.")
     parser.add_argument("--test-debug-port", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     # A shortcut's working directory or inherited root must not select another install.
@@ -45,6 +46,8 @@ def main() -> int:
                 if not args.background:
                     grant_foreground(child.pid)
                 return child.wait()
+        from .launch_preferences import use_chrome
+        chrome = args.browser or use_chrome(APP_ROOT)
         from .graphics import configure_environment, configure_qt, select_policy
         graphics_selection = select_policy(APP_ROOT)
         configure_environment(os.environ, graphics_selection)
@@ -56,7 +59,8 @@ def main() -> int:
         if args.background:
             request["background"] = True
         record_startup(runtime, "launch-request", mode=args.mode, has_project=bool(args.project_id),
-                       from_kfps=args.from_kfps, background=args.background)
+                       from_kfps=args.from_kfps, background=args.background,
+                       display_host="chrome" if chrome else "desktop")
         name = instance_name(APP_ROOT, runtime)
         if os.name == "nt":
             from .startup import acquire_or_forward
@@ -65,12 +69,16 @@ def main() -> int:
                 wait_until_ready(runtime, name, background=args.background)
                 return 0
         baseline = verify(APP_ROOT)
-        graphics = configure_qt(graphics_selection)
+        graphics = ({"policy": "browser-compatibility", "requested_backend": "chrome"}
+                    if chrome else configure_qt(graphics_selection))
         record_startup(runtime, "graphics-policy", from_kfps=args.from_kfps, **graphics)
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QMessageBox
         from tools.source_download_guard import evaluate_source_download_guard
         from .host import EditorDesktop
+        if chrome:
+            from .browser_host import BrowserDesktop
+            EditorDesktop = BrowserDesktop
 
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
         app = QApplication(sys.argv[:1])

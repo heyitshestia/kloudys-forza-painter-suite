@@ -1,4 +1,5 @@
 import json
+import io
 import os
 import sys
 import tempfile
@@ -75,6 +76,58 @@ class DummyLog:
 
     def append(self, message, level="info"):
         self.messages.append((str(message), str(level)))
+
+
+class ProjectCountReadTests(unittest.TestCase):
+    def setUp(self):
+        self.service = type("Counter", (), {"_cancel_event": threading.Event()})()
+
+    def count(self, text, limit=None, reported_size=None, cancel_during_read=False):
+        sizes = []
+        owner = self
+        class BoundedStream(io.StringIO):
+            def read(self, size=-1):
+                sizes.append(size)
+                if cancel_during_read and len(sizes) == 2:
+                    owner.service._cancel_event.set()
+                return super().read(size)
+        stream = BoundedStream(text)
+        from unittest.mock import Mock
+        path = Mock()
+        path.stat.return_value.st_size = len(text.encode("utf-8")) if reported_size is None else reported_size
+        path.open.return_value = stream
+        with patch("kfps_ui.editor_service.PROJECT_SCAN_MAX_BYTES", limit or 150 * 1024 * 1024):
+            result = EditorService._project_shape_count(self.service, path)
+        self.assertTrue(all(0 < size <= 64 * 1024 for size in sizes), sizes)
+        return result, sizes
+
+    def test_tiny_and_large_json_use_small_read_buffers(self):
+        self.assertEqual(self.count('{"shapes":[{},{}]}')[0], 2)
+        result, reads = self.count(json.dumps({"shapes": [{}] * 3000, "reference": "x" * 2_000_000}))
+        self.assertEqual(result, 3000)
+        self.assertGreater(len(reads), 20)
+
+    def test_legacy_layers_list_and_metadata_fast_path(self):
+        self.assertEqual(self.count('{"layers":[{},{}]}')[0], 2)
+        self.assertEqual(self.count('[{},{},{}]')[0], 3)
+        self.assertEqual(self.count('{"layer_count":3000,"shapes":[]}')[0], 3000)
+
+    def test_malformed_and_oversized_files_remain_unavailable(self):
+        self.assertIsNone(self.count('{"shapes":')[0])
+        value, reads = self.count('{"shapes":[]}', limit=10)
+        self.assertIsNone(value)
+        self.assertEqual(reads, [])
+        self.assertIsNone(self.count('{"shapes":[]}', limit=10, reported_size=1)[0])
+
+    def test_growth_past_limit_is_rejected(self):
+        self.assertIsNone(self.count(json.dumps({"shapes": [], "padding": "x" * 150_000}),
+                                     limit=100_000, reported_size=1)[0])
+
+    def test_cancellation_during_chunked_read(self):
+        value, reads = self.count(json.dumps({"shapes": [], "padding": "x" * 150_000}),
+                                  cancel_during_read=True)
+        self.assertIsNone(value)
+        self.assertEqual(len(reads), 2)
 
 
 class FakeResponse:
