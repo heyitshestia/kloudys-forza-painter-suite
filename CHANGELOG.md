@@ -8,6 +8,7 @@
 - Settings detects installed Google Chrome and offers an Install Google Chrome button when it is missing. That button opens Google's official setup page; KFPS does not silently install, bundle Chrome, change the default browser or fall back to Edge.
 - Keeps the previous Auto/OpenGL/Direct3D 11 choice for returning to the ordinary editor. This optional host is a compatibility alternative, not a guarantee against every GPU or driver fault.
 - Fixed unnecessary large allocations while scanning project files, retaining the existing size ceiling, cancellation and malformed-file handling.
+- Updated the Worker development/test toolchain's sharp and source-map-js patch versions to clear dependency security audits. No live Worker behavior or deployment is changed.
 - Verified all nine themes at two window sizes, both launcher paths, 3,000-shape editing with a large embedded reference, exact save/reopen and undo/redo, interruption recovery and owned-browser cleanup.
 - Available through the signed updater and a new bundled release. The separate production updater remains version 1.0.4.
 
