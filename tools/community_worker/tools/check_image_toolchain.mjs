@@ -7,7 +7,7 @@ const root = resolve(process.argv[2] || process.cwd());
 const readJson = async path => JSON.parse(await readFile(path, "utf8"));
 const manifest = await readJson(join(root, "package.json"));
 const lock = await readJson(join(root, "package-lock.json"));
-const patchedVersion = "0.35.4";
+const patchedVersion = "0.35.5";
 assert.equal(manifest.overrides?.miniflare?.sharp, patchedVersion, "Keep the reviewed image dependency override until an upstream replacement is verified.");
 const entries = Object.entries(lock.packages || {});
 const sharpEntries = entries.filter(([path]) => /(?:^|\/)node_modules\/sharp$/.test(path));
