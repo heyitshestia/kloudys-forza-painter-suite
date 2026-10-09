@@ -1065,6 +1065,8 @@ window.KfpsEditorLocales.ko = {
     "Side handles resize one axis. Corner handles skew/disform by default. Hold": "변 중앙의 핸들은 한 축의 크기를 조절합니다. 모서리 핸들은 기본적으로 기울이기/변형에 사용됩니다. 누르기:",
     "Signature Pink": "시그니처 핑크",
     "Size %": "크기 %",
+    "Lock reference size": "참조 이미지 크기 잠금",
+    "Unlock reference size": "참조 이미지 크기 잠금 해제",
     "Skew": "기울이기",
     "Skew X deg": "X 기울이기(도)",
     "Skew handle": "기울이기 핸들",

@@ -12611,6 +12611,7 @@ function bindUi() {
     event.target.value = "";
   });
   $("overlayOpacity").addEventListener("input", () => editorReference.updateOverlay({ rescale: false }));
+  $("overlaySizeLock").addEventListener("click", () => editorReference.setSizeLocked(!editorReference.sizeLocked));
   $("overlayScale").addEventListener("input", (event) => {
     syncOverlayScaleControls(event.target.value);
     editorReference.updateOverlay();

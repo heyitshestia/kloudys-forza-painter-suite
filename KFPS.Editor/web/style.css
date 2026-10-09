@@ -978,8 +978,31 @@ input[type="range"] {
   grid-template-columns: 92px minmax(0, 1fr);
 }
 
-#overlayPane label.rangeWithValue {
-  grid-template-columns: 92px minmax(0, 1fr) 64px;
+#overlayPane .rangeWithValue {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 64px 34px;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+#overlayPane .rangeWithValue > label {
+  display: block;
+  margin: 0;
+}
+
+#overlaySizeLock {
+  border-radius: 6px;
+}
+
+#overlaySizeLock[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#overlaySizeLock[aria-pressed="false"] .sizeLockedIcon,
+#overlaySizeLock[aria-pressed="true"] .sizeUnlockedIcon {
+  display: none;
 }
 
 .percentInput {

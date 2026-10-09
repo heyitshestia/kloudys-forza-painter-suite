@@ -1065,6 +1065,8 @@ window.KfpsEditorLocales.en = {
     "Side handles resize one axis. Corner handles skew/disform by default. Hold": "Side handles resize one axis. Corner handles skew/disform by default. Hold",
     "Signature Pink": "Signature Pink",
     "Size %": "Size %",
+    "Lock reference size": "Lock reference size",
+    "Unlock reference size": "Unlock reference size",
     "Skew": "Skew",
     "Skew X deg": "Skew X deg",
     "Skew handle": "Skew handle",

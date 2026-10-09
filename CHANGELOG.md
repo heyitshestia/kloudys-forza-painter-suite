@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.102
+
+### Reference Image Size Lock
+- Added a padlock beside the editor reference image's Size % controls. Locking disables both the slider and number field without changing the current size; opacity and Move Reference remain available.
+- The lock is retained in editable projects and recovery copies. Older projects and newly replaced reference images start unlocked; failed replacements keep the existing reference and lock.
+- Includes English/Korean labels and background validation in both the native and Chrome editor hosts, with 1,400 shapes, saved-project reopening, recovery, four themes and three window widths.
+- Available through the signed updater; no new bundled release.
+
 ## 3.1.101
 
 ### Optional Google Chrome Editor

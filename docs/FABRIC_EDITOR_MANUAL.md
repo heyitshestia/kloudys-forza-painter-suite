@@ -348,6 +348,10 @@ Features:
 
 - Add a raster image or inspect a layered SVG reference.
 - Adjust opacity and scale.
+- Use the padlock beside Size % to prevent accidental resizing. It disables the
+  size slider and number field while opacity and Move Reference remain available.
+  The lock is saved with projects and recovery copies. Older projects and newly
+  replaced reference images start unlocked.
 - Toggle visibility or remove it.
 - Use Move Reference to reposition it without selecting vinyl layers.
 - Sample reference colors with Dropper or live reference color.

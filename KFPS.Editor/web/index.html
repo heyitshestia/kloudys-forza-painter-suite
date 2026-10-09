@@ -475,10 +475,14 @@
               <input id="overlayInput" type="file" accept="image/*,.svg,image/svg+xml">
             </label>
             <label>Opacity <input id="overlayOpacity" type="range" min="0" max="100" value="45"></label>
-            <label class="rangeWithValue">Size %
+            <div class="rangeWithValue">
+              <label for="overlayScale">Size %</label>
               <input id="overlayScale" type="range" min="10" max="400" value="100">
               <input id="overlayScalePercent" class="percentInput" type="number" min="10" max="400" step="1" value="100" aria-label="Overlay size percent">
-            </label>
+              <button id="overlaySizeLock" class="iconButton" type="button" title="Lock reference size" aria-label="Lock reference size" aria-pressed="false" disabled>
+                <span class="sizeUnlockedIcon" aria-hidden="true">&#x1F513;&#xFE0E;</span><span class="sizeLockedIcon" aria-hidden="true">&#x1F512;&#xFE0E;</span>
+              </button>
+            </div>
             <label>Layer position
               <select id="overlayLayerMode" title="Choose whether the source reference draws below or above vinyl layers.">
                 <option value="below" selected>Below vinyl layers</option>

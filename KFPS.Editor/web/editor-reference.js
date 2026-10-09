@@ -16,6 +16,28 @@
     let pendingImageCancel = null;
     let pendingRefreshCancel = null;
     let pendingReader = null;
+    let sizeLocked = false;
+    let lockedScalePercent = 100;
+
+    function setSizeLocked(locked, options = {}) {
+      const next = Boolean(overlayImage) && locked === true;
+      const wasLocked = sizeLocked;
+      if (next && !sizeLocked) {
+        lockedScalePercent = view.scaleControls(view.element("overlayScalePercent")?.value || view.element("overlayScale")?.value || 100);
+      }
+      sizeLocked = next;
+      for (const id of ["overlayScale", "overlayScalePercent"]) {
+        const control = view.element(id);
+        if (control) control.disabled = sizeLocked;
+      }
+      const button = view.element("overlaySizeLock");
+      if (button) {
+        button.disabled = !overlayImage;
+        button.setAttribute("aria-pressed", String(sizeLocked));
+        button.title = sizeLocked ? KfpsI18n.t("Unlock reference size") : KfpsI18n.t("Lock reference size");
+      }
+      if (wasLocked !== sizeLocked && options.persist !== false) changed("reference image adjusted");
+    }
 
     function cancelLoads() {
       overlayLoadGeneration++;
@@ -103,6 +125,7 @@
         },
         controls: {
           scale_percent: Number(view.element("overlayScalePercent")?.value || view.element("overlayScale")?.value || 100),
+          size_locked: sizeLocked,
           opacity_percent: Number(view.element("overlayOpacity")?.value || Math.round((overlayImage.opacity ?? 1) * 100)),
           layer_mode: session.layerMode(),
         },
@@ -124,6 +147,7 @@
       const retired = overlayImage;
       unavailableSourceOverlayState = null;
       overlayImage = null;
+      setSizeLocked(false, { persist: false });
       releaseOverlaySampler();
       overlaySourceState = null;
       clearLayeredOverlayState({ refresh: false });
@@ -557,6 +581,8 @@
               if (view.element("overlayOpacity")) view.element("overlayOpacity").value = Math.round((overlayImage.opacity ?? 1) * 100);
               if (options.projectState.controls.layer_mode) session.setLayerMode(options.projectState.controls.layer_mode, { persist: false, refresh: false });
             }
+            setSizeLocked(false, { persist: false });
+            setSizeLocked(options.projectState?.controls?.size_locked === true, { persist: false });
             changed("reference image loaded");
             // Prepare the reference texture during explicit image loading, so its
             // first upload is not deferred to the user's next drag or keypress.
@@ -628,6 +654,10 @@
 
     function updateOverlay(options = {}) {
       if (!overlayImage) return;
+      if (sizeLocked && options.rescale !== false) {
+        view.scaleControls(lockedScalePercent);
+        return;
+      }
       overlayImage.set({ opacity: Number(view.element("overlayOpacity").value) / 100 });
       if (options.rescale !== false) {
         const percent = view.scaleControls(view.element("overlayScalePercent")?.value || view.element("overlayScale")?.value || 100);
@@ -679,6 +709,8 @@
       loadOverlayImageFromUrl,
       addOverlayFile,
       updateOverlay,
+      setSizeLocked,
+      get sizeLocked() { return sizeLocked; },
       toggleOverlay,
       removeOverlay,
       get image() { return overlayImage; }, get sampler() { return overlaySampler; },
