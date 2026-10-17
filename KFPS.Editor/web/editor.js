@@ -137,6 +137,9 @@ const DEFAULT_SHORTCUTS = {
   axisLockX: "X",
   axisLockY: "Y",
   selectionLock: "Shift+L",
+  toggleReference: "Space",
+  ...Object.fromEntries(Array.from({ length: 16 }, (_, index) =>
+    [`colorSlot${index + 1}`, `${index >= 8 ? "Ctrl+" : ""}${index % 8 + 1}`])),
 };
 
 
@@ -168,6 +171,9 @@ const SHORTCUT_LABELS = {
   axisLockX: KfpsI18n.t("Drag lock X axis"),
   axisLockY: KfpsI18n.t("Drag lock Y axis"),
   selectionLock: KfpsI18n.t("Lock current selection"),
+  toggleReference: KfpsI18n.t("Show / hide reference image"),
+  ...Object.fromEntries(Array.from({ length: 16 }, (_, index) =>
+    [`colorSlot${index + 1}`, KfpsI18n.t("Saved color {0}", index + 1)])),
 };
 
 const VINYL_TYPE_BASES = {
@@ -366,6 +372,8 @@ let selectionLockRestoring = false;
 let pendingDialogColor = null;
 let dialogColorFrame = null;
 let vBoxSelectActive = false;
+let shortcutLoadWarnings = [];
+let shortcutStatusMessage = "";
 let shortcuts = loadShortcuts();
 let overlayLayerMode = normalizeOverlayLayerMode(editorSettings.getItem(OVERLAY_LAYER_MODE_KEY));
 let maskPreviewOutlines = new Map();
@@ -380,6 +388,7 @@ let layerVirtualStart = -1;
 let layerVirtualEnd = -1;
 let lastLayerFilter = "";
 let lastLayerListKey = null;
+let locatedLayerListKey = null;
 let layerDragState = null;
 let layerDragGhost = null;
 let suppressLayerClick = false;
@@ -487,6 +496,7 @@ function setHidden(id, hidden) {
 
 function normalizeShortcutKey(key) {
   if (key === " ") return "Space";
+  if (key === "+") return "Plus";
   const raw = String(key || "").trim();
   if (!raw) return "";
   const lower = raw.toLowerCase();
@@ -505,6 +515,9 @@ function normalizeShortcutKey(key) {
     tab: "Tab",
     enter: "Enter",
     escape: "Escape",
+    plus: "Plus",
+    pageup: "PageUp",
+    pagedown: "PageDown",
   };
   if (aliases[lower]) return aliases[lower];
   if (raw.length === 1) return raw.toUpperCase();
@@ -512,23 +525,28 @@ function normalizeShortcutKey(key) {
 }
 
 function normalizeShortcutCombo(value) {
-  const parts = String(value || "").split("+").map((part) => part.trim()).filter(Boolean);
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  const parts = (text === "+" || text.endsWith("++") ? `${text.slice(0, -1)}Plus` : text)
+    .split("+").map(part => part.trim());
+  if (parts.some(part => !part)) return "";
   const modifiers = new Set();
-  let key = "";
+  const keys = [];
   parts.forEach((part) => {
     const lower = part.toLowerCase();
     if (lower === "ctrl" || lower === "control") modifiers.add("Ctrl");
     else if (lower === "shift") modifiers.add("Shift");
     else if (lower === "alt" || lower === "option") modifiers.add("Alt");
-    else if (lower === "meta" || lower === "cmd" || lower === "command") modifiers.add("Meta");
-    else key = normalizeShortcutKey(part);
+    else if (["meta", "cmd", "command", "win", "windows"].includes(lower)) modifiers.add("Meta");
+    else keys.push(normalizeShortcutKey(part));
   });
-  if (!key) return "";
-  return [...["Ctrl", "Shift", "Alt", "Meta"].filter((mod) => modifiers.has(mod)), key].join("+");
+  if (keys.length !== 1 || !keys[0]) return "";
+  return [...["Ctrl", "Shift", "Alt", "Meta"].filter((mod) => modifiers.has(mod)), keys[0]].join("+");
 }
 
 function eventToShortcutCombo(event) {
-  if (event.isComposing || event.keyCode === 229 || ["Process", "Dead", "Unidentified"].includes(event.key)) return "";
+  if (event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")
+    || ["Process", "Dead", "Unidentified", "AltGraph"].includes(event.key)) return "";
   const key = normalizeShortcutKey(event.key);
   if (!key || ["Control", "Shift", "Alt", "Meta"].includes(key)) return "";
   const parts = [];
@@ -540,16 +558,54 @@ function eventToShortcutCombo(event) {
   return parts.join("+");
 }
 
+function shortcutBindingIssue(action, combo) {
+  if (!Object.hasOwn(DEFAULT_SHORTCUTS, action) || !combo) return "invalid";
+  const parts = combo.split("+"), key = parts.pop();
+  if (parts.includes("Meta") || ["CapsLock", "NumLock", "ScrollLock", "PrintScreen", "Pause"].includes(key)
+    || (parts.includes("Alt") && key === "F4")) return "system";
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown",
+    "Tab", "Enter", "Escape", "Backspace", "Delete", "Space", "Insert"].includes(key)) {
+    if (!parts.length && ((key === "Space" && action === "toggleReference")
+      || (["Backspace", "Delete"].includes(key) && action === "delete"))) return "";
+    return "editor";
+  }
+  if (!(key.length === 1 || key === "Plus" || /^F(?:[1-9]|1\d|2[0-4])$/.test(key))) return "invalid";
+  // KFPS's isolated Chrome app supports its established Ctrl+D and Ctrl+1-8
+  // defaults. Other browser accelerators must not become editor bindings.
+  if (["F1", "F3", "F4", "F5", "F6", "F7", "F10", "F11", "F12"].includes(key)
+    || ["Ctrl+E", "Ctrl+F", "Ctrl+G", "Ctrl+H", "Ctrl+J", "Ctrl+K", "Ctrl+L", "Ctrl+N", "Ctrl+O",
+      "Ctrl+P", "Ctrl+R", "Ctrl+S", "Ctrl+T", "Ctrl+U", "Ctrl+W", "Ctrl+0", "Ctrl+9", "Ctrl+-", "Ctrl+=", "Ctrl+Plus",
+      "Ctrl+Shift+B", "Ctrl+Shift+C", "Ctrl+Shift+D", "Ctrl+Shift+G", "Ctrl+Shift+I", "Ctrl+Shift+J", "Ctrl+Shift+M",
+      "Ctrl+Shift+N", "Ctrl+Shift+O", "Ctrl+Shift+P", "Ctrl+Shift+R", "Ctrl+Shift+T", "Ctrl+Shift+W",
+      "Ctrl+Shift+-", "Ctrl+Shift+=", "Ctrl+Shift+Plus", "Alt+D", "Alt+E", "Alt+F", "Shift+Alt+T",
+      "Shift+Alt+I", "Shift+Alt+A", "Shift+Alt+N"].includes(combo)) return "browser";
+  return "";
+}
+
 function loadShortcuts() {
+  shortcutLoadWarnings = [];
+  shortcutStatusMessage = "";
   try {
     const saved = JSON.parse(editorSettings.getItem(SHORTCUTS_KEY) || "{}");
+    if (!saved || Array.isArray(saved) || typeof saved !== "object") throw Error("Invalid shortcuts");
     const merged = { ...DEFAULT_SHORTCUTS };
-    Object.keys(DEFAULT_SHORTCUTS).forEach((action) => {
+    const claimed = new Set(), custom = new Set();
+    Object.keys(DEFAULT_SHORTCUTS).forEach(action => {
+      if (!Object.hasOwn(saved, action)) return;
+      if (saved[action] === "") { merged[action] = ""; return; }
       const combo = normalizeShortcutCombo(saved[action]);
-      if (combo) merged[action] = combo;
+      if (shortcutBindingIssue(action, combo)) { shortcutLoadWarnings.push(action); return; }
+      if (claimed.has(combo)) { merged[action] = ""; shortcutLoadWarnings.push(action); return; }
+      merged[action] = combo;
+      claimed.add(combo); custom.add(action);
+    });
+    // A usable saved binding wins over defaults; no action may fire twice.
+    Object.keys(DEFAULT_SHORTCUTS).forEach(action => {
+      if (!custom.has(action) && claimed.has(merged[action])) merged[action] = "";
     });
     return merged;
   } catch (_err) {
+    shortcutLoadWarnings.push("settings");
     return { ...DEFAULT_SHORTCUTS };
   }
 }
@@ -559,11 +615,12 @@ function saveShortcuts() {
 }
 
 function shortcutFor(action) {
-  return normalizeShortcutCombo(shortcuts[action] || DEFAULT_SHORTCUTS[action]);
+  return normalizeShortcutCombo(shortcuts[action] ?? DEFAULT_SHORTCUTS[action]);
 }
 
 function shortcutMatches(event, action) {
-  return eventToShortcutCombo(event) === shortcutFor(action);
+  const combo = shortcutFor(action);
+  return Boolean(combo) && eventToShortcutCombo(event) === combo;
 }
 
 function shortcutPrimaryKey(action) {
@@ -573,25 +630,46 @@ function shortcutPrimaryKey(action) {
 
 function resetShortcuts() {
   shortcuts = { ...DEFAULT_SHORTCUTS };
+  shortcutLoadWarnings = [];
   saveShortcuts();
   renderShortcutEditor();
   updateShortcutLabels();
-  setStatus(KfpsI18n.t("Editor shortcuts reset to defaults."));
+  setShortcutStatus(KfpsI18n.t("Editor shortcuts reset to defaults."));
+}
+
+function renderShortcutStatus() {
+  setText("shortcutEditorStatus", shortcutStatusMessage || (shortcutLoadWarnings.length
+    ? KfpsI18n.t("Some saved shortcuts conflicted with protected controls or other bindings and were reset or left unassigned. Review your shortcuts.") : ""));
+}
+
+function setShortcutStatus(message) {
+  shortcutStatusMessage = message;
+  setStatus(message);
+  renderShortcutStatus();
 }
 
 function setShortcut(action, combo) {
   const normalized = normalizeShortcutCombo(combo);
-  if (!normalized || !DEFAULT_SHORTCUTS[action]) return;
+  const issue = shortcutBindingIssue(action, normalized);
+  if (issue) {
+    setShortcutStatus(issue === "editor" ? KfpsI18n.t("{0} is reserved for editor navigation or fixed controls. Choose another shortcut.", normalized)
+      : issue === "system" ? KfpsI18n.t("{0} is reserved by Windows. Choose another shortcut.", normalized)
+        : issue === "browser" ? KfpsI18n.t("{0} is reserved by the browser. Choose another shortcut.", normalized)
+          : KfpsI18n.t("That key combination cannot be used as an editor shortcut."));
+    return false;
+  }
   const conflict = Object.keys(DEFAULT_SHORTCUTS).find(other => other !== action && shortcutFor(other) === normalized);
   if (conflict) {
-    setStatus(KfpsI18n.t("{0} is already assigned to {1}. Choose another shortcut.", normalized, SHORTCUT_LABELS[conflict] || conflict));
-    return;
+    setShortcutStatus(KfpsI18n.t("{0} is already assigned to {1}. Choose another shortcut.", normalized, SHORTCUT_LABELS[conflict] || conflict));
+    return false;
   }
   shortcuts[action] = normalized;
   saveShortcuts();
   renderShortcutEditor();
   updateShortcutLabels();
-  setStatus(KfpsI18n.t("{0} shortcut set to {1}.", SHORTCUT_LABELS[action] || action, normalized));
+  shortcutLoadWarnings = shortcutLoadWarnings.filter(item => item !== action);
+  setShortcutStatus(KfpsI18n.t("{0} shortcut set to {1}.", SHORTCUT_LABELS[action] || action, normalized));
+  return true;
 }
 
 function updateShortcutLabels() {
@@ -612,17 +690,20 @@ function updateShortcutLabels() {
   });
   const maskButton = $("maskSelectedTool");
   if (maskButton?.firstChild) maskButton.firstChild.nodeValue = shortcutFor("makeMask");
+  renderFavoriteColors();
 }
 
 function renderShortcutEditor() {
   const list = $("shortcutEditorList");
   if (!list) return;
+  renderShortcutStatus();
   list.innerHTML = "";
   Object.keys(DEFAULT_SHORTCUTS).forEach((action) => {
     const row = document.createElement("label");
     row.className = "shortcutEditRow";
     row.innerHTML = KfpsI18n.t("\n      <span>{0}</span>\n      <input class=\"shortcutCapture\" data-shortcut-action=\"{1}\" readonly value=\"{2}\" title=\"Click, then press a new shortcut.\">\n    ", escapeHtml(SHORTCUT_LABELS[action] || action), escapeHtml(action), escapeHtml(shortcutFor(action)));
     const input = row.querySelector("input");
+    input.setAttribute("aria-describedby", "shortcutEditorStatus");
     input.addEventListener("focus", () => {
       input.classList.add("capturing");
       input.value = KfpsI18n.t("Press keys...");
@@ -632,12 +713,14 @@ function renderShortcutEditor() {
       input.value = shortcutFor(action);
     });
     input.addEventListener("keydown", (event) => {
+      if (event.key === "Tab") return;
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") {
         input.blur();
         return;
       }
+      if (event.repeat) return;
       const combo = eventToShortcutCombo(event);
       if (!combo) return;
       setShortcut(action, combo);
@@ -2756,16 +2839,32 @@ function renderFavoriteColors() {
     button.title = color
       ? KfpsI18n.t("Slot {0}: use {1} / A {2}", index + 1, colorToHex(color).toUpperCase(), color[3])
       : KfpsI18n.t("Slot {0}: empty. Click to select, then Save Color.", index + 1);
+    const shortcut = shortcutFor(`colorSlot${index + 1}`);
+    button.title += ` (${shortcut})`;
+    button.setAttribute("aria-label", button.title);
+    const label = document.createElement("span");
+    label.className = "favoriteColorShortcut";
+    shortcut.split("+").forEach((key, part, keys) => {
+      label.append(document.createTextNode(key + (part < keys.length - 1 ? "+" : "")));
+      if (part < keys.length - 1) label.append(document.createElement("wbr"));
+    });
+    button.appendChild(label);
     if (color) button.style.setProperty("--swatch", colorToHex(color));
     button.addEventListener("click", () => {
-      selectedFavoriteColorSlot = index;
-      if (color) applyEditorColor(color, "saved color");
-      else {
-        renderFavoriteColors();
-        setStatus(KfpsI18n.t("Selected empty color slot {0}. Choose a color, then Save Color.", index + 1));
-      }
+      useFavoriteColor(index);
     });
     grid.appendChild(button);
+  }
+}
+
+function useFavoriteColor(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= FAVORITE_COLOR_SLOTS) return;
+  selectedFavoriteColorSlot = index;
+  const color = favoriteColors[index];
+  if (color) applyEditorColor(color, "saved color");
+  else {
+    renderFavoriteColors();
+    setStatus(KfpsI18n.t("Selected empty color slot {0}. Choose a color, then Save Color.", index + 1));
   }
 }
 
@@ -4076,6 +4175,7 @@ function initCanvas() {
     opt.e.stopPropagation();
   });
   canvas.on("mouse:down", (opt) => {
+    if (opt.e.button === 0 && opt.target?.kloudy) lastLayerListKey = layerListObjectKey(opt.target);
     if (vBoxSelectActive && activeToolMode !== "guides" && activeToolMode !== "source" && !shapeEyedropperActive && opt.e.button === 0) {
       opt.target = null;
       canvas.skipTargetFind = true;
@@ -4186,6 +4286,7 @@ function initCanvas() {
     canvas.hoverCursor = vBoxSelectActive ? "crosshair" : "default";
     updateHud();
   });
+  canvas.on("mouse:dblclick", revealCanvasShapeInLayers);
   installGuidePointerNavigation();
 }
 
@@ -6831,6 +6932,7 @@ async function loadPayload(payload, options = {}) {
   }));
   phaseStarted = documentPhase("document-retire", phaseStarted, generation, { objects: previousObjects.length });
   lastLayerListKey = null;
+  locatedLayerListKey = null;
   dropperPreservedActiveObject = null;
   for (const refresh of [() => editorRenderer.endHybridRenderNow(), applyGuideStateToUi,
     renderGuideObjects, bringGuidesToBack, refreshLayers, options.newCanvas ? resetView : fitDesignView,
@@ -6889,6 +6991,7 @@ function clearVinylObjects(options = {}) {
   invalidateLayerStats();
   if (!options.preserveCollapsed) collapsedLayerGroups.clear();
   lastLayerListKey = null;
+  locatedLayerListKey = null;
   dropperPreservedActiveObject = null;
 }
 
@@ -7182,6 +7285,26 @@ function handleLayerDoubleClick(event) {
   centerCanvasOnObject(canvas.getActiveObject());
 }
 
+function revealCanvasShapeInLayers(opt) {
+  const event = opt?.e, object = interactiveVinylTarget(opt?.target);
+  if (!event || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
+    || activeToolMode !== "select" || shapeEyedropperActive || vBoxSelectActive || isPanning
+    || editorCommands.busy || selectionLockActive || !object?.kloudy || !vinylObjects().includes(object)) return;
+  if ($("layerSearch")) $("layerSearch").value = "";
+  KfpsEditorLayerGroups.objectPath(object).forEach(group => collapsedLayerGroups.delete(group.id));
+  setDockVisible(true);
+  setLayersCollapsed(false);
+  selectObjects([object], "layer");
+  lastLayerListKey = layerListObjectKey(object);
+  locatedLayerListKey = lastLayerListKey;
+  refreshLayers();
+  const entry = layerListRows.get(lastLayerListKey), pane = layerScrollPane();
+  if (!entry || !pane) return;
+  pane.scrollTop = Math.max(0, entry.virtualTop - (pane.clientHeight - entry.virtualHeight) / 2);
+  renderVirtualLayerWindow(true);
+  persistCollapsedLayerState();
+}
+
 function layerDragLabel(objects = []) {
   if (objects.length > 1) {
     const groupName = objects[0]?.kloudy?.group_id && objects.every((obj) => obj.kloudy?.group_id === objects[0].kloudy.group_id)
@@ -7274,7 +7397,7 @@ function visibleLayerBlocks() {
       const objects = entry.objects
         .filter((obj) => displayIndex.has(obj))
         .sort((a, b) => displayIndex.get(a) - displayIndex.get(b));
-      if (!objects.length) return;
+      if (!objects.length || objects.every(object => seen.has(object))) return;
       objects.forEach((obj) => seen.add(obj));
       blocks.push({ key, objects, element: entry.element || null });
       return;
@@ -7311,6 +7434,14 @@ function layerDropSlotAtPoint(event) {
   const pane = layerScrollPane();
   const paneRect = pane?.getBoundingClientRect();
   if (!paneRect || event.clientX < paneRect.left || event.clientX > paneRect.right || event.clientY < paneRect.top || event.clientY > paneRect.bottom) return null;
+  const targetRow = layerRowFromEventTarget(document.elementFromPoint(event.clientX, event.clientY));
+  const targetEntry = layerListRows.get(targetRow?.dataset.layerListKey);
+  if (targetEntry?.kind === "group") {
+    const rect = targetRow.getBoundingClientRect();
+    if (event.clientY > rect.top + rect.height * .25 && event.clientY < rect.bottom - rect.height * .25) {
+      return { groupId: targetEntry.groupId, markerBlock: { element: targetRow }, markerSide: "inside" };
+    }
+  }
   const blocks = reorderCandidateBlocks(layerDragState.objects);
   if (!blocks.length) return { index: 0, blocks };
   const rows = blocks
@@ -7351,8 +7482,10 @@ function updateLayerDropPreview(event) {
     }
     const slot = layerDropSlotAtPoint(event);
     if (!slot?.markerBlock?.element) return null;
-    slot.markerBlock.element.classList.add(slot.markerSide === "after" ? "layerDropAfter" : "layerDropBefore");
-    layerDragState.dropSlot = { index: slot.index };
+    slot.markerBlock.element.classList.add(slot.groupId ? "layerDropTarget" : slot.markerSide === "after" ? "layerDropAfter" : "layerDropBefore");
+    layerDragState.dropSlot = slot.groupId ? { groupId: slot.groupId } : { index: slot.index };
+    if (layerDragGhost) layerDragGhost.querySelector("span").textContent = slot.groupId
+      ? KfpsI18n.t("Add to group") : layerDragModeLabel(layerDragState.mode);
     return slot.markerBlock.element;
   }
   const row = layerRowAtPoint(event.clientX, event.clientY);
@@ -7469,6 +7602,7 @@ function dropLayerBlockAtSlot(dragObjects, slot) {
     setStatus(KfpsI18n.t("Clear the layer search before dragging layers; filtered rows cannot safely define canvas depth."));
     return false;
   }
+  if (slot.groupId) return editorLayerGroups.addToGroup(dragObjects, slot.groupId);
   const displayObjects = displayObjectsFromCurrentStack();
   const sourceObjects = displayObjects.filter((obj) => selectedSet.has(obj));
   if (!sourceObjects.length) return false;
@@ -7490,7 +7624,7 @@ function dropLayerBlockAtSlot(dragObjects, slot) {
 }
 
 function handleLayerPointerDown(event) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || editorCommands.busy) return;
   const row = layerRowFromEventTarget(event.target);
   const key = row?.dataset.layerListKey;
   const control = isLayerControlTarget(event.target);
@@ -7503,6 +7637,7 @@ function handleLayerPointerDown(event) {
   row.setPointerCapture?.(event.pointerId);
   layerDragState = {
     key,
+    generation: documentGeneration,
     pointerDown,
     objects: entry.objects.slice(),
     sourceElement: row,
@@ -7531,12 +7666,18 @@ function handleLayerPointerMove(event) {
   document.body.classList.toggle("layerGroupingActive", layerDragState.mode === "group");
   document.body.classList.toggle("layerReorderActive", layerDragState.mode === "reorder");
   updateLayerDropPreview(event);
-  scrollLayerPaneDuringDrag(event.clientY);
+  if (!layerDragState.dropSlot?.groupId) {
+    scrollLayerPaneDuringDrag(event.clientY);
+    renderVirtualLayerWindow();
+    updateLayerDropPreview(event);
+  }
   event.preventDefault();
 }
 
 function handleLayerPointerUp(event) {
   if (!layerDragState || layerDragState.pointerId !== event.pointerId) return;
+  if (editorCommands.busy || layerDragState.generation !== documentGeneration) { cancelLayerDrag(); return; }
+  if (layerDragState.active) updateLayerDropPreview(event);
   const state = layerDragState;
   const targetRow = layerRowAtPoint(event.clientX, event.clientY);
   const targetKey = targetRow?.dataset.layerListKey;
@@ -7640,6 +7781,7 @@ function createVirtualLayerElement(entry, activeSet) {
   li.style.paddingLeft = `${8 + Math.min(entry.depth || 0, 8) * 12}px`;
   if (entry.groupId) li.classList.add("groupedLayer");
   if (activeSet.has(obj)) li.classList.add("active");
+  if (activeSet.has(obj) && entry.key === locatedLayerListKey) li.classList.add("layerLocated");
   if (obj.visible === false) li.classList.add("hiddenLayer");
   if (obj.kloudy?.locked) li.classList.add("lockedLayer");
   const color = hexToRgb(obj.fill || "#ffffff", (obj.opacity ?? 1) * 255);
@@ -7702,9 +7844,12 @@ function renderVirtualLayerWindow(force = false) {
 
 function updateLayerSelectionStyles() {
   const activeSet = new Set(selectedVinylObjects());
+  if (locatedLayerListKey && ![...activeSet].some(object => layerListObjectKey(object) === locatedLayerListKey)) locatedLayerListKey = null;
   renderedLayerEntries.forEach((entry) => {
     if (!entry.element?.isConnected) return;
-    entry.element.classList.toggle("active", entry.objects.some((obj) => activeSet.has(obj)));
+    const active = entry.objects.some((obj) => activeSet.has(obj));
+    entry.element.classList.toggle("active", active);
+    entry.element.classList.toggle("layerLocated", active && entry.key === locatedLayerListKey);
   });
   updateHud();
 }
@@ -11369,10 +11514,17 @@ function copySelectedLayers() {
     setStatus(KfpsI18n.t("Select one or more layers before copying."));
     return;
   }
+  const explicitGroup = lastLayerListKey?.startsWith("group:")
+    && membersForGroupIds([lastLayerListKey.slice(6)]).every(object => objects.includes(object));
+  const paths = KfpsEditorLayerGroups.selectionPaths(objects, vinylObjects(), { individual: objects.length === 1 && !explicitGroup });
   editorClipboard = {
     format: "kfps_editor_clipboard_v1",
     copied_at: new Date().toISOString(),
-    shapes: objects.map((object) => objectToShape(object, { includeEditorMeta: true })),
+    shapes: objects.map((object, index) => {
+      const shape = objectToShape(object, { includeEditorMeta: true });
+      delete shape.editor_group_path;
+      return Object.assign(shape, KfpsEditorLayerGroups.fields(paths[index]));
+    }),
   };
   try {
     const serialized = JSON.stringify(editorClipboard);
@@ -11446,7 +11598,28 @@ function pasteCopiedLayers() {
 
 function nextLayerGroupName() { return editorLayerGroups.nextName(); }
 
-function groupSelectedLayers() { return editorLayerGroups.group(); }
+function groupSelectedLayers() { if (!editorCommands.busy) return editorLayerGroups.group(); }
+
+function openAddToGroupDialog() {
+  $("layerGroupActions").hidePopover();
+  const objects = selectedVinylObjects(), all = vinylObjects(), groups = new Map();
+  if (!objects.length || editorCommands.busy) return;
+  all.forEach(object => {
+    const path = KfpsEditorLayerGroups.objectPath(object);
+    path.forEach((group, index) => groups.set(group.id, path.slice(0, index + 1).map(part => part.name).join(" / ")));
+  });
+  if (!groups.size) {
+    setStatus(KfpsI18n.t("Create a group before adding layers to it."));
+    return;
+  }
+  const select = $("addToGroupTarget");
+  select.replaceChildren(...[...groups].map(([id, name]) => {
+    const option = document.createElement("option"); option.value = id; option.textContent = name; return option;
+  }));
+  const dialog = $("addToGroupDialog");
+  dialog.__selection = { objects: [...objects], generation: documentGeneration };
+  dialog.showModal();
+}
 
 function renameSelectedLayer() { return editorLayerGroups.renameLayer(); }
 
@@ -12567,6 +12740,27 @@ function bindUi() {
   $("fitSelected").addEventListener("click", fitSelectedView);
   $("quickFitSelected")?.addEventListener("click", fitSelectedView);
   $("groupSelected").addEventListener("click", groupSelectedLayers);
+  $("layerGroupActions").addEventListener("beforetoggle", event => {
+    if (event.newState !== "open") return;
+    const rect = $("groupActions").getBoundingClientRect(), menu = $("layerGroupActions");
+    menu.style.left = `${Math.max(8, Math.min(innerWidth - 212, rect.left))}px`;
+    menu.style.top = `${Math.max(8, Math.min(innerHeight - 110, rect.bottom + 4))}px`;
+  });
+  $("newSelectedGroup").addEventListener("click", () => {
+    $("layerGroupActions").hidePopover();
+    if (!editorCommands.busy) editorLayerGroups.group({ forceNew: true });
+  });
+  $("addSelectedToGroup").addEventListener("click", openAddToGroupDialog);
+  $("cancelAddToGroup").addEventListener("click", () => $("addToGroupDialog").close());
+  $("addToGroupDialog").addEventListener("close", () => { $("addToGroupDialog").__selection = null; });
+  $("addToGroupDialog").querySelector("form").addEventListener("submit", event => {
+    event.preventDefault();
+    const dialog = $("addToGroupDialog"), selected = dialog.__selection;
+    if (event.submitter?.value === "add" && selected?.generation === documentGeneration && !editorCommands.busy) {
+      editorLayerGroups.addToGroup(selected.objects, $("addToGroupTarget").value);
+    }
+    dialog.close();
+  });
   $("quickGroupSelected")?.addEventListener("click", groupSelectedLayers);
   $("renameSelectedLayer")?.addEventListener("click", renameSelectedLayer);
   $("renameSelectedGroup")?.addEventListener("click", renameSelectedGroup);
@@ -12721,7 +12915,7 @@ function bindUi() {
       return;
     }
     if (event.target && event.target.classList?.contains("shortcutCapture")) return;
-    if (event.target && ["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
+    if (event.target && (["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) || event.target.isContentEditable)) return;
     if (document.querySelector("dialog[open]")) return;
     if (activeToolMode === "guides") {
       if (event.key === "Escape") {
@@ -12732,7 +12926,7 @@ function bindUi() {
       if (event.key === "Shift" && guideDraft && guidePointer && !isPanning) {
         updateGuideDraft({ e: { clientX: guidePointer.clientX, clientY: guidePointer.clientY, shiftKey: true } });
       }
-      if (event.key === " " && guidePointer && !Object.keys(shortcuts).some(action => shortcutMatches(event, action))) {
+      if (event.key === " " && guidePointer && !Object.keys(shortcuts).some(action => action !== "toggleReference" && shortcutMatches(event, action))) {
         event.preventDefault();
         if (!event.repeat && guidePointer) {
           guideSpacePan = true;
@@ -12743,6 +12937,18 @@ function bindUi() {
         }
         return;
       }
+    }
+    if (shortcutMatches(event, "toggleReference")) {
+      if (event.key === " " && event.target?.closest?.("button, a, summary, [role=button]")) return;
+      event.preventDefault();
+      if (!event.repeat && !editorCommands.busy && !isPanning && !canvas?._currentTransform) editorReference.toggleOverlay();
+      return;
+    }
+    const colorAction = Object.keys(DEFAULT_SHORTCUTS).find(action => action.startsWith("colorSlot") && shortcutMatches(event, action));
+    if (colorAction) {
+      event.preventDefault();
+      if (!event.repeat && !editorCommands.busy && !canvas?._currentTransform) useFavoriteColor(Number(colorAction.slice(9)) - 1);
+      return;
     }
     const toolAction = ["selectTool", "shapeLibrary", "textTool", "pixelArt", "dropper", "guides", "overlay", "sourceTool"].find((action) => shortcutMatches(event, action));
     if (toolAction) {

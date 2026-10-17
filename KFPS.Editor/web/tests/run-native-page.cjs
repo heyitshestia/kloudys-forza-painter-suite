@@ -10,6 +10,19 @@ const { chromium } = require("playwright");
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { noDefaults: true });
   const page = browser.contexts()[0].pages().find(p => p.url().includes("fabric-editor"));
   if (!page) throw new Error("Native editor page missing");
+  if (testOptions.browserHost) {
+    const reload = page.reload.bind(page);
+    page.reload = async (...args) => {
+      // Saved-page test reloads are controlled navigation, not a user close.
+      // The allowance disappears with this document; normal close is tested
+      // separately by the host after the page suites finish.
+      await page.evaluate(() => {
+        if (isDocumentDirty() || projectSaveInProgress || editorCommands.busy) throw Error("Test reload requires a saved, idle document");
+        window.__KfpsBrowserCloseAllowed = true;
+      });
+      return reload(...args);
+    };
+  }
   page.setDefaultTimeout(120000);
   const errors = [], errorRecords = [];
   let activeScript = null;

@@ -1,5 +1,16 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.103
+
+### Editor Workflow Improvements
+- Added configurable shortcuts for all 16 saved colours (1-8 and Ctrl+1-8 by default) and reference-image visibility (Space). Typing, IME input, dialogs and guide-tool panning retain priority.
+- Double-click an individual canvas shape to reveal and highlight its layer, opening collapsed parent groups and the layer panel as needed. Double-clicking a layer still centres its shape.
+- Copying individual shapes no longer carries partial parent groups into pasted artwork. Complete selected groups retain their hierarchy with independent identities.
+- Grouping one complete group with loose shapes now adds those shapes to that group. A group-actions menu provides Add to Group and explicit New Group, while dropping into a group header adds membership without changing geometry or canvas depth.
+- Shortcut settings reject protected Windows/browser/navigation keys and duplicate bindings, preserve valid older custom shortcuts, and show English/Korean feedback when saved bindings need attention.
+- Includes native and Chrome editor coverage for 3,000-layer workflows, repeated edits, exact undo/redo, save failures, recovery, restart and compact layouts.
+- Available through the signed updater; no new bundled release.
+
 ## 3.1.102
 
 ### Reference Image Size Lock

@@ -183,6 +183,7 @@
               <button id="sendBack" title="Move selected layers all the way to the bottom/back.">To Back</button>
               <button id="selectionLockToggle" title="Keep the current selection active through accidental canvas misclicks." aria-pressed="false">Lock Selection</button>
               <button id="groupSelected" title="Create an editor-only group from the selected layers. Exports stay flat.">Group</button>
+              <button id="groupActions" type="button" popovertarget="layerGroupActions" title="Group actions" aria-label="Group actions">...</button>
               <button id="renameSelectedLayer" title="Rename one selected layer inside this editor project.">Rename Layer</button>
               <button id="renameSelectedGroup" title="Rename the selected editor-only group. Exports stay flat.">Rename Group</button>
               <button id="hideSelectedGroup" title="Hide or show every layer in the selected editor group.">Hide Group</button>
@@ -859,6 +860,7 @@
       <div>
         <h2>Editor Shortcuts</h2>
         <p>Click a shortcut box, then press a one-key or two-key combo. Saved locally for this browser/app instance.</p>
+        <p id="shortcutEditorStatus" class="shortcutEditorStatus" role="status" aria-live="polite"></p>
       </div>
       <button id="closeShortcuts" type="button" title="Close the shortcut editor.">Close</button>
     </div>
@@ -965,6 +967,24 @@
         <button id="saveThemeAdjust" class="primary" type="button" title="Save these colors as a new local editor theme.">Save theme</button>
       </div>
     </div>
+  </dialog>
+
+  <div id="layerGroupActions" popover>
+    <button id="addSelectedToGroup" title="Add selected layers to an existing group without changing canvas depth.">Add to Group</button>
+    <button id="newSelectedGroup" title="Create a new parent group, preserving selected subgroups.">New Group</button>
+  </div>
+
+  <dialog id="addToGroupDialog" class="compactDialog">
+    <form method="dialog">
+      <div class="helpHeader"><h2>Add to Group</h2></div>
+      <div class="compactDialogBody">
+        <label><span>Target group</span><select id="addToGroupTarget"></select></label>
+        <div class="dialogActions">
+          <button id="cancelAddToGroup" type="button" title="Cancel">Cancel</button>
+          <button type="submit" value="add" class="primary" title="Add to Group">Add</button>
+        </div>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="colorDialog">

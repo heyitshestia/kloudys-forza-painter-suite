@@ -62,6 +62,13 @@
     });
     return { shapes: copies, groupIds: ids };
   }
+  function selectionPaths(objects, all, { individual = false } = {}) {
+    const selected = new Set(objects), incomplete = new Set();
+    for (const object of all) {
+      if (!selected.has(object)) objectPath(object).forEach(group => incomplete.add(group.id));
+    }
+    return objects.map(object => individual ? [] : objectPath(object).filter(group => !incomplete.has(group.id)));
+  }
   function create({ scene, edits, view, tr, requestName }) {
     const valid = (generation, objects) => generation === edits.generation() && objects.every(scene.attached);
     function finish(reason, message, render = false) {
@@ -76,14 +83,47 @@
       for (let i=1;i<10000;i++) { const name=tr("Group {0}",i); if(!names.has(name))return name; }
       return tr("Group {0}",Date.now().toString(36));
     }
+    function addToGroup(objects, id) {
+      const all = scene.all(), target = all.find(object => objectPath(object).some(group => group.id === id));
+      if (!target || !objects.length || objects.some(object => !scene.attached(object))) return false;
+      const path = objectPath(target), targetPath = path.slice(0, path.findIndex(group => group.id === id) + 1);
+      const paths = selectionPaths(objects, all);
+      const ancestors = new Set(targetPath.slice(0, -1).map(group => group.id));
+      if (paths.some(groups => groups.some(group => ancestors.has(group.id)))) {
+        view.status(tr("A group cannot be moved into one of its own subgroups."));
+        return false;
+      }
+      const changes = objects.flatMap((object, index) => {
+        if (objectPath(object).some(group => group.id === id)) return [];
+        return [{ object, path: [...targetPath, ...paths[index]] }];
+      });
+      if (!changes.length) return false;
+      if (changes.some(change => change.path.length > MAX_DEPTH)) {
+        view.status(tr("The project has invalid or excessively nested groups."));
+        return false;
+      }
+      changes.forEach(change => applyPath(change.object, change.path));
+      targetPath.forEach(group => scene.expand(group.id));
+      scene.focus?.(id);
+      finish("add layers to group", tr("Added {0} layer(s) to {1}.", changes.length, targetPath.at(-1).name));
+      return true;
+    }
     return {
       nextName,
-      group() {
+      addToGroup,
+      group({ forceNew = false } = {}) {
         const objects=scene.selected();
         if(objects.length<2){view.status(tr("Select two or more layers before creating a group."));return false;}
+        const paths = selectionPaths(objects, scene.all());
+        const roots = [...new Set(paths.map(path => path[0]?.id).filter(Boolean))];
+        // One complete group plus loose shapes extends that group. Explicit New
+        // Group still permits a parent group without flattening its children.
+        if (!forceNew && roots.length === 1 && paths.some(path => !path.length)) {
+          return addToGroup(objects.filter((object, index) => !paths[index].length), roots[0]);
+        }
         const id=freshId(),name=nextName();
         let grouped;
-        try { grouped=cloneShapes(objects.map(object=>fields(objectPath(object))),{outer:{id,name}}); }
+        try { grouped=cloneShapes(paths.map(path=>fields(path)),{outer:{id,name}}); }
         catch(error){view.status(tr(error.message));return false;}
         objects.forEach((object,index)=>applyPath(object,shapePath(grouped.shapes[index])));
         scene.expand(id);
@@ -148,5 +188,5 @@
       },
     };
   }
-  return {create,shapePath,objectPath,fields,applyPath,cloneShapes,MAX_DEPTH};
+  return {create,shapePath,objectPath,fields,applyPath,cloneShapes,selectionPaths,MAX_DEPTH};
 });
