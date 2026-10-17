@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.104
+
+### Editor and Report Window Fixes
+- The editor and Report a Problem reviewer can now remain open together in either launch order. Shared application leases retain the updater's exclusive protection and separate single-instance ownership.
+- Report startup errors distinguish a busy installation from damaged files, preserve saved reports, and release locks before displaying an error.
+- The layer toolbar no longer shrinks into a tiny scrollbar that clips wrapped buttons. Short panels scroll without hiding parts of their controls.
+- Verified native and Chrome hosts, both window launch/close orders, English/Korean layouts, 100-200% simulated scaling, dense 3,000-layer editing and updater exclusion.
+- Available through the signed updater; no new bundled release.
+
 ## 3.1.103
 
 ### Editor Workflow Improvements

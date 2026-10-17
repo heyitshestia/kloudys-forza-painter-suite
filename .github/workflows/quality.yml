@@ -108,6 +108,16 @@ jobs:
           PYTHONUTF8: "1"
         run: python KFPS.Editor/web/tests/editor-close-lifecycle.test.py -v
 
+      - name: Test editor and report reviewer coexistence
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: |
+          python KFPS.UI/tools/test_support_window.py runtime/test-runs/ci-report-editor-first --editor-mode native --display-language ko --initial-auth-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python KFPS.UI/tools/test_support_window.py runtime/test-runs/ci-report-first --editor-mode native --report-first --browser-mode manual
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test editor instance ownership and pre-Qt activation
         run: |
           python KFPS.Editor/web/tests/editor-instance-lock.test.py -v
@@ -115,6 +125,8 @@ jobs:
           python KFPS.Editor/web/tests/editor-ipc-preqt.test.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python KFPS.Editor/web/tests/editor-startup-errors.test.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python KFPS.Editor/web/tests/editor-update-guard.test.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload native editor launch evidence

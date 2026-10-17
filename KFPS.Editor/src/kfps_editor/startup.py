@@ -17,7 +17,7 @@ def acquire_or_forward(app_root, runtime, request):
     waiting = False
     while True:
         try:
-            return acquire_update_guard(updater_state_root(app_root))
+            guard = acquire_update_guard(updater_state_root(app_root))
         except RuntimeError as error:
             if getattr(error, "winerror", None) not in (32, 33):
                 raise
@@ -31,3 +31,15 @@ def acquire_or_forward(app_root, runtime, request):
                 record_startup(runtime, "update-guard-timeout", winerror=error.winerror)
                 raise RuntimeError("The editor or updater still holds this installation, but the editor is not responding. Finish the update or close the existing editor and try again. No running process or saved work was removed.") from error
             time.sleep(0.1)
+            continue
+        # Shared update guards do not establish editor instance ownership.
+        # Forward before Qt loads, including when another reader holds a lease.
+        try:
+            if forward_before_qt(name, request):
+                guard.Close()
+                record_startup(runtime, "existing-instance-forwarded")
+                return None
+            return guard
+        except Exception:
+            guard.Close()
+            raise

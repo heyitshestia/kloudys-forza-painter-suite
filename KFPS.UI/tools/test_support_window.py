@@ -34,6 +34,8 @@ def main():
     parser.add_argument("--display-language", choices=("en", "ko"), default="en")
     parser.add_argument("--clock-offset-ms", type=int, default=-2000)
     parser.add_argument("--initial-auth-failure", action="store_true")
+    parser.add_argument("--editor-mode", choices=("native", "chrome"))
+    parser.add_argument("--report-first", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / "runtime/test-runs"):
@@ -144,6 +146,37 @@ def main():
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    editor_host = None
+    report_guard = None
+    guard_state = output / "editor-profile/update-state"
+    if args.editor_mode:
+        from kfps_editor.update_guard import acquire_update_guard
+        from kfps_editor.windows_lock import acquire_file_lease
+        from kfps_editor.host import EditorDesktop
+        from kfps_editor.browser_host import BrowserDesktop
+        sys.path.insert(0, str(ROOT / "KFPS.Editor/web/tests"))
+        from native_window_policy import keep_in_background
+        editor_host = (EditorDesktop if args.editor_mode == "native" else BrowserDesktop)(
+            ROOT, output / "editor-profile", background=True, export_root=output / "exports")
+        keep_in_background(editor_host)
+        if args.report_first:
+            report_guard = acquire_update_guard(guard_state)
+        assert editor_host.start({"mode": "activate"})
+        editor_host.show()
+        if report_guard is None:
+            report_guard = acquire_update_guard(guard_state)
+
+    def updater_blocked():
+        if not args.editor_mode:
+            return
+        try:
+            lease = acquire_file_lease(guard_state / "updater.lock")
+        except OSError as error:
+            assert error.winerror == 32
+        else:
+            lease.Close()
+            raise AssertionError("Updater entered while an application window was running")
+
     console_errors=[]
     class FixturePage(ReportPage):
         def javaScriptConsoleMessage(self, level, message, line, source):
@@ -187,6 +220,11 @@ def main():
             (output / 'progress.json').write_text(json.dumps({'phase':phase,'epoch':window.epoch,'retry':window.retry.isVisible(),'elapsed':round(time.monotonic()-(deadline-120),2)}))
         if phase == 4 or busy:
             return
+        if editor_host is not None and not editor_host._ready:
+            if editor_host._failed:
+                failure.append("Companion editor failed to start")
+                app.quit()
+            return
         if window.retry.isVisible():
             failure.append(f'Reviewer requested retry at phase {phase}')
             app.quit()
@@ -202,6 +240,9 @@ def main():
             if window.epoch<expected_epoch or window.timer.isActive():
                 return
             if phase == 0:
+                updater_blocked()
+                if editor_host is not None:
+                    check(editor_host._ready, 'editor and report reviewer are ready together')
                 check(value['language']==args.display_language,'Windows display language selects the entire form')
                 check(window.korean==(args.display_language=='ko'),'native chrome matches display language')
                 check("#" not in value["url"],"large report never placed in URL")
@@ -298,6 +339,20 @@ def main():
     finally:
         timer.stop()
         window.shutdown()
+        if editor_host is not None:
+            # Both orders retain updater exclusion until the final owner closes.
+            if args.report_first:
+                report_guard.Close()
+                updater_blocked()
+                editor_host.shutdown()
+            else:
+                editor_host.shutdown()
+                updater_blocked()
+                report_guard.Close()
+            editor_host.hide()
+            lease = acquire_file_lease(guard_state / "updater.lock")
+            lease.Close()
+            checks.append('updater unlocked only after both windows closed')
         server.shutdown()
         server.server_close()
         page_patch.stop()
@@ -312,7 +367,7 @@ def main():
         check('stage=session result=authenticated' in collected,'next automatic log bundle retains sign-in diagnostics')
     if console_errors:
         failure.append('Unexpected JavaScript console errors')
-    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":attachment[0]["files"],"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts,"clockOffsetMs":args.clock_offset_ms,"initialAuthFailure":args.initial_auth_failure}
+    result={"passed":not failure,"checks":checks,"failures":failure,"consoleErrors":console_errors,"packageBytes":package.stat().st_size,"logFiles":attachment[0]["files"],"realDiscordPosts":0,"fixtureEvents":events,"browserMode":args.browser_mode,"displayLanguage":args.display_language,"browserAttempts":browser_attempts,"clockOffsetMs":args.clock_offset_ms,"initialAuthFailure":args.initial_auth_failure,"editorMode":args.editor_mode,"reportFirst":args.report_first}
     (output / "results.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
     print(json.dumps(result))
     return 0 if result["passed"] else 1

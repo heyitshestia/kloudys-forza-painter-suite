@@ -1,4 +1,4 @@
-"""Keep an installation unchanged while its independent editor is open."""
+"""Shared application leases keep the exclusive updater out while windows run."""
 from __future__ import annotations
 
 import hashlib
@@ -35,11 +35,13 @@ def acquire_update_guard(state_root: Path):
                     ("indexHigh", wintypes.DWORD), ("indexLow", wintypes.DWORD)]
     kernel.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.POINTER(FileInfo)]
     state_root.mkdir(parents=True, exist_ok=True)
-    handle = kernel.CreateFileW(str(state_root / "updater.lock"), 0xC0000000, 0, None, 4, 0x00200080, None)
+    # Readers can coexist, but cannot share with the updater's read/write,
+    # share-none handle. Do not share writes/deletion or truncate this file.
+    handle = kernel.CreateFileW(str(state_root / "updater.lock"), 0x80000000, 1, None, 4, 0x00200080, None)
     if handle == ctypes.c_void_p(-1).value:
         code = ctypes.get_last_error()
         if code in (32, 33):
-            error = RuntimeError("KFPS is updating or the editor is already open. Finish the current operation before opening the editor.")
+            error = RuntimeError("The updater or an older KFPS window holds this installation. Finish the update or close the older window and try again.")
             error.winerror = code
             raise error
         raise ctypes.WinError(code)

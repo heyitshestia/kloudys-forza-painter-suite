@@ -1155,10 +1155,11 @@ body.guideMode #canvas {
 #layersPane.active {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-#layerInfo {
+#layersPane > :not(.layersViewport) {
   flex-shrink: 0;
 }
 
@@ -2614,7 +2615,7 @@ dialog::backdrop {
   color: var(--text);
 }
 #layerGroupActions button { display: block; width: 100%; margin: 3px 0; }
-#layersPane > .smallTools { min-height: 32px; overflow-y: auto; flex: 0 1 auto; }
+#layersPane > .smallTools { min-height: 32px; flex: 0 0 auto; }
 
 .favoriteColorSwatch.selected {
   border-color: var(--warn);

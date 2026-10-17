@@ -52,15 +52,21 @@ class EditorDesktopContractTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows updater lock contract")
     def test_guard_excludes_updater_and_releases_without_deleting_state(self):
+        from kfps_editor.windows_lock import acquire_file_lease
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)
             first = acquire_update_guard(state)
             try:
-                with self.assertRaisesRegex(RuntimeError, "updating"):
-                    acquire_update_guard(state)
+                second = acquire_update_guard(state)
+                try:
+                    with self.assertRaises(OSError) as error:
+                        acquire_file_lease(state / "updater.lock")
+                    self.assertEqual(error.exception.winerror, 32)
+                finally:
+                    second.Close()
             finally:
                 first.Close()
-            second = acquire_update_guard(state)
+            second = acquire_file_lease(state / "updater.lock")
             second.Close()
             self.assertTrue((state / "updater.lock").is_file())
 

@@ -380,6 +380,25 @@ def listen(server, window):
     server.newConnection.connect(connected)
 
 
+class ReportWindowBusyError(RuntimeError):
+    pass
+
+
+def startup_error_message(error, korean):
+    from kfps_editor.baseline import BaselineError
+    if isinstance(error, ReportWindowBusyError):
+        return ("신고 창이 시작되거나 닫히는 중입니다. 보고서는 저장되어 있습니다. 잠시 후 다시 시도해 주세요."
+                if korean else "The report window is still starting or closing. Your report is saved. Wait a moment and try again.")
+    if getattr(error, "winerror", None) in (32, 33):
+        return ("업데이트 프로그램 또는 이전 버전의 KFPS 창이 실행 중입니다. 보고서는 저장되어 있습니다. 업데이트가 끝나거나 이전 창을 닫은 후 다시 시도해 주세요."
+                if korean else "The updater or an older KFPS window is using this installation. Your report is saved. Finish the update or close the older window, then try again.")
+    if isinstance(error, BaselineError):
+        return ("신고 창의 설치 파일을 확인하지 못했습니다. 보고서는 저장되어 있습니다. KFPS를 닫고 KFPS-Updater.exe로 앱을 복구한 뒤 다시 시도해 주세요."
+                if korean else "The report window's installation files could not be verified. Your report is saved. Close KFPS and run KFPS-Updater.exe to repair the app, then try again.")
+    return ("신고 창을 열지 못했습니다. 보고서는 저장되어 있습니다. 다시 시도해 주세요. 문제가 계속되면 runtime/support-reports/report-window.log 파일을 Kloudy에게 보내 주세요."
+            if korean else "The report window could not open. Your report is saved. Try again. If this continues, send runtime/support-reports/report-window.log to Kloudy.")
+
+
 def main(root: Path) -> int:
     parser = argparse.ArgumentParser(description="KFPS report review")
     parser.add_argument("--report-id", required=True)
@@ -390,6 +409,18 @@ def main(root: Path) -> int:
     server = None
     guard = None
     logger = logging.getLogger("kfps-report-window")
+
+    def cleanup():
+        nonlocal server, window, guard, lock
+        resources = (server, window, guard, lock)
+        server = window = guard = lock = None
+        for resource, method in zip(resources, ("close", "shutdown", "Close", "unlock")):
+            if resource is not None:
+                try:
+                    getattr(resource, method)()
+                except Exception as error:
+                    logger.error("cleanup-failed resource=%s type=%s", method, type(error).__name__)
+
     try:
         identifier = report_id(args.report_id)
         read_source(root, identifier)
@@ -413,7 +444,7 @@ def main(root: Path) -> int:
                 if forward(name, identifier):
                     return 0
                 time.sleep(.05)
-            raise RuntimeError("The report window is still starting or closing. Try again.")
+            raise ReportWindowBusyError("The report window is still starting or closing. Try again.")
         if os.name == "nt":
             from kfps_editor.update_guard import acquire_update_guard, updater_state_root
             guard = acquire_update_guard(updater_state_root(root))
@@ -427,22 +458,16 @@ def main(root: Path) -> int:
         window.open_report(identifier, confirm=False)
         return app.exec()
     except Exception as error:
-        logger.error("startup-failed type=%s", type(error).__name__)
+        logger.error("startup-failed type=%s winerror=%s", type(error).__name__, getattr(error, "winerror", None))
+        # A modal error must not keep the updater or a retry locked out.
+        cleanup()
         if app is None:
             app = QApplication(sys.argv[:1])
         korean = is_korean_display_language()
-        QMessageBox.warning(None, "KFPS", "신고 창을 열지 못했습니다. 보고서는 저장되어 있습니다. KFPS-Updater.exe로 앱을 복구한 뒤 다시 시도해 주세요."
-                            if korean else "The report window could not open. Your report is saved. Run KFPS-Updater.exe to repair the app and try again.")
+        QMessageBox.warning(None, "KFPS", startup_error_message(error, korean))
         return 1
     finally:
-        if server is not None:
-            server.close()
-        if window is not None:
-            window.shutdown()
-        if guard is not None:
-            guard.Close()
-        if lock is not None:
-            lock.unlock()
+        cleanup()
         for handler in list(logger.handlers):
             handler.close()
             logger.removeHandler(handler)
