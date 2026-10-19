@@ -493,7 +493,9 @@ Item {
                         WebEngineView {
                             id: carView
                             url: root.viewerSessionUrl
-                            backgroundColor: Theme.previewSurface
+                            // Chromium aborts on fractional backing alpha. Keep
+                            // the theme RGB; translucency stays in the page CSS.
+                            backgroundColor: Qt.rgba(Theme.previewSurface.r, Theme.previewSurface.g, Theme.previewSurface.b, 1)
                             function applyViewerTheme() {
                                 runJavaScript("window.__kfpsReadonlyTheme?.(" + root.viewerThemeJson + ")")
                             }
@@ -529,7 +531,7 @@ Item {
                                 onTriggered: {
                                     const sessionUrl = carView.url.toString()
                                     fullLiveryService.viewerProcess(sessionUrl, carView.renderProcessPid)
-                                    carView.runJavaScript("JSON.stringify({event:'sample',diagnostics:window.__kfpsViewerDiagnostics?.()})", function(result) {
+                                    carView.runJavaScript("JSON.stringify({event:'sample',diagnostics:window.__kfpsViewerStatusDiagnostics?.()})", function(result) {
                                         if (typeof result === "string")
                                             fullLiveryService.viewerEvent(sessionUrl, result)
                                     })

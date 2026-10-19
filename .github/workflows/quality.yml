@@ -68,6 +68,9 @@ jobs:
           PYTHONUTF8: "1"
         run: python -m unittest discover -s KFPS.UI/tests -p "test_*.py" -v
 
+      - name: Test livery viewer status transport
+        run: node --test KFPS.UI/tools/test_livery_viewer_status.mjs
+
       - name: Lint the QML entry point and extracted Outputs menu
         shell: pwsh
         run: |

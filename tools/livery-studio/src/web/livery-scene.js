@@ -233,7 +233,7 @@ let nativeDecodedBytes = 0;
 
 function viewerEvent(event, message = '', details = {}) {
   try { window.__kfpsStudioDiagnostics?.scene(event, sceneDiagnosticMetrics()); } catch {}
-  console.info('KFPS_VIEWER:' + JSON.stringify({event, message, ...details, diagnostics: viewerDiagnostics()}));
+  console.info('KFPS_VIEWER:' + JSON.stringify({event, message, ...details, diagnostics: viewerStatusDiagnostics()}));
 }
 
 function phase(name, message) {
@@ -1641,6 +1641,20 @@ function viewerDiagnostics() {
   };
 }
 
+function viewerStatusDiagnostics() {
+  // The native host bounds status messages to 64 KiB. Per-part inspection
+  // evidence can be much larger; keep it available through viewerDiagnostics.
+  const full = viewerDiagnostics();
+  const status = {};
+  for (const key of ['disposed', 'contextReleased', 'animationActive', 'ready',
+    'camera', 'background', 'selectionAccent', 'timings', 'bytes',
+    'nativeTextureMemory', 'device', 'quality', 'tracked', 'renderer', 'rendering']) {
+    status[key] = full[key];
+  }
+  status.wheels = {visible: full.wheels.visible, count: full.wheels.count, native: full.wheels.native};
+  return status;
+}
+
 function handleContextLost(event) {
   event.preventDefault();
   if (viewerDisposed) return;
@@ -1661,6 +1675,7 @@ document.addEventListener('visibilitychange', handleVisibilityChange);
 window.addEventListener('pagehide', disposeViewer);
 window.__kfpsDisposeViewer = disposeViewer;
 window.__kfpsViewerDiagnostics = viewerDiagnostics;
+window.__kfpsViewerStatusDiagnostics = viewerStatusDiagnostics;
 window.__kfpsViewerBooted = true;
 window.clearTimeout(window.__kfpsViewerBootTimer);
 export const sceneReady = loadPackage();

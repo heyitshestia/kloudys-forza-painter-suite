@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.106
+
+### Livery 3D Preview Fix
+
+- Fixed Open 3D View closing KFPS outright when using a theme with a translucent preview background.
+- Fixed larger car previews getting stuck behind the loading screen after the car had already rendered.
+- Checked repeated opening and closing, resizing, all nine bundled themes, and recovery after a failed preview. Your liveries and graphics settings are unchanged.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.105
 
 ### A New Workspace, Livery Studio, And Free Tools
