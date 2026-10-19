@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -134,7 +136,12 @@ class CommunityWorkerEndToEndTests(unittest.TestCase):
                     lambda: service.selectedOwned and service.selectedArtwork.get("title") == title and not service.busy
                 ), service.errorMessage)
                 artwork_id = service.selectedArtwork["id"]
-                self.assertIn("/thumbnail", service.selectedArtwork.get("thumbnailUrl", ""))
+                self.assertTrue(wait_for(lambda: service.selectedArtwork.get("thumbnailUrl", "").startswith(
+                    "data:image/png;base64,"
+                )), "The checksum-verified thumbnail did not reach the Qt model.")
+                thumbnail = base64.b64decode(service.selectedArtwork["thumbnailUrl"].split(",", 1)[1], validate=True)
+                self.assertTrue(thumbnail.startswith(b"\x89PNG\r\n\x1a\n"))
+                self.assertEqual(hashlib.sha256(thumbnail).hexdigest(), service.selectedArtwork["thumbnailSha256"])
                 self.assertEqual(service.selectedArtwork.get("gamesText"), "FH6")
                 self.assertEqual(service.selectedArtwork.get("schemaId"), "kfps-primitives")
                 self.assertTrue(service.selectedArtwork.get("schemaKnown"))
@@ -349,8 +356,10 @@ class CommunityWorkerEndToEndTests(unittest.TestCase):
 
                 service.setLocalSupporterState("no_key", False)
                 self.assertFalse(service.supporterAccess)
+                self.assertFalse(service.selectedArtwork.get("canDownload"))
                 service.downloadSelected()
-                self.assertIn("supporter", service.errorMessage.lower())
+                self.assertIn("cannot download", service.errorMessage.lower())
+                self.assertFalse(service.downloadedPath)
 
                 service.setLocalSupporterState("active", True)
                 self.assertTrue(wait_for(lambda: service.supporterAccess and not service.busy), service.supporterStatus)
@@ -411,7 +420,7 @@ class CommunityWorkerEndToEndTests(unittest.TestCase):
                 source.write_text("{not valid json", encoding="utf-8")
                 service.chooseUploadJson()
                 self.assertTrue(wait_for(
-                    lambda: bool(service.errorMessage) and not service.busy
+                    lambda: "not valid UTF-8 JSON" in service.uploadStatus and not service.busy
                 ), "Invalid JSON was not rejected by KFPS.")
                 self.assertFalse(service.uploadReady)
             finally:
