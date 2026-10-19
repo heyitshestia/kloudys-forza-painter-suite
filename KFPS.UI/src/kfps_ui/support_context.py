@@ -24,6 +24,24 @@ IDENTITY_FILES = {
     "editor-page": "KFPS.Editor/web/index.html",
     "editor-script": "KFPS.Editor/web/editor.js",
     "editor-launcher": "KFPS Editor.exe",
+    "editor-workspace": "KFPS.Editor/web/editor-workspace.js",
+    "editor-docking": "KFPS.Editor/web/editor-docking.js",
+    "editor-renderer": "KFPS.Editor/web/editor-renderer.js",
+    "editor-themes": "KFPS.Editor/web/editor-themes.js",
+    "editor-localization": "KFPS.Editor/web/editor-i18n.js",
+    "editor-japanese": "KFPS.Editor/web/locales/ja.js",
+    "app-settings": "KFPS.UI/src/kfps_ui/settings_service.py",
+    "community-access": "KFPS.UI/src/kfps_ui/community_access.py",
+    "theme-entitlement": "KFPS.UI/src/kfps_ui/supporter_service.py",
+    "studio-launcher": "KFPSLiverySudio.exe",
+    "studio-host": "tools/livery-studio/src/kfps_livery_lab/native_host.py",
+    "studio-server": "tools/livery-studio/src/kfps_livery_lab/server.py",
+    "studio-renderer": "tools/livery-studio/src/web/livery-scene.js",
+    "studio-editor": "tools/livery-studio/src/web/livery-editor.mjs",
+    "studio-storage": "tools/livery-studio/src/kfps_livery_lab/project_storage.py",
+    "studio-source-return": "tools/livery-studio/src/kfps_livery_lab/source_editor.py",
+    "release-notice": "tools/kfps_release_announcement.py",
+    "activity-counter": "tools/kfps_activity.py",
 }
 
 
@@ -89,6 +107,70 @@ def _process(pid, root):
         return {"pid": pid, "status": "unavailable"}
 
 
+def _stored_object(value):
+    if isinstance(value, str) and len(value) <= 128 * 1024:
+        try:
+            value = json.loads(value)
+        except (ValueError, RecursionError):
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def collect_preferences(root: Path):
+    """Describe compatibility-relevant settings, never custom names or bindings."""
+    root = Path(root).resolve()
+    ui, status = _json(root, root / "runtime/qml-shell-settings.json")
+    options = {key: ui[key] for key in ("editorUseChrome", "liveryUseChrome",
+        "reducedMotion", "ambientMotion", "glassEffects") if type(ui.get(key)) is bool}
+    if ui.get("editorGraphics") in ("auto", "opengl", "d3d11"):
+        options["editorGraphics"] = ui["editorGraphics"]
+    from .theme_catalog import KNOWN_THEME_NAMES
+    if isinstance(ui.get("theme"), str) and ui["theme"] in KNOWN_THEME_NAMES:
+        options["theme"] = ui["theme"]
+    elif "theme" in ui:
+        options["theme_unrecognized"] = True
+    geometry = _stored_object(ui.get("windowGeometry"))
+    options["window"] = {key: geometry[key] for key in ("width", "height")
+        if type(geometry.get(key)) is int and 0 < geometry[key] <= 32768}
+    if type(geometry.get("maximized")) is bool:
+        options["window"]["maximized"] = geometry["maximized"]
+    result = {"app": {**status, "options": options}}
+    preferences, status = _json(root, root / "runtime/fabric-editor/preferences.json")
+    settings = _stored_object(preferences.get("settings"))
+    editor = {"theme_selected": bool(isinstance(preferences.get("theme"), str)
+        and preferences["theme"]), "saved_setting_count": len(settings)}
+    if settings.get("kloudyFabricLanguage") in ("en", "ko", "ja"):
+        editor["language"] = settings["kloudyFabricLanguage"]
+    shortcuts = _stored_object(settings.get("kloudyFabricShortcuts"))
+    editor["custom_shortcut_count"] = len(shortcuts)
+    dock = _stored_object(settings.get("kloudyFabricDockState"))
+    panels = _stored_object(dock.get("panels"))
+    items = _stored_object(panels.get("items"))
+    editor["panel_count"] = len(items)
+    editor["panel_places"] = {place: sum(1 for item in items.values()
+        if isinstance(item, dict) and item.get("place") == place)
+        for place in ("home", "left", "floating", "hidden")}
+    if type(panels.get("locked")) is bool:
+        editor["panels_locked"] = panels["locked"]
+    result["editor"] = {**status, "options": editor}
+    # Only presence/size of fixed storage files. Never enumerate artwork,
+    # recovery names, account credentials, projects or SQLite rows.
+    result["storage"] = {}
+    for label, relative in (("studio_projects", "imgs/livery-projects/storage.sqlite3"),
+                            ("editor_recovery", "runtime/fabric-editor/autosave.json")):
+        try:
+            info = _safe(root, root / relative)
+            import stat
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("unsafe_file")
+            result["storage"][label] = {"status": "present", "bytes": info.st_size}
+        except FileNotFoundError:
+            result["storage"][label] = {"status": "missing"}
+        except (OSError, ValueError):
+            result["storage"][label] = {"status": "unavailable"}
+    return result
+
+
 def collect_context(root: Path):
     root = Path(root).resolve()
     runtime = root / "runtime/fabric-editor"
@@ -119,6 +201,19 @@ def collect_context(root: Path):
         result[label] = observation
     from tools.fabric_editor_diagnostics import read_support_diagnostics
     result["editor_diagnostics"] = read_support_diagnostics(root)
+    result["preferences"] = collect_preferences(root)
+    from .support_studio import read_studio_snapshot
+    result["studio_diagnostics"] = read_studio_snapshot(root)
+    try:
+        from tools.kfps_release_announcement import ReleaseAnnouncement
+        result["release_announcement"] = ReleaseAnnouncement(root).read_status()
+    except Exception:
+        result["release_announcement"] = {"status": "unavailable"}
+    try:
+        from tools.kfps_activity import usage_status
+        result["anonymous_activity"] = usage_status(root)
+    except Exception:
+        result["anonymous_activity"] = {"status": "state_unavailable"}
     locator, observation = _json(root, root / "runtime/live-memory/reports/latest.json")
     result["locator"] = {**observation,
         **_fields(locator, ("schema", "engine_version", "created_utc", "store_variant")),

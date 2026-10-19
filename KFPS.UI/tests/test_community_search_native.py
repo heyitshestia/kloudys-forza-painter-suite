@@ -57,6 +57,24 @@ def native():
         authenticated = False
         usernameRequired = False
         supporterAccess = False
+        policyMode = "legacy_supporter"
+        policyReady = True
+        restrictedAccess = False
+        verifiedAccess = False
+        verifiedCount = 0
+        verifiedRequired = 10
+        requiredAccountAgeDays = 14
+        connectedAt = ""
+        eligibleAfter = ""
+        grandfatheredVerified = False
+        verifiedReason = "policy_legacy"
+        claimsEnabled = False
+        claimsView = False
+        claimsBusy = False
+        claimError = ""
+        claimSelection = []
+        claimEntries = []
+        claimResults = []
         sessionUser = {}
         errorMessage = ""
         statusMessage = ""
@@ -68,6 +86,15 @@ def native():
 
         def sessionClient(self):
             return self.client
+
+        def accessSnapshot(self):
+            return (0, self.client.token)
+
+        def refreshAccount(self):
+            pass
+
+        def refreshSupporterEntitlement(self):
+            pass
 
 
     class CommunitySearchTests(unittest.TestCase):

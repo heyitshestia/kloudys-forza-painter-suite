@@ -23,6 +23,7 @@ class SettingsService(QObject):
         "theme": DEFAULT_THEME,
         "editorGraphics": "auto",
         "editorUseChrome": False,
+        "liveryUseChrome": False,
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
@@ -59,6 +60,7 @@ class SettingsService(QObject):
         if self._data.get("editorGraphics") not in ("auto", "opengl", "d3d11"):
             self._data["editorGraphics"] = "auto"
         self._data["editorUseChrome"] = self._data.get("editorUseChrome") is True
+        self._data["liveryUseChrome"] = self._data.get("liveryUseChrome") is True
         if not isinstance(self._data.get("windowGeometry"), dict):
             self._data["windowGeometry"] = {}
 
@@ -120,6 +122,20 @@ class SettingsService(QObject):
         except OSError:
             self._data["editorUseChrome"] = previous
             logging.getLogger(__name__).warning("Could not persist editor launch choice", exc_info=True)
+        self.changed.emit()
+    @Property(bool, notify=changed)
+    def liveryUseChrome(self): return self._get("liveryUseChrome") is True
+    @liveryUseChrome.setter
+    def liveryUseChrome(self, value):
+        if not isinstance(value, bool) or value == self.liveryUseChrome:
+            return
+        previous = self.liveryUseChrome
+        self._data["liveryUseChrome"] = value
+        try:
+            self.save()
+        except OSError:
+            self._data["liveryUseChrome"] = previous
+            logging.getLogger(__name__).warning("Could not persist Livery Studio launch choice", exc_info=True)
         self.changed.emit()
     @Property(bool, notify=changed)
     def manualOverrides(self): return bool(self._get("manualOverrides"))

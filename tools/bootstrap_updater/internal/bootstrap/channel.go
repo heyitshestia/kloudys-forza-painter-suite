@@ -173,6 +173,11 @@ func ValidatePublishedContract(channel Channel, manifest UpdateManifest) error {
 			return fmt.Errorf("component %s: %w", component.Name, err)
 		}
 		claim := func(path, action string) error {
+			if component.Target == "install-root" && strings.EqualFold(path, "KFPSLiverySudio.exe") {
+				if comparison, err := compareVersions(channel.MinimumBootstrap, "1.0.5"); err != nil || comparison < 0 {
+					return fmt.Errorf("the Livery Studio launcher requires minimum bootstrap 1.0.5")
+				}
+			}
 			if component.Target == "install-root" && strings.EqualFold(path, "KFPS Editor.exe") {
 				if comparison, err := compareVersions(channel.MinimumBootstrap, "1.0.3"); err != nil || comparison < 0 {
 					return fmt.Errorf("the desktop editor launcher requires minimum bootstrap 1.0.3")

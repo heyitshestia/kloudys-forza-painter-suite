@@ -45,7 +45,7 @@ class ActivationIsolationTests(unittest.TestCase):
                 offenders.append(str(relative))
         self.assertEqual(offenders, [], f"Activation UI escaped the intended shell/settings boundary: {offenders}")
 
-    def test_supporter_state_uses_watchers_and_scheduled_retries_not_a_ui_poll(self):
+    def test_theme_keys_use_watchers_without_activation_or_retries(self):
         main = (QML_ROOT / "Main.qml").read_text(encoding="utf-8")
         service = (PYTHON_ROOT / "supporter_service.py").read_text(encoding="utf-8")
 
@@ -53,7 +53,13 @@ class ActivationIsolationTests(unittest.TestCase):
         self.assertNotIn("onTriggered: supporterService.refresh()", main)
         self.assertIn("onActiveChanged:", main)
         self.assertIn("QFileSystemWatcher", service)
-        self.assertIn("self._retry_timer", service)
+        self.assertNotIn("self._retry_timer", service)
+        self.assertNotIn("load_or_create_identity", service)
+        self.assertNotIn("self._client.activate", service)
+        self.assertNotIn("self._client.status", service)
+        self.assertNotIn("self._client.deactivate", service)
+        self.assertNotIn("SupporterActivationNotice {", main)
+        self.assertNotIn("supporterService.startActivation()", main)
 
 
 if __name__ == "__main__":

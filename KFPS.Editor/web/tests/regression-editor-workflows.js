@@ -1,4 +1,4 @@
-async (page) => {
+async (page, options = {}) => {
   page.setDefaultTimeout(20000);
   const check = (ok, message) => { if (!ok) throw Error(message); };
   const idle = () => page.waitForFunction(() => !editorCommands.busy && !projectSaveInProgress);
@@ -50,6 +50,7 @@ async (page) => {
   await page.evaluate(()=>document.getElementById('ime-test').remove());
   await page.evaluate(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'4',isComposing:true,bubbles:true})));
   check(await shapes()===typingBefore,'IME recoloured shapes');
+  if (await page.locator('#workspaceHelpMenu').count()) await page.locator('#workspaceHelpMenu').click();
   await page.locator('#shortcutsBtn').click();
   await page.locator('[data-shortcut-action="colorSlot1"]').click();
   await page.keyboard.press('Control+Alt+9');
@@ -132,6 +133,7 @@ async (page) => {
   check(!await page.evaluate(()=>editorLayerGroups.addToGroup(selectedVinylObjects(),'inner')),'Cycle accepted');
   check(await shapes()===cycleBefore,'Rejected cycle changed artwork');
   // Save and reopen through the real project picker.
+  if (await page.locator('#workspaceFileMenu').count()) await page.locator('#workspaceFileMenu').click();
   await page.locator('#saveProjectAs').click(); await page.locator('#textPromptInput').fill('Workflow regression');
   await page.locator('#textPromptInput').press('Enter'); await idle();
   await page.waitForFunction(()=>!documentDirty);
@@ -176,6 +178,14 @@ async (page) => {
   check(await page.locator('#layers > li').count()<50,'Navigation devirtualized the layer list');
   await page.screenshot({path:path.join(output,'workflow-dense-navigation.png')});
   await page.evaluate(async()=>{await flushPendingAutosave();await editorSettings.flush?.();});
+  if (options.saveBeforeClose) {
+    await page.locator('#workspaceFileMenu').click();
+    await page.locator('#saveProjectAs').click();
+    await page.locator('#textPromptInput').fill('Workflow close qualification');
+    await page.locator('#textPromptInput').press('Enter');
+    await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);
+    check(await page.evaluate(() => JSON.stringify(snapshotShapes()) === __denseBefore), 'Save before close changed dense artwork');
+  }
   return {paletteSlots:16,emptyAndLocked:true,typingAndIme:true,rebindAndPersistence:true,referenceToggleAndGuidePan:true,
     singleAndGroupCopy:true,extendAndNest:true,dialogAndPointerMembership:true,exactUndoRedo:true,cycleRejected:true,
     nativeArtworkUnchanged:true,projectReopened:true,virtualNavigation:3000};

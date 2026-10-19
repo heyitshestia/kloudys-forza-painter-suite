@@ -1,6 +1,6 @@
 {
   "schema": "kfps-editor-workflow-contracts/1",
-  "default": "Fresh native process and isolated profile; acknowledge startup notices before exercising ordinary controls.",
+  "default": "Fresh native process and isolated profile; acknowledge only initial shortcut help before ordinary controls. Legacy sharing/language/update prompts are retired; their named suites assert absence and retain applicable safety/recovery checks.",
   "cases": {
     "regression-dense-translucency.js": { "timeoutSeconds": 600 },
     "regression-generated-assets.js": { "normalClose": true },
@@ -23,6 +23,9 @@
     "regression-tool-process-restart.js": { "profileFrom": "regression-tool-workflows.js" },
     "regression-assets-layout.js": { "profileFrom": "regression-assets-persistence.js" },
     "regression-assets-process-restart.js": { "profileFrom": "regression-assets-layout.js" },
-    "regression-project-sharing-notice.js": { "preserveStartupNotices": true }
+    "regression-project-sharing-notice.js": { "preserveStartupNotices": true },
+    "regression-startup-tips.js": { "preserveStartupNotices": true },
+    "regression-update-notice.js": { "preserveStartupNotices": true },
+    "regression-cross-version-projects.js": { "normalClose": true, "timeoutSeconds": 180 }
   }
 }

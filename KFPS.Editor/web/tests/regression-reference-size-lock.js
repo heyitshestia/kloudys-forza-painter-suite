@@ -120,11 +120,11 @@ async (page, options = {}) => {
     });
     await reloadReference();
     await page.locator('[data-panel="overlayPane"]').click();
-    check(await page.locator('#overlaySizeLock').getAttribute('title') === '\ucc38\uc870 \uc774\ubbf8\uc9c0 \ud06c\uae30 \uc7a0\uae08', 'Korean lock tooltip missing');
+    check(await page.locator('#overlaySizeLock').getAttribute('data-workspace-tooltip') === '\ucc38\uc870 \uc774\ubbf8\uc9c0 \ud06c\uae30 \uc7a0\uae08', 'Korean lock tooltip missing');
   }
   await page.locator('#overlaySizeLock').click();
   if (!options.hostRestart) {
-    check(await page.locator('#overlaySizeLock').getAttribute('title') === '\ucc38\uc870 \uc774\ubbf8\uc9c0 \ud06c\uae30 \uc7a0\uae08 \ud574\uc81c', 'Korean unlock tooltip missing');
+    check(await page.locator('#overlaySizeLock').getAttribute('data-workspace-tooltip') === '\ucc38\uc870 \uc774\ubbf8\uc9c0 \ud06c\uae30 \uc7a0\uae08 \ud574\uc81c', 'Korean unlock tooltip missing');
     await page.locator('#overlayPane').screenshot({ path: path.join(output, 'reference-lock-korean.png') });
   }
   await page.locator('#saveProject').click(); await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);

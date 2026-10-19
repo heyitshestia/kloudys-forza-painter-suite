@@ -13,6 +13,7 @@ import {
 } from "./security";
 import type { Env, SessionUser } from "./types";
 import { publicSupporterState } from "./supporter";
+import { getViewerAccess } from './access_policy';
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,24}$/;
 const INSTALLATION_PATTERN = /^[A-Za-z0-9_-]{24,128}$/;
@@ -127,7 +128,9 @@ export async function handleSession(request: Request, env: Env): Promise<Respons
        (SELECT COUNT(*) FROM follows WHERE creator_id = ?1) AS follower_count,
        (SELECT COUNT(*) FROM ignored_users WHERE viewer_id = ?1) AS ignored_count`,
   ).bind(user.id).first<Record<string, number>>();
-  return jsonResponse({ user: publicUser(user), stats: stats || {}, supporter: publicSupporterState(user) });
+  const access=await getViewerAccess(env,request,user);
+  return jsonResponse({ user: publicUser(user), stats: stats || {}, supporter: publicSupporterState(user),
+    access_policy:access.policy,capabilities:{verified:access.verified} });
 }
 
 export async function handleSignOut(request: Request, env: Env): Promise<Response> {

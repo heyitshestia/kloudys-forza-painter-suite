@@ -4,10 +4,25 @@ import os
 from pathlib import Path
 
 
+def _windows_local_appdata():
+    # Environment isolation changes cache roots, not where Chrome is installed.
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        buffer = ctypes.create_unicode_buffer(32768)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 0x1C, None, 0, buffer) == 0:
+            return Path(buffer.value) if buffer.value else None
+    except (AttributeError, OSError):
+        pass
+    return None
+
+
 def find_chrome():
     """Use the same installed-Chrome discovery in Settings and the editor host."""
-    for variable in ("LocalAppData", "ProgramFiles", "ProgramFiles(x86)"):
-        root = os.environ.get(variable)
+    roots = [os.environ.get(variable) for variable in ("LocalAppData", "ProgramFiles", "ProgramFiles(x86)")]
+    roots.append(_windows_local_appdata())
+    for root in roots:
         if root:
             path = Path(root) / "Google/Chrome/Application/chrome.exe"
             try:

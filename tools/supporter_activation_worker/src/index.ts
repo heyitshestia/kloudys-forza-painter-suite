@@ -2,8 +2,10 @@ import { authenticateAdmin } from "./admin_auth";
 import { encryptKofiEvent, parseKofiPayload, validKofiToken } from "./kofi_inbox";
 import {
   base64UrlToBytes,
+  eligibleForLegacyVerifiedGrant,
   sha256Hex,
   signCommunityEntitlement,
+  signCommunityLegacyVerifiedGrant,
   signDecision,
   signReceipt,
   signStatus,
@@ -16,17 +18,21 @@ export interface Env {
   ACTIVATION_KEY_ID: string;
   KOFI_VERIFICATION_TOKEN: string;
   KOFI_INBOX_PUBLIC_KEY_PEM: string;
+  COMMUNITY_VERIFIED_LEGACY_KEY_CUTOFF?: string;
 }
 
-interface ActivationRequest {
+interface KeyProofRequest {
   protocol: 1;
   key_id: string;
   key_proof: string;
-  device_id: string;
   nonce: string;
 }
 
-interface CommunityEntitlementRequest extends ActivationRequest {
+interface ActivationRequest extends KeyProofRequest {
+  device_id: string;
+}
+
+interface CommunityEntitlementRequest extends KeyProofRequest {
   community_subject: string;
 }
 
@@ -83,36 +89,37 @@ async function readBody(request: Request, maximum: number): Promise<string> {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
-function parseActivationRequest(raw: string): ActivationRequest {
-  const value = JSON.parse(raw) as Record<string, unknown>;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request");
-  if (!hasExactKeys(value, ["protocol", "key_id", "key_proof", "device_id", "nonce"])) throw new Error("invalid fields");
+function parseKeyProofRequest(value: Record<string, unknown>): KeyProofRequest {
   if (value.protocol !== 1 || typeof value.key_id !== "string" || !HEX_64.test(value.key_id)) throw new Error("invalid key id");
-  if (typeof value.device_id !== "string" || !HEX_64.test(value.device_id)) throw new Error("invalid device id");
   if (typeof value.key_proof !== "string" || typeof value.nonce !== "string") throw new Error("invalid proof or nonce");
   const proof = base64UrlToBytes(value.key_proof);
   const nonce = base64UrlToBytes(value.nonce);
   if (proof.length !== 384 || nonce.length < 16 || nonce.length > 64) throw new Error("invalid proof or nonce length");
-  return value as unknown as ActivationRequest;
+  return { protocol: 1, key_id: value.key_id, key_proof: value.key_proof, nonce: value.nonce };
+}
+
+function parseActivationRequest(raw: string): ActivationRequest {
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request");
+  if (!hasExactKeys(value, ["protocol", "key_id", "key_proof", "device_id", "nonce"])) throw new Error("invalid fields");
+  if (typeof value.device_id !== "string" || !HEX_64.test(value.device_id)) throw new Error("invalid device id");
+  return { ...parseKeyProofRequest(value), device_id: value.device_id };
 }
 
 function parseCommunityEntitlementRequest(raw: string): CommunityEntitlementRequest {
   const value = JSON.parse(raw) as Record<string, unknown>;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request");
-  if (!hasExactKeys(value, ["protocol", "key_id", "key_proof", "device_id", "nonce", "community_subject"])) {
+  const fields = ["protocol", "key_id", "key_proof", "nonce", "community_subject"];
+  if (!hasExactKeys(value, fields) && !hasExactKeys(value, [...fields, "device_id"])) {
     throw new Error("invalid fields");
   }
-  const activation = parseActivationRequest(JSON.stringify({
-    protocol: value.protocol,
-    key_id: value.key_id,
-    key_proof: value.key_proof,
-    device_id: value.device_id,
-    nonce: value.nonce,
-  }));
+  if (Object.hasOwn(value, "device_id") && (typeof value.device_id !== "string" || !HEX_64.test(value.device_id))) {
+    throw new Error("invalid device id");
+  }
   if (typeof value.community_subject !== "string" || !UUID.test(value.community_subject)) {
     throw new Error("invalid community subject");
   }
-  return { ...activation, community_subject: value.community_subject };
+  return { ...parseKeyProofRequest(value), community_subject: value.community_subject };
 }
 
 async function signedDecision(
@@ -147,49 +154,24 @@ async function handleActivate(request: Request, env: Env): Promise<Response> {
 
   const now = new Date().toISOString();
   const proofHash = await sha256Hex(base64UrlToBytes(activation.key_proof));
-  const claimed = await env.DB.prepare(
-    `UPDATE licenses
-       SET device_id = CASE WHEN device_id IS NULL THEN ?2 ELSE device_id END,
-           activated_at = COALESCE(activated_at, ?3),
-           updated_at = ?3
-     WHERE key_id = ?1
-       AND signature_sha256 = ?4
-       AND status = 'active'
-       AND (device_id IS NULL OR device_id = ?2)
-     RETURNING key_id, device_id, activated_at`,
-  ).bind(activation.key_id, activation.device_id, now, proofHash).first<Pick<LicenseRow, "key_id" | "device_id" | "activated_at">>();
+  const row = await env.DB.prepare(
+    "SELECT status, signature_sha256, activated_at FROM licenses WHERE key_id = ?1 LIMIT 1",
+  ).bind(activation.key_id).first<Pick<LicenseRow, "status" | "signature_sha256" | "activated_at">>();
+  if (!row || row.signature_sha256 !== proofHash) return errorResponse(403, "not_eligible");
 
-  if (claimed?.device_id && claimed.activated_at) {
+  if (row.status === "active") {
+    // The device is only echoed for old receipt verification, never registered.
     const receipt = await signReceipt(
       env.ACTIVATION_PRIVATE_KEY_PEM,
       env.ACTIVATION_KEY_ID,
       activation.key_id,
       activation.device_id,
-      claimed.activated_at,
+      row.activated_at || now,
     );
     return jsonResponse({ status: "active", receipt });
   }
 
-  const row = await env.DB.prepare(
-    "SELECT status, device_id, signature_sha256 FROM licenses WHERE key_id = ?1 LIMIT 1",
-  ).bind(activation.key_id).first<Pick<LicenseRow, "status" | "device_id" | "signature_sha256">>();
-
-  if (row && row.status === "active" && row.signature_sha256 === proofHash && row.device_id && row.device_id !== activation.device_id) {
-    await env.DB.prepare(
-      `UPDATE licenses
-          SET conflict_count = conflict_count + 1,
-              first_conflict_at = COALESCE(first_conflict_at, ?2),
-              last_conflict_at = ?2,
-              updated_at = ?2
-        WHERE key_id = ?1`,
-    ).bind(activation.key_id, now).run();
-    return signedDecision(env, activation, "already_activated", now, 409);
-  }
-
-  if (row && row.status === "revoked" && row.signature_sha256 === proofHash) {
-    return signedDecision(env, activation, "not_eligible", now, 403);
-  }
-  return errorResponse(403, "not_eligible");
+  return signedDecision(env, activation, "not_eligible", now, 403);
 }
 
 async function handleDeactivate(request: Request, env: Env): Promise<Response> {
@@ -204,26 +186,14 @@ async function handleDeactivate(request: Request, env: Env): Promise<Response> {
   }
   const now = new Date().toISOString();
   const proofHash = await sha256Hex(base64UrlToBytes(activation.key_proof));
-  const result = await env.DB.prepare(
-    `UPDATE licenses
-        SET device_id = NULL,
-            activated_at = NULL,
-            reset_count = reset_count + 1,
-            last_reset_at = ?4,
-            updated_at = ?4
-      WHERE key_id = ?1
-        AND signature_sha256 = ?2
-        AND status = 'active'
-        AND device_id = ?3`,
-  ).bind(activation.key_id, proofHash, activation.device_id, now).run();
-  if ((result.meta.changes || 0) === 1) return signedDecision(env, activation, "deactivated", now, 200);
   const row = await env.DB.prepare(
-    "SELECT signature_sha256 FROM licenses WHERE key_id = ?1 LIMIT 1",
-  ).bind(activation.key_id).first<Pick<LicenseRow, "signature_sha256">>();
-  if (row?.signature_sha256 === proofHash) {
-    return signedDecision(env, activation, "not_eligible", now, 403);
-  }
-  return errorResponse(403, "not_eligible");
+    "SELECT status, signature_sha256 FROM licenses WHERE key_id = ?1 LIMIT 1",
+  ).bind(activation.key_id).first<Pick<LicenseRow, "status" | "signature_sha256">>();
+  if (!row || row.signature_sha256 !== proofHash) return errorResponse(403, "not_eligible");
+  // Old clients may discard their local receipt; server eligibility is unchanged.
+  return row.status === "active"
+    ? signedDecision(env, activation, "deactivated", now, 200)
+    : signedDecision(env, activation, "not_eligible", now, 403);
 }
 
 async function handleStatus(request: Request, env: Env): Promise<Response> {
@@ -278,35 +248,30 @@ async function handleCommunityEntitlement(request: Request, env: Env): Promise<R
   const proposedEntitlementId = crypto.randomUUID();
   const claimed = await env.DB.prepare(
     `UPDATE licenses
-        SET community_subject_hash = COALESCE(community_subject_hash, ?4),
-            community_entitlement_id = COALESCE(community_entitlement_id, ?5),
-            community_bound_at = COALESCE(community_bound_at, ?6),
-            updated_at = ?6
+        SET community_subject_hash = COALESCE(community_subject_hash, ?3),
+            community_entitlement_id = COALESCE(community_entitlement_id, ?4),
+            community_bound_at = COALESCE(community_bound_at, ?5),
+            updated_at = ?5
       WHERE key_id = ?1
         AND signature_sha256 = ?2
         AND status = 'active'
-        AND device_id = ?3
-        AND activated_at IS NOT NULL
-        AND (community_subject_hash IS NULL OR community_subject_hash = ?4)
-      RETURNING community_entitlement_id`,
+        AND (community_subject_hash IS NULL OR community_subject_hash = ?3)
+      RETURNING community_entitlement_id, created_at`,
   ).bind(
     entitlementRequest.key_id,
     proofHash,
-    entitlementRequest.device_id,
     subjectHash,
     proposedEntitlementId,
     issuedAt,
-  ).first<{ community_entitlement_id: string }>();
+  ).first<{ community_entitlement_id: string; created_at: string }>();
 
   if (!claimed?.community_entitlement_id) {
     const validLicense = await env.DB.prepare(
       `SELECT community_subject_hash FROM licenses
-        WHERE key_id = ?1 AND signature_sha256 = ?2 AND status = 'active'
-          AND device_id = ?3 AND activated_at IS NOT NULL LIMIT 1`,
+        WHERE key_id = ?1 AND signature_sha256 = ?2 AND status = 'active' LIMIT 1`,
     ).bind(
       entitlementRequest.key_id,
       proofHash,
-      entitlementRequest.device_id,
     ).first<{ community_subject_hash: string | null }>();
     return validLicense
       ? errorResponse(409, "community_account_already_bound")
@@ -322,6 +287,21 @@ async function handleCommunityEntitlement(request: Request, env: Env): Promise<R
     issuedAt,
     expiresAt,
   );
+  const cutoff = env.COMMUNITY_VERIFIED_LEGACY_KEY_CUTOFF;
+  if (typeof cutoff === "string" && eligibleForLegacyVerifiedGrant(claimed.created_at, cutoff, now.getTime())) {
+    const legacy_verified_grant = await signCommunityLegacyVerifiedGrant(
+      env.ACTIVATION_PRIVATE_KEY_PEM,
+      env.ACTIVATION_KEY_ID,
+      entitlementRequest.community_subject,
+      claimed.community_entitlement_id,
+      entitlementRequest.nonce,
+      issuedAt,
+      expiresAt,
+      claimed.created_at,
+      cutoff,
+    );
+    return jsonResponse({ status: "active", entitlement, legacy_verified_grant });
+  }
   return jsonResponse({ status: "active", entitlement });
 }
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 import ctypes
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -112,12 +113,15 @@ class DcinsideKoreanWelcomeTests(unittest.TestCase):
     def test_queue_and_message_contract(self):
         main = (UI / "qml/Main.qml").read_text(encoding="utf-8")
         timer = main.rsplit("Timer {", 1)[1]
-        for condition in ("window.visible && !screenshotMode && settings.koreanDisplayLanguage",
-                          "settings.supportUpscalerNoticeAcknowledged && !featureWelcome.visible",
-                          "settings.communityJoinNoticeAcknowledged && !communityWelcome.visible",
-                          "settings.backgroundRemoverNoticeAcknowledged && !backgroundRemoverWelcome.visible",
-                          "!settings.dcinsideKoreanNoticeAcknowledged && !dcinsideKoreanWelcome.visible"):
-            self.assertIn(condition, timer)
+        running = timer.split("running:", 1)[1].split("repeat:", 1)[0].strip()
+        conditions = set(re.split(r"\s*&&\s*", running))
+        expected = {"window.visible", "!screenshotMode", "settings.koreanDisplayLanguage",
+                    "!releaseAnnouncement.visible", "settings.supportUpscalerNoticeAcknowledged",
+                    "!featureWelcome.visible", "settings.communityJoinNoticeAcknowledged",
+                    "!communityWelcome.visible", "settings.backgroundRemoverNoticeAcknowledged",
+                    "!backgroundRemoverWelcome.visible", "!settings.dcinsideKoreanNoticeAcknowledged",
+                    "!dcinsideKoreanWelcome.visible"}
+        self.assertTrue(expected <= conditions, expected - conditions)
         overlay = (UI / "qml/shell/DcinsideKoreanWelcomeOverlay.qml").read_text(encoding="utf-8")
         for required in ("Popup.NoAutoClose", "settings.acknowledgeDcinsideKoreanNotice()",
                          "알겠어요!", "-Kloudy", "공개 지원 게시판", "포함 여부를 직접 선택",

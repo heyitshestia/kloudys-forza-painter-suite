@@ -691,6 +691,7 @@ function updateShortcutLabels() {
   const maskButton = $("maskSelectedTool");
   if (maskButton?.firstChild) maskButton.firstChild.nodeValue = shortcutFor("makeMask");
   renderFavoriteColors();
+  window.KfpsWorkspace?.refreshShortcuts();
 }
 
 function renderShortcutEditor() {
@@ -1114,6 +1115,12 @@ function renderNativeTriangleFill(ctx) {
   for (const part of this.path) {
     if (part[0] === "M") ctx.moveTo(part[1] + ox, part[2] + oy);
     else if (part[0] === "L") ctx.lineTo(part[1] + ox, part[2] + oy);
+  }
+}
+
+function renderNativeMaskOutline(ctx) {
+  if (!KfpsEditorRenderer.drawNativeMaskOutline(this, ctx)) {
+    fabric.Path.prototype._render.call(this, ctx);
   }
 }
 
@@ -1999,6 +2006,7 @@ function saveFavoriteColors() {
 
 function activateDockPanel(panelId) {
   if (panelId === "assetsPane") editorAssetLibrary?.refresh();
+  if (window.KfpsDocking?.activate(panelId)) return;
   if (panelId === "layersPane") {
     setDockVisible(true);
     setLayersCollapsed(false);
@@ -3781,6 +3789,7 @@ function updateDocumentState() {
     chip.textContent = !hasWork ? KfpsI18n.t("Blank canvas") : (documentDirty ? KfpsI18n.t("Unsaved changes") : KfpsI18n.t("Project saved"));
   }
   document.title = KfpsI18n.t("{0}{1} - KFPS Vinyl Editor", documentDirty ? "* " : "", title);
+  refreshStudioSourceReturn();
 }
 
 function markCurrentHistorySaved(projectName) {
@@ -7258,6 +7267,38 @@ function registerLayerListRow(element, key, objects, displayIndex) {
   };
   entry.element = element;
   layerListRows.set(key, entry);
+  const list = $("layers");
+  // Replaced virtual rows must not become the browser's automatic scroll anchor.
+  list?.style.setProperty("overflow-anchor", "none");
+  list?.setAttribute("role", "tree");
+  list?.setAttribute("aria-label", KfpsI18n.t("Layers"));
+  list?.setAttribute("aria-multiselectable", "true");
+  element.setAttribute("role", "treeitem");
+  element.setAttribute("aria-level", String((entry.depth || 0) + 1));
+  element.setAttribute("aria-selected", String(element.classList.contains("active")));
+  element.setAttribute("aria-label", entry.groupName && entry.kind === "group" ? entry.groupName : entry.label || key);
+  element.tabIndex = 0;
+  const focused = document.activeElement;
+  const previousRow = layerRowFromEventTarget(focused);
+  if (previousRow && previousRow !== element && previousRow.dataset.layerListKey === key) {
+    const buttonIndex = [...previousRow.querySelectorAll("button")].indexOf(focused);
+    // Virtualization replaces rows after registration; keep keyboard focus on the same control.
+    queueMicrotask(() => {
+      if (!element.isConnected || previousRow.isConnected || document.activeElement !== document.body) return;
+      (buttonIndex < 0 ? element : element.querySelectorAll("button")[buttonIndex])?.focus({ preventScroll: true });
+    });
+  }
+  element.addEventListener("keydown", (event) => {
+    if (event.target !== element || event.isComposing || event.keyCode === 229 || event.altKey
+      || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || editorCommands.busy || layerListRows.get(key)?.element !== element) return;
+    if (event.shiftKey && lastLayerListKey && selectLayerRangeByKeys(lastLayerListKey, key)) return;
+    if ((event.ctrlKey || event.metaKey) && selectLayerToggleByKey(key, KfpsI18n.t("layer multi-select"))) return;
+    selectLayerEntryByKey(key, KfpsI18n.t("layer row"));
+    if (event.key === "Enter") centerCanvasOnObject(canvas.getActiveObject());
+  });
   element.addEventListener("pointerdown", handleLayerPointerDown);
   element.addEventListener("dblclick", handleLayerDoubleClick);
 }
@@ -7741,6 +7782,30 @@ function scheduleRefreshLayers(options = {}) {
 
 
 function createVirtualLayerElement(entry, activeSet) {
+  const decorateButton = (button, name, label, pressed = null) => {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    if (pressed !== null) button.setAttribute("aria-pressed", String(pressed));
+    const icon = window.KfpsWorkspace?.icon?.(name);
+    if (icon) {
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      icon.setAttribute("width", "16");
+      icon.setAttribute("height", "16");
+      button.replaceChildren(icon);
+    }
+  };
+  const restoreKeyboardFocus = (event, selector) => {
+    if (event.detail !== 0) return;
+    const current = layerListRows.get(entry.key), viewport = layerScrollPane();
+    if (current && viewport) {
+      const top = current.virtualTop, bottom = top + current.virtualHeight;
+      if (top < viewport.scrollTop) viewport.scrollTop = top;
+      else if (bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = bottom - viewport.clientHeight;
+      renderVirtualLayerWindow();
+    }
+    layerListRows.get(entry.key)?.element?.querySelector(selector)?.focus({ preventScroll: true });
+  };
   if (entry.kind === "group") {
     const li = document.createElement("li");
     const active = entry.objects.some((object) => activeSet.has(object));
@@ -7748,21 +7813,34 @@ function createVirtualLayerElement(entry, activeSet) {
     li.style.paddingLeft = `${8 + Math.min(entry.depth || 0, 8) * 12}px`;
     li.setAttribute("aria-level", String((entry.depth || 0) + 1));
     li.innerHTML = KfpsI18n.t("\n      <button class=\"layerGroupTwist\" type=\"button\" title=\"{0}\">{1}</button>\n      <span class=\"layerGroupTitle\">{2}</span>\n      <span class=\"layerGroupMeta\">{3} layers | {4} | {5}</span>\n      <button class=\"layerIcon layerGroupVisibility\" type=\"button\" title=\"Hide/show this group\">{6}</button>\n      <button class=\"layerIcon layerGroupLock\" type=\"button\" title=\"Lock/unlock this group\">{7}</button>\n    ", entry.collapsed ? KfpsI18n.t("Expand group") : KfpsI18n.t("Collapse group"), entry.collapsed ? "+" : "-", escapeHtml(entry.groupName), entry.objects.length, entry.visibility.hidden ? KfpsI18n.t("{0} hidden", entry.visibility.hidden) : KfpsI18n.t("visible"), entry.locks.locked ? KfpsI18n.t("{0} locked", entry.locks.locked) : KfpsI18n.t("unlocked"), entry.visibility.visible ? "V" : "H", entry.locks.unlocked ? "U" : "L");
+    li.setAttribute("aria-expanded", String(!entry.collapsed));
+    li.querySelector(".layerGroupTitle").title = entry.groupName;
+    decorateButton(li.querySelector(".layerGroupTwist"), entry.collapsed ? "FolderClosed" : "FolderOpen",
+      `${entry.collapsed ? KfpsI18n.t("Expand group") : KfpsI18n.t("Collapse group")}: ${entry.groupName}`);
+    decorateButton(li.querySelector(".layerGroupVisibility"), entry.visibility.visible ? "Eye" : "EyeOff",
+      `${KfpsI18n.t("Hide/show this group")}: ${entry.groupName}`,
+      entry.visibility.hidden && entry.visibility.visible ? "mixed" : Boolean(entry.visibility.visible));
+    decorateButton(li.querySelector(".layerGroupLock"), entry.locks.unlocked ? "LockOpen" : "Lock",
+      `${KfpsI18n.t("Lock/unlock this group")}: ${entry.groupName}`,
+      entry.locks.locked && entry.locks.unlocked ? "mixed" : Boolean(entry.locks.locked));
     li.querySelector(".layerGroupTwist").addEventListener("click", (event) => {
       event.stopPropagation();
       setCollapsedGroup(entry.groupId, !entry.collapsed);
+      restoreKeyboardFocus(event, ".layerGroupTwist");
     });
     li.querySelector(".layerGroupVisibility").addEventListener("click", (event) => {
       event.stopPropagation();
       selectObjects(entry.objects, entry.groupName);
       lastLayerListKey = entry.key;
       toggleSelectedGroupVisibility();
+      restoreKeyboardFocus(event, ".layerGroupVisibility");
     });
     li.querySelector(".layerGroupLock").addEventListener("click", (event) => {
       event.stopPropagation();
       selectObjects(entry.objects, entry.groupName);
       lastLayerListKey = entry.key;
       toggleSelectedGroupLock();
+      restoreKeyboardFocus(event, ".layerGroupLock");
     });
     li.addEventListener("click", (event) => {
       if (suppressLayerClick) return;
@@ -7790,6 +7868,65 @@ function createVirtualLayerElement(entry, activeSet) {
     : "";
   const data = fh6DataFromObject(obj);
   li.innerHTML = KfpsI18n.t("\n    <button class=\"layerIcon layerVisibility\" type=\"button\" title=\"{0}\">{1}</button>\n    <button class=\"layerIcon layerLock\" type=\"button\" title=\"{2}\">{3}</button>\n    <span class=\"layerColorChip\" style=\"--swatch:{4}\"></span>\n    <span class=\"layerMain\">\n      <b>{5}</b>\n      <small>{6} Type {7} | X {8} Y {9}</small>\n    </span>\n  ", obj.visible === false ? KfpsI18n.t("Show layer") : KfpsI18n.t("Hide layer"), obj.visible === false ? "H" : "V", obj.kloudy?.locked ? KfpsI18n.t("Unlock layer") : KfpsI18n.t("Lock layer"), obj.kloudy?.locked ? "L" : "U", colorToHex(color), escapeHtml(entry.label), groupBadge, escapeHtml(obj.kloudy?.type || KfpsI18n.t("unknown")), round(data[0]), round(data[1]));
+  li.querySelector(".layerMain b").title = entry.label;
+  decorateButton(li.querySelector(".layerVisibility"), obj.visible === false ? "EyeOff" : "Eye",
+    `${obj.visible === false ? KfpsI18n.t("Show layer") : KfpsI18n.t("Hide layer")}: ${entry.label}`, obj.visible !== false);
+  decorateButton(li.querySelector(".layerLock"), obj.kloudy?.locked ? "Lock" : "LockOpen",
+    `${obj.kloudy?.locked ? KfpsI18n.t("Unlock layer") : KfpsI18n.t("Lock layer")}: ${entry.label}`, Boolean(obj.kloudy?.locked));
+  const thumbnail = li.querySelector(".layerColorChip");
+  thumbnail.classList.add("layerThumbnail");
+  thumbnail.setAttribute("role", "img");
+  thumbnail.setAttribute("aria-label", entry.label);
+  thumbnail.title = entry.label;
+  Object.assign(thumbnail.style, { width: "100%", height: "32px", display: "grid", placeItems: "center",
+    overflow: "hidden", borderRadius: "3px", background: "var(--panel3)", borderBottom: "3px solid var(--swatch)" });
+  const resource = resolvedResourceForObject(obj);
+  const fallbackThumbnail = () => {
+    // Only known native primitives have a faithful constant-cost geometry fallback.
+    const primitive = resource?.family === "Primitives" ? Number(resource.index) : 0;
+    const tag = primitive === 1 || obj.type === "rect" ? "rect"
+      : primitive === 2 || ["ellipse", "circle"].includes(obj.type) ? "ellipse"
+        : primitive === 3 || obj.type === "triangle" ? "polygon" : null;
+    const width = Number(obj.width), height = Number(obj.height);
+    if (!tag || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      thumbnail.textContent = "?";
+      thumbnail.dataset.preview = "unavailable";
+      return;
+    }
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg"), geometry = document.createElementNS(ns, tag);
+    svg.setAttribute("viewBox", `${-width * .1} ${-height * .1} ${width * 1.2} ${height * 1.2}`);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    const attrs = tag === "rect" ? { width, height }
+      : tag === "ellipse" ? { cx: width / 2, cy: height / 2, rx: width / 2, ry: height / 2 }
+        : { points: `${width / 2},0 ${width},${height} 0,${height}` };
+    for (const [key, value] of Object.entries(attrs)) geometry.setAttribute(key, String(value));
+    geometry.setAttribute("fill", colorToHex(color));
+    geometry.setAttribute("stroke", "var(--text)");
+    geometry.setAttribute("stroke-width", String(Math.max(width, height) / 48));
+    svg.appendChild(geometry);
+    thumbnail.replaceChildren(svg);
+    thumbnail.dataset.preview = "geometry";
+  };
+  if (resource) {
+    const image = document.createElement("img");
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    image.width = 32;
+    image.height = 32;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.draggable = false;
+    Object.assign(image.style, { width: "100%", height: "100%", objectFit: "contain",
+      filter: "drop-shadow(0 0 1px var(--muted))" });
+    image.addEventListener("error", fallbackThumbnail, { once: true });
+    image.src = editorCatalog.vinylResourceUrl(resource.family, resource.index, ".png");
+    thumbnail.dataset.preview = "catalog";
+    thumbnail.appendChild(image);
+  } else fallbackThumbnail();
   li.querySelector(".layerGroupBadge")?.addEventListener("click", (event) => {
     event.stopPropagation();
     selectGroupForObject(obj);
@@ -7800,6 +7937,7 @@ function createVirtualLayerElement(entry, activeSet) {
     pushHistory("layer visibility");
     canvas.requestRenderAll();
     refreshLayers();
+    restoreKeyboardFocus(event, ".layerVisibility");
   });
   li.querySelector(".layerLock").addEventListener("click", (event) => {
     event.stopPropagation();
@@ -7808,6 +7946,7 @@ function createVirtualLayerElement(entry, activeSet) {
     canvas.requestRenderAll();
     refreshLayers();
     updateSelectionPanel();
+    restoreKeyboardFocus(event, ".layerLock");
   });
   li.addEventListener("click", (event) => {
     if (suppressLayerClick) return;
@@ -7849,6 +7988,7 @@ function updateLayerSelectionStyles() {
     if (!entry.element?.isConnected) return;
     const active = entry.objects.some((obj) => activeSet.has(obj));
     entry.element.classList.toggle("active", active);
+    entry.element.setAttribute("aria-selected", String(active));
     entry.element.classList.toggle("layerLocated", active && entry.key === locatedLayerListKey);
   });
   updateHud();
@@ -8382,6 +8522,7 @@ function makeMaskOutlineForObject(obj) {
   });
   base.kloudyMaskOutline = true;
   base.kloudyMaskOwner = obj;
+  if (base._renderPathCommands === renderNativeTriangleFill) base._render = renderNativeMaskOutline;
   styleObjectTransformControls(base);
   return base;
 }
@@ -8643,6 +8784,120 @@ async function exportJson() {
   } finally {
     exportSaveInProgress = false;
     refreshExportValidation();
+  }
+}
+
+function liveryStudioThemeContext() {
+  const variables = editorTheme.themeFieldCurrentValues();
+  const literal = /^(?:#[a-f0-9]{3,8}|transparent|rgba?\([\d.,\s]+\))$/i;
+  const probe = document.createElement("span");
+  probe.hidden = true;
+  document.body.appendChild(probe);
+  try {
+    for (const [key, value] of Object.entries(variables)) {
+      if (literal.test(value)) continue;
+      probe.style.color = `var(${key})`;
+      let resolved = getComputedStyle(probe).color;
+      if (!literal.test(resolved)) {
+        // Normalize wide-gamut CSS to the editor's sRGB presentation surface.
+        const sample = document.createElement("canvas");
+        sample.width = sample.height = 1;
+        const context = sample.getContext("2d", { willReadFrequently: true });
+        context.fillStyle = resolved;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+        resolved = `rgba(${r},${g},${b},${a / 255})`;
+      }
+      variables[key] = resolved;
+    }
+  } finally { probe.remove(); }
+  return {
+    name: String($("editorThemeSelect")?.selectedOptions?.[0]?.textContent || document.documentElement.dataset.editorTheme || "Editor").trim().slice(0, 120),
+    variables, fontFamily: getComputedStyle(document.body).fontFamily,
+  };
+}
+
+let studioSourceContext = null;
+let studioSourceReturning = false;
+
+function refreshStudioSourceReturn() {
+  const button = $("returnLiverySource");
+  if (!button) return;
+  button.hidden = !studioSourceContext;
+  button.disabled = studioSourceReturning || !studioSourceContext || studioSourceContext.generation !== documentIdentity;
+}
+
+async function initializeStudioSourceReturn() {
+  if (!startupProjectWasLoaded) return;
+  try {
+    const response = await fetch("/api/fabric-editor/studio-source-context", { headers: EDITOR_MUTATION_HEADERS });
+    const result = await response.json();
+    if (!response.ok || !result.enabled) return;
+    const context = result.context;
+    if (!context || context.projectId !== startupProjectId() || editorProjects.association?.target_id !== context.projectId) return;
+    studioSourceContext = { ...context, generation: documentIdentity };
+    refreshStudioSourceReturn();
+  } catch (_) { /* Optional integration never prevents the regular editor from starting. */ }
+}
+
+async function returnLiverySource() {
+  if (studioSourceReturning || !studioSourceContext) return;
+  if (studioSourceContext.generation !== documentIdentity) {
+    refreshStudioSourceReturn();
+    setStatus(KfpsI18n.t("This is a different document. Open a new source edit from Studio."));
+    return;
+  }
+  studioSourceReturning = true;
+  refreshStudioSourceReturn();
+  try {
+    flushPendingNudgeHistory();
+    const objects = vinylObjects(), validation = refreshExportValidation();
+    if (!objects.length || validation.errors.length) {
+      activateDockPanel("exportCheckPane");
+      throw new Error("Fix the vinyl export errors before returning to Studio.");
+    }
+    const response = await fetch("/api/fabric-editor/studio-source-return", {
+      method: "POST", headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId: studioSourceContext.jobId, projectId: studioSourceContext.projectId,
+        shapes: objects.map(object => objectToShape(object, { includeEditorMeta: false })) }),
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result.error || "Studio could not accept the source.");
+    setStatus(KfpsI18n.t(result.message));
+  } catch (error) { showError(KfpsI18n.t("Could not return source to Studio"), error); }
+  finally { studioSourceReturning = false; refreshStudioSourceReturn(); }
+}
+
+async function openLiveryStudio() {
+  const button = $("openLiveryStudio");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  try {
+    flushPendingNudgeHistory();
+    const objects = vinylObjects();
+    const validation = refreshExportValidation();
+    if (objects.length && validation.errors.length) {
+      activateDockPanel("exportCheckPane");
+      setStatus(KfpsI18n.t("Fix the vinyl export errors before sending it to Livery Studio."));
+      return;
+    }
+    const payload = objects.length ? {
+      name: cleanProjectBaseName(currentProjectName || loadedName || "Editor vinyl").slice(0, 120),
+      vinyl: { shapes: objects.map(object => objectToShape(object, { includeEditorMeta: false })) },
+    } : {};
+    payload.ui_theme = liveryStudioThemeContext();
+    setStatus(KfpsI18n.t("Preparing Livery Studio..."));
+    const response = await fetch("/api/fabric-editor/livery-studio", {
+      method: "POST", headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result.error || "Livery Studio could not start.");
+    setStatus(KfpsI18n.t(result.message));
+  } catch (error) {
+    showError(KfpsI18n.t("Livery Studio could not start"), error);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -11957,9 +12212,6 @@ function maybeShowProjectSharingNotice() {
 }
 
 async function continueEditorStartup() {
-  if (maybeShowProjectSharingNotice()) return;
-  if (maybeShowLanguageNotice()) return;
-  if (maybeShowEditorUpdateNotice()) return;
   if (startupRecoveryHandled) return;
   startupRecoveryHandled = true;
   const mode = new URLSearchParams(location.search).get("mode");
@@ -12256,7 +12508,7 @@ const EDITOR_TOUR_STEPS = [
   {
     title: KfpsI18n.t("Open, Save, And Export"),
     body: KfpsI18n.t("New starts a blank workspace. Open JSON starts from a portable vinyl, while Open Project restores editable work. Save keeps layers, groups, guides, and your reference image; Export JSON creates the game-ready file used in KFPS Outputs."),
-    target: ".menuGroup:first-child",
+    target: ".appBar",
     panel: "propertiesPane",
     tool: "select",
   },
@@ -12510,7 +12762,7 @@ function bindUi() {
     languageSelect.value = KfpsI18n.language;
     languageSelect.addEventListener("change", async () => {
       const next = languageSelect.value;
-      if (!["en", "ko"].includes(next)) return;
+      if (!["en", "ko", "ja"].includes(next)) return;
       const previous = editorSettings.getItem(KfpsI18n.KEY);
       languageSelect.disabled = true;
       try {
@@ -12603,6 +12855,13 @@ function bindUi() {
       .finally(() => { event.target.value = ""; });
   });
   $("exportJson").addEventListener("click", exportJson);
+  $("openLiveryStudio")?.addEventListener("click", openLiveryStudio);
+  $("returnLiverySource")?.addEventListener("click", returnLiverySource);
+  const studioIcon = window.KfpsWorkspace?.icon?.("Palette");
+  if (studioIcon && $("openLiveryStudio")) {
+    $("openLiveryStudio").prepend(studioIcon);
+    $("openLiveryStudio").classList.add("workspaceButton");
+  }
   $("saveProject").addEventListener("click", () => saveProject());
   $("saveProjectAs")?.addEventListener("click", saveProjectAs);
   $("copyLayer")?.addEventListener("click", copySelectedLayers);
@@ -13211,6 +13470,7 @@ async function startEditor() {
   catch (_err) { /* The worker's independent stores still establish the floor. */ }
   buildShapeLibrary();
   bindUi();
+  window.KfpsWorkspace?.init();
   editorUpdates = KfpsEditorUpdates.create({
     button: $("editorUpdateIndicator"), preferences: editorSettings, i18n: KfpsI18n,
     headers: EDITOR_MUTATION_HEADERS,
@@ -13225,6 +13485,7 @@ async function startEditor() {
   updateDocumentState();
   renderHistoryList();
   startupProjectWasLoaded = await loadStartupProjectFromQuery();
+  await initializeStudioSourceReturn();
   const startupHelpShown = await maybeShowStartupHelp();
   if (startupHelpShown) {
     $("startupHelpDialog").addEventListener("close", continueEditorStartup, { once: true });

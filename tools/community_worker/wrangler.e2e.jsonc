@@ -5,6 +5,10 @@
   "compatibility_date": "2026-07-13",
   "workers_dev": false,
   "preview_urls": false,
+  "ratelimits": [
+    {"name": "ACTIVITY_PING_LIMITER", "namespace_id": "2026101901", "simple": {"limit": 60, "period": 60}},
+    {"name": "ACTIVITY_TEST_WINDOW_LIMITER", "namespace_id": "2026101999", "simple": {"limit": 2, "period": 10}}
+  ],
   "vars": {
     "API_PROTOCOL": "1",
     "DEPLOYMENT_ENVIRONMENT": "local-e2e",

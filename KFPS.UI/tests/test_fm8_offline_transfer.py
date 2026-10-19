@@ -6,6 +6,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -35,16 +36,23 @@ def fm8_header(
     description: str = "Description",
     creator: str = "LocalUser",
     catalog_state: int = 0,
+    asset_id: uuid.UUID | None = None,
+    layer_count: int = 1,
 ) -> bytes:
     output = bytearray(struct.pack("<I", 9))
     for value in (title, description):
-        output.extend(struct.pack("<I", len(value)))
-        output.extend(value.encode("utf-16le"))
-    output.extend(bytes(28))
-    output.extend(struct.pack("<I", len(creator)))
-    output.extend(creator.encode("utf-16le"))
+        encoded = value.encode("utf-16le")
+        output.extend(struct.pack("<I", len(encoded) // 2))
+        output.extend(encoded)
+    output.extend(struct.pack("<8HIQ", 2026, 9, 5, 18, 12, 30, 0, 0, 2, 123456789))
+    encoded = creator.encode("utf-16le")
+    output.extend(struct.pack("<I", len(encoded) // 2))
+    output.extend(encoded)
     output.extend(struct.pack("<I", catalog_state))
-    output.extend(bytes(48))
+    asset_id = asset_id or uuid.UUID("11111111-2222-4333-8444-555555555555")
+    output.extend(bytes(8) + asset_id.bytes_le)
+    output.extend(b"\x01\x02\x00\x00\x00" + b"\xff" * 8)
+    output.extend(struct.pack("<I", layer_count) + asset_id.bytes_le)
     return bytes(output)
 
 
@@ -87,8 +95,12 @@ def write_group(
 ) -> Path:
     folder = root / name
     folder.mkdir(parents=True)
+    try:
+        asset_id = uuid.UUID(name)
+    except ValueError:
+        asset_id = None
     (folder / "header").write_bytes(
-        fm8_header(title=name, creator=creator, catalog_state=catalog_state)
+        fm8_header(title=name, creator=creator, catalog_state=catalog_state, asset_id=asset_id)
     )
     payload = fm8_legacy_import_payload() if legacy_import else fm8_payload(restricted=restricted)
     if restricted and legacy_import:
@@ -188,8 +200,8 @@ class FM8OfflineTransferTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "LayerGroups"
             root.mkdir()
-            safe = write_group(root, "safe")
-            unsafe = write_group(root, "unsafe", restricted=True)
+            safe = write_group(root, str(uuid.uuid4()))
+            unsafe = write_group(root, str(uuid.uuid4()), restricted=True)
             os.utime(safe / "data", (100, 100))
             os.utime(unsafe / "data", (200, 200))
             fake_service = SimpleNamespace(
@@ -316,7 +328,7 @@ class FM8OfflineTransferTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "LayerGroups"
             root.mkdir()
-            source_group = write_group(root, "source")
+            source_group = write_group(root, str(uuid.uuid4()))
             source_json = Path(temp) / "Offline Test.json"
             source_json.write_text(
                 json.dumps(
@@ -332,6 +344,7 @@ class FM8OfflineTransferTests(unittest.TestCase):
             fake_service = SimpleNamespace(
                 _fm8_layer_groups_root=lambda: root,
                 _latest_fm8_layer_group=lambda: source_group,
+                _check_fm8_import_ready=lambda: None,
                 _title_for_install_json=CGroupLibraryService._title_for_install_json,
                 _atomic_write_bytes=CGroupLibraryService._atomic_write_bytes,
                 _rename_header=CGroupLibraryService._rename_header,

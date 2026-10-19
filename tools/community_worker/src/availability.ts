@@ -1,5 +1,6 @@
 import { HttpError } from './security';
 import type { Env, SessionUser } from './types';
+import { settleContributions } from './contributions';
 
 export function validateSchedule(value: Record<string, unknown>): { startsAt: string | null; endsAt: string | null } {
   if (value.starts_at == null && value.ends_at == null) return { startsAt: null, endsAt: null };
@@ -35,6 +36,7 @@ export async function purgeExpiredArtwork(env: Env): Promise<{ purged: number; f
   let purged = 0, failed = 0;
   for (const row of rows.results || []) {
     try {
+      await settleContributions(env,row.id);
       let cursor: string | undefined;
       do {
         const page = await env.ASSETS.list({ prefix: `artworks/${row.id}/`, limit: 1000, cursor });

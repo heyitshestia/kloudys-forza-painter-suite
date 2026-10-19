@@ -212,6 +212,53 @@ class CommunityPreviewService(QObject):
     def moderator(self): return ACCOUNTS[self.mode][2]
     @Property(bool, notify=changed)
     def supporter(self): return ACCOUNTS[self.mode][1]
+    # The standalone SQLite preview models the legacy server. Verified fixtures
+    # use the live adapter with a contract-valid loopback server in tests.
+    @Property(str, constant=True)
+    def policyMode(self): return "legacy_supporter"
+    @Property(bool, constant=True)
+    def policyReady(self): return True
+    @Property(bool, notify=changed)
+    def restrictedAccess(self): return self.supporter
+    @Property(bool, constant=True)
+    def verifiedAccess(self): return False
+    @Property(int, constant=True)
+    def verifiedCount(self): return 0
+    @Property(int, constant=True)
+    def verifiedRequired(self): return 10
+    @Property(str, constant=True)
+    def verifiedReason(self): return "policy_legacy"
+    @Property(int, constant=True)
+    def requiredAccountAgeDays(self): return 14
+    @Property(str, constant=True)
+    def connectedAt(self): return ""
+    @Property(str, constant=True)
+    def eligibleAfter(self): return ""
+    @Property(bool, constant=True)
+    def grandfatheredVerified(self): return False
+    @Property(bool, constant=True)
+    def claimsEnabled(self): return False
+    @Property(bool, constant=True)
+    def claimsView(self): return False
+    @Property("QStringList", constant=True)
+    def claimSelection(self): return []
+    @Property("QVariantList", constant=True)
+    def claimEntries(self): return []
+    @Property("QVariantList", constant=True)
+    def claimResults(self): return []
+    @Property(bool, constant=True)
+    def claimsBusy(self): return False
+    @Property(str, notify=changed)
+    def claimError(self): return ""
+
+    @Slot(bool)
+    def setClaimsView(self, enabled): pass
+    @Slot(str)
+    def toggleClaim(self, ident): pass
+    @Slot(bool)
+    def submitClaims(self, confirmed): pass
+    @Slot()
+    def refreshAccess(self): self.refresh()
     @Property(str, notify=changed)
     def language(self): return self.language_value
     @Property(str, notify=changed)
@@ -266,6 +313,9 @@ class CommunityPreviewService(QObject):
         self._next_boundary = self.store.next_boundary(self.now())
         rows = []
         for row in all_rows:
+            row.update(audience="supporter" if row.get("supporter") else "public",
+                       canViewMedia=not row.get("locked"), canInteract=self.authenticated and not row.get("locked") and row["state"] == "available",
+                       contribution={}, canClaim=False)
             if self.creator_filter and row["creator"] != self.creator_filter: continue
             if self.scope_value not in ("My uploads", "Moderation") and row["state"] != "available": continue
             if self.scope_value == "My uploads" and not row["own"]: continue
@@ -315,6 +365,10 @@ class CommunityPreviewService(QObject):
 
     def _selection_media(self):
         if self.selected_value:
+            self.selected_value.update(audience="supporter" if self.selected_value.get("supporter") else "public",
+                                       canViewMedia=not self.selected_value.get("locked"),
+                                       canInteract=self.authenticated and not self.selected_value.get("locked") and self.selected_value["state"] == "available",
+                                       contribution={}, canClaim=False)
             self.selected_value["photoUrls"] = [data_url(raw) for raw in self.store.photos(self.selected_id, self.mode, self.now())]
             if self.selected_value["kind"] == "livery":
                 self.selected_value["photoUrls"].insert(0, self.selected_value["previewUrl"])

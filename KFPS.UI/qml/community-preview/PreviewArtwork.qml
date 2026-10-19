@@ -8,10 +8,14 @@ Item {
     id: tile
     required property var artwork
     property bool selected: false
+    property bool claimMode: false
+    property bool claimSelected: false
+    property bool claimEnabled: true
     property var ui
     signal chosen()
     signal imageRequested()
     signal creatorRequested(string creator)
+    signal claimToggled()
     MouseArea { objectName: "ArtworkHit:" + tile.artwork.id; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: tile.chosen(); onDoubleClicked: tile.imageRequested() }
     Rectangle {
         id: picture
@@ -29,9 +33,17 @@ Item {
             visible: tile.artwork.supporter || tile.artwork.state !== "available" || tile.artwork.kind === "livery"
             anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 9
             width: badge.implicitWidth + 14; height: 23; radius: Theme.corner(3); color: Theme.surfaceStrong
-            PreviewText { id: badge; anchors.centerIn: parent; textSize: 12; color: tile.artwork.supporter ? Theme.warning : Theme.text; text: tile.artwork.state !== "available" ? tile.artwork.state : [tile.artwork.supporter ? tile.ui("Supporter", "서포터") : "", tile.artwork.kind === "livery" ? tile.ui("Livery", "리버리") : ""].filter(Boolean).join(" / ") }
+            PreviewText { id: badge; anchors.centerIn: parent; textSize: 12; color: tile.artwork.supporter ? Theme.warning : Theme.text; text: tile.artwork.state !== "available" ? tile.artwork.state : [tile.artwork.supporter ? (tile.artwork.audience === "verified" ? tile.ui("Verified", "Verified 전용") : tile.ui("Supporter", "서포터")) : "", tile.artwork.kind === "livery" ? tile.ui("Livery", "리버리") : ""].filter(Boolean).join(" / ") }
         }
         PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; artwork: tile.artwork; ui: tile.ui }
+        C.KfpsCheckBox {
+            objectName: "SelectClaim:" + tile.artwork.id
+            visible: tile.claimMode && !!tile.artwork.canClaim
+            anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 8
+            dense: true; text: tile.ui("Claim original", "원본 확인")
+            checked: tile.claimSelected; enabled: tile.claimEnabled
+            onToggled: tile.claimToggled()
+        }
     }
     ColumnLayout {
         anchors.top: picture.bottom; anchors.topMargin: Theme.px(5); width: parent.width; spacing: Theme.px(2)

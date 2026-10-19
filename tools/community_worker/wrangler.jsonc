@@ -5,8 +5,13 @@
 	"compatibility_date": "2026-07-13",
 	"workers_dev": true,
 	"preview_urls": false,
+	"observability": { "enabled": false },
+	"ratelimits": [
+		{"name": "ACTIVITY_PING_LIMITER", "namespace_id": "2026101901", "simple": {"limit": 60, "period": 60}}
+	],
 	"vars": {
 		"API_PROTOCOL": "1",
+		"ACTIVITY_COUNTER_ENABLED": "0",
 		"DEPLOYMENT_ENVIRONMENT": "production",
 		"ALLOW_TEST_AUTH": "0",
 		"AUTO_APPROVE_TEST_UPLOADS": "0",

@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  KFPS_ACTIVITY_DISABLED: "1"
+
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -75,6 +78,7 @@ jobs:
 
       - name: Check and test the Fabric editor boundary
         run: |
+          $env:KFPS_TEST_PYTHON = (Get-Command python).Source
           python -B tools/sync_shape_words.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tools/sync_font_names.cjs --check

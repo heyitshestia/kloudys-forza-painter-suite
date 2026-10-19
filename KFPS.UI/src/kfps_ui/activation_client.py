@@ -48,19 +48,18 @@ class ActivationClient(QObject):
         self._send("status", key_id=key_id, key_proof=key_proof, device_id=device_id, nonce=nonce)
 
     def community_entitlement(
-        self, *, key_id: str, key_proof: str, device_id: str, nonce: str, community_subject: str,
+        self, *, key_id: str, key_proof: str, nonce: str, community_subject: str,
     ):
         self._send(
             "community-entitlement",
             key_id=key_id,
             key_proof=key_proof,
-            device_id=device_id,
             nonce=nonce,
             community_subject=community_subject,
         )
 
     def _send(
-        self, operation: str, *, key_id: str, key_proof: str, device_id: str, nonce: str,
+        self, operation: str, *, key_id: str, key_proof: str, nonce: str, device_id: str | None = None,
         community_subject: str = "",
     ):
         if self._closed:
@@ -84,9 +83,10 @@ class ActivationClient(QObject):
             "protocol": PROTOCOL_VERSION,
             "key_id": key_id,
             "key_proof": key_proof,
-            "device_id": device_id,
             "nonce": nonce,
         }
+        if operation != "community-entitlement":
+            payload_data["device_id"] = device_id
         if operation == "community-entitlement":
             payload_data["community_subject"] = community_subject
         payload = json.dumps(payload_data, separators=(",", ":")).encode("utf-8")

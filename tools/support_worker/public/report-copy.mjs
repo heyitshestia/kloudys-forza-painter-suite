@@ -89,6 +89,9 @@ export const copy = {
   },
 };
 
+copy.en.collectedText += ' Livery Studio records fixed action/error codes, native or Chrome host, readiness, frame/composition timings, render-resource and source/placement/shape counts. Selected launch/graphics/language settings, panel counts and locations, customization counts and the release-notice state help diagnose compatibility; custom names, shortcut bindings, project databases and artwork are not copied. These local diagnostics are sent only when you submit a report and are separate from the optional anonymous installation-activity counter.';
+copy.ko.collectedText += ' Livery Studio는 정해진 작업·오류 코드, 기본 창 또는 Chrome 실행 방식, 준비 상태, 프레임·합성 시간, 렌더링 자원과 원본·배치·도형 수를 기록합니다. 일부 실행·그래픽·언어 설정, 패널 수와 배치 유형, 사용자 설정 개수, 업데이트 안내 상태는 호환성 문제 확인에 사용됩니다. 사용자 지정 이름, 단축키 내용, 프로젝트 데이터베이스와 작품은 복사하지 않습니다. 이 로컬 진단은 보고서를 전송할 때만 보내며, 선택 사항인 익명 설치본 활동 집계와는 별개입니다.';
+
 registerStrings(Object.fromEntries(Object.keys(copy.en).map(key=>[copy.en[key],copy.ko[key]])));
 
 export function reportText(key, locale = language()) {

@@ -118,7 +118,7 @@ describe("activation worker", () => {
     expect(await response.json()).toEqual({ service: "kfps-supporter-activation", protocol: 1, status: "ok" });
   });
 
-  it("claims once, repairs idempotently, and records a duplicate", async () => {
+  it("accepts repeated and different-device compatibility requests without registration", async () => {
     const license = await makeLicense();
     const now = new Date().toISOString();
     await env.DB.prepare(
@@ -133,16 +133,16 @@ describe("activation worker", () => {
     expect(repair.status).toBe(200);
 
     const duplicate = await activate(license.keyId, license.proof, deviceId("b"));
-    expect(duplicate.status).toBe(409);
-    expect((await duplicate.json() as { status: string }).status).toBe("already_activated");
+    expect(duplicate.status).toBe(200);
+    expect((await duplicate.json() as { status: string }).status).toBe("active");
 
     const row = await env.DB.prepare("SELECT device_id, conflict_count FROM licenses WHERE key_id = ?1")
       .bind(license.keyId).first<{ device_id: string; conflict_count: number }>();
-    expect(row?.device_id).toBe(deviceId("a"));
-    expect(row?.conflict_count).toBe(1);
+    expect(row?.device_id).toBeNull();
+    expect(row?.conflict_count).toBe(0);
   });
 
-  it("allows exactly one winner for simultaneous different-device claims", async () => {
+  it("allows simultaneous compatibility requests from different devices", async () => {
     const license = await makeLicense();
     const now = new Date().toISOString();
     await env.DB.prepare(
@@ -152,7 +152,7 @@ describe("activation worker", () => {
       activate(license.keyId, license.proof, deviceId("c")),
       activate(license.keyId, license.proof, deviceId("d")),
     ]);
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
   });
 
   it("does not count an invalid proof as a duplicate", async () => {
@@ -281,6 +281,11 @@ describe("activation worker", () => {
     const imported = await adminFetch("/v1/admin/licenses/import", "POST", importBody);
     expect(imported.status).toBe(200);
 
+    // Existing historical registration remains visible to authenticated admins.
+    await env.DB.prepare(
+      "UPDATE licenses SET device_id = ?2, activated_at = ?3, conflict_count = 2, first_conflict_at = ?3, last_conflict_at = ?3 WHERE key_id = ?1",
+    ).bind(license.keyId, deviceId("1"), new Date().toISOString()).run();
+
     expect((await activate(license.keyId, license.proof, deviceId("1"))).status).toBe(200);
     const listed = await adminFetch("/v1/admin/licenses?limit=10");
     expect(listed.status).toBe(200);
@@ -289,7 +294,7 @@ describe("activation worker", () => {
       expect.objectContaining({ key_id: license.keyId, registered: true }),
     ]));
 
-    expect((await activate(license.keyId, license.proof, deviceId("3"))).status).toBe(409);
+    expect((await activate(license.keyId, license.proof, deviceId("3"))).status).toBe(200);
     const clearBody = JSON.stringify({ action: "clear_conflicts", key_id: license.keyId });
     const cleared = await adminFetch("/v1/admin/licenses/mutate", "POST", clearBody);
     expect(cleared.status).toBe(200);

@@ -22,7 +22,7 @@ PreviewDialog {
             PreviewText { visible: dialog.photos.length > 1; text: (dialog.photoIndex + 1) + " / " + dialog.photos.length }
             PreviewButton { iconName: "chevron-right"; hint: dialog.ui("Next photo", "다음 사진"); visible: dialog.photos.length > 1; enabled: dialog.photoIndex < dialog.photos.length - 1; onClicked: { dialog.photoIndex++; zoom.value = 1 } }
             Item { Layout.fillWidth: true }
-            PreviewPrimaryButton { objectName: "OpenLiveryRender"; visible: preview.selected.kind === "livery"; text: dialog.ui("3D render", "3D 보기"); enabled: preview.authenticated && !preview.selected.locked && !!preview.selected.downloadable && preview.selected.state === "available"; onClicked: preview.openRender() }
+            PreviewPrimaryButton { objectName: "OpenLiveryRender"; visible: preview.selected.kind === "livery"; text: dialog.ui("3D render", "3D 보기"); enabled: preview.authenticated && !!preview.selected.canViewMedia && preview.selected.state === "available"; onClicked: preview.openRender() }
             PreviewButton { objectName: "CloseMedia"; text: "X"; minimumWidth: 36; hint: dialog.ui("Close", "닫기"); onClicked: dialog.close() }
         }
         Flickable {

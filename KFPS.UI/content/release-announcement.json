@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "releaseId": "3.1.105",
+  "publishedAt": "2026-10-19T19:20:00Z",
+  "expiresAt": "2026-10-26T19:20:00Z",
+  "locales": {
+    "en": {
+      "title": "So much for \"almost finished.\"",
+      "blocks": [
+        {"text": "The editor has had a proper makeover: a cleaner workspace, movable panels, better editing controls and native or Chrome launch options. Your existing projects, themes and shortcuts come along for the ride."},
+        {"text": "Oh, and there's now Livery Studio Preview. Apparently, one editor wasn't enough."},
+        {"text": "All KFPS tools are becoming free. Both editors, bulk imports and exports, the lot. Only supporter themes remain key-exclusive. Community's former Supporter area becomes Verified, with access earned through 14 days since connecting GitHub and 10 of your own Handmade vinyl uploads. Existing qualifying key holders receive permanent Verified status."},
+        {"heading": "What Studio already does", "text": "Choose a car and available parts, import vinyls, move and transform them directly on the car, organise placements, change colours, undo mistakes and save your projects. You can also open a vinyl in the regular editor and bring your changes back."},
+        {"heading": "What's still restricted", "text": "Native game export is experimental. Unsupported combinations involving masks, raster decals, certain transparency/clipping cases or changed body configurations are blocked. Studio never automatically installs anything into your game saves. Some wheels are placeholders, and paintable surfaces aren't fully verified for every car."},
+        {"heading": "What I'm working on next", "text": "Reliable game-ready exports, better car and body-part coverage, and closer rendering and vinyl-placement accuracy. I'm relying on your feedback for awkward workflows, missing or incorrect parts, performance on different PCs and reproducible bugs. Tell me what happened, on which car, and how to make it happen again."},
+        {"text": "A small, optional anonymous activity counter also helps me understand how much KFPS is being used. It counts active installations, not people. It's on by default, and you can turn it off in KFPS Settings without losing any features."},
+        {"text": "Everyone who bought a key will be honoured by their chosen name in a dedicated credits section over the next few updates. You helped make this possible."},
+        {"text": "And yes, I would REALLY appreciate your support on Ko-fi. This takes a considerable amount of my time, and donations help me keep building and maintaining it. Supporting me is optional. The tools stay free."}
+      ],
+      "closing": "Now go make something worth showing off. Crash out.",
+      "supportLabel": "Support on Ko-fi",
+      "closeLabel": "Let's create"
+    },
+    "ko": {
+      "title": "\"거의 다 끝났다\"고 했는데 말이죠.",
+      "blocks": [
+        {"text": "에디터를 제대로 새단장했습니다. 더 깔끔한 작업 공간, 이동 가능한 패널, 개선된 편집 도구에 기본 앱 또는 Chrome으로 실행하는 옵션까지 준비했어요. 기존 프로젝트와 테마, 단축키도 그대로 사용할 수 있습니다."},
+        {"text": "아, 그리고 이제 Livery Studio Preview도 있습니다. 아무래도 에디터 하나로는 부족했나 봐요."},
+        {"text": "모든 KFPS 도구가 무료로 바뀝니다. 두 에디터도, 일괄 가져오기와 내보내기도 전부요. 후원자 테마만 키 전용으로 남습니다. 커뮤니티의 기존 Supporter 공간은 Verified로 바뀝니다. GitHub 연결 후 14일이 지나고 직접 만든 Handmade 비닐을 10개 업로드하면 이용할 수 있어요. 기존의 유효한 키 보유자는 영구 Verified 자격을 받습니다."},
+        {"heading": "지금 Studio에서 할 수 있는 것", "text": "차량과 사용 가능한 부품을 선택하고, 비닐을 가져와 차량 위에서 직접 이동하거나 변형하고, 배치를 정리하고, 색상을 바꾸고, 실수를 실행 취소하고, 프로젝트를 저장할 수 있습니다. 일반 에디터에서 비닐을 열어 수정한 뒤 변경 사항을 다시 가져올 수도 있어요."},
+        {"heading": "아직 제한되는 것", "text": "게임용 네이티브 내보내기는 실험 단계입니다. 마스크, 래스터 데칼, 일부 투명도 및 클리핑 처리, 변경된 차체 구성 등 지원하지 않는 조합은 차단됩니다. Studio는 게임 저장 파일에 아무것도 자동으로 설치하지 않습니다. 일부 휠은 임시 모델이며, 모든 차량의 도색 가능 표면이 완전히 검증된 것은 아닙니다."},
+        {"heading": "다음으로 작업할 것", "text": "신뢰할 수 있는 게임용 내보내기, 더 다양한 차량과 차체 부품 지원, 더 정확한 렌더링과 비닐 배치를 목표로 하고 있습니다. 불편한 작업 흐름, 누락되거나 잘못된 부품, 다양한 PC에서의 성능, 재현 가능한 버그에 대한 여러분의 피드백이 필요해요. 어떤 차량에서 무슨 일이 있었는지, 어떻게 다시 재현할 수 있는지 알려 주세요."},
+        {"text": "KFPS가 얼마나 사용되는지 이해하는 데 도움이 되는 작은 익명 활동 집계 기능도 추가했어요. 사람 수가 아니라 사용 중인 설치본 수를 셉니다. 기본으로 켜져 있지만 선택 사항이며, KFPS 설정에서 꺼도 모든 기능을 그대로 사용할 수 있어요."},
+        {"text": "키를 구매해 주신 모든 분은 앞으로 몇 차례 업데이트에 걸쳐 별도의 크레딧 항목에 원하시는 이름으로 기록될 예정입니다. 여러분 덕분에 여기까지 올 수 있었어요."},
+        {"text": "그리고 네, Ko-fi로 후원해 주시면 정말 감사하겠습니다. 상당한 시간을 들여 만들고 있으며, 후원은 계속 개발하고 유지하는 데 큰 도움이 됩니다. 후원은 선택입니다. 도구는 계속 무료입니다."}
+      ],
+      "closing": "이제 멋지게 자랑할 작품을 만들어 보세요. Crash out.",
+      "supportLabel": "Ko-fi로 후원하기",
+      "closeLabel": "만들러 가기"
+    },
+    "ja": {
+      "title": "「もうすぐ完成」のはずだったんですが。",
+      "blocks": [
+        {"text": "エディターを本格的にリニューアルしました。すっきりした作業スペース、移動できるパネル、使いやすくなった編集操作に、通常のアプリまたはChromeで起動する選択肢も。これまでのプロジェクト、テーマ、ショートカットはそのまま使えます。"},
+        {"text": "それから、Livery Studio Previewも登場しました。どうやらエディターはひとつでは足りなかったようです。"},
+        {"text": "KFPSのすべてのツールが無料になります。両方のエディターも、一括インポートとエクスポートも、全部です。キー限定のまま残るのはサポーター向けテーマだけ。コミュニティの旧SupporterエリアはVerifiedに変わります。GitHub連携から14日が経ち、自作のHandmadeビニールを10点アップロードすると利用できます。条件を満たす既存のキー所有者には、永続的なVerified資格が付与されます。"},
+        {"heading": "Studioで今できること", "text": "車と利用可能なパーツを選び、ビニールを取り込み、車の上で直接移動・変形し、配置を整理し、色を変更し、操作を取り消し、プロジェクトを保存できます。通常のエディターでビニールを開いて編集し、その変更を持ち帰ることもできます。"},
+        {"heading": "まだ制限されていること", "text": "ゲーム用ネイティブエクスポートは実験段階です。マスク、ラスターデカール、一部の透明度やクリッピング処理、変更されたボディ構成など、未対応の組み合わせはブロックされます。Studioがゲームのセーブデータへ自動で何かをインストールすることはありません。一部のホイールは仮モデルで、すべての車の塗装可能な面を完全に検証できているわけではありません。"},
+        {"heading": "次に取り組むこと", "text": "信頼できるゲーム用エクスポート、より多くの車種とボディパーツへの対応、レンダリングとビニール配置の精度向上です。使いづらい操作、欠けている・正しくないパーツ、さまざまなPCでの性能、再現可能なバグについて、皆さんのフィードバックを頼りにしています。どの車で何が起きたのか、どうすれば再現できるのかを教えてください。"},
+        {"text": "KFPSがどれくらい使われているかを知るために、小さな匿名の利用状況カウンターも追加しました。数えるのは人数ではなく、使用中のインストール数です。初期設定ではオンですが任意の機能なので、KFPSの設定でオフにしても、すべての機能をそのまま使えます。"},
+        {"text": "キーを購入してくださった皆さんは、今後数回のアップデートで専用のクレジット欄にご希望の名前で掲載します。皆さんの支援があってこそ、ここまで来られました。"},
+        {"text": "そして、Ko-fiで応援していただけると本当にうれしいです。開発にはかなりの時間をかけており、寄付は開発とメンテナンスを続ける助けになります。支援は任意です。ツールはずっと無料です。"}
+      ],
+      "closing": "さあ、自慢したくなる作品を作りましょう。Crash out.",
+      "supportLabel": "Ko-fiで応援する",
+      "closeLabel": "制作を始める"
+    }
+  }
+}

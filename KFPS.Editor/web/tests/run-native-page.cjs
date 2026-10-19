@@ -7,6 +7,10 @@ const { chromium } = require("playwright");
   const [, , port, output, ...scripts] = process.argv;
   const testOptions = JSON.parse(process.env.KFPS_TEST_OPTIONS || "{}");
   if (!testOptions || Array.isArray(testOptions) || typeof testOptions !== "object") throw Error("Test options must be a JSON object");
+  if (testOptions.customizationRestart && testOptions.preserveStartupNotices !== true) {
+    throw Error("Customization restart requires preserveStartupNotices:true before browser setup");
+  }
+  fs.writeFileSync(path.join(output, 'startup-options.json'), JSON.stringify({options:testOptions, validatedBeforeBrowserSetup:true}, null, 2));
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { noDefaults: true });
   const page = browser.contexts()[0].pages().find(p => p.url().includes("fabric-editor"));
   if (!page) throw new Error("Native editor page missing");

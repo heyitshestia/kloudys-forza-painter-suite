@@ -19,12 +19,11 @@ Item {
             { page: "community", label: "Community", icon: "heart" },
             { page: "editor", label: "Editor", icon: "editor" },
             { page: "tools", label: "Tools", icon: "tools" },
+            { page: "support", label: "Support", icon: "heart" },
             { page: "help", label: "Help", icon: "help" },
             { page: "update", label: "Update", icon: "update" },
             { page: "settings", label: "Settings", icon: "settings" }
         ]
-        if (!supporterService.unlocked)
-            items.splice(6, 0, { page: "support", label: "Support", icon: "heart" })
         return items
     }
     signal route(string page)

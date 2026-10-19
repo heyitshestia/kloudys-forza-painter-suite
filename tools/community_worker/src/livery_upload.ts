@@ -2,7 +2,7 @@ import { Unzip, UnzipInflate } from 'fflate';
 import { enforceRateLimit, HttpError, jsonResponse, plainText, requireUser, sha256Hex } from './security';
 import { validatePng, validateUploadMetadata } from './validation';
 import { effectiveMinimumUploadVersion, getVersionPolicy } from './version_policy';
-import { requireActiveSupporter } from './supporter';
+import { getViewerAccess,requireRestrictedAccess,validateAudience } from './access_policy';
 import type { Env } from './types';
 
 export const MAX_LIVERY_BYTES = 16 * 1024 * 1024;
@@ -120,8 +120,9 @@ export async function handleLiveryUpload(request: Request, env: Env): Promise<Re
   try { body = JSON.parse(meta); } catch { throw new HttpError(400, 'invalid_json'); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'invalid_metadata');
   const policy = await getVersionPolicy(env);
-  const upload = validateUploadMetadata(body, effectiveMinimumUploadVersion(env, policy));
-  if (upload.supporterOnly) requireActiveSupporter(user);
+  const context=await getViewerAccess(env,request,user);
+  const access=validateAudience(body,context,'livery');
+  const upload = validateUploadMetadata(access.value, effectiveMinimumUploadVersion(env, policy));
   const source = form.get('package');
   if (!(source instanceof File) || source.size > MAX_LIVERY_BYTES) throw new HttpError(413, 'livery_too_large');
   const bytes = new Uint8Array(await source.arrayBuffer());
@@ -150,7 +151,7 @@ export async function handleLiveryUpload(request: Request, env: Env): Promise<Re
     if (duplicate.creator_id !== user.id || duplicate.status !== 'removed' || duplicate.purged_at
         || duplicate.last_action !== 'owner_removed' || duplicate.ends_at) throw new HttpError(409, 'duplicate_artwork');
     const now = new Date().toISOString();
-    if (duplicate.supporter_only) requireActiveSupporter(user);
+    if (duplicate.supporter_only) requireRestrictedAccess(context);
     const restored = await env.DB.batch([
       env.DB.prepare(`UPDATE artworks SET status = ?3, updated_at = ?2 WHERE id = ?1 AND status = 'removed'
         AND creator_id = ?4 AND (SELECT action FROM moderation_events WHERE artwork_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1) = 'owner_removed'`)

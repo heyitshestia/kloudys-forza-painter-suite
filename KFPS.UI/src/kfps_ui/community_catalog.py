@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 import re
 
+from .community_access import artwork_access, contribution_status
+
 
 def versioned_asset_url(url: str, digest: str) -> str:
     url = str(url or "")
@@ -13,20 +15,23 @@ def versioned_asset_url(url: str, digest: str) -> str:
     return f"{url}{separator}v={digest[:16]}"
 
 
-def normalize_artwork(item: dict, resolve_url: Callable[[str], str]) -> dict:
+def normalize_artwork(item: dict, resolve_url: Callable[[str], str], mode="legacy_supporter",
+                      authenticated=False, restricted_access=False) -> dict:
     creator = dict(item.get("creator") or {})
     supporter_only = bool(item.get("supporter_only"))
     featured = bool(item.get("featured"))
     preview_digest = str(item.get("preview_sha256") or "")
     thumbnail_digest = str(item.get("thumbnail_sha256") or preview_digest)
     preview_asset_url = versioned_asset_url(
-        resolve_url(str(item.get("preview_url") or "")), preview_digest,
+        resolve_url(str(item["preview_url"])) if item.get("preview_url") else "", preview_digest,
     )
     thumbnail_asset_url = versioned_asset_url(
-        resolve_url(str(item.get("thumbnail_url") or item.get("preview_url") or "")),
+        resolve_url(str(item.get("thumbnail_url") or item.get("preview_url"))) if item.get("thumbnail_url") or item.get("preview_url") else "",
         thumbnail_digest,
     )
     classification = str(item.get("classification") or "toolmade")
+    access = artwork_access(item, mode, authenticated, restricted_access)
+    contribution = contribution_status(item.get("contribution"))
     return {
         "id": str(item.get("id") or ""),
         "title": str(item.get("title") or "Untitled"),
@@ -49,7 +54,14 @@ def normalize_artwork(item: dict, resolve_url: Callable[[str], str]) -> dict:
         "rejectionReason": str(item.get("rejection_reason") or ""),
         "featured": featured,
         "supporterOnly": supporter_only,
-        "supporterLabel": "Supporters" if supporter_only else "Everyone",
+        "supporterLabel": "Verified" if access["audience"] == "verified" else "Supporters" if supporter_only else "Everyone",
+        "audience": access["audience"],
+        "canViewMedia": access["can_view_media"],
+        "canDownload": access["can_download"],
+        "canInteract": access["can_interact"],
+        "restrictionReason": access["restriction_reason"] or "",
+        "contribution": contribution,
+        "canClaim": bool(contribution.get("can_claim")) and classification == "handmade" and item.get("kind", "vinyl") == "vinyl",
         "revision": int(item.get("current_revision") or 1),
         "downloads": int(item.get("downloads") or 0),
         "favorites": int(item.get("favorites") or 0),
@@ -59,7 +71,7 @@ def normalize_artwork(item: dict, resolve_url: Callable[[str], str]) -> dict:
         "publishedAt": str(item.get("published_at") or ""),
         "previewUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else preview_asset_url),
         "thumbnailUrl": thumbnail_asset_url if supporter_only and featured else ("" if supporter_only else thumbnail_asset_url),
-        "downloadUrl": resolve_url(str(item.get("download_url") or "")),
+        "downloadUrl": resolve_url(str(item["download_url"])) if item.get("download_url") else "",
         "contentSha256": str(item.get("content_sha256") or ""),
         "previewSha256": preview_digest,
         "thumbnailSha256": thumbnail_digest,

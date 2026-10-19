@@ -13,6 +13,8 @@
     groupSelected: "group", quickGroupSelected: "group", ungroupSelected: "group", flipHorizontal: "scale", flipVertical: "scale",
     rotateLeft: "rotate", rotateRight: "rotate", generateTextVinyl: "text", generatePixelArt: "pixel",
     fitView: "zoom", fitSelected: "zoom", quickFitSelected: "zoom", resetView: "zoom", toggleOverlay: "reference", removeOverlay: "reference",
+    workspaceReset: "layout", workspaceLockPanels: "layout", workspaceFocusPanels: "layout",
+    workspacePanels: "layout", workspaceLayerPanelOptions: "layout",
   };
   const ERRORS = new Set("js-error rejection resource-error console-error webgl-lost canvas-lost renderer-stopped native-failed close-timeout".split(" "));
   const MAX_BACKLOG = 1024, MAX_BATCH = 48, MAX_PACKET_BYTES = 24 * 1024, MIN_SEND_MS = 250;
@@ -116,6 +118,20 @@
       const sorted = Array.from(frames.subarray(0, count)).sort((a, b) => a - b);
       let state = {};
       try { state = provider() || {}; } catch (_) { state = { ready: false }; }
+      // Sample tiny panel metadata once per diagnostic batch, not every frame.
+      // No labels, coordinates of artwork, input contents or style readbacks.
+      try {
+        const workspace = doc.querySelector?.('.workspace');
+        const countPanels = place => Math.min(64, doc.querySelectorAll?.(`[data-dock-place="${place}"]`)?.length || 0);
+        state = { ...state, floatingPanels: countPanels('floating'), leftPanels: countPanels('left'),
+          hiddenPanels: countPanels('hidden'), panelDrag: !!workspace?.classList.contains('panelDragging'),
+          panelsLocked: !!workspace?.classList.contains('panelPositionsLocked'),
+          focusCanvas: !!workspace?.classList.contains('workspaceFocusMode') };
+        for (const [key, value] of Object.entries({viewportWidth: env.innerWidth,
+          viewportHeight: env.innerHeight, devicePixelRatio: env.devicePixelRatio})) {
+          if (Number.isFinite(value) && value > 0 && value <= 32768) state[key] = value;
+        }
+      } catch (_) { /* Diagnostics cannot interrupt editing in older hosts. */ }
       return { schema: 1, page, seq, metrics: { ...(activeSample || !lastSample.frames ? period : lastSample), ...totals, clientDrops, criticalDrops, queueDepth: events.length + (batch?.count || 0),
         frameP50: sorted[Math.floor(sorted.length * .5)] || 0,
         frameP95: sorted[Math.floor(sorted.length * .95)] || 0,

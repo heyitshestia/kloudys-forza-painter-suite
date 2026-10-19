@@ -13,13 +13,16 @@ import { CATEGORIES, GAMES, validateClassification, validateTags, validateUpload
 import { compareKfpsVersions, effectiveMinimumUploadVersion, getVersionPolicy, maybeSyncVersionPolicy } from "./version_policy";
 import { hasActiveSupporter, requireActiveSupporter } from "./supporter";
 import { assertAvailable, AVAILABLE_SQL } from "./availability";
+import { artworkAccess, getAccessPolicy, getViewerAccess, requireAccessContract, requireRestrictedAccess, validateAudience } from './access_policy';
+import { contributionStatuses, revisionContributionStatements, settleStatement } from './contributions';
+import { vinylFingerprint } from './vinyl_fingerprint';
 
 const MAX_UPLOAD_BODY = 34 * 1024 * 1024;
 export const NEW_ARTWORK_UPLOAD_LIMIT = 50;
 export const NEW_ARTWORK_UPLOAD_WINDOW_SECONDS = 30 * 60;
 export const FEATURED_ARTWORK_LIMIT = 8;
 const SORTS = new Set(["featured", "trending", "new", "downloads", "favorites", "name", "votes"]);
-const SCOPES = new Set(["featured", "browse", "supporters", "mine", "favorites", "following", "timed"]);
+const SCOPES = new Set(["featured", "browse", "supporters", "verified", "mine", "favorites", "following", "timed"]);
 const SCHEMA_LABELS: Record<string, string> = {
   "legacy-kfps": "Legacy KFPS-compatible JSON",
   "kfps-community": "KFPS Community JSON",
@@ -130,11 +133,35 @@ const ARTWORK_COLUMNS = `
   u.username, u.avatar_url, u.bio AS creator_bio,
   (SELECT COUNT(*) FROM follows ff WHERE ff.creator_id = u.id) AS creator_followers`;
 
+async function serializeArtworks(rows:Record<string,unknown>[], request:Request, env:Env, user:SessionUser|null) {
+  const context=await getViewerAccess(env,request,user);
+  const owned=rows.filter(row=>row.creator_id===user?.id && row.kind==='vinyl').map(row=>String(row.id));
+  const contributions=await contributionStatuses(env,owned);
+  return rows.map(row=>{
+    const result=artworkJson(row,user);
+    const access=artworkAccess(row,context);
+    result.access=access;
+    if (contributions.has(String(row.id))) result.contribution=contributions.get(String(row.id));
+    if (access.restriction_reason==='unavailable') {
+      result.preview_url='';result.thumbnail_url='';result.download_url='';result.photo_urls=[];
+    }
+    return result;
+  });
+}
+
+function uploadCreditStatements(env:Env,user:SessionUser,upload:ValidatedUpload,id:string,revision:number,previewKey:string) {
+  if (!upload.creditFingerprint) throw new Error('Validated fingerprint missing');
+  return revisionContributionStatements(env,{artworkId:id,creatorId:user.id,revision,contentHash:upload.contentHash,
+    authorship:upload.creditAuthorship||'unknown',fingerprint:upload.creditFingerprint,expectedPreviewKey:previewKey});
+}
+
 export async function visibleArtwork(
   env: Env,
   id: string,
   user: SessionUser | null,
   allowPublishedSupporterThumbnail = false,
+  request?: Request,
+  metadataOnly = false,
 ): Promise<Record<string, unknown>> {
   const row = await env.DB.prepare(
     `SELECT ${ARTWORK_COLUMNS},
@@ -145,9 +172,14 @@ export async function visibleArtwork(
      WHERE a.id = ?1 AND (a.status = 'published' OR a.creator_id = ?2) LIMIT 1`,
   ).bind(id, user?.id || "").first<Record<string, unknown>>();
   if (!row) throw new HttpError(404, "artwork_not_found");
+  const verifiedMode=getAccessPolicy(env).mode==='verified_v1';
+  if (verifiedMode && row.status==='removed') throw new HttpError(404,'artwork_not_found');
   assertAvailable(row, user, true);
   const publicThumbnail = allowPublishedSupporterThumbnail && String(row.status) === "published";
-  if (Boolean(row.supporter_only) && !hasActiveSupporter(user) && !publicThumbnail) {
+  if (verifiedMode && Boolean(row.supporter_only) && !publicThumbnail && !metadataOnly) {
+    if (!request) throw new Error('Request context required');
+    requireRestrictedAccess(await getViewerAccess(env,request,user));
+  } else if (!verifiedMode && Boolean(row.supporter_only) && !hasActiveSupporter(user) && !publicThumbnail) {
     throw new HttpError(404, "artwork_not_found");
   }
   return row;
@@ -156,6 +188,7 @@ export async function visibleArtwork(
 export async function handleListArtworks(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const user = await optionalUser(request, env);
+  const verifiedMode=getAccessPolicy(env).mode==='verified_v1';
   const gallery = url.searchParams.get('view') === 'gallery';
   const search = (url.searchParams.get("search") || "").trim().slice(0, 100).toLocaleLowerCase("en-US");
   const category = url.searchParams.get("category") || "All";
@@ -167,26 +200,34 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
     : validateClassification(classificationValue);
   const requestedSort = SORTS.has(url.searchParams.get("sort") || "") ? String(url.searchParams.get("sort")) : "featured";
   const scope = SCOPES.has(url.searchParams.get("scope") || "") ? String(url.searchParams.get("scope")) : "browse";
+  const claimsView=url.searchParams.get('contribution_view')==='claims';
+  if (claimsView && (!gallery || scope!=='mine')) throw new HttpError(400,'invalid_contribution_view');
+  if (scope==='verified' || claimsView) {
+    if (!verifiedMode) throw new HttpError(409,'verified_policy_disabled');
+    requireAccessContract(request);
+  }
   const sort = scope === "featured" ? "featured" : requestedSort;
   const page = scope === "featured"
     ? 1
     : Math.max(1, Math.min(10000, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1));
   const requestedLimit = Math.max(1, Math.min(60, Number.parseInt(url.searchParams.get("limit") || "24", 10) || 24));
   const limit = scope === "featured" ? FEATURED_ARTWORK_LIMIT : requestedLimit;
-  if ((scope === "supporters" || scope === "mine" || scope === "favorites" || scope === "following") && !user) {
+  if (((scope === "supporters" && !verifiedMode) || scope === "mine" || scope === "favorites" || scope === "following") && !user) {
     throw new HttpError(401, "authentication_required");
   }
   const supporterActive = hasActiveSupporter(user);
-  if (scope === "supporters") requireActiveSupporter(user);
+  if (scope === "supporters" && !verifiedMode) requireActiveSupporter(user);
 
   const conditions: string[] = [];
+  if (claimsView) conditions.push("a.kind='vinyl'");
+  if (scope==='verified' || verifiedMode && scope==='supporters') conditions.push('a.supporter_only=1');
   if (!gallery) conditions.push("a.kind = 'vinyl'");
   if (gallery && url.searchParams.get('kind') && url.searchParams.get('kind') !== 'All') {
     if (!['vinyl', 'livery'].includes(url.searchParams.get('kind')!)) throw new HttpError(400, 'invalid_kind');
     conditions.push(url.searchParams.get('kind') === 'livery' ? "a.kind = 'livery'" : "a.kind = 'vinyl'");
   }
   if (scope !== 'mine') conditions.push(AVAILABLE_SQL);
-  else conditions.push("a.purged_at IS NULL AND (a.ends_at IS NULL OR a.ends_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
+  else if (!claimsView) conditions.push("a.purged_at IS NULL AND (a.ends_at IS NULL OR a.ends_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
   if (scope === 'timed') conditions.push('a.ends_at IS NOT NULL');
   if (gallery && url.searchParams.get('supporters') === '1') conditions.push('a.supporter_only = 1');
   const parameters: unknown[] = [];
@@ -197,7 +238,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
 
   if (scope === "mine") {
     conditions.push(`a.creator_id = ${bind(user?.id || "")}`);
-    conditions.push("a.status <> 'removed'");
+    if (!claimsView) conditions.push("a.status <> 'removed'");
   } else {
     conditions.push("a.status = 'published'");
   }
@@ -218,7 +259,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   if (scope === "following") {
     conditions.push(`EXISTS(SELECT 1 FROM follows sw WHERE sw.creator_id = a.creator_id AND sw.follower_id = ${bind(user?.id || "")})`);
   }
-  if (scope === "featured" || gallery) {
+  if (scope === "featured" || gallery || verifiedMode && (scope==='supporters' || scope==='verified')) {
     // Gallery metadata and published compact thumbnails are visible to everyone. Full
     // supporter previews and JSON downloads remain protected by asset routes.
   } else if (scope === "supporters") {
@@ -277,7 +318,7 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
   ).bind(...countParameters).first<{ total: number }>();
   const total = integerValue(count?.total);
   return jsonResponse({
-    items: (result.results || []).map((row) => artworkJson(row, user)),
+    items: await serializeArtworks(result.results || [],request,env,user),
     page,
     page_size: limit,
     total,
@@ -285,12 +326,12 @@ export async function handleListArtworks(request: Request, env: Env): Promise<Re
     sort,
     scope,
     classification: scope === "featured" ? "all" : classification || "all",
-  }, 200, { "Cache-Control": user ? "private, no-store" : "public, max-age=30" });
+  }, 200, { "Cache-Control": "private, no-store" });
 }
 
 export async function handleArtworkDetail(request: Request, env: Env, id: string): Promise<Response> {
   const user = await optionalUser(request, env);
-  const row = await visibleArtwork(env, id, user);
+  const row = await visibleArtwork(env, id, user,false,request,true);
   const revisions = await env.DB.prepare(
     `SELECT revision, shape_count, change_note, created_at, status
        FROM artwork_revisions
@@ -298,7 +339,7 @@ export async function handleArtworkDetail(request: Request, env: Env, id: string
         AND (status = 'published' OR ?2 = (SELECT creator_id FROM artworks WHERE id = ?1))
       ORDER BY revision DESC`,
   ).bind(id, user?.id || "").all<Record<string, unknown>>().catch(() => ({ results: [] as Record<string, unknown>[] }));
-  return jsonResponse({ artwork: artworkJson(row, user), revisions: revisions.results || [] });
+  return jsonResponse({ artwork:(await serializeArtworks([row],request,env,user))[0], revisions: revisions.results || [] });
 }
 
 export async function handleUpdateArtworkMetadata(request: Request, env: Env, id: string): Promise<Response> {
@@ -350,8 +391,8 @@ export async function handleUpdateArtworkMetadata(request: Request, env: Env, id
     ).bind(crypto.randomUUID(), id, user.username, JSON.stringify({ tags: selectedTags }), now),
   ]);
 
-  const row = await visibleArtwork(env, id, user);
-  return jsonResponse({ artwork: artworkJson(row, user) });
+  const row = await visibleArtwork(env, id, user,false,request,true);
+  return jsonResponse({ artwork:(await serializeArtworks([row],request,env,user))[0] });
 }
 
 async function duplicateCheck(
@@ -500,6 +541,7 @@ async function writeRestoredPreviewAssets(
 }
 
 async function restoreOwnerRemovedArtwork(
+  request: Request,
   env: Env,
   user: SessionUser,
   upload: ValidatedUpload,
@@ -515,7 +557,7 @@ async function restoreOwnerRemovedArtwork(
     throw new HttpError(409, "classification_immutable", "This upload was already classified and can only be reclassified by an administrator.");
   }
   const supporterOnly = upload.supporterOnly;
-  if (supporterOnly) requireActiveSupporter(user);
+  if (supporterOnly) requireRestrictedAccess(await getViewerAccess(env,request,user));
   const classification = removed.classification;
   const assets = await writeRestoredPreviewAssets(env, id, revision, upload);
   try {
@@ -532,10 +574,11 @@ async function restoreOwnerRemovedArtwork(
             AND EXISTS(
               SELECT 1 FROM artworks a
                WHERE a.id = ?1 AND a.creator_id = ?13 AND a.status = 'removed'
+                 AND a.classification=json_extract(?9,'$.classification')
                  AND (SELECT me.action FROM moderation_events me
                        WHERE me.artwork_id = a.id
                        ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed'
-            )`,
+            ) RETURNING artwork_id`,
       ).bind(
         id, revision, upload.previewHash, upload.thumbnailHash,
         assets.previewKey, assets.thumbnailKey, upload.previewBytes.length, upload.thumbnailBytes.length,
@@ -559,7 +602,7 @@ async function restoreOwnerRemovedArtwork(
             )
             AND (SELECT me.action FROM moderation_events me
                   WHERE me.artwork_id = ?1
-                  ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed'`,
+                  ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed' RETURNING id`,
       ).bind(
         id, user.id, upload.contentHash, revision, assets.previewKey, status,
         upload.title, upload.description, upload.category, JSON.stringify(upload.tags),
@@ -593,8 +636,9 @@ async function restoreOwnerRemovedArtwork(
         WHERE EXISTS(SELECT 1 FROM artwork_revisions r
                       WHERE r.artwork_id = ?2 AND r.revision = ?5 AND r.preview_key = ?6)`,
     ).bind(crypto.randomUUID(), id, user.username, now, revision, assets.previewKey));
+    statements.push(...uploadCreditStatements(env,user,upload,id,revision,assets.previewKey));
     const results = await env.DB.batch(statements);
-    if ((results[0]?.meta.changes || 0) !== 1 || (results[1]?.meta.changes || 0) !== 1) {
+    if (results[0]?.results.length !== 1 || results[1]?.results.length !== 1) {
       throw new HttpError(409, "restore_conflict", "This artwork was already restored. Refresh the library and try again.");
     }
   } catch (error) {
@@ -606,8 +650,8 @@ async function restoreOwnerRemovedArtwork(
     env.ASSETS.delete(removed.preview_key).catch(() => undefined),
     env.ASSETS.delete(removed.thumbnail_key).catch(() => undefined),
   ]);
-  const row = await visibleArtwork(env, id, user);
-  return jsonResponse({ artwork: artworkJson(row, user), moderation_required: !autoPublish, restored: true }, 201);
+  const row = await visibleArtwork(env, id, user,false,request,true);
+  return jsonResponse({ artwork:(await serializeArtworks([row],request,env,user))[0], moderation_required: !autoPublish, restored: true }, 201);
 }
 
 export async function handleCreateArtwork(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -620,11 +664,14 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
     NEW_ARTWORK_UPLOAD_WINDOW_SECONDS,
   );
   const versionPolicy = await getVersionPolicy(env);
+  const access=validateAudience(await readJsonObject(request,MAX_UPLOAD_BODY),await getViewerAccess(env,request,user),'vinyl');
   const upload = await validateUpload(
-    await readJsonObject(request, MAX_UPLOAD_BODY),
+    access.value,
     effectiveMinimumUploadVersion(env, versionPolicy),
     env.REQUIRE_MODERN_UPLOAD_CLIENT !== "0",
   );
+  upload.creditAuthorship=access.authorship;
+  upload.creditFingerprint=await vinylFingerprint(upload.design);
   const schedule = { startsAt: upload.startsAt || null, endsAt: upload.endsAt || null };
   if (upload.clientVersion !== "legacy"
       && compareKfpsVersions(upload.clientVersion, versionPolicy.minimumVersion) > 0) {
@@ -632,10 +679,9 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
       console.error("Upload-triggered KFPS VERSION synchronization failed", error);
     }));
   }
-  if (upload.supporterOnly) requireActiveSupporter(user);
   const autoPublish = shouldPublishValidatedUpload(env, user);
   const removed = await ownerRemovedArtwork(env, user.id, upload.contentHash);
-  if (removed) return restoreOwnerRemovedArtwork(env, user, upload, removed, autoPublish);
+  if (removed) return restoreOwnerRemovedArtwork(request,env, user, upload, removed, autoPublish);
   await duplicateCheck(env, upload);
   const id = crypto.randomUUID();
   const revision = 1;
@@ -679,6 +725,7 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
         "INSERT INTO artwork_search(artwork_id, title, description, creator, tags) VALUES (?1, ?2, ?3, ?4, ?5)",
       ).bind(id, upload.title, upload.description, user.username, upload.tags.join(" ")));
     }
+    statements.push(...uploadCreditStatements(env,user,upload,id,revision,assets.previewKey));
     await env.DB.batch(statements);
   } catch (error) {
     await Promise.all([
@@ -687,8 +734,8 @@ export async function handleCreateArtwork(request: Request, env: Env, ctx: Execu
     await duplicateCheck(env, upload);
     throw error;
   }
-  const row = await visibleArtwork(env, id, user);
-  return jsonResponse({ artwork: artworkJson(row, user), moderation_required: !autoPublish }, 201);
+  const row = await visibleArtwork(env, id, user,false,request,true);
+  return jsonResponse({ artwork:(await serializeArtworks([row],request,env,user))[0], moderation_required: !autoPublish }, 201);
 }
 
 export async function handleCreateRevision(
@@ -717,13 +764,16 @@ export async function handleCreateRevision(
   if (current.kind !== 'vinyl' || current.ends_at) throw new HttpError(409, 'revision_not_supported', 'Upload a new livery or timed release instead of replacing its files.');
   await enforceRateLimit(env, user.id, "revision", 8, 3600);
   const value = await readJsonObject(request, MAX_UPLOAD_BODY);
+  const access=validateAudience(value,await getViewerAccess(env,request,user),'vinyl');
   const changeNote = plainText(value.change_note, "change_note", 240, true);
   const versionPolicy = await getVersionPolicy(env);
   const upload = await validateUpload(
-    value,
+    access.value,
     effectiveMinimumUploadVersion(env, versionPolicy),
     env.REQUIRE_MODERN_UPLOAD_CLIENT !== "0",
   );
+  upload.creditAuthorship=access.authorship;
+  upload.creditFingerprint=await vinylFingerprint(upload.design);
   if (upload.clientVersion !== "legacy"
       && compareKfpsVersions(upload.clientVersion, versionPolicy.minimumVersion) > 0) {
     ctx.waitUntil(maybeSyncVersionPolicy(env).catch((error) => {
@@ -737,7 +787,6 @@ export async function handleCreateRevision(
   if (upload.supporterOnly !== supporterOnly) {
     throw new HttpError(409, "supporter_visibility_immutable", "Supporter-only visibility cannot be changed in a revision.");
   }
-  if (supporterOnly) requireActiveSupporter(user);
   const classification = current.classification;
   await duplicateCheck(env, upload, id);
   const latest = await env.DB.prepare(
@@ -792,12 +841,16 @@ export async function handleCreateRevision(
         ).bind(id, upload.title, upload.description, user.username, upload.tags.join(" ")),
       );
     }
+    statements.push(...uploadCreditStatements(env,user,upload,id,revision,assets.previewKey));
     await env.DB.batch(statements);
   } catch (error) {
     await Promise.all([
       env.ASSETS.delete(assets.designKey), env.ASSETS.delete(assets.previewKey), env.ASSETS.delete(assets.thumbnailKey),
     ]);
     await duplicateCheck(env, upload, id);
+    if (String(error).includes('classification_conflict')) {
+      throw new HttpError(409,'classification_immutable','An administrator changed this classification. Refresh before submitting.');
+    }
     const newest = await env.DB.prepare(
       "SELECT MAX(revision) AS revision FROM artwork_revisions WHERE artwork_id = ?1",
     ).bind(id).first<{ revision: number }>();
@@ -833,7 +886,7 @@ export async function handleArtworkAsset(
   const user = kind === "download"
     ? await requireUser(request, env)
     : await optionalUser(request, env);
-  const row = await visibleArtwork(env, id, user, kind === "thumbnail");
+  const row = await visibleArtwork(env, id, user, kind === "thumbnail",request);
   const revision = integerValue(row.current_revision);
   const stored = await env.DB.prepare(
     "SELECT design_key, preview_key, thumbnail_key FROM artwork_revisions WHERE artwork_id = ?1 AND revision = ?2 LIMIT 1",
@@ -870,7 +923,7 @@ export async function handleArtworkAsset(
 export async function handleFavorite(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   await enforceRateLimit(env, user.id, "favorite", 120, 3600);
-  await visibleArtwork(env, id, user);
+  await visibleArtwork(env, id, user,false,request);
   const value = await readJsonObject(request, 2048);
   if (typeof value.favorite !== "boolean") throw new HttpError(400, "invalid_favorite");
   const now = new Date().toISOString();
@@ -960,7 +1013,8 @@ export async function handleIgnore(request: Request, env: Env, username: string)
 
 export async function handleCreator(request: Request, env: Env, username: string): Promise<Response> {
   const viewer = await optionalUser(request, env);
-  const supporterActive = hasActiveSupporter(viewer) ? 1 : 0;
+  // Metadata is discoverable in Verified mode, including for non-key holders.
+  const supporterActive = getAccessPolicy(env).mode==='verified_v1' || hasActiveSupporter(viewer) ? 1 : 0;
   const normalized = username.toLocaleLowerCase("en-US");
   const row = await env.DB.prepare(
     `SELECT u.id, u.username, u.bio, u.website_url, u.avatar_url, u.created_at,
@@ -987,7 +1041,7 @@ export async function handleCreator(request: Request, env: Env, username: string
 
 export async function handleReport(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
-  await visibleArtwork(env, id, user);
+  await visibleArtwork(env, id, user,false,request);
   await enforceRateLimit(env, user.id, "report", 10, 86400);
   const value = await readJsonObject(request, 8192);
   const reason = plainText(value.reason, "reason", 40, true);

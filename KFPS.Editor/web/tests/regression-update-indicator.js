@@ -73,7 +73,7 @@ async (page, options = {}) => {
   await page.locator('#editorUpdateIndicator').click();
   await page.waitForFunction(() => !document.getElementById('editorUpdateIndicator').disabled);
   check(!await blinking(), 'Failed preference save kept blinking');
-  check((await page.locator('#editorUpdateIndicator').getAttribute('title')).includes('could not be saved yet'), 'Missing failed-save explanation');
+  check((await page.locator('#editorUpdateIndicator').getAttribute('data-workspace-tooltip')).includes('could not be saved yet'), 'Missing failed-save explanation');
   check(await page.evaluate(() => JSON.stringify(snapshotShapes())) === before, 'Acknowledgement changed artwork');
   check(await page.evaluate(() => documentDirty), 'Acknowledgement cleared dirty state');
   await page.unroute('**/api/fabric-editor/preferences');

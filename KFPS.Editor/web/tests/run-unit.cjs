@@ -3,7 +3,7 @@ const fs=require("node:fs"),path=require("node:path"),cp=require("node:child_pro
 const editor=path.resolve(__dirname,".."),root=path.resolve(editor,"../..");
 const manifest=JSON.parse(fs.readFileSync(path.join(root,"KFPS.Editor/manifest.json"),"utf8"));
 const commands=manifest.web.filter(item=>item.path.endsWith(".js")).map(item=>["--check",path.join(editor,item.path)]);
-commands.push(...fs.readdirSync(__dirname).filter(name=>name.endsWith(".node.js")).sort().map(name=>[path.join(__dirname,name)]));
+commands.push(...fs.readdirSync(__dirname).filter(name=>/\.(?:node\.(?:js|cjs)|test\.cjs)$/.test(name)).sort().map(name=>[path.join(__dirname,name)]));
 let failures=0;
 for(const args of commands){
   const result=cp.spawnSync(process.execPath,args,{cwd:root,encoding:"utf8",windowsHide:true,timeout:120000});

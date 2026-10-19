@@ -23,8 +23,9 @@ async function setup(page, output, options = {}) {
   if (options.project) return require('./handmade-project-fixture.cjs').setupDerived(page, output, options);
   const count = Number(options.layers || 2400);
   if (!Number.isInteger(count) || count < 2000 || count > 2950) throw Error('Dense fixture requires 2000-2950 layers with insertion headroom');
+  const types = options.backgroundTypes || [1048677,1048678,1048706,1048712,1048715];
   const shapes = Array.from({ length: count - 50 }, (_, i) => ({
-    type: [1048677,1048678,1048706,1048712,1048715][i % 5],
+    type: types[i % types.length],
     color: [40 + i % 150, 90 + i % 120, 170, i % 9 ? 255 : 160],
     data: [-690 + i % 60 * 23, 440 - Math.floor(i / 60) * 23, .12, .16, i % 4 * 15, 0, 0],
     editor_id: `dense-background-${i}`, shape_name: `Background ${i}`,
@@ -51,6 +52,7 @@ async function setup(page, output, options = {}) {
     for (let i = 0; i < opacity; i++) await page.keyboard.press('ArrowRight');
   }
   await page.locator('[data-tool-mode="select"]').click();
+  if (await page.locator('#workspaceViewMenu').count()) await page.locator('#workspaceViewMenu').click();
   await page.locator('#fitView').click();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const view = await scene(page);

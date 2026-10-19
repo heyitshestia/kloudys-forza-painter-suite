@@ -70,7 +70,7 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("Theme.supporterSignatureText", sidebar)
         self.assertNotIn("Folders and maintenance are in Settings.", sidebar)
 
-    def test_support_page_replaces_header_promo_and_hides_after_unlock(self):
+    def test_optional_support_page_remains_available_after_unlock(self):
         main = self.read("Main.qml")
         host = self.read("components/CachedPageHost.qml")
         sidebar = self.read("shell/Sidebar.qml")
@@ -84,31 +84,53 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('source: "../pages/SupportPage.qml"', host)
         self.assertIn('"support": "Support KFPS"', controller)
         self.assertIn('if (page === "support") return "heart"', self.read("shell/HeaderControls.qml"))
-        self.assertIn('if (!supporterService.unlocked)', sidebar)
+        self.assertNotIn('if (!supporterService.unlocked)', sidebar)
         self.assertIn('{ page: "liveries", label: "Liveries", icon: "monitor" }', sidebar)
         self.assertNotIn('supporterService.unlocked || demoMode', sidebar)
-        self.assertIn('items.splice(6, 0, { page: "support", label: "Support", icon: "heart" })', sidebar)
-        self.assertIn('supporterService.unlocked && appController.currentPage === "support"', main)
+        self.assertIn('{ page: "support", label: "Support", icon: "heart" }', sidebar)
+        self.assertNotIn('supporterService.unlocked && appController.currentPage === "support"', main)
+        self.assertNotIn('supporterService.startActivation()', main)
+        self.assertIn('value: supporterService.unlocked || themePreviewUnlocked', main)
         self.assertIn('objectName: "SupportPage"', support)
-        self.assertIn('Component.onCompleted:', support)
-        self.assertIn('if (supporterService.unlocked)', support)
-        self.assertIn('appController.navigate("create")', support)
+        self.assertNotIn('appController.navigate("create")', support)
 
-    def test_support_page_uses_the_real_product_and_accurate_benefits(self):
+    def test_support_page_separates_optional_donations_from_paid_themes(self):
         support = self.read("pages/SupportPage.qml")
-        self.assertIn('"https://ko-fi.com/s/2d1507698d"', support)
-        self.assertIn("ONE-TIME PURCHASE - NOT A SUBSCRIPTION", support)
-        self.assertIn("There is no monthly fee and no recurring KFPS charge.", support)
+        self.assertNotIn('"https://ko-fi.com/s/2d1507698d"', support)
+        self.assertIn('"https://ko-fi.com/O7O020EQNQ"', support)
+        self.assertIn('onClicked: desktop.openUrl(root.donationUrl)', support)
+        self.assertNotIn('root.themeKeyUrl', support)
         for phrase in (
-            "Instant Offline Imports & Exports",
-            "Export complete FH4, FH5, FH6, and FM8 vinyl libraries into KFPS in one action",
-            "No game needs to be started.",
-            "Supporter Community",
-            "Four Extra Themes",
+            "Donations are optional",
+            "Free local tools",
+            "Supporter themes",
             "Windows 94",
-            "FH4, FH5, FH6, and FM8 remain available without supporter access",
+            "without PC binding or online activation",
+            "including full library transfers",
         ):
             self.assertIn(phrase, support)
+        self.assertNotIn("Supporter Community", support)
+        self.assertNotIn("unlocking full offline library tools", support)
+
+    def test_outputs_library_and_offline_controls_do_not_require_a_key(self):
+        outputs = self.read("pages/JsonPage.qml")
+        self.assertIn('model: ["Generated finals", "Editor exports", "Game exports", "Library"]', outputs)
+        self.assertIn('objectName: "OutputSource"', outputs)
+        self.assertIn('objectName: "OfflineLibraryControls"', outputs)
+        self.assertIn('objectName: "ScanOfflineLibrary"', outputs)
+        self.assertNotIn("supporterService.unlocked", outputs)
+        self.assertIn('cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")', outputs)
+
+    def test_settings_promotes_themes_not_paid_transfers(self):
+        settings = self.read("pages/SettingsPage.qml")
+        self.assertIn('text: "Supporter themes"', settings)
+        self.assertIn("All local tools are free.", settings)
+        self.assertIn('text: "Remove Key"', settings)
+        self.assertNotIn('Release Device', settings)
+        self.assertNotIn('supporterService.repairActivation()', settings)
+        self.assertNotIn("One-click FH6 save-library exports", settings)
+        self.assertIn('onClicked: desktop.openUrl("https://ko-fi.com/O7O020EQNQ")', settings)
+        self.assertNotIn('https://ko-fi.com/s/2d1507698d', settings)
 
     def test_legacy_dashboard_page_is_retired(self):
         self.assertFalse((QML / "pages" / "DashboardPage.qml").exists())
@@ -300,8 +322,8 @@ class QmlRefinementTests(unittest.TestCase):
             "shell/AnnouncementTicker.qml": ("Click to resume", "Click to pause"),
             "shell/AppTitleBar.qml": ("Minimize KFPS.", "Maximize the KFPS window.", "Close KFPS."),
             "pages/SupportPage.qml": (
-                "Open the official KFPS supporter-key product page on Ko-fi.",
-                "Open Settings to add, replace, repair, or release a supporter key.",
+                "Open the official KFPS donation page on Ko-fi.",
+                "Open Settings to add, replace, or remove an existing theme key.",
             ),
             "SourceDownloadBlocker.qml": ("property string toolTipText", "Open the official KFPS latest-release page"),
         }
@@ -497,7 +519,12 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("height: root.threeColumns ? pageScroll.availableHeight : implicitHeight", create)
         self.assertIn("Layout.fillHeight: root.threeColumns", create)
         self.assertIn("id: pageScroll", settings)
-        self.assertIn("height: root.wide ? pageScroll.availableHeight : implicitHeight", settings)
+        # Wide settings must not compress cards below their controls' natural height.
+        self.assertIn("height: root.wide ? Math.max(pageScroll.availableHeight, implicitHeight) : implicitHeight", settings)
+        self.assertIn("contentWidth: availableWidth", settings)
+        self.assertIn("ScrollBar.horizontal.policy: ScrollBar.AlwaysOff", settings)
+        for content in ("interfaceContent", "foldersContent", "maintenanceContent"):
+            self.assertIn(f"Layout.minimumHeight: {content}.implicitHeight + padding * 2", settings)
         self.assertIn("Layout.fillHeight: root.wide", settings)
 
     def test_generation_previews_reload_overwritten_milestones(self):

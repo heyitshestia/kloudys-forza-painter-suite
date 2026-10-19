@@ -479,7 +479,7 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertTrue(service.selectedSupporterLocked)
                 self.assertEqual(
                     service.errorMessage,
-                    "Verified supporter access is required to download this artwork.",
+                    "Your account cannot download this artwork under the current server policy.",
                 )
                 self.assertFalse(any(paths.library_root.rglob("*.json")))
             finally:
@@ -527,6 +527,7 @@ class CommunityBoundaryTests(unittest.TestCase):
             service._supporter = {"active": False, "verified_until": ""}
             service._selected = {
                 "id": "public-artwork",
+                "canDownload": True,
                 "title": "Public Fixture",
                 "creatorName": "Public Artist",
                 "supporterOnly": False,
@@ -608,6 +609,7 @@ class CommunityBoundaryTests(unittest.TestCase):
             service._session_user = {"id": "regular-viewer", "username": "RegularViewer"}
             service._selected = {
                 "id": "tampered-artwork",
+                "canDownload": True,
                 "title": "Tampered Fixture",
                 "creatorName": "Public Artist",
                 "supporterOnly": False,
@@ -775,8 +777,9 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertEqual(row["previewUrl"], "")
                 self.assertEqual(row["thumbnailUrl"], "")
                 featured_row = service._normalize_artwork({**item, "featured": True})
-                self.assertIn("/thumbnail", featured_row["thumbnailUrl"])
-                self.assertEqual(featured_row["previewUrl"], featured_row["thumbnailUrl"])
+                self.assertIn("/thumbnail", featured_row["_thumbnailAssetUrl"])
+                self.assertEqual(featured_row["previewUrl"], "")
+                self.assertEqual(featured_row["thumbnailUrl"], "")
                 with patch.object(CommunityApiClient, "binary", return_value=(preview, {"Content-Type": "image/png"})) as binary:
                     asset = service._fetch_supporter_asset(
                         row["id"], digest, row["_thumbnailAssetUrl"], "session", "thumbnail",
@@ -828,14 +831,14 @@ class CommunityBoundaryTests(unittest.TestCase):
         self.assertIn('uploadDescription.text = ""', page)
         self.assertIn('uploadTags.reset("")', page)
         self.assertIn("root.resetMetadataForNewUpload(path)", page)
-        self.assertIn('"Get access to supporter vinyl sharing"', page)
-        self.assertIn('desktop.openUrl("https://ko-fi.com/s/2d1507698d")', page)
+        self.assertIn('"Legacy server: Supporter access"', page)
+        self.assertNotIn('https://ko-fi.com/s/2d1507698d', page)
         self.assertIn("enabled: index < 5 || communityService.authenticated", page)
         self.assertIn("id: supporterUnlockDialog", page)
-        self.assertIn('text: root.activeSupporterKey ? "Check my access" : "Take me there"', page)
-        self.assertIn('text: "No thank you"', page)
+        self.assertIn('text: root.ui("Refresh access", "이용 권한 새로고침")', page)
+        self.assertIn('text: root.ui("Close", "닫기")', page)
         self.assertIn("communityService.selectedSupporterLocked", page)
-        self.assertIn('text: "Supporters"', page)
+        self.assertIn('root.ui("Supporters", "서포터 전용")', page)
         self.assertIn("root.uploadSupporterOnly", page)
         self.assertIn("cardSupporterOnly", card)
         self.assertIn("cardUsesMasks", card)

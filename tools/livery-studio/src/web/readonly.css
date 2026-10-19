@@ -1,0 +1,11 @@
+#viewport{width:100%;height:100%}
+button,summary{font:inherit;font-size:12px;color:var(--text)}
+button{background:var(--panel);border:1px solid var(--line);border-radius:3px;min-height:30px;min-width:30px;padding:4px 8px;cursor:pointer}
+button:hover,button.active{border-color:var(--accent);background:var(--selected)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button svg{display:block;width:16px;height:16px}
+#previewDetails{position:absolute;right:12px;bottom:62px;max-width:min(320px,calc(100% - 24px));max-height:45%;overflow:auto;background:var(--overlay);border:1px solid var(--line);padding:6px 10px;z-index:2;font-size:12px;line-height:1.45}
+#previewDetails summary{cursor:pointer}
+#previewDetails p{margin:5px 0;color:var(--muted)}
+#previewDetails ul{padding-left:18px;margin:5px 0;color:var(--muted)}

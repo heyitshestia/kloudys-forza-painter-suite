@@ -1,25 +1,20 @@
-# KFPS Supporter Activation Worker
+# KFPS Supporter Compatibility And Recognition Worker
 
-Isolated Cloudflare Worker and D1 service for two private KFPS operations:
+## Current Policy
 
-1. Anonymous supporter-key activation and registration recovery.
-2. Encrypted Ko-fi payment-event intake for the local operations console.
+The locally tested theme-only implementation retires PC registration and duplicate
+enforcement. Existing signed keys unlock themes locally; the new client does not
+poll activation/status or require an activation grace period. Local tools remain
+free. New key creation, automatic fulfillment and email delivery are retired from
+the private Operations Console.
 
-This folder is deliberately separate from editor, generator, import/export, and release application code.
+This Worker retains old-client signed responses, registered-key Community
+recognition, authenticated administrative operations and encrypted historical
+Ko-fi intake. Retaining an API is not a promise to sell, create or deliver keys.
+This document describes source behavior, not a completed deployment.
+[Theme-only policy and tests](docs/THEME-ONLY-KEYS.md) are the detailed route contract.
 
-## Activation Data
-
-Activation requests and D1 rows contain only:
-
-- deterministic 64-character key ID;
-- SHA-256 of the existing supporter-key signature;
-- random client device ID;
-- status and timestamps;
-- duplicate-attempt and reset counters.
-
-They do not contain supporter name, email, purchase ID, Windows account, computer name, hardware serial, artwork, or file path. The existing `.kfpskey` format is unchanged. The Worker uses a separate activation-only RSA key and never receives the supporter-key issuing private key.
-
-Public activation routes:
+## Public Compatibility Routes
 
 ```text
 GET  /v1/health
@@ -29,34 +24,66 @@ POST /v1/deactivate
 POST /v1/community-entitlement
 ```
 
-Requests are schema checked and size bounded. A valid first device receives a signed receipt. At startup, a matching key proof receives a signed active or revoked status bound to its device ID and fresh nonce. A valid second device receives a signed duplicate decision. Unknown IDs and wrong proofs receive a generic unsigned denial and do not increase duplicate counters.
+The three legacy activation routes keep protocol-1 request/response shapes so old
+clients can verify signatures. The device field is format-checked and echoed as
+required by those formats, but is not stored, compared or used for eligibility.
+Registered active proofs receive their compatible signed responses; revoked,
+unknown or wrong proofs remain denied as defined in the route contract. These
+routes perform no registration, counter, timestamp or revocation writes and
+produce no duplicate decision. Deactivation acknowledges an old client's local
+receipt removal; it does not release a Community account binding.
 
-`/v1/community-entitlement` is available only to the exact active key proof and
-registered device. It binds that license to one opaque Community user ID and returns
-a 15-minute RSA-signed entitlement for the `kfps-community-v1` audience. The token
-contains an opaque random entitlement ID, Community subject, nonce, and timestamps;
-it contains no key ID, proof, receipt, purchaser identity, or device identity. The
-Community Worker never calls this service and never receives activation credentials.
+Historical device IDs, activation timestamps and counters remain in D1 unchanged.
+They are retained records, not current public enforcement inputs. Key proof
+authentication, exact schemas, request limits and RSA response signatures remain.
+
+## Community Recognition
+
+`POST /v1/community-entitlement` accepts the exact device-free request or the
+legacy request with a valid device field that is then discarded. The issuer
+checks the registered license, active status, matching key-signature proof and
+Community subject format. Neither a stored device nor `activated_at` is required.
+
+An atomic parameterized claim binds one license to one exact Community subject
+hash and one opaque entitlement ID. Same-subject retries reuse that ID; another
+subject receives a conflict even from another machine or with a fresh nonce.
+Invalid proof, unknown license and revoked status cannot claim an account.
+
+A successful response contains the unchanged 15-minute signed v1 `entitlement`.
+A separately signed `legacy_verified_grant` is included only when trusted stored
+registration time satisfies an explicitly reviewed cutoff. Both envelopes have
+exactly paired subject, entitlement ID, nonce, issue time and expiry. They contain
+no key ID, device identity or purchaser identity.
+
+The issuer does not authenticate the GitHub login. The Community service must
+authenticate the account and verify both signatures, paired fields, lifetime and
+the same configured cutoff before storing a permanent grant. A v1 entitlement,
+local key presence or a newly minted proof date alone cannot create Verified.
+[Legacy Verified grant](LEGACY-VERIFIED-GRANT.md) and the
+[Community contract](../community_worker/contracts/README.md) define this boundary.
+
+Existing durable grants survive ordinary proof expiry, sign-out and local key
+removal; suspension and ownership protections still apply. Default Community
+policy and cutoff selection remain coordinated rollout decisions.
 
 ## Encrypted Ko-fi Inbox
 
-Ko-fi posts payment data to:
+`POST /v1/kofi/webhook` remains a compatibility intake route. It validates the
+verification token and bounded fields, then encrypts chunks with a dedicated
+3072-bit RSA-OAEP-SHA256 public key. D1 retains hashed event IDs, encrypted payloads
+and received/imported timestamps. Duplicate delivery is idempotent; acknowledgement
+does not delete historical encrypted records.
 
-```text
-POST /v1/kofi/webhook
-```
+The Worker sees plaintext transiently during validation/encryption but does not
+log request bodies or store readable customer fields. The separate private
+operations environment retains the decryption key. The retired console does not
+automatically import, fulfill or email a new key from these events. Review the
+external product listing and webhook disposition explicitly before launch; do not
+reintroduce the archived fulfillment/deployment utilities.
 
-The Worker validates Ko-fi's verification token, bounds every field, splits the event into small records, and encrypts each record with a dedicated 3072-bit RSA-OAEP-SHA256 public key. D1 stores:
+## Admin API And Secrets
 
-- SHA-256 of Ko-fi's `message_id` as the event primary key;
-- encrypted payload chunks;
-- received and imported timestamps.
-
-The Worker sees webhook plaintext transiently while validating and encrypting it. It never logs the request body. D1 does not store readable name, email, purchase ID, message, amount, or product fields. Only the separate Desktop operations console has the matching private decryption key.
-
-Repeated deliveries with the same `message_id` are idempotent. Imported rows are marked acknowledged rather than deleted, preserving encrypted audit/recovery state.
-
-## Admin API
+Retained routes:
 
 ```text
 GET  /v1/admin/licenses
@@ -66,80 +93,61 @@ GET  /v1/admin/kofi/events
 POST /v1/admin/kofi/ack
 ```
 
-Every admin request uses a timestamped HMAC-SHA256 signature over method, exact path/query, timestamp, unique request ID, and body hash. Mutation request IDs are stored to reject replay. License key IDs and Ko-fi event IDs stay in signed JSON bodies for mutations rather than routine request paths.
+Every admin request uses timestamped HMAC-SHA256 over method, exact path/query,
+timestamp, unique request ID and body hash. Mutation replay protection remains.
+The `reset_community` operation releases only the opaque account binding; it does
+not restore a revoked license or clear unrelated historical fields. Administrative
+maintenance is not a newly exposed public or console key-creation workflow.
 
-The `reset_community` license mutation releases only the opaque Community account
-binding. It does not reset device registration, restore a revoked license, clear
-duplicate attempts, or expose the bound Community user ID.
+Required binding/secret names remain `DB`, `ACTIVATION_KEY_ID`,
+`ADMIN_HMAC_SECRET`, `ACTIVATION_PRIVATE_KEY_PEM`, `KOFI_VERIFICATION_TOKEN` and
+`KOFI_INBOX_PUBLIC_KEY_PEM`. The inbox public key is stored as a Worker secret to
+keep multiline PEM out of configuration/output. The supporter-key issuing private
+key and inbox decryption private key never belong in this Worker source or a bundle.
+Never publish real values, request bodies, key proofs, customer records or raw logs.
 
-Use only the separate `KFPS Operations Console`. Do not expose admin routes through an unauthenticated proxy or public dashboard.
+## Local Validation
 
-## Required Bindings And Secrets
+Use the existing isolated runner described in
+[the theme-only test instructions](docs/THEME-ONLY-KEYS.md). It generates synthetic
+signing keys, uses local emulated D1, disables remote bindings and isolates caches
+and logs. The focused theme-only/security checkpoint passed 110 tests and type
+checking; this is not production validation.
 
-`wrangler.jsonc` declares:
+Do not obtain local test secrets from the retired console workflow or use real
+customer records. `npm run typecheck`, `npm test` and the existing local test
+configuration remain source validation tools; deployment is a separate action.
 
-```text
-DB                            D1 binding
-ACTIVATION_KEY_ID             non-secret protocol key ID
-ADMIN_HMAC_SECRET             Worker secret
-ACTIVATION_PRIVATE_KEY_PEM    Worker secret
-KOFI_VERIFICATION_TOKEN       Worker secret
-KOFI_INBOX_PUBLIC_KEY_PEM     uploaded as a Worker secret
-```
+## Current Deployment And Rollback Gates
 
-The inbox public key is not confidential, but uploading it as a secret keeps multiline PEM out of config and deployment output. Neither private key belongs in this Worker folder.
+1. Freeze the reviewed issuer/client/Community contract and preserve the previous
+   deployed version, D1 schema/data, bindings and recoverable secret configuration.
+   Document any backup/export limitation before approval. Protect backups from
+   public source and artifacts.
+2. Use the existing authorized Worker and D1 bindings. Do not recreate production
+   D1, reset licenses, import new keys or rotate secrets merely to deploy this
+   compatibility change. It requires no issuer schema migration or record rewrite.
+3. Keep the cutoff unset until an explicit historical-cohort review approves one
+   canonical value for both issuer and Community. An absent cutoff intentionally
+   omits the optional permanent-grant proof; it does not break the v1 response.
+4. The release owner uses the existing reviewed Worker deployment tooling
+   (`npm run deploy` invokes Wrangler). Do not run an archived console helper,
+   use Fulfillment Settings or enable a key-delivery job. Publish the compatible
+   issuer before distributing the device-free recognition client.
+5. Coordinate Community additive migrations, indexing/backfill, policy activation
+   and rollback separately through [ROLLOUT.md](../community_worker/contracts/ROLLOUT.md).
+   Preserve account identity, uploads, license/account bindings and permanent grants.
+6. Verify deployed health and old/new-client response/signature compatibility
+   without real purchases, customer mutations or fabricated public artwork.
+   Public client routes must remain reachable without an interactive Cloudflare
+   Access login; admin routes still require their existing HMAC authentication.
+7. Record exact deployed identities and rollback steps. Restoring older issuer
+   code can reintroduce its device precondition for new clients; coordinate any
+   rollback instead of restoring the whole live database or deleting newer records.
+8. Retire or revise the former key-sale/delivery promise on the external storefront
+   as part of launch. Optional donations do not promise new keys or Verified access.
 
-## Local Development
-
-```powershell
-cd "<path-to-KFPS>\tools\supporter_activation_worker"
-npm ci
-npm run migrate:local
-npm run dev
-```
-
-Local values belong in ignored `.dev.vars`. The console writes that file through `Settings > Write Local Test Secrets`.
-
-Validation:
-
-```powershell
-npm run typecheck
-npm test
-npx wrangler deploy --dry-run
-```
-
-Tests cover atomic activation claims, same-device repair, simultaneous claims, signed startup status and duplicate/revoked decisions, invalid-proof privacy, short-lived Community entitlement binding/reset/tampering, admin authentication, import/list/reset/conflict clearing, Ko-fi token rejection, encrypted-at-rest storage, duplicate webhooks, list/ack flow, and long-field encryption bounds.
-
-## Production
-
-Current production base URL:
-
-```text
-https://kfps-supporter-activation.hestia-cummings.workers.dev
-```
-
-Keep the Worker URL enabled and set to **Public**. Do not enable Cloudflare Access for this hostname: KFPS and Ko-fi do not perform an Access login, and the admin routes already require timestamped HMAC authentication. Version preview URLs are disabled in `wrangler.jsonc`.
-
-Before deploying:
-
-1. Log in to the intended Cloudflare account.
-2. Create D1 `kfps-activation` once.
-3. Replace the placeholder D1 UUID in `wrangler.jsonc`.
-4. Put the real Ko-fi verification token into the console's Fulfillment Settings.
-5. Run the guarded deployment helper from `KFPS Activation Admin`.
-6. Configure Ko-fi with `/v1/kofi/webhook` on the deployed HTTPS base URL.
-7. Test Ko-fi intake and activation before enabling the KFPS client endpoint.
-
-Complete instructions are in `DEPLOYMENT.md` inside the private KFPS Activation Admin folder.
-
-## Operational Rules
-
-- Never log request bodies, key proofs, customer fields, full headers, IP addresses, or user agents.
-- Never add readable customer identity to D1.
-- Never classify network/server failures as duplicate activation.
-- Never delete an activation allowlist row during reset; clear its device assignment.
-- Clear duplicate counters independently from registration, revocation, and restore actions.
-- Back up D1 and both private RSA keys separately in encrypted storage.
-- Keep this service isolated from unrelated KFPS application updates.
-
-Revocation removes a protected receipt the next time that KFPS starts and verifies a signed revoked status. A computer kept offline cannot receive that status. Restore changes the server row back to active; on the next connected launch, a locally revoked client verifies that signed state and requests a fresh receipt automatically. Registration reset remains separate: it clears the assigned device but does not change revoked/active status by itself.
+Server revocation still denies recognition and affects compatible old-client
+online status checks. It does not remotely remove the new client's locally
+validated theme entitlement or erase an existing permanent Community grant.
+No live service, storefront, credentials or customer data is changed by this guide.

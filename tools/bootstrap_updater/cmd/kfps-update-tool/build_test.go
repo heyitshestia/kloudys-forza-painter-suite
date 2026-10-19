@@ -25,6 +25,17 @@ func TestMain(testingMain *testing.M) {
 }
 
 func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
+	t.Run("historical-editor", func(t *testing.T) { testBuildPayloadLaunchers(t, false) })
+	t.Run("studio", func(t *testing.T) { testBuildPayloadLaunchers(t, true) })
+}
+
+func testBuildPayloadLaunchers(t *testing.T, withStudio bool) {
+	bootstrapVersion := "1.0.3"
+	launcherCount := 3
+	if withStudio {
+		bootstrapVersion = "1.0.5"
+		launcherCount = 4
+	}
 	root := t.TempDir()
 	app := filepath.Join(root, "app")
 	python := filepath.Join(root, "python-source")
@@ -36,10 +47,14 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 	writeBuildTestFile(t, filepath.Join(app, "VERSION"), "4.5.6\n")
 	writeBuildTestFile(t, filepath.Join(app, "KFPS.exe"), "launcher")
 	writeBuildTestFile(t, filepath.Join(app, "KFPS Editor.exe"), "editor-launcher")
+	if withStudio {
+		writeBuildTestFile(t, filepath.Join(app, "KFPSLiverySudio.exe"), "studio-launcher")
+	}
 	writeBuildTestFile(t, filepath.Join(app, "KFPS.UI", "app.py"), "app")
 	writeBuildTestFile(t, filepath.Join(app, "03_update_from_github.bat"), "legacy updater")
 	writeBuildTestFile(t, filepath.Join(app, "update_from_github.bat"), "legacy wrapper")
 	writeBuildTestFile(t, filepath.Join(app, "runtime", "user.json"), "preserve")
+	writeBuildTestFile(t, filepath.Join(app, "imgs", "livery-projects", "car-1", "projects", "work.json"), "preserve")
 	writeBuildTestFile(t, filepath.Join(app, "secret.kfpskey"), "preserve")
 	writeBuildTestFile(t, filepath.Join(python, "python.exe"), "python")
 	writeBuildTestFile(t, filepath.Join(python, "Lib", "site.py"), "site")
@@ -59,7 +74,7 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 	}
 	writeBuildTestFile(t, privatePath, bootstrap.EncodePrivateKey(privateKey)+"\n")
 	writeBuildTestFile(t, publicPath, bootstrap.EncodePublicKey(publicKey)+"\n")
-	writeBuildTestUpdater(t, updater, "1.0.3", bootstrap.KeyID(publicKey))
+	writeBuildTestUpdater(t, updater, bootstrapVersion, bootstrap.KeyID(publicKey))
 	err = buildPayload([]string{
 		"--app-root", app,
 		"--python-root", python,
@@ -70,7 +85,7 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 		"--base-url", "https://updates.example.invalid/stable",
 		"--version", "4.5.6",
 		"--commit", commit,
-		"--bootstrap-version", "1.0.3",
+		"--bootstrap-version", bootstrapVersion,
 		"--sequence", "42",
 		"--published-utc", "2026-09-01T12:00:00Z",
 	})
@@ -87,7 +102,7 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 	if err := json.Unmarshal(channelPayload, &channel); err != nil {
 		t.Fatal(err)
 	}
-	if channel.Sequence != 42 || channel.Updater.Version != "1.0.3" || channel.MinimumBootstrap != "1.0.3" {
+	if channel.Sequence != 42 || channel.Updater.Version != bootstrapVersion || channel.MinimumBootstrap != bootstrapVersion {
 		t.Fatalf("unexpected channel: %#v", channel)
 	}
 	manifestPath := filepath.Join(output, "kfps-update-4.5.6.json")
@@ -105,15 +120,24 @@ func TestBuildPayloadCreatesSignedSeparatedComponents(t *testing.T) {
 	}
 	applicationNames := zipNames(t, filepath.Join(output, "kfps-4.5.6-application.zip"))
 	launcherNames := zipNames(t, filepath.Join(output, "kfps-4.5.6-native-launchers.zip"))
-	if len(launcherNames) != 3 || !launcherNames["KFPS.exe"] || !launcherNames["KFPS Editor.exe"] || !launcherNames["KFPS-Updater.exe"] || !applicationNames["KFPS Editor.exe"] {
+	if len(launcherNames) != launcherCount || !launcherNames["KFPS.exe"] || !launcherNames["KFPS Editor.exe"] || !launcherNames["KFPS-Updater.exe"] || !applicationNames["KFPS Editor.exe"] {
 		t.Fatalf("desktop launchers are not available at both supported roots: %#v", launcherNames)
+	}
+	if withStudio && (!launcherNames["KFPSLiverySudio.exe"] || !applicationNames["KFPSLiverySudio.exe"]) {
+		t.Fatal("Studio launcher is not managed at both roots")
 	}
 	if err := bootstrap.ValidatePublishedContract(channel, manifest); err != nil {
 		t.Fatal(err)
 	}
 	channel.MinimumBootstrap = "1.0.2"
-	if err := bootstrap.ValidatePublishedContract(channel, manifest); err == nil || !strings.Contains(err.Error(), "requires minimum bootstrap 1.0.3") {
+	if withStudio {
+		channel.MinimumBootstrap = "1.0.4"
+	}
+	if err := bootstrap.ValidatePublishedContract(channel, manifest); err == nil || !strings.Contains(err.Error(), "requires minimum bootstrap "+bootstrapVersion) {
 		t.Fatalf("editor launcher accepted an incompatible bootstrap: %v", err)
+	}
+	if applicationNames["imgs/livery-projects/car-1/projects/work.json"] {
+		t.Fatal("user Studio project leaked into signed application")
 	}
 	if !applicationNames["KFPS.UI/app.py"] || !applicationNames["VERSION"] || !applicationNames["KFPS-Updater.exe"] || applicationNames["runtime/user.json"] || applicationNames["secret.kfpskey"] {
 		t.Fatalf("application component has wrong inventory: %#v", applicationNames)

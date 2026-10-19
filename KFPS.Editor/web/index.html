@@ -13,8 +13,11 @@
     }
   </script>
   <link rel="stylesheet" href="style.css?engine=editor-2.1&amp;locale=1">
+  <link rel="stylesheet" href="workspace.css?v=1">
+  <link rel="stylesheet" href="release-announcement.css?v=1">
   <script src="locales/en.js?locale=3"></script>
   <script src="locales/ko.js?locale=3"></script>
+  <script src="locales/ja.js?locale=3"></script>
   <script src="editor-i18n.js?locale=1"></script>
   <script src="vendor/fabric.min.js"></script>
   <script src="editor-fabric-adapter.js?engine=editor-2.2"></script>
@@ -48,6 +51,8 @@
           <button id="loadProject" title="Open a saved editable project.">Open Project</button>
           <button id="saveProject" class="primary" title="Save changes to this editable project.">Save</button>
           <button id="saveProjectAs" title="Save this editable project with a new name.">Save As</button>
+          <button id="openLiveryStudio" type="button" title="Open Livery Studio in its own window and send this vinyl when supported.">Livery Studio</button>
+          <button id="returnLiverySource" type="button" title="Return this edited source to Studio for an explicit instance update." hidden>Return to Studio</button>
         </div>
         <div class="menuGroup">
           <span>Edit</span>
@@ -93,7 +98,7 @@
           <option value="replace">Replace once</option>
         </select>
       </label>
-      <button id="quickColorSwatch" type="button" title="Open color picker and saved colors"></button>
+      <button id="quickColorSwatch" type="button" title="Open color picker and saved colors" aria-label="Open color picker and saved colors"></button>
       <div class="quickActionGroup" aria-label="Selected layer quick actions">
         <button id="quickDuplicateLayer" type="button" title="Duplicate selected layer(s). Respects Shape Click above/below placement mode.">Duplicate</button>
         <button id="quickDeleteLayer" type="button" title="Delete selected layer(s).">Delete</button>
@@ -238,7 +243,7 @@
               <h3>Appearance</h3>
               <label>Color
                 <span class="colorControlGroup">
-                  <button id="colorSwatchButton" type="button" title="Open color picker and saved colors"></button>
+                  <button id="colorSwatchButton" type="button" title="Open color picker and saved colors" aria-label="Open color picker and saved colors"></button>
                   <button id="colorEyedropper" class="iconButton" type="button" title="Pick color from canvas">⌕</button>
                   <input id="colorPicker" class="hiddenColorInput" type="color" value="#ffffff" aria-hidden="true" tabindex="-1">
                 </span>
@@ -247,7 +252,7 @@
               <button id="applyColorToSelection" type="button" title="Apply the active color and alpha to every selected unlocked layer." disabled>Apply Color To Selection</button>
               <button id="equalizeAlpha" type="button" title="Set every selected layer to the first selected layer's alpha." disabled>Equalize Alpha</button>
               <div class="colorPanelSummary">
-                <button id="colorPanelSwatch" type="button" title="Open saved colors"></button>
+                <button id="colorPanelSwatch" type="button" title="Open saved colors" aria-label="Open saved colors"></button>
                 <div>
                   <b id="colorPanelLabel">#FFFFFF</b>
                   <p>New shapes use this color unless live reference sampling is enabled.</p>
@@ -578,6 +583,7 @@
         <select id="editorLanguageSelect" aria-label="Editor language" title="Choose the editor language. Changes apply the next time the editor opens.">
           <option value="en" lang="en" data-language-name>English</option>
           <option value="ko" lang="ko" data-language-name>한국어</option>
+          <option value="ja" lang="ja" data-language-name>日本語</option>
         </select>
       </label>
       <span id="status">Ready. Mouse wheel zooms, middle/right drag pans.</span>
@@ -1072,6 +1078,11 @@
   <script src="editor-catalog.js?v=1"></script>
   <script src="editor-themes.js?v=1"></script>
   <script src="editor-transform-inputs.js?v=1"></script>
+  <script src="vendor/lucide-icons.js?v=1"></script>
+  <script src="editor-workspace.js?v=1"></script>
+  <script src="editor-docking.js?v=1"></script>
+  <script src="release-announcement.js?v=1" data-release-host="editor"></script>
+  <script src="activity-client.js?v=1" data-activity-host="editor"></script>
   <script>KfpsEditorPreferences.loadEditor("editor.js?engine=editor-2.5&locale=1");</script>
 </body>
 </html>

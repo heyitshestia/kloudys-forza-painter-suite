@@ -13,6 +13,13 @@ from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtGui import QImage
 
 
+def gallery_stub(**values):
+    defaults = dict(policyMode="legacy_supporter", policyReady=True, restrictedAccess=False,
+                    claimsEnabled=False, claimsView=False, authenticated=True, username="Viewer", changed=Mock())
+    defaults.update(values)
+    return SimpleNamespace(**defaults)
+
+
 def solid_png(color):
     image = QImage(160, 100, QImage.Format_RGB32)
     image.fill(color)
@@ -27,7 +34,7 @@ class GalleryLiveryCoverTests(unittest.TestCase):
         cover = solid_png('blue')
         for count in range(4):
             with self.subTest(count=count):
-                service = SimpleNamespace(busy=False, community=Mock(_app_version='3.1.91'), _call=Mock(),
+                service = gallery_stub(busy=False, community=Mock(_app_version='3.1.91'), _call=Mock(),
                     _pending=dict(kind='livery', payload=b'package', preview=cover, photos=[solid_png('red')] * count))
                 CommunityGalleryService.publish(service, dict(title='Car', rights=True))
                 service._call.call_args.args[0]()
@@ -40,7 +47,7 @@ class GalleryLiveryCoverTests(unittest.TestCase):
 
     def test_missing_cover_and_four_photos_do_not_send(self):
         for cover, photos in ((b'', []), (solid_png('blue'), [b'p'] * 4)):
-            service = SimpleNamespace(busy=False, community=Mock(_app_version='3.1.91'), _call=Mock(),
+            service = gallery_stub(busy=False, community=Mock(_app_version='3.1.91'), _call=Mock(),
                 _pending=dict(kind='livery', payload=b'package', preview=cover, photos=photos))
             CommunityGalleryService.publish(service, dict(title='Car', rights=True))
             with self.assertRaises(ValueError): service._call.call_args.args[0]()
@@ -49,18 +56,19 @@ class GalleryLiveryCoverTests(unittest.TestCase):
     def test_cover_is_first_media_with_zero_through_three_extras(self):
         for count in range(4):
             record = dict(preview_url='game-cover', photo_urls=[f'photo{i}' for i in range(count)])
-            service = SimpleNamespace(_selected=dict(id='car', kind='livery', locked=False),
+            service = gallery_stub(_selected=dict(id='car', kind='livery', locked=False, canViewMedia=True),
                 _records={'car': record}, authenticated=True, _image_url=lambda r, k, p, *args: p)
             CommunityGalleryService._selected_media(service)
             self.assertEqual(service._selected['previewUrl'], 'game-cover')
             self.assertEqual(service._selected['photoUrls'], ['game-cover'] + record['photo_urls'])
         service._selected['locked'] = True
+        service._selected['canViewMedia'] = False
         service._selected['photoUrls'] = []
         CommunityGalleryService._selected_media(service)
         self.assertEqual(service._selected['photoUrls'], [])
 
     def test_livery_tab_query_and_exit_keep_filters_consistent(self):
-        service = SimpleNamespace(_scope='Timed Releases', refresh=Mock(), _filters=dict(
+        service = gallery_stub(_scope='Timed Releases', refresh=Mock(), _filters=dict(
             kind='vinyl', sort='Newest', creator='', search='', game='All', category='All',
             classification='All', supporters=False))
         CommunityGalleryService.filter(service, 'scope', 'Livery')
@@ -78,7 +86,7 @@ class GalleryLiveryCoverTests(unittest.TestCase):
 
     def test_legacy_cover_is_not_repeated_as_an_extra_photo(self):
         record = dict(preview_url='cover', photo_urls=['photo0'], cover_is_first_photo=True)
-        service = SimpleNamespace(_selected=dict(id='car', kind='livery', locked=False),
+        service = gallery_stub(_selected=dict(id='car', kind='livery', locked=False, canViewMedia=True),
             _records={'car': record}, authenticated=True, _image_url=lambda r, k, p, *args: p)
         CommunityGalleryService._selected_media(service)
         self.assertEqual(service._selected['photoUrls'], ['photo0'])
@@ -97,7 +105,7 @@ class GalleryLiveryCoverTests(unittest.TestCase):
 
 class GallerySupporterDiscoveryTests(unittest.TestCase):
     def test_supporter_tab_is_public_and_filters_without_legacy_key_gate(self):
-        service = SimpleNamespace(_scope='Browse', refresh=Mock(), _filters=dict(
+        service = gallery_stub(_scope='Browse', refresh=Mock(), _filters=dict(
             kind='All', sort='Newest', creator='', search='', game='All', category='All',
             classification='All', supporters=False))
         CommunityGalleryService.filter(service, 'scope', 'Supporters')
@@ -119,7 +127,7 @@ class GallerySupporterDiscoveryTests(unittest.TestCase):
 
     def test_non_supporter_keeps_thumbnail_but_cannot_unlock_media(self):
         for authenticated in (False, True):
-            service = SimpleNamespace(supporter=False, authenticated=authenticated, username='Viewer',
+            service = gallery_stub(supporter=False, authenticated=authenticated, username='Viewer',
                 _records={}, _image_url=lambda r, k, p, *args: p)
             record = dict(id='locked', kind='vinyl', supporter_only=True, status='published',
                 thumbnail_url='thumbnail', preview_url='full-preview', photo_urls=['photo'])
@@ -133,14 +141,15 @@ class GallerySupporterDiscoveryTests(unittest.TestCase):
 
     def test_supporter_tab_is_bilingual_and_not_sign_in_gated(self):
         qml = (UI / 'qml/community-preview/CommunityPreview.qml').read_text(encoding='utf-8')
-        self.assertIn('key:"Supporters",label:root.ui("Supporters", "서포터 전용")', qml)
+        self.assertIn('root.ui("Supporters", "서포터 전용")', qml)
+        self.assertIn('root.ui("Verified", "Verified 전용")', qml)
         self.assertIn('["Featured", "Browse", "Timed Releases", "Livery", "Supporters"].indexOf', qml)
 
 
 class GalleryLifecycleTests(unittest.TestCase):
     def test_closing_while_downloading_cannot_reopen_renderer(self):
-        selected = {'id': 'test', 'kind': 'livery'}
-        service = SimpleNamespace(busy=False, _selected=selected, _records={'test': selected},
+        selected = {'id': 'test', 'kind': 'livery', 'canViewMedia': True}
+        service = gallery_stub(busy=False, _selected=selected, _records={'test': selected},
                                   community=Mock(), _render_session=None, _render_id='',
                                   _render_generation=0, _call=Mock(), root=Path('.'), repo=Path('.'))
         service.closeRender = MethodType(CommunityGalleryService.closeRender, service)

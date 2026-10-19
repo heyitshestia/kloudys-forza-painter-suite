@@ -11,9 +11,6 @@ Item {
 
     property bool wide: Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
-    readonly property bool activationNeedsRepair: [
-        "duplicate", "not_eligible", "network_error", "service_error", "deactivated", "revoked"
-    ].indexOf(supporterService.activationState) >= 0
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && interfaceCard.width > 0
                                                      && foldersCard.width > 0
@@ -26,7 +23,7 @@ Item {
         interval: 2000
         repeat: true
         triggeredOnStart: true
-        running: root.visible && settings.editorUseChrome
+        running: root.visible && (settings.editorUseChrome || settings.liveryUseChrome)
         onTriggered: desktop.refreshChromeStatus()
     }
 
@@ -39,7 +36,7 @@ Item {
 
     GridLayout {
         width: pageScroll.availableWidth
-        height: root.wide ? pageScroll.availableHeight : implicitHeight
+        height: root.wide ? Math.max(pageScroll.availableHeight, implicitHeight) : implicitHeight
         columns: root.wide ? 3 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
@@ -48,6 +45,7 @@ Item {
             id: interfaceCard
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
+            Layout.minimumHeight: interfaceContent.implicitHeight + padding * 2
             Layout.preferredHeight: root.wide
                                     ? -1
                                     : Math.max(Theme.px(610), interfaceContent.implicitHeight + padding * 2)
@@ -144,7 +142,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: supporterService.status
-                                  + "\nOne-time anonymous registration sends no name, email, hardware details, artwork, or file paths. Activated devices need no recurring check."
+                                  + "\nExisting keys unlock supporter themes locally. No PC binding or online activation."
                             color: supporterService.unlocked ? Theme.muted : Theme.subtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.8)
@@ -158,11 +156,12 @@ Item {
                             spacing: Theme.px(7)
 
                             PrimaryButton {
+                                objectName: "AddSupporterThemeKey"
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
                                 text: supporterService.unlocked ? "Replace Key" : "Add Supporter Key"
                                 iconName: "settings"
-                                toolTipText: "Choose a supporter key file. KFPS registers a valid key automatically when needed."
+                                toolTipText: "Choose an existing signed supporter key to unlock the exclusive themes."
                                 onClicked: {
                                     if (supporterService.importKey()) {
                                         settings.theme = supporterService.preferredTheme
@@ -171,31 +170,14 @@ Item {
                             }
 
                             GhostButton {
+                                objectName: "RemoveSupporterThemeKey"
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
                                 enabled: supporterService.keyValid
-                                         && (supporterService.activationState !== "active"
-                                             || supporterService.canDeactivate)
-                                         && (!root.activationNeedsRepair || supporterService.canRepair)
-                                text: supporterService.activationState === "active"
-                                      ? (supporterService.canDeactivate ? "Release Device" : "Releasing...")
-                                      : (root.activationNeedsRepair
-                                         ? (supporterService.activationState === "deactivated" ? "Register Again" : "Retry")
-                                         : "Remove")
-                                toolTipText: supporterService.activationState === "active"
-                                             ? "Release this device so the supporter key can be registered on another computer."
-                                             : (root.activationNeedsRepair
-                                                ? "Try the supporter-key registration again after checking the connection."
-                                                : "Remove the supporter key from this KFPS installation.")
+                                text: "Remove Key"
+                                toolTipText: "Remove local theme-key files. Your Community Verified status and projects are unchanged."
                                 onClicked: {
-                                    if (supporterService.activationState === "active") {
-                                        supporterService.deactivateDevice()
-                                    } else if (root.activationNeedsRepair) {
-                                        supporterService.repairActivation()
-                                    } else {
-                                        supporterService.removeKey()
-                                        settings.theme = Theme.defaultThemeName
-                                    }
+                                    supporterService.removeKey()
                                 }
                             }
                         }
@@ -217,7 +199,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Supporter extras"
+                            text: "Supporter themes"
                             color: Theme.primaryBright
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(12.4)
@@ -227,7 +209,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "One-click FH6 save-library exports and supporter themes are available with a supporter key."
+                            text: "Existing supporter keys unlock four exclusive themes. All local tools are free."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(9.6)
@@ -239,10 +221,10 @@ Item {
                         PrimaryButton {
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            text: "Get Supporter Key"
+                            text: "Support KFPS"
                             iconName: "heart"
-                            toolTipText: "Open the KFPS supporter page in your web browser."
-                            onClicked: desktop.openUrl("https://ko-fi.com/s/2d1507698d")
+                            toolTipText: "Open Ko-fi for an optional donation. Donations do not issue a key."
+                            onClicked: desktop.openUrl("https://ko-fi.com/O7O020EQNQ")
                         }
                     }
                 }
@@ -296,6 +278,7 @@ Item {
             id: foldersCard
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
+            Layout.minimumHeight: foldersContent.implicitHeight + padding * 2
             Layout.preferredHeight: root.wide
                                     ? -1
                                     : Math.max(Theme.px(350), foldersContent.implicitHeight + padding * 2)
@@ -402,6 +385,7 @@ Item {
             id: maintenanceCard
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
+            Layout.minimumHeight: maintenanceContent.implicitHeight + padding * 2
             Layout.preferredHeight: root.wide
                                     ? -1
                                     : Math.max(Theme.px(210), maintenanceContent.implicitHeight + padding * 2)
@@ -458,7 +442,7 @@ Item {
                 Label {
                     objectName: "editorChromeStatus"
                     Layout.fillWidth: true
-                    visible: settings.editorUseChrome
+                    visible: settings.editorUseChrome || settings.liveryUseChrome
                     text: desktop.chromeInstalled ? "Google Chrome: installed" : "Google Chrome: not found"
                     wrapMode: Text.WordWrap
                 }
@@ -466,7 +450,7 @@ Item {
                 GhostButton {
                     objectName: "editorChromeDownload"
                     Layout.fillWidth: true
-                    visible: settings.editorUseChrome && !desktop.chromeInstalled
+                    visible: (settings.editorUseChrome || settings.liveryUseChrome) && !desktop.chromeInstalled
                     text: "Install Google Chrome..."
                     iconName: "external"
                     toolTipText: "Open Google's official setup page. Complete installation there; KFPS detects it automatically. No silent install or default-browser change."
@@ -475,20 +459,30 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    visible: settings.editorUseChrome && desktop.chromeInstallError !== ""
+                    visible: (settings.editorUseChrome || settings.liveryUseChrome) && desktop.chromeInstallError !== ""
                     text: desktop.chromeInstallError
                     wrapMode: Text.WordWrap
                 }
 
-                Label { text: "Editor graphics (restart editor)"; enabled: !settings.editorUseChrome }
+                KfpsCheckBox {
+                    objectName: "liveryChromeToggle"
+                    Layout.fillWidth: true
+                    dense: root.compactHeight
+                    text: "Use Google Chrome for Livery Studio"
+                    checked: settings.liveryUseChrome
+                    toolTipText: "Off opens a standalone native window. On uses installed Chrome with a separate Studio profile. Applies to Studio opened from KFPS, the editor, or the Studio shortcut after closing and reopening it."
+                    onToggled: settings.liveryUseChrome = checked
+                }
+
+                Label { text: "Editor / Studio graphics (restart windows)"; enabled: !settings.editorUseChrome || !settings.liveryUseChrome }
                 KfpsComboBox {
                     objectName: "editorGraphicsSelector"
                     Layout.fillWidth: true
                     dense: root.compactHeight
-                    enabled: !settings.editorUseChrome
+                    enabled: !settings.editorUseChrome || !settings.liveryUseChrome
                     model: ["Auto", "OpenGL", "Direct3D 11"]
                     currentIndex: ["auto", "opengl", "d3d11"].indexOf(settings.editorGraphics)
-                    toolTipText: "Auto preserves OpenGL except for confirmed hardware and driver compatibility rules. Applies to both editor launch methods after closing and reopening the editor."
+                    toolTipText: "Auto preserves OpenGL except for confirmed hardware and driver compatibility rules. Applies to native editor and Livery Studio windows after closing and reopening them. Chrome manages its own graphics."
                     onActivated: settings.editorGraphics = ["auto", "opengl", "d3d11"][currentIndex]
                 }
 
@@ -519,6 +513,11 @@ Item {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(9.4)
                     wrapMode: Text.Wrap
+                }
+
+                ActivitySettings {
+                    Layout.fillWidth: true
+                    service: activityService
                 }
 
                 Item { Layout.fillHeight: true }

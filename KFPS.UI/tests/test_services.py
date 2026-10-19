@@ -183,30 +183,40 @@ class ServiceTests(unittest.TestCase):
  def test_no_memory_write_in_tests(self):
   dangerous=["fh6_import_typecode_json.py","fh6_export_typecode_json.py","fh6_trim_group_count.py"]
   self.assertTrue(all((ROOT/name).exists() for name in dangerous))
- def test_supporter_unlock_install_handles_stale_temp_source(self):
+ def _signed_theme_key(self, path, name):
+  import test_activation as fixtures
+  from kfps_ui import activation_crypto
+  payload={"schema":"kfps.supporter.v1","supporter_name":name,"entitlements":["supporter_theme"]}
+  path.write_text(json.dumps(fixtures.sign_test_envelope("kfps.supporter.unlock",payload)),encoding="utf-8")
+  return payload,patch.object(activation_crypto,"SUPPORTER_PUBLIC_KEY",fixtures.TEST_PUBLIC_KEY)
+ def test_supporter_unlock_reads_legacy_temp_source_without_moving_it(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"runtime"/"supporter"/"supporter.tmp";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Test","entitlements":["supporter_theme"]}
+   payload,verification=self._signed_theme_key(source,"Test")
+   with verification:
+    svc=SupporterService(app_root,enforce_activation=False)
    self.addCleanup(svc.close)
-   self.assertTrue(svc._install_key(source,payload,"Local unlock verified.",remove_source=True))
-   self.assertTrue((app_root/"supporter.kfpskey").exists())
-   self.assertFalse(source.exists())
+   self.assertFalse((app_root/"supporter.kfpskey").exists())
+   self.assertTrue(source.exists())
    self.assertTrue(svc.unlocked)
  def test_supporter_unlock_install_preserves_personal_key_name(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);source=app_root/"downloads"/"Alice Custom.kfpskey";source.parent.mkdir(parents=True);source.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Alice","entitlements":["supporter_theme"]}
+   payload,verification=self._signed_theme_key(source,"Alice")
+   svc=SupporterService(app_root,enforce_activation=False)
    self.addCleanup(svc.close)
-   self.assertTrue(svc._install_key(source,payload,"Local unlock verified."))
+   with verification:
+    self.assertTrue(svc._install_key(source,payload,"Local unlock verified."))
    self.assertTrue((app_root/"Alice Custom.kfpskey").exists())
    self.assertTrue(svc.unlocked)
  def test_supporter_unlock_reload_accepts_root_key_drop(self):
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);key=app_root/"Manual Drop.kfpskey";key.write_text("validated key bytes",encoding="utf-8")
-   svc=SupporterService(app_root,enforce_activation=False);payload={"supporter_name":"Manual","entitlements":["supporter_theme"]}
+   svc=SupporterService(app_root,enforce_activation=False)
    self.addCleanup(svc.close)
-   svc._validate_file=lambda path:(True,payload,"Local unlock verified.") if path==key else (False,None,"wrong key")
-   svc.reload()
+   payload,verification=self._signed_theme_key(key,"Manual")
+   with verification:
+    svc.reload()
    self.assertTrue(svc.unlocked)
    self.assertEqual(svc.supporterLabel,"Manual")
  def test_manual_fd6_json_is_converted_without_touching_source(self):

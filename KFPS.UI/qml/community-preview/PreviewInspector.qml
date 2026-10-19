@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Kfps.Theme 1.0
 import "../components" as C
+import "CommunityPolicyText.js" as PolicyText
 
 ColumnLayout {
     id: inspector
@@ -14,6 +15,7 @@ ColumnLayout {
     signal creatorRequested(string creator)
     signal tagsRequested()
     signal revisionRequested()
+    signal claimsRequested()
     spacing: Theme.px(8)
     PreviewText { visible: !inspector.artwork.id; text: inspector.ui("No artwork selected", "선택한 작품이 없습니다"); Layout.fillWidth: true }
     ScrollView {
@@ -78,25 +80,38 @@ ColumnLayout {
             PreviewText { text: inspector.ui("Availability", "공개 기간"); textWeight: Font.DemiBold }
             PreviewText { text: inspector.artwork.window || inspector.ui("No expiry", "기한 없음"); Layout.fillWidth: true; color: Theme.muted; textSize: 13 }
             PreviewText { visible: inspector.artwork.state !== "available"; text: inspector.ui("Status: ", "상태: ") + (inspector.artwork.state || ""); color: Theme.warning; Layout.fillWidth: true }
-            PreviewText { visible: !!inspector.artwork.locked; text: inspector.ui("A verified supporter key is required to download this artwork.", "이 작품을 다운로드하려면 유효한 서포터 키가 필요합니다."); color: Theme.warning; Layout.fillWidth: true }
+            PreviewText { visible: !!inspector.artwork.locked; text: preview.policyMode === "verified_v1" ? inspector.ui("Verified access is required for this restricted artwork. Your original-vinyl progress is shown in My uploads.", "이 제한 작품은 Verified 이용 권한이 필요합니다. 원본 비닐 진행 상황은 내 업로드에서 확인할 수 있습니다.") : inspector.ui("This server still requires Supporter access for restricted artwork.", "이 서버는 제한 작품에 기존 서포터 이용 권한을 요구합니다."); color: Theme.warning; Layout.fillWidth: true }
             PreviewText { text: inspector.ui("License", "라이선스"); textWeight: Font.DemiBold }
             PreviewText { text: inspector.artwork.license || ""; Layout.fillWidth: true; color: Theme.muted; textSize: 13 }
             PreviewText { visible: !!inspector.artwork.warning; text: inspector.artwork.warning || ""; Layout.fillWidth: true; color: Theme.warning }
             PreviewText { visible: !!inspector.artwork.sample; text: inspector.ui("Visual sample only. Upload a JSON or livery package to test real file transfers.", "미리보기용 예시입니다. 실제 파일 전송을 시험하려면 JSON 또는 리버리 패키지를 업로드해 주세요."); Layout.fillWidth: true; color: Theme.warning; textSize: 13 }
             RowLayout {
                 Layout.fillWidth: true
-                PreviewButton { objectName: "Upvote"; iconName: "arrow-up"; hint: inspector.ui("Upvote", "추천"); selected: inspector.artwork.vote === 1; enabled: preview.authenticated && inspector.artwork.state === "available" && !inspector.artwork.locked; onClicked: preview.vote(1) }
+                PreviewButton { objectName: "Upvote"; iconName: "arrow-up"; hint: inspector.ui("Upvote", "추천"); selected: inspector.artwork.vote === 1; enabled: !!inspector.artwork.canInteract; onClicked: preview.vote(1) }
                 PreviewText { text: String(inspector.artwork.score || 0); textWeight: Font.Bold; horizontalAlignment: Text.AlignHCenter; Layout.preferredWidth: 42 }
-                PreviewButton { objectName: "Downvote"; iconName: "arrow-up"; iconRotation: 180; hint: inspector.ui("Downvote", "비추천"); selected: inspector.artwork.vote === -1; enabled: preview.authenticated && inspector.artwork.state === "available" && !inspector.artwork.locked; onClicked: preview.vote(-1) }
+                PreviewButton { objectName: "Downvote"; iconName: "arrow-up"; iconRotation: 180; hint: inspector.ui("Downvote", "비추천"); selected: inspector.artwork.vote === -1; enabled: !!inspector.artwork.canInteract; onClicked: preview.vote(-1) }
                 Item { Layout.fillWidth: true }
                 PreviewText { text: (inspector.artwork.downloads || 0) + inspector.ui(" downloads", "회 다운로드"); textSize: 12; color: Theme.muted }
             }
             RowLayout {
                 Layout.fillWidth: true
-                PreviewButton { iconName: "reports"; text: inspector.ui("Report", "신고"); enabled: preview.authenticated && inspector.artwork.state === "available" && !inspector.artwork.locked; onClicked: inspector.reportRequested() }
+                PreviewButton { iconName: "reports"; text: inspector.ui("Report", "신고"); enabled: !!inspector.artwork.canInteract; onClicked: inspector.reportRequested() }
                 PreviewButton { text: inspector.ui("Ignore creator", "작성자 숨기기"); enabled: preview.authenticated && !inspector.artwork.own; onClicked: preview.toggle("ignored") }
             }
             PreviewButton { objectName: "RemoveOwnUpload"; visible: !!inspector.artwork.own; text: inspector.ui("Remove upload", "업로드 삭제"); enabled: inspector.artwork.state !== "expired" && inspector.artwork.state !== "removed"; onClicked: inspector.removalRequested() }
+            PreviewText { visible: !!inspector.artwork.own && !!inspector.artwork.contribution && !!inspector.artwork.contribution.state; Layout.fillWidth: true; text: PolicyText.contribution((inspector.artwork.contribution || {}).state, inspector.ui); color: Theme.muted }
+            Flow {
+                Layout.fillWidth: true; spacing: Theme.px(6)
+                visible: !!inspector.artwork.own && preview.claimsEnabled
+                PreviewButton {
+                    objectName: "SelectOwnClaim"
+                    visible: !!inspector.artwork.canClaim
+                    text: preview.claimSelection.indexOf(inspector.artwork.id) >= 0 ? inspector.ui("Deselect claim", "확인 선택 해제") : inspector.ui("Select original claim", "원본 확인 선택")
+                    enabled: !preview.claimsBusy && (preview.claimSelection.indexOf(inspector.artwork.id) >= 0 || preview.claimSelection.length < 10)
+                    onClicked: preview.toggleClaim(inspector.artwork.id)
+                }
+                PreviewButton { text: inspector.ui("Review claims", "확인 요청 검토"); enabled: preview.claimSelection.length > 0 || preview.claimResults.length > 0; onClicked: inspector.claimsRequested() }
+            }
             RowLayout {
                 visible: typeof communityGalleryMode !== "undefined" && communityGalleryMode && !!inspector.artwork.own
                 PreviewButton { text: inspector.ui("Edit tags", "태그 수정"); onClicked: inspector.tagsRequested() }
@@ -114,17 +129,17 @@ ColumnLayout {
         PreviewPrimaryButton {
             id: downloadAction
             objectName: "Download"; anchors.left: parent.left; width: actions.actionWidth; height: parent.height
-            text: inspector.artwork.locked ? "Ko-Fi" : inspector.ui("Download", "다운로드")
-            enabled: !!inspector.artwork.locked || (preview.authenticated && !!inspector.artwork.downloadable && inspector.artwork.state === "available")
-            toolTipText: inspector.artwork.locked ? inspector.ui("Support KFPS on Ko-Fi", "Ko-Fi에서 KFPS 후원하기") : text
-            onClicked: inspector.artwork.locked ? desktop.openUrl("https://ko-fi.com/s/2d1507698d") : preview.download()
+            text: inspector.ui("Download", "다운로드")
+            enabled: preview.authenticated && !!inspector.artwork.downloadable && inspector.artwork.state === "available"
+            toolTipText: text
+            onClicked: preview.download()
         }
         PreviewButton {
             id: favoriteAction
             objectName: "Favorite"; anchors.right: parent.right; width: actions.actionWidth; height: parent.height
             text: inspector.ui("Favorite", "즐겨찾기"); selected: !!inspector.artwork.favorite
             hint: inspector.artwork.favorite ? inspector.ui("Remove favorite", "즐겨찾기 해제") : text
-            enabled: preview.authenticated; onClicked: preview.toggle("favorites")
+            enabled: !!inspector.artwork.canInteract; onClicked: preview.toggle("favorites")
         }
     }
 }

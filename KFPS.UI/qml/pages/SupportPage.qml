@@ -11,38 +11,24 @@ Item {
     anchors.fill: parent
     readonly property bool wide: Theme.logical(width) >= 980
     readonly property bool compact: Theme.logical(width) < 720
-    readonly property string supporterUrl: "https://ko-fi.com/s/2d1507698d"
+    readonly property string donationUrl: "https://ko-fi.com/O7O020EQNQ"
     readonly property var benefits: [
         {
             icon: "transfer",
-            title: "Instant Offline Imports & Exports",
-            detail: "Export complete FH4, FH5, FH6, and FM8 vinyl libraries into KFPS in one action, then import compatible JSON directly into supported FH4, FH6, or FM8 save data. No game needs to be started."
+            title: "Free local tools",
+            detail: "Generation, both editors, output management and supported online and offline import/export, including full library transfers, do not require a supporter key. Game and save-format checks still apply."
         },
         {
             icon: "monitor",
-            title: "Four Extra Themes",
-            detail: "Make KFPS your own with Windows 94, Patron's Atelier, Carbon Dark, and Overdrive 200X, all included alongside every public theme."
+            title: "Supporter themes",
+            detail: "Windows 94, Patron's Atelier, Carbon Dark and Overdrive 200X remain supporter-only. Public themes and the editor's custom themes stay free."
         },
         {
             icon: "heart",
-            title: "Supporter Community",
-            detail: "Browse and download supporter-only vinyls, publish your own work to the supporter catalog, and unlock supporter designs featured for the whole Community to see."
+            title: "Community",
+            detail: "Public sharing uses your GitHub sign-in, not a purchase. Community displays the connected server's access rules for protected artwork."
         }
     ]
-
-    Component.onCompleted: {
-        if (supporterService.unlocked)
-            Qt.callLater(function () { appController.navigate("create") })
-    }
-
-    Connections {
-        target: supporterService
-
-        function onChanged() {
-            if (supporterService.unlocked)
-                appController.navigate("create")
-        }
-    }
 
     FastScrollView {
         id: scroll
@@ -106,7 +92,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Keep every core KFPS workflow free while unlocking full offline library tools, supporter vinyl sharing, and four custom themes with one purchase."
+                            text: "Thanks for using KFPS. Optional donations help support its continued development."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(root.compact ? 12.8 : 14.2)
@@ -118,15 +104,16 @@ Item {
                 }
 
                 PrimaryButton {
+                    objectName: "DonateToKfps"
                     Layout.fillWidth: !root.wide
                     Layout.preferredWidth: root.wide ? Theme.px(260) : -1
                     Layout.alignment: root.wide ? (Qt.AlignRight | Qt.AlignVCenter) : Qt.AlignHCenter
-                    text: "Get a Supporter Key"
+                    text: "Donate on Ko-fi"
                     iconName: "heart"
                     showArrow: true
                     textPixelSize: Theme.px(13)
-                    toolTipText: "Open the official KFPS supporter-key product page on Ko-fi."
-                    onClicked: desktop.openUrl(root.supporterUrl)
+                    toolTipText: "Open the official KFPS donation page on Ko-fi."
+                    onClicked: desktop.openUrl(root.donationUrl)
                 }
             }
 
@@ -159,7 +146,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "ONE-TIME PURCHASE - NOT A SUBSCRIPTION"
+                            text: "Donations are optional"
                             color: Theme.warning
                             font.family: Theme.displayFamily
                             font.pixelSize: Theme.px(root.compact ? 17 : 21)
@@ -169,7 +156,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "You pay once for the supporter key. There is no monthly fee and no recurring KFPS charge."
+                            text: "You can use KFPS's local tools without paying or entering a key. A donation is a thank-you, not an access requirement."
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(root.compact ? 13 : 14)
@@ -183,7 +170,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: "What the supporter key unlocks"
+                text: "KFPS access"
                 color: Theme.primaryBright
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(root.compact ? 19 : 22)
@@ -271,7 +258,7 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "What stays available without a key"
+                            text: "Theme keys"
                             color: Theme.text
                             font.family: Theme.displayFamily
                             font.pixelSize: Theme.px(root.compact ? 15 : 16.5)
@@ -281,7 +268,10 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Generation, the manual editor, output management, the public Community catalog, and online live import/export for FH4, FH5, FH6, and FM8 remain available without supporter access."
+                            objectName: "SupporterThemeStatus"
+                            text: supporterService.unlocked
+                                  ? "Your supporter themes are unlocked. Your existing key and settings are kept."
+                                  : "Existing keys still unlock the four supporter themes, without PC binding or online activation. Donations do not issue new keys or unlock Verified Community access."
                             color: Theme.muted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(root.compact ? 12 : 12.8)
@@ -301,7 +291,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Already purchased? Add the key from Settings. KFPS verifies and registers a valid key automatically."
+                    text: "Have a theme key? Add or manage it in Settings. No key is needed for the local editing and transfer tools."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(root.compact ? 11.8 : 12.4)
@@ -311,12 +301,13 @@ Item {
                 }
 
                 GhostButton {
+                    objectName: "OpenSupporterKeySettings"
                     Layout.fillWidth: !root.wide
                     Layout.preferredWidth: root.wide ? Theme.px(210) : -1
                     Layout.alignment: root.wide ? Qt.AlignRight : Qt.AlignHCenter
-                    text: "Open Key Settings"
+                    text: "Theme Settings"
                     iconName: "settings"
-                    toolTipText: "Open Settings to add, replace, repair, or release a supporter key."
+                    toolTipText: "Open Settings to add, replace, or remove an existing theme key."
                     onClicked: appController.navigate("settings")
                 }
             }

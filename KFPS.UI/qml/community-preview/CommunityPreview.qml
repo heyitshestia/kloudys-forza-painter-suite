@@ -59,7 +59,7 @@ Item {
                     }
                 }
                 Timer { id: searchTimer; interval: 300; onTriggered: search.submitQuery() }
-                PreviewPrimaryButton { objectName: "OpenUpload"; dense: true; text: root.ui("Upload artwork", "작품 업로드"); iconName: "arrow-up"; enabled: preview.authenticated; onClicked: { uploadDialog.revision = false; uploadDialog.open() } }
+                PreviewPrimaryButton { objectName: "OpenUpload"; dense: true; text: root.ui("Upload artwork", "작품 업로드"); iconName: "arrow-up"; enabled: preview.authenticated && preview.policyReady; onClicked: { uploadDialog.revision = false; uploadDialog.open() } }
                 PreviewButton { objectName: "OwnProfile"; Layout.maximumWidth: Theme.px(170); text: preview.username ? "@" + preview.username : root.ui("Profile", "프로필"); enabled: preview.authenticated; onClicked: root.openCreator(preview.username) }
                 PreviewButton { objectName: "CommunityAccount"; visible: root.liveMode; text: communityService.authenticated ? root.ui("Account", "계정") : root.ui("Sign in with GitHub", "GitHub로 로그인"); onClicked: accountDialog.open() }
             }
@@ -71,14 +71,21 @@ Item {
                     Flow {
                         Layout.fillWidth: true; spacing: Theme.px(4)
                         Repeater {
-                            model: [{key:"Featured", label:root.ui("Featured", "추천 작품")}, {key:"Browse",label:root.ui("Browse", "둘러보기")}, {key:"Timed Releases",label:root.ui("Timed Releases", "기간 한정")}, {key:"Livery",label:root.ui("Livery", "리버리")}, {key:"Supporters",label:root.ui("Supporters", "서포터 전용")}, {key:"Favorites",label:root.ui("Favorites", "즐겨찾기")}, {key:"Following",label:root.ui("Following", "팔로잉")}]
+                            model: [{key:"Featured", label:root.ui("Featured", "추천 작품")}, {key:"Browse",label:root.ui("Browse", "둘러보기")}, {key:"Timed Releases",label:root.ui("Timed Releases", "기간 한정")}, {key:"Livery",label:root.ui("Livery", "리버리")}, {key:"Supporters",label:preview.policyMode === "verified_v1" ? root.ui("Verified", "Verified 전용") : root.ui("Supporters", "서포터 전용")}, {key:"Favorites",label:root.ui("Favorites", "즐겨찾기")}, {key:"Following",label:root.ui("Following", "팔로잉")}]
                             delegate: PreviewButton { required property var modelData; objectName: "Scope:" + modelData.key; text: modelData.label; selected: preview.scope === modelData.key; enabled: ["Featured", "Browse", "Timed Releases", "Livery", "Supporters"].indexOf(modelData.key) >= 0 || preview.authenticated; onClicked: preview.filter("scope", modelData.key) }
                         }
                         PreviewButton { text: root.ui("My uploads", "내 업로드"); selected: preview.scope === "My uploads"; enabled: preview.authenticated; onClicked: preview.filter("scope", "My uploads") }
                         PreviewButton { objectName: "ClearCreator"; visible: !!preview.filters.creator; text: "@" + preview.filters.creator + " [x]"; hint: root.ui("Show all creators", "모든 작성자 보기"); onClicked: preview.filter("creator", "") }
                         PreviewButton { iconName: "refresh"; hint: root.ui("Refresh", "새로고침"); onClicked: preview.refresh() }
-                        C.KfpsCheckBox { id: supporterFilter; font.pixelSize: Math.round(Theme.px(12)); dense: true; crispText: true; text: root.ui("Supporters only", "서포터 전용"); checked: preview.filters.supporters; onToggled: preview.filterSupporters(checked) }
+                        C.KfpsCheckBox { id: supporterFilter; font.pixelSize: Math.round(Theme.px(12)); dense: true; crispText: true; text: preview.policyMode === "verified_v1" ? root.ui("Verified only", "Verified 전용") : root.ui("Supporters only", "서포터 전용"); checked: preview.filters.supporters; onToggled: preview.filterSupporters(checked) }
                         PreviewText { text: (root.liveMode ? preview.totalCount : preview.rows.length) + root.ui(" artworks", "개 작품"); height: supporterFilter.height; verticalAlignment: Text.AlignVCenter; textSize: Theme.px(11); color: Theme.muted }
+                    }
+                    CommunityAccess { visible: preview.scope === "My uploads" || !preview.policyReady; Layout.fillWidth: true; accessService: preview; ui: root.ui }
+                    Flow {
+                        visible: preview.scope === "My uploads" && preview.claimsEnabled
+                        Layout.fillWidth: true; spacing: Theme.px(6)
+                        C.KfpsCheckBox { objectName: "OwnClaimsView"; dense: true; text: root.ui("Original vinyl claims (including past uploads)", "원본 비닐 확인 (이전 업로드 포함)"); checked: preview.claimsView; onToggled: preview.setClaimsView(checked) }
+                        PreviewButton { objectName: "ReviewClaims"; text: root.ui("Review claims", "확인 요청 검토") + " (" + preview.claimSelection.length + "/10)"; enabled: preview.claimSelection.length > 0 || preview.claimResults.length > 0; onClicked: claimsDialog.open() }
                     }
                     GridLayout {
                         objectName: "GalleryFilters"
@@ -117,6 +124,10 @@ Item {
                                 width: gallery.cellWidth - Theme.px(10); height: gallery.cellHeight - Theme.px(12)
                                 selected: preview.selected.id === artwork.id
                                 ui: root.ui
+                                claimMode: preview.claimsView && preview.scope === "My uploads"
+                                claimSelected: preview.claimSelection.indexOf(artwork.id) >= 0
+                                claimEnabled: !preview.claimsBusy && (claimSelected || preview.claimSelection.length < 10)
+                                onClaimToggled: preview.toggleClaim(artwork.id)
                                 onChosen: preview.select(artwork.id)
                                 onImageRequested: { preview.select(artwork.id); root.openArtworkImage() }
                                 onCreatorRequested: function(creator) { root.openCreator(creator) }
@@ -135,6 +146,7 @@ Item {
                     onCreatorRequested: function(creator) { root.openCreator(creator) }
                     onTagsRequested: { editTags.reset((preview.selected.tags || []).join(", ")); tagsDialog.open() }
                     onRevisionRequested: { uploadDialog.revision = true; uploadDialog.open() }
+                    onClaimsRequested: claimsDialog.open()
                 }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.divider }
@@ -151,6 +163,7 @@ Item {
         }
     PreviewUpload { id: uploadDialog; objectName: "UploadDialog"; parent: Overlay.overlay; ui: root.ui }
     CommunityAccount { id: accountDialog; objectName: "CommunityAccountDialog"; parent: Overlay.overlay; ui: root.ui }
+    CommunityClaims { id: claimsDialog; objectName: "CommunityClaimsDialog"; parent: Overlay.overlay; accessService: preview; ui: root.ui }
     PreviewProfile {
         id: creatorDialog; objectName: "CreatorProfileDialog"; parent: Overlay.overlay; ui: root.ui
         onEditRequested: { bio.text = preview.profile.bio; website.text = preview.profile.website; profileDialog.open() }
@@ -163,7 +176,10 @@ Item {
         function onRenderOpened() { imageDialog.close(); renderDialog.open() }
         function onRenderClosed() { renderDialog.close() }
     }
-    onVisibleChanged: if (!visible) { imageDialog.close(); renderDialog.close(); preview.closeRender() }
+    onVisibleChanged: {
+        if (!visible) { imageDialog.close(); renderDialog.close(); preview.closeRender() }
+        else if (root.liveMode) preview.refreshAccess()
+    }
     Component.onDestruction: preview.closeRender()
     PreviewDialog {
         id: reportDialog; parent: Overlay.overlay; anchors.centerIn: parent; modal: true; width: 520

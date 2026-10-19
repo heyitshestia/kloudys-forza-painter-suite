@@ -17,6 +17,7 @@ export default defineConfig({
     cloudflareTest(async () => ({
       wrangler: { configPath: "./wrangler.e2e.jsonc" },
       miniflare: {
+        outboundService: () => { throw new Error("External requests are forbidden in local worker tests."); },
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, "migrations")),
           ADMIN_TOKEN: "local-test-admin-token-that-is-at-least-32-characters",

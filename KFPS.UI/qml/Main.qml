@@ -37,10 +37,9 @@ ApplicationWindow {
         source: Theme.monoFontFile.length > 0 ? "../assets/" + Theme.monoFontFile : ""
     }
 
-    Component.onCompleted: {
-        supporterService.startActivation()
-        if (supporterService.unlocked && appController.currentPage === "support")
-            appController.navigate("create")
+    ActivityStartup {
+        service: activityService
+        ready: window.visible && window.visibility !== Window.Minimized && !screenshotMode
     }
 
     onActiveChanged: {
@@ -102,15 +101,6 @@ ApplicationWindow {
             } else if (!versionService.updateAvailable) {
                 window.updateAutoOpened = false
             }
-        }
-    }
-
-    Connections {
-        target: supporterService
-
-        function onChanged() {
-            if (supporterService.unlocked && appController.currentPage === "support")
-                appController.navigate("create")
         }
     }
 
@@ -347,17 +337,6 @@ ApplicationWindow {
                     z: 20
                 }
 
-                SupporterActivationNotice {
-                    id: activationNotice
-                    compact: window.compactHeader
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.rightMargin: Theme.px(16)
-                    anchors.bottomMargin: Theme.px(14)
-                                          + (bottom.visible ? window.consoleHeight + Theme.px(10) : 0)
-                    z: 120
-                }
-
                 ColumnLayout {
                     id: workspaceLayout
                     anchors.left: parent.left
@@ -463,16 +442,24 @@ ApplicationWindow {
         id: dcinsideKoreanWelcome
     }
 
+    ReleaseAnnouncement {
+        id: releaseAnnouncement
+        service: releaseAnnouncementService
+        ready: window.visible && window.visibility !== Window.Minimized && !screenshotMode
+        blocked: featureWelcome.visible || communityWelcome.visible
+                 || backgroundRemoverWelcome.visible || dcinsideKoreanWelcome.visible
+    }
+
     Timer {
         interval: 700
-        running: window.visible && !screenshotMode && !settings.supportUpscalerNoticeAcknowledged
+        running: window.visible && !screenshotMode && !releaseAnnouncement.visible && !settings.supportUpscalerNoticeAcknowledged
         repeat: false
         onTriggered: featureWelcome.open()
     }
 
     Timer {
         interval: 700
-        running: window.visible && !screenshotMode
+        running: window.visible && !screenshotMode && !releaseAnnouncement.visible
                  && settings.supportUpscalerNoticeAcknowledged && !featureWelcome.visible
                  && !settings.communityJoinNoticeAcknowledged && !communityWelcome.visible
         repeat: false
@@ -482,7 +469,7 @@ ApplicationWindow {
     Timer {
         id: backgroundRemoverNoticeTimer
         interval: 700
-        running: window.visible && !screenshotMode
+        running: window.visible && !screenshotMode && !releaseAnnouncement.visible
                  && settings.supportUpscalerNoticeAcknowledged && !featureWelcome.visible
                  && settings.communityJoinNoticeAcknowledged && !communityWelcome.visible
                  && !settings.backgroundRemoverNoticeAcknowledged && !backgroundRemoverWelcome.visible
@@ -492,7 +479,7 @@ ApplicationWindow {
 
     Timer {
         interval: 700
-        running: window.visible && !screenshotMode && settings.koreanDisplayLanguage
+        running: window.visible && !screenshotMode && !releaseAnnouncement.visible && settings.koreanDisplayLanguage
                  && settings.supportUpscalerNoticeAcknowledged && !featureWelcome.visible
                  && settings.communityJoinNoticeAcknowledged && !communityWelcome.visible
                  && settings.backgroundRemoverNoticeAcknowledged && !backgroundRemoverWelcome.visible

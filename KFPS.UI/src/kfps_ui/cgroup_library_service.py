@@ -162,12 +162,6 @@ class CGroupLibraryService(QObject):
         if self._closed or self._running:
             self.log.append("C_group library scan is already running.")
             return
-        if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
-            self._status = "Supporter unlock required"
-            self._summary = "Offline save-library scan and offline folder imports are available with a local supporter unlock."
-            self.changed.emit()
-            self.log.append("Forza save-library scan requires a local supporter unlock.")
-            return
         adapter = get_adapter_or_default(game)
         game_key = adapter.key
         self._active_game_key = game_key
@@ -215,12 +209,6 @@ class CGroupLibraryService(QObject):
         if self._running:
             self.log.append("C_group folder install is already running.")
             return
-        if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
-            self._status = "Supporter unlock required"
-            self._summary = "FH6 offline folder import is available with a local supporter unlock."
-            self.changed.emit()
-            self.log.append("FH6 save-folder import requires a local supporter unlock.")
-            return
         source = Path(str(json_path or ""))
         if not source.is_file():
             self.log.append("Choose a JSON before installing into an FH6 save folder.", "error")
@@ -244,12 +232,6 @@ class CGroupLibraryService(QObject):
     def createLayerGroupFromSelectedJson(self, json_path: str, game: str = "fh6"):
         if self._closed or self._running:
             self.log.append("C_group folder install is already running.")
-            return
-        if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
-            self._status = "Supporter unlock required"
-            self._summary = "Offline folder import is available with a local supporter unlock."
-            self.changed.emit()
-            self.log.append("Save-folder import requires a local supporter unlock.")
             return
         source = Path(str(json_path or ""))
         if not source.is_file():
@@ -280,12 +262,6 @@ class CGroupLibraryService(QObject):
     def installJsonToFH6LayerGroup(self, json_path: str, target_folder: str):
         if self._closed or self._running:
             self.log.append("C_group folder install is already running.")
-            return
-        if self.supporter is not None and not bool(getattr(self.supporter, "unlocked", False)):
-            self._status = "Supporter unlock required"
-            self._summary = "FH6 offline folder import is available with a local supporter unlock."
-            self.changed.emit()
-            self.log.append("FH6 save-folder import requires a local supporter unlock.")
             return
         self._running = True
         self._active_game_key = "fh6"
@@ -966,9 +942,11 @@ class CGroupLibraryService(QObject):
 
     def _create_fm8_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload
+        from tools.cgroup.fm8_identity import build_vinyl_header, parse_vinyl_header
         from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
 
+        self._check_fm8_import_ready()
         json_path = json_path.resolve()
         if not json_path.is_file():
             raise ValueError(f"JSON does not exist: {json_path}")
@@ -978,6 +956,16 @@ class CGroupLibraryService(QObject):
             raise ValueError("No FM8 LayerGroups folder was found. Save one vinyl group in Forza Motorsport first.")
         layer_groups_root.mkdir(parents=True, exist_ok=True)
         source_group = self._latest_fm8_layer_group()
+        if source_group is None:
+            raise ValueError(
+                "No supported locally owned FM8 vinyl header was found. "
+                "Save one new vinyl group in Forza Motorsport and try again."
+            )
+        source_header = source_group / "header"
+        source_header_bytes = source_header.read_bytes()
+        source_identity = parse_vinyl_header(source_header_bytes, folder_id=uuid.UUID(source_group.name))
+        if not assess_fm8_layer_group_files(source_group / "data").allowed:
+            raise ValueError("The source FM8 vinyl ownership changed. No new vinyl was installed.")
 
         folder_name = str(uuid.uuid4())
         target_folder = layer_groups_root / folder_name
@@ -985,10 +973,7 @@ class CGroupLibraryService(QObject):
             folder_name = str(uuid.uuid4())
             target_folder = layer_groups_root / folder_name
 
-        temp_folder = layer_groups_root / f".{target_folder.name}.kfps-tmp"
-        if temp_folder.exists():
-            shutil.rmtree(temp_folder)
-        temp_folder.mkdir(parents=True)
+        temp_folder = Path(tempfile.mkdtemp(prefix=".kfps-fm8-import-", dir=layer_groups_root))
         target_installed = False
         try:
             payload = build_flat_cgroup_from_json(json_path, target_game="fm8")
@@ -996,19 +981,23 @@ class CGroupLibraryService(QObject):
             parsed = parse_flat_payload(payload)
 
             title = self._title_for_install_json(json_path)
-            source_header = source_group / "header" if source_group else None
-            if source_header and source_header.is_file():
-                self._atomic_write_bytes(temp_folder / "header", self._rename_header(source_header.read_bytes(), title))
-            else:
-                self._atomic_write_bytes(temp_folder / "header", self._build_draft_header(title))
+            expected_layers = int(parsed.get("count") or 0)
+            header = build_vinyl_header(source_header_bytes, source_identity.asset_id, title,
+                                        expected_layers, uuid.UUID(folder_name))
+            self._atomic_write_bytes(temp_folder / "header", header)
 
-            thumb_written = self._write_save_thumb(json_path, temp_folder / "thumbnail")
-            if not thumb_written and source_group:
-                source_thumb = source_group / "thumbnail"
-                if source_thumb.is_file():
-                    shutil.copy2(source_thumb, temp_folder / "thumbnail")
+            thumb_written = self._write_save_thumb(json_path, temp_folder / "thumbnail", "PNG")
+            if not thumb_written:
+                (temp_folder / "thumbnail").unlink(missing_ok=True)
+                (temp_folder / "thumbnail.kfps.tmp").unlink(missing_ok=True)
 
-            os.replace(temp_folder, target_folder)
+            self._check_fm8_import_ready()
+            if source_header.read_bytes() != source_header_bytes or not assess_fm8_layer_group_files(source_group / "data").allowed:
+                raise ValueError("The source FM8 vinyl changed during import. No new vinyl was installed.")
+            if ((temp_folder / "header").read_bytes() != header or (temp_folder / "data").read_bytes() != payload):
+                raise ValueError("The staged FM8 vinyl changed before installation.")
+            # Never overwrite an existing entry if another process creates this ID.
+            os.rename(temp_folder, target_folder)
             target_installed = True
             ownership = assess_fm8_layer_group_files(target_folder / "data")
             if not ownership.allowed:
@@ -1017,7 +1006,11 @@ class CGroupLibraryService(QObject):
                 verified = decode_forza_source(target_folder / "data", allow_locked=False, game="fm8")
             except DecodeError as exc:
                 raise ValueError("The newly created FM8 vinyl group could not be reopened safely.") from exc
-            expected_layers = int(parsed.get("count") or 0)
+            installed_header = (target_folder / "header").read_bytes()
+            installed_identity = parse_vinyl_header(installed_header, folder_id=uuid.UUID(folder_name))
+            if (installed_header != header or installed_identity.layer_count != expected_layers
+                    or (target_folder / "data").read_bytes() != payload):
+                raise ValueError("The new FM8 vinyl header or data changed during installation.")
             if len(verified.layers) != expected_layers:
                 raise ValueError(
                     f"The newly created FM8 vinyl group reopened with {len(verified.layers)} layer(s), "
@@ -1040,11 +1033,16 @@ class CGroupLibraryService(QObject):
             "skipped": 0,
             "outputs": [],
             "message": (
-                f"FM8 offline import complete: created separate LayerGroups folder {target_folder.name} "
-                f"with {layers} layer(s). Existing FM8 save folders were not modified. "
-                "Reload Forza Motorsport's vinyl group library/editor, or restart the game if it does not appear."
+                f"FM8 vinyl files written and verified: {target_folder.name}, {layers} layer(s), "
+                f"{'with a new thumbnail' if thumb_written else 'without a thumbnail'}. "
+                "Existing FM8 save folders were not modified. Open or refresh Forza Motorsport's vinyl library. "
+                "KFPS has verified the saved files, but cannot confirm that the game has loaded them."
             ),
         }
+
+    def _check_fm8_import_ready(self) -> None:
+        if self._cancel_event.is_set():
+            raise concurrent.futures.CancelledError("FM8 import cancelled before committing save files.")
 
     def _create_fh4_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
         from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload, wrap_payload
@@ -1217,6 +1215,7 @@ class CGroupLibraryService(QObject):
         return latest[1] if latest else None
 
     def _latest_fm8_layer_group(self) -> Path | None:
+        from tools.cgroup.fm8_identity import parse_vinyl_header
         from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
 
         latest: tuple[float, Path] | None = None
@@ -1228,8 +1227,9 @@ class CGroupLibraryService(QObject):
             if not assess_fm8_layer_group_files(data_file).allowed:
                 continue
             try:
+                parse_vinyl_header((folder / "header").read_bytes(), folder_id=uuid.UUID(folder.name))
                 mtime = data_file.stat().st_mtime
-            except OSError:
+            except (OSError, ValueError):
                 continue
             if latest is None or mtime > latest[0]:
                 latest = (mtime, folder)
@@ -1323,9 +1323,9 @@ class CGroupLibraryService(QObject):
         temp.write_bytes(data)
         os.replace(temp, path)
 
-    def _write_save_thumb(self, json_path: Path, thumb_path: Path) -> bool:
+    def _write_save_thumb(self, json_path: Path, thumb_path: Path, image_format: str = "WEBP") -> bool:
         try:
-            data = self._render_save_thumb_bytes(json_path, "WEBP")
+            data = self._render_save_thumb_bytes(json_path, image_format)
             if not data:
                 return False
             temp = thumb_path.with_name(f"{thumb_path.name}.kfps.tmp")

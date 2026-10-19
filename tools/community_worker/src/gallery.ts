@@ -6,7 +6,7 @@ import type { Env } from './types';
 export async function handleVote(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
   await enforceRateLimit(env, user.id, 'vote', 180, 3600);
-  await visibleArtwork(env, id, user);
+  await visibleArtwork(env, id, user,false,request);
   const body = await readJsonObject(request, 1024);
   if (typeof body.vote !== 'number' || ![-1, 0, 1].includes(body.vote)) throw new HttpError(400, 'invalid_vote');
   const statement = body.vote === 0
@@ -22,7 +22,7 @@ export async function handleVote(request: Request, env: Env, id: string): Promis
 
 export async function handlePhoto(request: Request, env: Env, id: string, position: number): Promise<Response> {
   const user = await requireUser(request, env);
-  const artwork = await visibleArtwork(env, id, user);
+  const artwork = await visibleArtwork(env, id, user,false,request);
   assertAvailable(artwork, user, true);
   if (!Number.isInteger(position) || position < 0 || position > 2) throw new HttpError(404, 'asset_not_found');
   const record = await env.DB.prepare('SELECT object_key FROM artwork_photos WHERE artwork_id = ?1 AND position = ?2')

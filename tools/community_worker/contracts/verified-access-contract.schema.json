@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kfps:community:verified-access:proposal:1",
+  "title": "Community Verified access additions - local implementation contract",
+  "description": "Accepted additive v1 fields, not a replacement schema for complete existing responses. See adjacent README.md, CURRENT-POLICY.md and ROLLOUT.md for policy, route/state semantics and migration boundaries. Local implementation is authorized; deployment remains unapproved. No remote references or deployed behavior implied.",
+  "$defs": {
+    "ArtworkId": {"type": "string", "minLength": 1, "maxLength": 64},
+    "Hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "Timestamp": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "LegacyVerifiedGrantPayload": {
+      "type":"object", "additionalProperties":false,
+      "required":["schema","audience","subject","entitlement_id","nonce","issued_at","expires_at","license_created_at","eligibility_cutoff"],
+      "properties":{
+        "schema":{"const":"kfps.community.legacy-verified.v1"},
+        "audience":{"const":"kfps-community-verified-v1"},
+        "subject":{"type":"string","minLength":1,"maxLength":64},
+        "entitlement_id":{"type":"string","format":"uuid"},
+        "nonce":{"type":"string","pattern":"^[A-Za-z0-9_-]{22,86}$"},
+        "issued_at":{"$ref":"#/$defs/Timestamp"},
+        "expires_at":{"$ref":"#/$defs/Timestamp"},
+        "license_created_at":{"$ref":"#/$defs/Timestamp"},
+        "eligibility_cutoff":{"$ref":"#/$defs/Timestamp"}
+      },
+      "$comment":"Signed canonical JSON payload. Subject, entitlement ID, nonce, issued_at and expires_at must exactly match accompanying v1 entitlement; cutoff must equal configured COMMUNITY_VERIFIED_LEGACY_KEY_CUTOFF, license_created_at<=cutoff<=server now."
+    },
+    "LegacyVerifiedGrantEnvelope": {
+      "type":"object","additionalProperties":false,
+      "required":["type","version","kid","payload","signature"],
+      "properties":{
+        "type":{"const":"kfps.community.legacy-verified-grant"},"version":{"const":1},
+        "kid":{"type":"string","minLength":1,"maxLength":128},
+        "payload":{"type":"string","minLength":1,"maxLength":8192,"pattern":"^[A-Za-z0-9_-]+$"},
+        "signature":{"type":"string","minLength":1,"maxLength":1024,"pattern":"^[A-Za-z0-9_-]+$"}
+      }
+    },
+    "SupporterVerificationRequest": {
+      "type":"object","additionalProperties":false,"required":["entitlement"],
+      "properties":{
+        "entitlement":{"type":"object"},
+        "legacy_verified_grant":{"$ref":"#/$defs/LegacyVerifiedGrantEnvelope"}
+      },
+      "$comment":"Existing exact v1 entitlement validation remains unchanged; optional proof is forwarded as an object, never inferred by a client."
+    },
+    "AccessPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "mode", "required_own_vinyls", "required_account_age_days", "count_basis", "own_claims_enabled"],
+      "properties": {
+        "version": {"const": 1},
+        "mode": {"enum": ["legacy_supporter", "verified_v1"]},
+        "required_own_vinyls": {"const": 10},
+        "required_account_age_days": {"const": 14},
+        "count_basis": {"const": "lifetime_own_handmade_vinyls"},
+        "own_claims_enabled": {"type": "boolean"}
+      },
+      "allOf": [{
+        "if": {"properties": {"mode": {"const": "legacy_supporter"}}},
+        "then": {"properties": {"own_claims_enabled": {"const": false}}},
+        "else": {"properties": {"own_claims_enabled": {"const": true}}}
+      }]
+    },
+    "VerifiedCapability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy_version", "active", "eligible_vinyl_count", "required_count", "required_account_age_days", "connected_at", "eligible_after", "grandfathered_at", "reason"],
+      "properties": {
+        "policy_version": {"const": 1},
+        "active": {"type": "boolean"},
+        "eligible_vinyl_count": {"type": "integer", "minimum": 0},
+        "required_count": {"const": 10},
+        "required_account_age_days": {"const": 14},
+        "connected_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]},
+        "eligible_after": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]},
+        "grandfathered_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]},
+        "reason": {"enum": ["eligible", "contributions_required", "policy_legacy", "account_suspended", "unsupported_identity", "waiting_period", "connection_date_unavailable", "grandfathered_supporter"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"active": {"const": true}}},
+        "then": {"oneOf": [
+          {"properties": {"reason": {"const": "eligible"}, "eligible_vinyl_count": {"minimum": 10}, "connected_at": {"$ref": "#/$defs/Timestamp"}, "eligible_after": {"$ref": "#/$defs/Timestamp"}, "grandfathered_at": {"type":"null"}}},
+          {"properties": {"reason": {"const": "grandfathered_supporter"}, "grandfathered_at": {"$ref": "#/$defs/Timestamp"}}}
+        ]},
+        "else": {"properties": {"reason": {"not": {"enum": ["eligible", "grandfathered_supporter"]}}}}
+      }]
+    },
+    "ArtworkAccess": {
+      "type": "object", "additionalProperties": false,
+      "required": ["audience", "can_view_media", "can_download", "can_interact", "restriction_reason"],
+      "properties": {
+        "audience": {"enum": ["public", "supporter", "verified"]},
+        "can_view_media": {"type": "boolean"},
+        "can_download": {"type": "boolean"},
+        "can_interact": {"type": "boolean"},
+        "restriction_reason": {"enum": [null, "authentication_required", "supporter_required", "verified_required", "client_update_required", "account_suspended", "unavailable"]}
+      }
+    },
+    "ContributionStatus": {
+      "type": "object", "additionalProperties": false,
+      "description": "Owner/admin only. Not an originality certificate or a public creator badge.",
+      "required": ["state", "can_claim", "eligible_at", "credited_at"],
+      "properties": {
+        "state": {"enum": ["not_claimed", "permission_only", "pending_publication", "scheduled", "credited", "revoked", "duplicate", "review_required", "not_eligible"]},
+        "can_claim": {"type": "boolean"},
+        "eligible_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]},
+        "credited_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]}
+      }
+    },
+    "VinylUploadAccess": {
+      "type": "object", "additionalProperties": false,
+      "description": "Fields merged with existing validated vinyl upload/revision metadata in Verified mode. Existing confirm_rights=true remains mandatory.",
+      "required": ["audience", "authorship"],
+      "properties": {
+        "audience": {"enum": ["public", "verified"]},
+        "authorship": {"enum": ["own", "permission"]},
+        "supporter_only": {"type": "boolean"}
+      },
+      "allOf": [{
+        "if": {"properties": {"audience": {"const": "verified"}}},
+        "then": {"properties": {"supporter_only": {"const": true}}},
+        "else": {"properties": {"supporter_only": {"const": false}}}
+      }]
+    },
+    "LiveryUploadAccess": {
+      "type": "object", "additionalProperties": false,
+      "required": ["audience"],
+      "properties": {
+        "audience": {"enum": ["public", "verified"]},
+        "supporter_only": {"type": "boolean"}
+      },
+      "allOf": [{
+        "if": {"properties": {"audience": {"const": "verified"}}},
+        "then": {"properties": {"supporter_only": {"const": true}}},
+        "else": {"properties": {"supporter_only": {"const": false}}}
+      }]
+    },
+    "ClaimSelection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artwork_id", "revision", "content_sha256"],
+      "properties": {
+        "artwork_id": {"$ref": "#/$defs/ArtworkId"},
+        "revision": {"type": "integer", "minimum": 1},
+        "content_sha256": {"$ref": "#/$defs/Hash"}
+      }
+    },
+    "ClaimBatchRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assertion", "claims"],
+      "properties": {
+        "assertion": {"const": "own_original_vinyl_v1"},
+        "claims": {"type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": {"$ref": "#/$defs/ClaimSelection"}}
+      },
+      "$comment": "Also enforce unique artwork_id irrespective of revision/hash. Maximum total request 16 KiB. Current creator identity is server-derived."
+    },
+    "ClaimResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artwork_id", "outcome", "error", "contribution"],
+      "properties": {
+        "artwork_id": {"$ref": "#/$defs/ArtworkId"},
+        "outcome": {"enum": ["accepted", "unchanged", "rejected"]},
+        "error": {"enum": [null, "artwork_not_found", "claim_revision_changed", "credit_revoked", "duplicate_contribution", "claim_evidence_required", "vinyl_required", "handmade_required"]},
+        "contribution": {"anyOf": [{"$ref": "#/$defs/ContributionStatus"}, {"type": "null"}]}
+      },
+      "allOf": [{
+        "if": {"properties": {"outcome": {"const": "rejected"}}},
+        "then": {"properties": {"error": {"not": {"type": "null"}}}},
+        "else": {"properties": {"error": {"type": "null"}, "contribution": {"$ref": "#/$defs/ContributionStatus"}}}
+      }]
+    },
+    "ClaimBatchResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["results", "access_policy", "capabilities"],
+      "properties": {
+        "results": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"$ref": "#/$defs/ClaimResult"}},
+        "access_policy": {"$ref": "#/$defs/AccessPolicy"},
+        "capabilities": {
+          "type": "object", "additionalProperties": false, "required": ["verified"],
+          "properties": {"verified": {"$ref": "#/$defs/VerifiedCapability"}}
+        }
+      }
+    },
+    "CreditModerationRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artwork_id", "action", "revision", "content_sha256", "note"],
+      "properties": {
+        "artwork_id": {"$ref": "#/$defs/ArtworkId"},
+        "action": {"enum": ["credit_approve", "credit_revoke", "credit_restore"]},
+        "revision": {"type": "integer", "minimum": 1},
+        "content_sha256": {"$ref": "#/$defs/Hash"},
+        "note": {"type": "string", "minLength": 1, "maxLength": 500}
+      },
+      "$comment": "Reject whitespace-only notes, enforce existing admin authentication; no client-supplied account/count. Response retains existing admin envelope, adds contribution."
+    },
+    "Error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["error", "message"],
+      "properties": {
+        "error": {"type": "string", "minLength": 1, "maxLength": 80},
+        "message": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -1062,7 +1062,7 @@ class FullLiveryService(QObject):
         request_serial = self._mesh_serial
         self._running = True
         self._status = "Preparing local chassis"
-        self._summary = "Reading this car's neutral inspection geometry and livery UV map from the local FH6 installation."
+        self._summary = "Preparing this car's geometry, materials and livery UV maps with the shared Studio renderer."
         self.changed.emit()
         self._tasks.start(
             "prepare-mesh",
@@ -1347,6 +1347,9 @@ class FullLiveryService(QObject):
                 mesh=str(payload.get("mesh_path") or ""),
                 render_root=str(payload.get("render_root") or ""),
                 render_contract=payload.get("render_contract") or {},
+                readonly_descriptor=str(payload.get("readonly_descriptor") or ""),
+                readonly_descriptor_sha256=str(payload.get("readonly_descriptor_sha256") or ""),
+                package_id=str(self._current_manifest.get("package_id") or ""),
             )
             unresolved = list((self._current_manifest.get("livery") or {}).get("unresolved_raster_ids") or [])
             viewer_detail = f"Resolved {payload.get('model_code')} and its direct FH6 livery mapping from this PC's installation."

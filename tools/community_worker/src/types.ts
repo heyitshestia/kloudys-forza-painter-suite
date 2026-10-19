@@ -2,6 +2,8 @@ export interface Env {
   DB: D1Database;
   ASSETS: R2Bucket;
   API_PROTOCOL: string;
+  COMMUNITY_ACCESS_POLICY?: string;
+  COMMUNITY_VERIFIED_LEGACY_KEY_CUTOFF?: string;
   DEPLOYMENT_ENVIRONMENT?: string;
   ALLOW_TEST_AUTH: string;
   TEST_AUTH_TOKEN?: string;
@@ -31,6 +33,7 @@ export interface SessionUser {
   suspended: boolean;
   supporterEntitlementId: string;
   supporterVerifiedUntil: string;
+  communityConnectedAt?: string;
 }
 
 export interface CanonicalShape {
@@ -66,6 +69,8 @@ export interface DetectedSchema {
 export type ArtworkClassification = "handmade" | "toolmade";
 
 export interface ValidatedUpload {
+  creditAuthorship?: 'unknown'|'own'|'permission';
+  creditFingerprint?: import('./vinyl_fingerprint').VinylFingerprint;
   startsAt?: string | null;
   endsAt?: string | null;
   clientVersion: string;

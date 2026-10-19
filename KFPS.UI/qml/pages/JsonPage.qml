@@ -140,21 +140,20 @@ Item {
                         Label { text: "Output source" }
                         KfpsComboBox {
                             id: source
+                            objectName: "OutputSource"
                             Layout.fillWidth: true
                             dense: root.compactHeight
-                            model: supporterService.unlocked
-                                   ? ["Generated finals", "Editor exports", "Game exports", "Library"]
-                                   : ["Generated finals", "Editor exports", "Game exports"]
+                            model: ["Generated finals", "Editor exports", "Game exports", "Library"]
                             currentIndex: jsonService.sourceIndex
                             toolTipText: "Choose which KFPS folder or scanned game library is shown in the output browser."
                             onActivated: jsonService.setSource(currentIndex)
                         }
 
                         GlassPanel {
+                            objectName: "OfflineLibraryControls"
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.px(root.compactHeight ? 184 : 214)
                             soft: true
-                            visible: supporterService.unlocked
                             border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
 
                             ColumnLayout {
@@ -169,6 +168,7 @@ Item {
                             Label { text: "Offline game" }
                             KfpsComboBox {
                                 id: offlineGame
+                                objectName: "OfflineLibraryGame"
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
                                 model: cgroupLibraryService.gameTargets
@@ -216,6 +216,7 @@ Item {
                             spacing: Theme.px(8)
 
                             PrimaryButton {
+                                objectName: "ScanOfflineLibrary"
                                 Layout.fillWidth: true
                                 minimumWidth: 0
                                 text: cgroupLibraryService.running ? "Scanning " + offlineGame.currentText + "..." : "Scan " + offlineGame.currentText + " Saves"
@@ -238,6 +239,7 @@ Item {
                         }
 
                         GhostButton {
+                            objectName: "ImportOfflineLibrary"
                             Layout.fillWidth: true
                             minimumWidth: 0
                             text: cgroupLibraryService.running

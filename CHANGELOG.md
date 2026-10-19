@@ -1,5 +1,255 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.105 - 2026-10-19
+
+### Editor Redesign, Livery Studio Preview And Free Tools
+
+This release brings the redesigned vinyl editor, Livery Studio Preview, free local tools, Verified Community access, expanded diagnostics and an optional installation activity counter. The changes below are compared with **3.1.104**.
+
+Livery Studio remains a Preview: layout authoring and project saving are available, while native game export and per-car fidelity have the explicit limitations documented below. Local qualification and post-publication upgrade results are distinct; test counts are not a claim of universal compatibility.
+
+### Redesigned 2D Vinyl Editor Workspace
+
+- Reorganized the editor around the canvas, with a compact document bar, tool rail and contextual options. Open, Save, Export, Undo and Redo remain close to the work, while precise transforms and the active tool/selection state are easier to find.
+- Layer rows show native-shape thumbnails, colour indicators, names, visibility and lock controls. Search still covers the full virtualized layer list, with canvas and layer selection kept in sync.
+- Reorganized appearance, alignment, distribution, overlap-picking and selection controls without replacing the underlying artwork model.
+- Retained the existing shape library, native-letter text, pixel-art tools, groups, reusable assets, guides, reference images, history and export checks. Existing tools have not been replaced by separate incompatible document types.
+- Retained individual-layer centring, canvas-to-layer reveal, group membership, clipboard behavior, reference-size lock and configurable shortcuts from earlier releases. These remain available in the new layout rather than being reintroduced as new features.
+- Replaced competing browser/native and editor tooltips with one styled tooltip, including applicable shortcut information.
+- Kept artwork rendering, selection, masks, alpha, hit testing and export semantics on the established Fabric/native-shape path. Retained vector paths reduce repeated mask-guide construction; the pixel-changing cache experiment is not included.
+- This is a workspace and interaction update, not a claim that every design, GPU or driver will run faster or without pauses.
+
+### Dockable Panels And Layout Recovery
+
+- Move panels between left and right docks, reorder their tabs, or float them within the editor window. Layers can move with the other panels.
+- Dragged panels retain their full live contents in both the native and Google Chrome hosts. Floating panels are contained within the editor, not separate operating-system windows.
+- Resize, collapse, close, redock and reopen panels. Closing a panel hides its controls; it does not delete artwork or project data.
+- Added keyboard panel movement and divider resizing, plus accessible panel menus for floating, docking and closing.
+- Escape restores an unfinished panel move or resize. Interrupted pointer/focus interactions also preserve the last committed layout.
+- Lock Panel Positions prevents accidental rearrangement. Focus Canvas temporarily clears the workspace; panel controls remain recoverable.
+- Reset Workspace restores the standard arrangement without changing the design, saved projects or theme.
+- Panel positions, tab order, floating sizes, collapsed states and the selected inspector tab are remembered as editor preferences, not exported into vinyl artwork.
+
+### Native And Chrome Hosts, Themes And Languages
+
+- The redesigned 2D workspace works in the existing native host and the optional installed-Google-Chrome host.
+- Livery Studio has its own Native/Chrome choice in Settings, independent of the 2D editor preference. Changing it applies to a later launch, not an already open Studio window.
+- Chrome is not bundled or installed automatically. A missing selected Chrome installation produces an explicit message and the existing download choice; it does not silently launch a different browser or change the default browser.
+- Existing Auto/OpenGL/Direct3D 11 selection and the native graphics policy are retained. Studio's native host uses the existing native-editor policy; Chrome keeps its own graphics stack.
+- Added Japanese to the 2D editor alongside English and Korean. Studio provides English, Korean and Japanese controls and messages.
+- The normal editor language choice is remembered. Changing that preference does not reload and discard the current unsaved artwork.
+- Existing bundled theme identifiers, editable colour keys, custom-theme files, palettes, favourites and shortcuts remain compatible. No theme conversion or reset is required for the new workspace.
+- Studio inherits the existing editor theme/customization handling instead of introducing an unrelated theme format.
+- Retired the old automatic language-arrow, sharing and modernization notices. The existing first-use shortcut guide remains. The separate, time-limited release announcement is described below and is not a return of those old notices.
+
+### Projects, Preferences And Export Compatibility
+
+- Existing editable 2D projects, nested groups, masks, reference images, guides, custom layer names, visibility/lock state and recovery copies remain supported.
+- Editable projects and game-export JSON still serve different purposes: projects retain editor organization, while game JSON remains a flat vinyl-layer format. Older editors may still lose nested group metadata they do not understand.
+- Preference updates preserve unknown settings already stored by another compatible version. Invalid supported values and unknown incoming setting changes are still rejected.
+- Save, Save As, recovery and export retain their distinct destinations and meanings. A failed or cancelled operation does not mark unfinished work as saved.
+- Export/readback identifiers now work with separate output roots. An identical export retry reuses its recorded result; a conflicting retry fails instead of silently creating a duplicate result.
+- Existing single-editor ownership, unsaved-work prompts, updater exclusion and recovery protections remain in place.
+- Project compatibility was checked with earlier public files and dense designs. This does not remove the existing size/layer budgets or make every future project readable by an older release.
+
+### Livery Studio Preview
+
+- Added a separate, working Livery Studio authoring and 3D-preview window. Open it from Liveries > Livery Studio, the 2D editor's File menu, or the standalone Studio launcher beside the other application launchers.
+- Studio can remain open independently of the main KFPS window. The 2D source editor also retains its own lifecycle; closing the main app does not make it a hidden requirement for source editing.
+- Choose a car from the complete catalogue exposed by the configured local FH6 installation. Search by available name, model or car identifier, with cancellable asynchronous preparation and reusable local asset caches.
+- Failed car preparation or cancelled/failed saving leaves the current car and unsaved layout intact.
+- Uses locally extracted native car/body/part geometry, section masks and available material/texture data. Game car assets are not included in shared artwork or distributed as part of a Studio project.
+- Import native vinyl JSON, reuse an imported source for multiple placements, and place artwork directly on the car or its section view.
+- The whole vinyl rectangle is selectable, including transparent gaps between shapes. Padding outside that artwork rectangle does not become a selectable painted surface.
+- Orbit, pan, zoom, reset the camera, show individual sections and control wheel visibility without changing the saved vinyl geometry.
+- Studio Preview is usable for layout authoring and inspection now. Preview status is not a claim of exact game rendering, complete car-rule knowledge or production-qualified native livery export.
+
+### Studio Placement And Design Tools
+
+- Move, scale, rotate and skew artwork directly on the car or in a section view. Precise X/Y, independent or linked scale, rotation, opacity and skew controls are also available.
+- A complete gesture creates one undo step. Apply/Cancel and Escape preserve the distinction between a draft adjustment and a committed edit.
+- Added multi-selection, groups, locks, visibility, section reassignment, placement ordering, duplication and removal.
+- Align edges/centres, distribute placements and use optional snapping, with an explicit temporary bypass for fine positioning.
+- A thumbnail overlap picker exposes artwork obscured by other placements.
+- Linked opposite-side placements support mirrored-artwork and readable-lettering modes. Explicitly align the pair, then propagate transforms/source changes or unlink it into independent placements.
+- Linked sides use the alignment you establish; they do not assume every car has identical left/right physical coordinates.
+- Replace colours in the selection or whole design while retaining alpha and mask semantics. Original source artwork is not overwritten, and Undo restores the previous design.
+- Open a selected source in the existing 2D editor, return explicitly to the same Studio session, and apply the returned artwork to one instance or all instances while retaining placement transforms.
+- Stale, failed, cancelled or wrong-session source returns do not overwrite newer work or a different Studio session.
+- Action explanations have a remembered per-action Don't Show Again choice. Unsaved-work and invalid-operation safeguards are not silently bypassed.
+
+### Studio Projects, Library Picking And Recovery
+
+- Save named, self-contained `*.kfps-layout.json` projects under the installation's `imgs/livery-projects/<car>/projects` library.
+- Saving a different name creates a variant. Name collisions and concurrent changes require explicit replacement or another name, rather than silently overwriting a different writer's work.
+- Both native and Chrome hosts wait for local save completion. Cancelled or failed writes leave the document unsaved.
+- Open Project lists the selected car's projects; Browse Elsewhere also opens existing layout files. Wrong-car, malformed and stale open results preserve the current document.
+- Add Vinyl starts in the current installation's `imgs` library in either host, with Browse Elsewhere available. The picker does not move, rename or delete source artwork.
+- Per-car recovery and named checkpoints support interrupted sessions and design/colour variants. Restoring a checkpoint first retains the current layout as a Before Restore snapshot.
+- Older layout files and recovery records remain available; the new managed library does not require a destructive conversion of existing projects.
+- Saving a layout preserves original source vinyls, placement relationships and component choices. Original-source export and composed section-to-vinyl JSON export are separate operations.
+- Recovery is not a guarantee against every crash or full disk. The last unacknowledged edits can be lost, and storage failures are reported rather than described as successful saves.
+- An already running older Studio backend must be saved, stopped and restarted before the new managed-project capabilities can be used. It is not forcibly replaced underneath unsaved work.
+
+### Car Parts, Surface Inspection And Preview Limits
+
+- Preview available bodies, bumpers, hoods, side skirts, rear wings and chassis choices declared by the selected car. Real empty choices remain selectable; unavailable parts are marked instead of being replaced with unrelated models.
+- Component choices participate in Undo/Redo and project saving. Older projects without those choices use the initial preview configuration.
+- Where explicit qualified relationship data exists, body selection reconciles dependent parts and blocks known incompatible combinations. Unknown relationships remain unresolved; manual combinations can still overlap or leave gaps.
+- Surface inspection shows extracted mask eligibility, authored UV seams, glass-related eligibility and missing mappings. These overlays describe extracted data, not authoritative game paint permissions.
+- Wheel previews can be simple placeholders with nominal front/rear dimensions and checked geometry bounds where reference data is available. They are not game-identical wheel models, loaded-tire deformation, suspension simulation or verified wide-body fitment.
+- Some materials/textures still use neutral fallbacks. Preview lighting, every body-kit combination and every car's final game appearance are not certified.
+- Changing preview components does not install upgrades, alter tuning or write game files.
+
+### Experimental FH6 Native Livery Output
+
+- Studio can load supported artwork from an explicitly selected same-car save-export template after ownership, identity, format and complete-decoding checks. The template remains read-only; unsupported artwork is not silently opened incomplete.
+- Lossless layout saving and original-source/section JSON exports remain the ordinary supported output paths. Composed section export can reject combinations that cannot be flattened without changing appearance.
+- A separately labelled Export Experiment action can generate candidate native livery files for isolated compatibility testing. It requires explicit confirmation and never installs anything in the game.
+- Experimental output is a `*.livery-experiment.zip`, containing candidate `C_livery` and saved-kind `header`, the editable layout, section JSONs and a verification report. It is not a production `.kfpslivery` share package.
+- Output is independently reopened and checked for supported native IDs, counts, transforms, colours and template consistency. A separate decoder is not proof that FH6 accepts or resaves the output correctly.
+- Existing template identity and non-artwork data are retained subject to the format checks. Internal identity consistency is not verification that the current user owns that account.
+- Unsupported resources, raster decals, masks, source geometry clipped by the source canvas and partial opacity on multi-shape placements are rejected where native flattening would change the result.
+- A rare native-byte sequence that conflicts with the current decoder's section-marker search is also rejected instead of altering the artwork silently.
+- Projects with preview component overrides cannot use experimental native export. Restoring the initial preview does not edit the template's tuning data.
+- Experimental full-livery output uses the accepted authoring fallback of **3,000 shapes each for Top, Left and Right**, and **1,000 each for Front, Back, Spoiler and the five window sections**. Counts aggregate placements per section, not per mesh or body part.
+- Standalone section-to-vinyl JSON retains a 3,000-shape cap. These are tool safeguards, not discovered per-car FH6 limits or a promise that every named surface is paintable.
+- Current Studio bounds also include 3,000 native vector shapes per source vinyl, 16 source vinyls, 200 placements and a 32 MiB layout project. These are implementation limits, not game limits.
+- **Native output has not passed in-game acceptance, game-resave and export-back validation.** Do not treat experimental ZIPs as production share packages or assume all cars, windows and body kits accept the same artwork.
+
+### Shared Read-Only Livery Viewer
+
+- The existing livery viewer now reuses Studio's scene, material and UV preparation through a separate read-only service.
+- Retained ownership and Preview Only restrictions. Reusing the renderer does not expose Studio authoring routes or raw source-layer endpoints through the viewer.
+- Shared camera reset/orbit, section visibility, wheel controls and theme handling provide a consistent preview experience.
+- Closing previews disposes their owned resources and temporary output. The viewer is not a second editor or an alternate way around protected-design restrictions.
+- Viewer and Studio preview share the same per-car/material/wheel fidelity limits; renderer reuse does not certify all-car game parity.
+
+### Free Local Tools And Retained Safeguards
+
+- Removed supporter-key requirements from bulk online/live-memory import/export and previously paid local save-library operations.
+- Online import/export still means a live-memory operation. Offline import/export still means local save-file processing; neither label implies a different ownership policy.
+- Local library and batch controls remain available without a key. Supported game/format selection, ownership, complete decoding, busy-state, cancellation, staging and commit checks remain applicable.
+- Free access does not unlock someone else's protected artwork, turn incomplete data into a valid import or expand an operation to unsupported games.
+- Existing backup, identity, duplicate-write prevention and interruption safeguards for save operations are retained. Retirement of key/device duplicate enforcement does not remove file-integrity or Community contribution checks.
+- Support and Help now distinguish free tools, cosmetic theme keys, earned Community access and optional donations.
+- No donation is required for these local tools, and a donation does not promise a new key or automatic Community verification.
+
+### Existing Keys Are Theme-Only
+
+- Existing valid signed keys unlock the four supporter-exclusive themes locally. Normal tools and public/custom themes retain their own rules.
+- Theme use no longer depends on PC binding, device identity, key-duplication enforcement, online activation polling or an activation grace period.
+- Signed-key validation remains; a file's presence alone is not accepted as a valid key.
+- Old binding and activation records are not used to decide local theme access and are preserved rather than rewritten or erased.
+- Failed imports or removals preserve the previous valid state and report the failure instead of silently claiming success.
+- Removing a local theme key affects its theme entitlement, not a permanent Verified grant already recorded for the Community account.
+- New key creation, purchase fulfillment and email delivery have been retired from the separate private Operations Console. This is an operational change, not a public key-generation tool included with KFPS.
+- App key-product purchase links are removed. Optional donation links remain, without a promise of new keys or paid verification.
+- The former key-delivery offer has been retired or updated separately. Donations remain optional and do not promise delivery of a new key.
+
+### Verified Community Access
+
+- Server-controlled Verified eligibility replaces paid-key access to restricted Community artwork. The app follows the service's effective policy rather than granting access from a local preference.
+- Ordinary eligibility requires **both 14 full days since the first successful GitHub connection to KFPS Community and 10 eligible uploads of your own Handmade vinyls**.
+- The 14 days measure the first verified Community connection, not GitHub account age, installation date, first upload or most recent sign-in. Reconnecting does not restart or bypass the waiting period.
+- Eligible contributions are lifetime credits for distinct published, own-authored Handmade vinyls. A scheduled upload does not count before its publication starts.
+- Toolmade artwork, full liveries, permission-only sharing, drafts, failed uploads, duplicate submissions and revisions of the same work do not earn new Handmade credits.
+- Repeated requests, restored entries or changes to a title, tags or preview do not turn the same eligible contribution into multiple credits.
+- Honest voluntary deletion and timed expiry do not remove already earned lifetime credit. Moderators can disqualify fraudulent credits, and account suspension still applies.
+- Handmade and own-authorship declarations are moderated claims, not automatic proof of originality, identity or the creative process. Near-duplicate farming is not claimed solved.
+- Existing uploads that were previously shared with permission are not silently relabelled as the uploader's own work. Historical eligibility uses an explicit owner claim or reviewed moderation decision.
+- The app shows eligibility, contribution progress, waiting requirements and historical-claim controls while continuing to honor the policy actually returned by the server.
+- **Qualifying existing key holders receive permanent, account-bound Verified access after one trusted recognition**, without the ordinary 14-day or ten-upload requirements. Qualification depends on trusted historical records and the reviewed rollout cutoff, not a local flag or a newly minted proof date.
+- That permanent grant survives normal proof expiry, sign-out/reconnection and local key removal. It does not bypass account moderation or silently grant the same entitlement to multiple accounts.
+- Local theme verification and the one-time Community recognition are separate. Recognition needs the compatible service, but an unavailable service does not relock locally valid themes or erase a recorded permanent grant.
+- Stale account/key recognition responses cannot apply to a different selection. Terminal migration failures stop automatic retries across restart; transient failures can retry without weakening identity/signature checks.
+- Artwork discovery and thumbnails remain visible under the active availability policy. Restricted full-size/file downloads still require the effective server capability; local preferences cannot grant it.
+- Compatible key recognition, an immutable qualifying-key cutoff, historical indexing and permanent-grant backfill preserve existing entitlements. Historical files with insufficient evidence remain review-required instead of receiving guessed contribution credit.
+- Existing Community sessions, account identity and protected asset storage are preserved. This update does not make restricted artwork public or add private messaging.
+
+### FM8 Offline Creation And Existing Data
+
+- Included the FM8 offline-creation identity and donor-header validation fixes in the integrated release source. These protections remain in place when local save-library tools are used without a supporter key.
+- New entries use a validated locally owned donor header, a fresh identity and generated PNG thumbnail, followed by staged-file verification.
+- Cancellation, tampering and commit failures stop safely; existing save entries are not overwritten by the new-entry workflow.
+- Success messages distinguish files that were created and verified locally from artwork confirmed to load inside the game. There is no blanket game-closed rule added to every offline operation.
+- These checks do not claim new offline import support for FH4/FH5 or universal game acceptance across FM8/FH6 workflows.
+- The integrated source passes 44 focused FM8 regression tests. These are local regression checks, not new in-game acceptance evidence.
+- Existing artwork, projects, recoveries, custom themes, preferences, signed keys and Community sign-ins are not intended to be reset or migrated destructively by this release.
+
+### Portable Studio And Signed Update Compatibility
+
+- Extended the existing signed Go bootstrap and bundle builders to manage all three application launchers: `KFPS.exe`, `KFPS Editor.exe` and the established `KFPSLiverySudio.exe` filename, with matching inner/outer copies alongside `KFPS-Updater.exe`.
+- Updates that manage the outer Studio launcher require bootstrap **1.0.5**. Older bootstraps use the existing verified self-update handoff before applying that payload; starting the child updater is not yet final update success.
+- Studio first launch no longer depends on a developer's private launch configuration. It discovers the selected KFPS installation and its existing FH6 configuration read-only, while respecting an explicit existing Studio configuration.
+- Protected Studio settings, legacy recoveries and mutable runs cannot be replaced or retired by update manifests. Only the exact converter executable and build receipt are managed inside Studio's runs tree. Managed projects/recoveries under `imgs/livery-projects` remain protected by the existing image-library safeguard.
+- Activity preferences/private seed and release-announcement acknowledgements are preserved runtime state, never source or bundle inputs. Existing artwork, keys, sign-ins and user preferences remain protected; the signed managed Python runtime is program-owned and can be repaired or replaced.
+- Distribution uses a strict Studio source/converter/license inventory, including portable v2 build provenance. Game assets, personal launch files, profiles, settings, recovery data and private test fixtures are excluded.
+- Local packaging qualification includes relocated-install discovery, the compiled standalone launcher, an authenticated **1.0.4-to-1.0.5** test handoff, and **47 real updater-engine failure/preservation cases**. The signed test used an ephemeral test key; reduced-runtime launcher checks are not full GUI or production-key release validation.
+- The release uses production bootstrap **1.0.5** with the existing signed update channel and a separate managed-runtime bundle. Use the public release assets and their checksums; private qualification packages are not release downloads.
+- The previous public bundle has been prepared with **16 synthetic preservation files**, including a format-valid 24-layer project, custom theme, shortcuts and a persisted activity opt-out. Actual old/current backend and frontend loaders recognize the relevant project and preference data; the offline upgrade wrapper has **18 passing tests**. This is preservation-test readiness, not an executed public update or packaged rendering qualification.
+
+### Expanded Diagnostics (Locally Tested; Release Qualification Pending)
+
+- Expanded Report a Problem's bounded collection in the candidate source for the redesigned 2D workspace, native/Chrome hosts, Studio, shared viewing/storage/source-return paths, Community/theme-policy state, release-announcement state and activity-counter status.
+- Retained the existing private report archive **v2** and report/authentication path. This is an extension of the established collector and parser, not a new upload protocol.
+- Studio can contribute up to **three fixed files of 256 KiB each**. Both Python and the support service validate strict allowlisted numeric, boolean and enum records. Unknown fields, free text, names, paths and artwork are rejected rather than copied.
+- Structured Studio evidence includes allowlisted host/version/readiness and graphics state; frame/resource/canvas summaries; source/placement/section/shape counts; and bounded action/error/cancel/save/reopen/source-return outcomes.
+- Component fingerprints identify the relevant editor, preferences/access, Studio, announcement and counter code. Safe preference summaries retain recognized modes, language, dimensions and customization counts, not custom names, shortcut bindings, coordinates or project/recovery database contents.
+- Announcement evidence is read-only eligibility, acknowledgement, locale and expiry. Counter evidence is only enabled/status and last-success time/age. Its private directory, seed and period tokens are never attached.
+- Existing bounded logs, sanitization and failure isolation remain. These structured additions are diagnostic state, not artwork, typed content, project payloads, credentials or raw keys.
+- Existing reporting consent remains: opening a report does not upload it, technical details can be excluded, and the user reviews the report before pressing Send. Screenshots the user chooses to attach remain public; included technical diagnostics go to the private support channel. Automatic redaction is not a substitute for reviewing the report.
+- Consent-copy updates cover Korean and English. Japanese editor/Studio/announcement support does not mean a newly translated Japanese Report a Problem interface is included.
+- Local qualification includes **73 existing support tests passed with one environment skip**, **7 new release-diagnostics tests passed**, and the final integrated **77 support Worker tests passed**. The integration path used the real collector, compressed attachment parser and report route with synthetic delivery endpoints; private diagnostic bytes remained out of public report text. The expanded suite checks exact diagnostic-asset parity with the editor manifest, including the activity client, and rejection of private paths.
+- The skipped test requires Windows symbolic-link creation; separate hardlink/unsafe-file checks passed. Installed-candidate regression checks also completed as described below. These suites are not a live report submission, a combined unique-test total or every-device rendering qualification.
+
+### Optional Installation Activity Counter
+
+- Added a Cloudflare-backed activity counter using the existing Community service and an aggregate-only view in the private Operations Console. It needs no Community sign-in or supporter key.
+- Participation is **enabled by default with a shared Settings opt-out**. KFPS, the editor and Studio share one installation preference and counting state. Host integration waits for a ready, visible UI; server construction and static asset requests do not count as a ready application.
+- A successful background ping counts a running installation at most once per UTC day. It measures neither keystrokes nor session duration. Independent current-day, Monday-start week and calendar-month totals are not rolling 7/30-day counts and must not be produced by summing daily totals.
+- The metric describes **active installation estimates, not unique people**. Multiple/reinstalled/copied installations, offline use, opt-out, blocked requests and old clients can overcount or undercount. Anonymous public clients can fabricate activity; the counter is not proof of unique humans or fraud-resistant billing.
+- A dedicated random local seed, protected with Windows current-user DPAPI, derives separate period tokens. It is unrelated to account, key or hardware identity and is not transmitted. The service stores domain-separated token hashes without installation-level cross-links or raw ping history.
+- The counter code stores **no IP addresses, account identifiers or artwork** and adds no request/body logging. Worker observability remains disabled. The service necessarily sees the tokens together during a request, and Cloudflare processes connection metadata; this is not a formal anonymity or unlinkability guarantee.
+- Live token rows expire at period end plus 48 hours and are removed by bounded scheduled cleanup; missed runs/backlog can delay deletion. Aggregate totals remain. D1 backup retention can outlive live rows, so that limit is not a promise of complete erasure from every backup.
+- The client has bounded attempts, backoff and clock correction. Optional counter failures do not block editing, and shutdown stops scheduling without waiting on a network call. An in-flight request can still finish. A server-side switch can disable collection while scheduled cleanup continues.
+- The private console shows Today, This week and This month with UTC ranges, collection start, refresh and disabled/saturated states. Refresh is manual and read-only. Its existing administrator credential retains its other powers; it is not a new counters-only credential for wider distribution.
+- The implementation includes a required native request limiter before activity database work and atomic minute/day database budgets. Missing, failed or malformed limiter results refuse collection without blocking normal app use. The limiter uses a fixed aggregate key, not an IP address, account or hardware identity. Exhausted SQL budget rows are no longer repeatedly rewritten on rejected attempts. Native admission is location-scoped and eventually consistent, not a strict global limit. These controls do not prove unique people, guarantee availability under abuse or cap all infrastructure costs.
+- Free-plan safeguards admit at most 120 valid ping attempts per minute and 2,000 per UTC day. Expired tokens and old budget rows share a separate 10,000-row daily deletion allowance, with small indexed batches; concurrent or retried cleanup cannot exceed that allowance. Month-end backlogs may delay deletion. Saturated counters are marked as incomplete in the console, not presented as an exact user census.
+- Local evidence includes **22 client tests**, **41 private-console tests**, **181 Community Worker tests across all eight suites**, and **6 real Python/HTTP/local-D1/admin-client checks**. Tests cover concurrent-host deduplication, opt-out, boundaries, bounded retries, privacy exclusions, aggregate authentication, cleanup, capped SQL denials and pre-database admission failures. The Free-plan cleanup tests include month-end backlogs, concurrent reservations and failed-delete recovery. These are separate suites, not an additive unique-coverage total.
+- Fixed the shared browser readiness request so a successful response is fully consumed and its deadline cleared. The **8 transport regression cases** include actual local HTTP/fetch streams, stalled-body timeout and failure cleanup; a completed success no longer aborts after its deadline. Full native/Chrome Studio source-host workflows subsequently passed the unchanged strict network checks.
+- Local host/settings and source-host workflow qualification passed. Capacity safeguards leave room against the observed Free-plan baseline, but future traffic and distributed abuse can still affect a shared service. The console marks unavailable or saturated results rather than inventing counts.
+
+### Shared Release Announcement
+
+- Added one announcement per installation, shown in whichever of KFPS, the 2D editor or Livery Studio opens first with a ready UI, including the supported native/Chrome editor hosts.
+- A shared claim and acknowledgement prevent a second app from showing the same release notice again. An interrupted claim expires, and the notice is acknowledged only after a visible dialog layout; merely constructing a host does not consume it.
+- Announcement language follows the Windows display language: Korean for Korean, Japanese for Japanese, and English otherwise. This is deliberately independent of the ordinary saved editor language.
+- The announcement expires **seven days after the fixed publication timestamp**, not seven days after installation, first launch or acknowledgement.
+- After that cutoff it does not appear even on a first-ever launch. Before the cutoff it appears only once across the three apps.
+- Any donation action is explicit, not an automatic browser visit. The approved closing line is: "Now go make something worth showing off. Crash out."
+- Local tests cover cross-process races, interrupted claims, acknowledgement, expiry, first launch after expiry, locale selection and explicit-only donation actions. Native/Chrome and installed-candidate Main/Settings checks exercised the shared notice, reachability and suppression after acknowledgement. The release includes a fixed seven-day publication window shared across all hosts.
+
+### Validation And Remaining Limits
+
+- The candidate has local unit, contract and actual hidden native/Chrome workflow evidence, including editing, docking, themes, saved-project reopening, recovery, source returns, read-only viewing, cancellation and failure preservation.
+- The installed-candidate Python run completed **1,343 tests with one Windows symbolic-link environment skip**. The editor runner passed **72 syntax/suite entries**, and QML lint passed with retained warnings. The shared-client transport fix then passed its eight installed regression cases. These are scoped local results, not public-package or every-platform certification.
+- Editor compatibility evidence includes dense 3,000-layer projects. Current two-host readiness checks also exercise smaller real workflows and compact layouts; these are complementary tests, not a single percentage of all behavior.
+- Studio checks include real prepared car geometry with synthetic artwork, saved-project reopening, exact section-cap boundaries and independently decoded experimental output. Final manifest-bound native and Chrome source-host workflows passed strict network checks, actual GPU/canvas-pixel checks, transforms on a 300-shape source, exact project save/reopen and real external 2D source-edit/return workflows. These tests used one prepared car and source-host adapters; they do not qualify normal packaged launch, every car or in-game acceptance.
+- Free-tool checks retain synthetic save identity, staging, cancellation and tamper protections. Local client-to-worker tests exercise eligibility, historical claims and denied/allowed downloads without real customer accounts.
+- Some evidence is a fresh rerun and some is an earlier source-hash-matched qualification. Overlapping test counts must not be added into a claimed unique total or 100% coverage figure.
+- Hidden/offscreen screenshots, software rendering and timed automation do not certify physical Windows IME input, every DPI/display arrangement, all GPU/driver combinations or a universal frame-rate improvement.
+- Per-car/body-kit/window paint permissions, all-car material/geometry fidelity, placeholder-wheel fitment and experimental game acceptance remain explicit limitations.
+- Post-publication upgrade checks use the actual public signed channel and previous 3.1.101 bundle, separately from the local suites above. Their results are recorded with the release verification evidence; source-host tests are not relabelled as packaged UI or in-game tests.
+
+### Distribution
+
+- The managed-runtime download is named `KFPS-3.1.105-bundled.zip`; the separate updater is `KFPS-Updater-1.0.5.exe`.
+- Existing installations use the signed update channel. The bundle is also available for a fresh installation. Neither includes Chrome or game car assets.
+- Previous changelog entries below retain their historical behavior and distribution statements.
+
+Now go make something worth showing off. Crash out.
+
 ## 3.1.104
 
 ### Editor and Report Window Fixes

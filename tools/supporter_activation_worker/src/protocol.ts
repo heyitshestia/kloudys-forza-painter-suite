@@ -162,6 +162,44 @@ export async function signCommunityEntitlement(
   });
 }
 
+function canonicalUtcMillis(value: unknown): number | null {
+  if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/.test(value)
+      || value.startsWith("0000-")) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value ? timestamp : null;
+}
+
+export function eligibleForLegacyVerifiedGrant(createdAt: unknown, cutoff: unknown, now: number): boolean {
+  const created = canonicalUtcMillis(createdAt);
+  const boundary = canonicalUtcMillis(cutoff);
+  // Bad or absent cohort configuration must not interrupt existing activation.
+  return created !== null && boundary !== null && Number.isFinite(now) && created <= boundary && boundary <= now;
+}
+
+export async function signCommunityLegacyVerifiedGrant(
+  privateKeyPem: string,
+  kid: string,
+  subject: string,
+  entitlementId: string,
+  nonce: string,
+  issuedAt: string,
+  expiresAt: string,
+  licenseCreatedAt: string,
+  eligibilityCutoff: string,
+): Promise<SignedEnvelope> {
+  return signEnvelope(privateKeyPem, kid, "kfps.community.legacy-verified-grant", {
+    audience: "kfps-community-verified-v1",
+    eligibility_cutoff: eligibilityCutoff,
+    entitlement_id: entitlementId,
+    expires_at: expiresAt,
+    issued_at: issuedAt,
+    license_created_at: licenseCreatedAt,
+    nonce,
+    schema: "kfps.community.legacy-verified.v1",
+    subject,
+  });
+}
+
 export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;

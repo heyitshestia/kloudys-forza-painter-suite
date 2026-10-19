@@ -150,7 +150,7 @@ export async function optionalUser(request: Request, env: Env): Promise<SessionU
   }
   const row = await env.DB.prepare(
     `SELECT u.id, u.provider, u.provider_id, u.provider_login, COALESCE(u.username, '') AS username,
-            u.bio, u.website_url, u.avatar_url, u.suspended_at,
+            u.bio, u.website_url, u.avatar_url, u.suspended_at, u.created_at,
             u.supporter_entitlement_id, u.supporter_verified_until
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ?1 AND s.expires_at > ?2 LIMIT 1`,
@@ -168,6 +168,7 @@ export async function optionalUser(request: Request, env: Env): Promise<SessionU
     suspended: Boolean(row.suspended_at),
     supporterEntitlementId: String(row.supporter_entitlement_id || ""),
     supporterVerifiedUntil: String(row.supporter_verified_until || ""),
+    communityConnectedAt: row.provider === 'github' ? String(row.created_at || '') : '',
   };
 }
 

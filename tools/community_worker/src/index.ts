@@ -44,6 +44,10 @@ import { handleClearSupporter, handleVerifySupporter } from "./supporter";
 import { handlePhoto, handleVote } from './gallery';
 import { purgeExpiredArtwork } from './availability';
 import { handleLiveryUpload, MAX_LIVERY_BYTES } from './livery_upload';
+import { getAccessPolicy } from './access_policy';
+import { handleVinylClaims } from './contribution_actions';
+import { handleVerifiedMaintenance } from './verified_index';
+import { routeActivity, cleanupActivity } from './activity';
 
 const HTML_HEADERS = {
   "Cache-Control": "no-store",
@@ -64,6 +68,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method.toUpperCase();
 
+  const activity = await routeActivity(request, env);
+  if (activity) return activity;
+
   if (method === "OPTIONS") {
     const origin = request.headers.get("Origin");
     if (origin && origin !== url.origin) {
@@ -72,7 +79,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Community-Admin-Token, X-Community-Test-Token",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Community-Admin-Token, X-Community-Test-Token, X-Community-Access-Contract",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         ...(origin ? { "Access-Control-Allow-Origin": origin } : {}),
         "Access-Control-Max-Age": "86400",
@@ -91,6 +98,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     const versionPolicy = await getVersionPolicy(env);
     return jsonResponse({
       protocol: 1,
+      access_policy:getAccessPolicy(env),
       gallery: { version: 1, votes: true, timed_releases: true, livery_uploads: true,
         maximum_livery_bytes: MAX_LIVERY_BYTES, maximum_photos: 3, maximum_photo_bytes: 2 * 1024 * 1024 },
       categories: CATEGORIES,
@@ -98,7 +106,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       licenses: LICENSES,
       classifications: CLASSIFICATIONS,
       sorts: ["featured", "trending", "new", "downloads", "favorites", "name"],
-      scopes: ["featured", "browse", "supporters", "favorites", "following", "mine"],
+      scopes: ["featured", "browse", ...(getAccessPolicy(env).mode==='verified_v1'?['verified']:[]), "supporters", "favorites", "following", "mine"],
       featured_artwork_limit: FEATURED_ARTWORK_LIMIT,
       minimum_upload_version: effectiveMinimumUploadVersion(env, versionPolicy),
       modern_upload_client_required: env.REQUIRE_MODERN_UPLOAD_CLIENT !== "0",
@@ -114,7 +122,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
         maximum_preview_bytes: 2 * 1024 * 1024,
         maximum_thumbnail_bytes: 512 * 1024,
       },
-    }, 200, { "Cache-Control": "public, max-age=300" });
+    }, 200, { "Cache-Control": "no-store" });
   }
 
   if (path === "/v1/auth/test" && method === "POST") return handleTestAuth(request, env);
@@ -122,6 +130,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/v1/session" && method === "GET") return handleSession(request, env);
   if (path === "/v1/session" && method === "DELETE") return handleSignOut(request, env);
   if (path === "/v1/profile/username" && method === "POST") return handleChooseUsername(request, env);
+  if (path === '/v1/profile/vinyl-claims' && method === 'POST') return handleVinylClaims(request,env);
   if (path === "/v1/profile" && method === "PATCH") return handleUpdateProfile(request, env);
   if (path === "/v1/profile/ignored" && method === "GET") return handleIgnoredCreators(request, env);
   if (path === "/v1/supporter/verify" && method === "POST") return handleVerifySupporter(request, env);
@@ -163,6 +172,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/v1/admin/reports" && method === "GET") return handleAdminReports(request, env);
   if (path === "/v1/admin/reports/resolve" && method === "POST") return handleAdminResolveReport(request, env);
   if (path === "/v1/admin/moderate" && method === "POST") return handleAdminModerate(request, env);
+  if (path === '/v1/admin/verified-index' && method === 'POST') return handleVerifiedMaintenance(request,env);
   if (path === "/v1/admin/users/action" && method === "POST") return handleAdminUserAction(request, env);
   if (path === "/v1/admin/version" && method === "GET") return handleAdminVersionStatus(request, env);
   if (path === "/v1/admin/version" && method === "POST") return handleAdminVersionAction(request, env);
@@ -179,8 +189,13 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    let mode:string;
     try {
-      const response = await route(request, env, ctx);
+      mode=getAccessPolicy(env).mode;
+    } catch(error) { return errorResponse(error); }
+    let response:Response;
+    try { response=await route(request,env,ctx); }
+    catch(error) { response=errorResponse(error); }
       const headers = new Headers(response.headers);
       const requestOrigin = request.headers.get("Origin");
       if (requestOrigin === new URL(request.url).origin) {
@@ -191,14 +206,13 @@ export default {
         }
       }
       headers.set("X-Community-Protocol", env.API_PROTOCOL || "1");
+      headers.set('X-Community-Access-Policy',mode);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-    } catch (error) {
-      return errorResponse(error);
-    }
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(purgeExpiredArtwork(env));
+    ctx.waitUntil(cleanupActivity(env));
     const now = new Date().toISOString();
     const oldWindow = Math.floor(Date.now() / 1000) - 48 * 60 * 60;
     ctx.waitUntil(env.DB.batch([

@@ -25,7 +25,7 @@ PreviewDialog {
             classification.currentIndex = preview.selected.classification === "handmade" ? 0 : 1
             supporter.checked = preview.selected.supporter; timed.checked = false
         }
-        changeNote.text = ""; rights.checked = false; compatibility.checked = false
+        changeNote.text = ""; rights.checked = false; compatibility.checked = false; authorship.currentIndex = 0
     }
     Connections {
         target: preview
@@ -80,9 +80,20 @@ PreviewDialog {
                 C.CommunityTagPicker { id: tags; objectName: "PreviewUploadTags"; Layout.fillWidth: true; tagService: preview }
                 RowLayout {
                     Layout.fillWidth: true
-                    PreviewComboBox { id: classification; enabled: !dialog.revision; Layout.fillWidth: true; model: [dialog.ui("Handmade", "수작업"), dialog.ui("Toolmade", "도구 제작")] }
-                    C.KfpsCheckBox { crispText: true; font.pixelSize: Math.round(Theme.px(12)); id: supporter; text: dialog.ui("Supporters only", "서포터 전용"); enabled: preview.supporter && !dialog.revision }
+                    PreviewComboBox { id: classification; objectName: "UploadClassification"; enabled: !dialog.revision; Layout.fillWidth: true; model: [dialog.ui("Handmade", "수작업"), dialog.ui("Toolmade", "도구 제작")] }
+                    C.KfpsCheckBox { crispText: true; font.pixelSize: Math.round(Theme.px(12)); id: supporter; text: preview.policyMode === "verified_v1" ? dialog.ui("Verified only", "Verified 전용") : dialog.ui("Supporters only", "서포터 전용"); enabled: preview.restrictedAccess && !dialog.revision }
                 }
+                ColumnLayout {
+                    visible: preview.policyMode === "verified_v1" && preview.upload.kind === "vinyl"
+                    Layout.fillWidth: true
+                    PreviewText { text: dialog.ui("Authorship", "원작자 확인") }
+                    PreviewComboBox {
+                        id: authorship; objectName: "UploadAuthorship"; Layout.fillWidth: true
+                        model: [dialog.ui("Choose authorship", "원작자 여부 선택"), dialog.ui("I created this original vinyl", "제가 직접 창작한 원본 비닐입니다"), dialog.ui("I have permission to share it", "공유 허가를 받은 작품입니다")]
+                    }
+                    PreviewText { Layout.fillWidth: true; color: Theme.muted; textSize: 12; text: dialog.ui("Only your own original Handmade vinyls earn lifetime contribution credit after publication. Toolmade uploads are welcome but do not count. Revisions do not add credit.", "직접 창작한 원본 수작업 비닐만 게시 후 누적 기여로 인정됩니다. 도구 제작 작품도 업로드할 수 있지만 기여로 계산되지 않습니다. 수정본은 추가 기여로 계산되지 않습니다.") }
+                }
+                PreviewText { visible: preview.policyMode === "verified_v1" && preview.upload.kind === "livery"; Layout.fillWidth: true; color: Theme.muted; textSize: 12; text: dialog.ui("Liveries do not earn original-vinyl contribution credit.", "리버리는 원본 비닐 기여로 계산되지 않습니다.") }
                 C.KfpsCheckBox { crispText: true; font.pixelSize: Math.round(Theme.px(12)); id: timed; enabled: !dialog.revision; objectName: "TimedUpload"; text: dialog.ui("Scheduled release", "기간 한정 공개") }
                 GridLayout {
                     visible: timed.checked; Layout.fillWidth: true; columns: 2; columnSpacing: 12
@@ -104,12 +115,14 @@ PreviewDialog {
             PreviewButton { text: dialog.ui("Cancel", "취소"); onClicked: dialog.close() }
             PreviewPrimaryButton {
                 objectName: "PublishUpload"; text: dialog.liveMode ? dialog.ui("Upload", "업로드") : dialog.ui("Publish locally", "로컬에 게시")
-                enabled: preview.authenticated && !!preview.upload.kind && !preview.busy
+                enabled: preview.authenticated && preview.policyReady && !!preview.upload.kind && !preview.busy && rights.checked
+                    && (preview.policyMode !== "verified_v1" || preview.upload.kind !== "vinyl" || authorship.currentIndex > 0)
                 onClicked: { if (!tags.commitPending()) return; preview.publish({title: titleField.text.trim() || preview.upload.title, description: description.text,
                     category: category.currentText, license: license.currentText, tags: tags.text,
                     classification: classification.currentIndex === 0 ? "handmade" : "toolmade",
                     supporter: supporter.checked, timed: timed.checked, starts: starts.isoValue, ends: ends.isoValue,
                     rights: rights.checked, compatibility: compatibility.checked,
+                    authorship: authorship.currentIndex === 1 ? "own" : authorship.currentIndex === 2 ? "permission" : "",
                     revision_id: dialog.revision ? preview.selected.id : "", change_note: changeNote.text}) }
             }
         }

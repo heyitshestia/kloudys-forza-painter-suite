@@ -10,6 +10,9 @@ import {
 import type { Env } from "./types";
 import { MAX_PREVIEW_BYTES, MAX_THUMBNAIL_BYTES, validatePng } from "./validation";
 import { FEATURED_ARTWORK_LIMIT } from "./catalog";
+import { handleCreditModeration } from './contribution_actions';
+import { getAccessPolicy } from './access_policy';
+import { contributionStatuses } from './contributions';
 import {
   getVersionPolicy,
   publicVersionPolicy,
@@ -113,8 +116,10 @@ export async function handleAdminQueue(request: Request, env: Env): Promise<Resp
       ORDER BY ${orderBy[requestedSort]}
       LIMIT ?${parameters.length + 1} OFFSET ?${parameters.length + 2}`,
   ).bind(...queryParameters).all<Record<string, unknown>>();
+  const contributions=await contributionStatuses(env,(rows.results||[]).map(row=>String(row.id)));
   return jsonResponse({
-    items: rows.results || [],
+    items: (rows.results||[]).map(row=>({...row,contribution:contributions.get(String(row.id))})),
+    access_policy:getAccessPolicy(env),
     status,
     classification,
     audience,
@@ -363,6 +368,9 @@ export async function handleAdminReplaceRenderedAssets(
 export async function handleAdminModerate(request: Request, env: Env): Promise<Response> {
   requireAdmin(request, env);
   const value = await readJsonObject(request, 16 * 1024);
+  if (['credit_approve','credit_revoke','credit_restore'].includes(String(value.action))) {
+    return handleCreditModeration(request,env,value);
+  }
   const artworkId = plainText(value.artwork_id, "artwork_id", 64, true);
   const action = plainText(value.action, "action", 24, true);
   const note = plainText(value.note, "note", 500, false);
@@ -655,6 +663,7 @@ let pageCount=1;
 let sortTouched=false;
 let searchTimer=0;
 let loadGeneration=0;
+let restrictedLabel='SUPPORTERS ONLY';
 const content=document.getElementById('content');
 const token=document.getElementById('token');
 const creator=document.getElementById('creator');
@@ -668,13 +677,13 @@ const searchInput=document.getElementById('queue-search');
 const featuredTab=document.getElementById('featured-tab');
 token.value=sessionStorage.getItem('kfps-admin-token')||'';
 const headers=()=>({'Content-Type':'application/json','X-Community-Admin-Token':token.value});
-async function api(path,options={}){sessionStorage.setItem('kfps-admin-token',token.value);const r=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}});if(!r.ok){let message=r.statusText;try{message=(await r.json()).message||message}catch{}throw new Error(message)}return r.json()}
+async function api(path,options={}){sessionStorage.setItem('kfps-admin-token',token.value);const r=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}});const verified=r.headers.get('X-Community-Access-Policy')==='verified_v1';restrictedLabel=verified?'VERIFIED ONLY':'SUPPORTERS ONLY';audienceSelect.options[0].textContent=verified?'Everyone + Verified':'Everyone + supporters';audienceSelect.options[2].textContent=verified?'Verified only':'Supporters only';if(!r.ok){let message=r.statusText;try{message=(await r.json()).message||message}catch{}throw new Error(message)}return r.json()}
 async function image(id,img){const r=await fetch('/v1/admin/artworks/'+id+'/preview',{headers:headers()});if(r.ok)img.src=URL.createObjectURL(await r.blob())}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const schemaLabels={'legacy-kfps':'Legacy KFPS-compatible JSON','kfps-community':'KFPS Community JSON','kfps-primitives':'KFPS primitive geometry','forza-typecode-export':'Forza live type-code export','forza-save-library':'KFPS save-library export','forza-file-export':'KFPS decoded file export','kfps-cgroup-flat':'KFPS flat C_group JSON','fd6-converted':'Forza Designer 6 conversion','fh6-typecode':'FH6 type-code geometry','forza-typecode':'Forza type-code geometry','unrecognized':'Unrecognized compatible JSON'};
 function schemaName(item){return schemaLabels[item.source_schema]||item.source_schema||'KFPS-compatible JSON'}
 function schemaFlag(item){return Number(item.schema_known)?'':'<div class="flag schema">COMPATIBILITY UNVERIFIED</div>'}
-function supporterFlag(item){return Number(item.supporter_only)?'<div class="flag supporter">SUPPORTERS ONLY</div>':''}
+function supporterFlag(item){return Number(item.supporter_only)?'<div class="flag supporter">'+restrictedLabel+'</div>':''}
 function classificationFlag(item){const value=item.classification==='handmade'?'handmade':'toolmade';return '<div class="flag '+value+'">'+value.toUpperCase()+'</div>'}
 function masksFlag(item){return Number(item.uses_masks)?'<div class="flag masks">MASKS</div>':''}
 function actionButton(parent,label,style,handler,disabled=false,title=''){const button=document.createElement('button');button.textContent=label;if(style)button.className=style;button.onclick=handler;button.disabled=disabled;if(title)button.title=title;parent.append(button)}
@@ -721,6 +730,13 @@ async function loadQueue(){
         '<p>'+esc(item.description)+'</p><div class="actions"></div></div>';
       image(item.id,card.querySelector('img'));
       const actions=card.querySelector('.actions');
+      if(data.access_policy?.mode==='verified_v1'&&item.contribution){
+        const state=item.contribution.state;
+        const label=document.createElement('div');label.className='meta';label.textContent='Contribution: '+state;actions.before(label);
+        if(item.contribution.can_claim)actionButton(actions,'Approve own credit','',()=>creditModerate(item,'credit_approve'));
+        if(['credited','scheduled','pending_publication'].includes(state))actionButton(actions,'Revoke credit','danger',()=>creditModerate(item,'credit_revoke'));
+        if(state==='revoked')actionButton(actions,'Restore credit','',()=>creditModerate(item,'credit_restore'));
+      }
       if(item.latest_revision_status==='pending'){actionButton(actions,'Approve','primary',()=>moderate(item,'approve'));actionButton(actions,'Reject','',()=>moderate(item,'reject'))}
       if(item.status==='published')actionButton(actions,item.featured?'Unfeature':'Feature','',()=>moderate(item,item.featured?'unfeature':'feature'),!item.featured&&featuredCount>=featuredLimit,!item.featured&&featuredCount>=featuredLimit?'All '+featuredLimit+' featured slots are occupied.':'');
       actionButton(actions,item.classification==='handmade'?'Set Toolmade':'Set Handmade','',()=>moderate(item,item.classification==='handmade'?'classify_toolmade':'classify_handmade'));
@@ -734,6 +750,7 @@ async function loadQueue(){
   }catch(e){if(generation!==loadGeneration)return;summary.textContent='';content.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
 }
 async function moderate(item,action){let note='';if(action==='reject'||action==='remove'){const response=prompt('Moderation note:');if(response===null)return;note=response}try{await api('/v1/admin/moderate',{method:'POST',body:JSON.stringify({artwork_id:item.id,revision:item.latest_revision,action,note})});loadQueue()}catch(e){alert(e.message)}}
+async function creditModerate(item,action){const note=prompt('Required credit review note:');if(!note?.trim())return;try{await api('/v1/admin/moderate',{method:'POST',body:JSON.stringify({artwork_id:item.id,revision:item.current_revision,content_sha256:item.content_hash,action,note:note.trim()})});loadQueue()}catch(e){alert(e.message)}}
 async function loadReports(){currentView='reports';++loadGeneration;showQueueChrome(false);markActive();content.className='grid';content.innerHTML='<div class="empty">Loading...</div>';try{const data=await api('/v1/admin/reports');content.innerHTML='';for(const item of data.items){const reports=Number(item.report_count||1);const card=document.createElement('article');card.className='card reported';card.innerHTML='<img alt=""><div class="body"><div class="flag">OPEN REPORT | '+esc(reports)+' ON ARTWORK</div>'+classificationFlag(item)+supporterFlag(item)+schemaFlag(item)+'<br><strong>'+esc(item.title)+'</strong><div class="meta">'+esc(item.reason)+' | reported by @'+esc(item.reporter)+' | creator @'+esc(item.creator)+'</div><div class="meta">'+esc(item.category)+' | '+esc(item.shape_count)+' shapes | '+esc(schemaName(item))+' | artwork '+esc(item.artwork_status)+'</div><p>'+esc(item.details||'No additional details supplied.')+'</p><div class="actions"></div></div>';image(item.artwork_id,card.querySelector('img'));const actions=card.querySelector('.actions');actionButton(actions,'Resolve','primary',()=>resolveReport(item.id,'resolved'));actionButton(actions,'Dismiss','',()=>resolveReport(item.id,'dismissed'));if(item.artwork_status==='published')actionButton(actions,'Remove artwork','danger',()=>removeReported(item));actionButton(actions,'Suspend creator','danger',()=>userAction('suspend',item.creator));content.append(card)}if(!data.items.length)content.innerHTML='<div class="empty">No open reports.</div>'}catch(e){content.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
 async function resolveReport(id,resolution){await api('/v1/admin/reports/resolve',{method:'POST',body:JSON.stringify({report_id:id,resolution})});loadReports()}
 async function removeReported(item){const note=prompt('Why is this artwork being removed?');if(note===null)return;await api('/v1/admin/moderate',{method:'POST',body:JSON.stringify({artwork_id:item.artwork_id,revision:item.current_revision,action:'remove',note})});loadReports()}

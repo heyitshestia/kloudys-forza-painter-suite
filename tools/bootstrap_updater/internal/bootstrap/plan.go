@@ -94,6 +94,17 @@ func protectedAppPath(relative string) bool {
 			return true
 		}
 	}
+	for _, root := range []string{"tools/livery-studio/settings", "tools/livery-studio/recovery"} {
+		if key == root || strings.HasPrefix(key, root+"/") {
+			return true
+		}
+	}
+	if key == "tools/livery-studio/runs" || strings.HasPrefix(key, "tools/livery-studio/runs/") {
+		// Only these immutable, provenance-verified program files live beside
+		// Studio's mutable sessions, browser profiles, diagnostics and caches.
+		return key != "tools/livery-studio/runs/component-converter/converter/build-manifest.json" &&
+			key != "tools/livery-studio/runs/component-converter/converter/publish/kfps.liverylab.converter.exe"
+	}
 	return key == ".dev.vars" || strings.HasPrefix(key, ".dev.vars.")
 }
 
@@ -103,8 +114,8 @@ func validateComponentPath(component Component, relative string) error {
 		return err
 	}
 	if component.Target == "install-root" {
-		if !strings.EqualFold(clean, "KFPS.exe") && !strings.EqualFold(clean, "KFPS Editor.exe") && !strings.EqualFold(clean, "KFPS-Updater.exe") {
-			return fmt.Errorf("install-root component %q may only manage KFPS.exe, KFPS Editor.exe and KFPS-Updater.exe", component.Name)
+		if !strings.EqualFold(clean, "KFPS.exe") && !strings.EqualFold(clean, "KFPS Editor.exe") && !strings.EqualFold(clean, "KFPSLiverySudio.exe") && !strings.EqualFold(clean, "KFPS-Updater.exe") {
+			return fmt.Errorf("install-root component %q may only manage KFPS.exe, KFPS Editor.exe, KFPSLiverySudio.exe and KFPS-Updater.exe", component.Name)
 		}
 		return nil
 	}
@@ -195,15 +206,16 @@ func generatedPythonCachePath(path string) bool {
 func sortChanges(changes []Change, installRoot string) {
 	outerLauncher := pathKey(filepath.Join(installRoot, "KFPS.exe"))
 	outerEditor := pathKey(filepath.Join(installRoot, "KFPS Editor.exe"))
+	outerStudio := pathKey(filepath.Join(installRoot, "KFPSLiverySudio.exe"))
 	outerUpdater := pathKey(filepath.Join(installRoot, "KFPS-Updater.exe"))
 	priority := func(change Change) int {
 		switch pathKey(change.Destination) {
-		case outerLauncher, outerEditor:
+		case outerLauncher, outerEditor, outerStudio:
 			return 2
 		case outerUpdater:
 			return 3
 		default:
-			if strings.EqualFold(filepath.Base(change.Destination), "KFPS.exe") || strings.EqualFold(filepath.Base(change.Destination), "KFPS Editor.exe") {
+			if strings.EqualFold(filepath.Base(change.Destination), "KFPS.exe") || strings.EqualFold(filepath.Base(change.Destination), "KFPS Editor.exe") || strings.EqualFold(filepath.Base(change.Destination), "KFPSLiverySudio.exe") {
 				return 1
 			}
 			return 0

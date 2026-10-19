@@ -6,12 +6,12 @@ param(
 $ErrorActionPreference = "Stop"
 $ToolRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoRoot = (Resolve-Path (Join-Path $ToolRoot "..\..")).Path
-$BuildRoot = Join-Path $ToolRoot "build"
 $GateRoot = Join-Path ([IO.Path]::GetTempPath()) "KFPS-Updater-Gates"
 $RunRoot = Join-Path $GateRoot ("signed-cli-" + [guid]::NewGuid().ToString("N"))
+$BuildRoot = Join-Path $RunRoot "build"
 $Publisher = Join-Path $BuildRoot "KFPS-Update-Publisher.exe"
-$TestUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.4.exe"
-$OldUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.2.exe"
+$TestUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.5.exe"
+$OldUpdater = Join-Path $RunRoot "KFPS-Updater-1.0.4.exe"
 $PrivateKey = Join-Path $RunRoot "test.private"
 $PublicKey = Join-Path $RunRoot "test.public"
 $Payload = Join-Path $RunRoot "payload"
@@ -82,12 +82,12 @@ try {
         $public = [IO.File]::ReadAllText($PublicKey).Trim()
         $baseFlags = "-s -w -buildid="
         Invoke-Checked {
-            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.4 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $TestUpdater ./cmd/kfps-updater
+            & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.5 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $TestUpdater ./cmd/kfps-updater
         } "Current test updater build failed"
         if ($PreviousToolRoot) { Push-Location -LiteralPath $PreviousToolRoot }
         try {
             Invoke-Checked {
-                & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.2 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $OldUpdater ./cmd/kfps-updater
+                & go build -trimpath -buildvcs=false -ldflags "$baseFlags -X main.version=1.0.4 -X main.trustedPublicKey=$public -X main.testFeatures=enabled" -o $OldUpdater ./cmd/kfps-updater
             } "Old test updater build failed"
         } finally {
             if ($PreviousToolRoot) { Pop-Location }
@@ -100,6 +100,7 @@ try {
     Write-Utf8NoBom (Join-Path $Source "VERSION") "2.0.0`n"
     Write-Utf8NoBom (Join-Path $Source "KFPS.exe") "new-launcher"
     Write-Utf8NoBom (Join-Path $Source "KFPS Editor.exe") "new-editor-launcher"
+    Write-Utf8NoBom (Join-Path $Source "KFPSLiverySudio.exe") "new-studio-launcher"
     Copy-Item -LiteralPath $TestUpdater -Destination (Join-Path $Source "KFPS-Updater.exe")
     Write-Utf8NoBom (Join-Path $Source "KFPS.UI\program.txt") "new-program"
     Push-Location $Source
@@ -122,7 +123,7 @@ try {
     Write-Utf8NoBom (Join-Path $Python "python.exe") "new-python"
     Write-Utf8NoBom (Join-Path $Python "Lib\site.py") "new-site"
     Invoke-Checked {
-        & $Publisher build --app-root $Source --python-root $Python --updater $TestUpdater --private $PrivateKey --public $PublicKey --output $Payload --base-url "https://updates.example.invalid/stable" --version 2.0.0 --commit $commit --bootstrap-version 1.0.4 --sequence 1 --published-utc "2026-09-01T12:00:00Z" --retired-file "retired.txt"
+        & $Publisher build --app-root $Source --python-root $Python --updater $TestUpdater --private $PrivateKey --public $PublicKey --output $Payload --base-url "https://updates.example.invalid/stable" --version 2.0.0 --commit $commit --bootstrap-version 1.0.5 --sequence 1 --published-utc "2026-09-01T12:00:00Z" --retired-file "retired.txt"
     } "Signed payload publication failed"
 
     $manifestPath = Join-Path $Payload "kfps-update-2.0.0.json"
@@ -153,6 +154,10 @@ try {
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\retired.txt") "retire-me"
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\python\obsolete.pyd") "obsolete"
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\runtime\user.json") "preserve-runtime"
+    $studioPersonal = @("imgs/livery-projects/car-1/projects/project.json", "imgs/livery-projects/car-1/recovery/recovery.sqlite3",
+        "tools/livery-studio/settings/local-launch.json", "tools/livery-studio/recovery/legacy.sqlite3",
+        "tools/livery-studio/runs/studio-browser/Default/Preferences")
+    foreach ($relative in $studioPersonal) { Write-Utf8NoBom (Join-Path $Target ('KloudysFH6Painter/' + $relative)) 'preserve-studio' }
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\user.kfpskey") "preserve-key"
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\python\Lib\__pycache__\generated.pyc") "preserve-cache"
 
@@ -210,6 +215,9 @@ try {
     Assert-Text (Join-Path $Target "KloudysFH6Painter\KFPS.UI\program.txt") "new-program"
     Assert-Text (Join-Path $Target "KFPS Editor.exe") "new-editor-launcher"
     Assert-Text (Join-Path $Target "KloudysFH6Painter\KFPS Editor.exe") "new-editor-launcher"
+    Assert-Text (Join-Path $Target "KFPSLiverySudio.exe") "new-studio-launcher"
+    Assert-Text (Join-Path $Target "KloudysFH6Painter\KFPSLiverySudio.exe") "new-studio-launcher"
+    foreach ($relative in $studioPersonal) { Assert-Text (Join-Path $Target ('KloudysFH6Painter/' + $relative)) 'preserve-studio' }
     Assert-Text (Join-Path $Target "KloudysFH6Painter\runtime\user.json") "preserve-runtime"
     Assert-Text (Join-Path $Target "KloudysFH6Painter\user.kfpskey") "preserve-key"
     Assert-Text (Join-Path $Target "KloudysFH6Painter\python\Lib\__pycache__\generated.pyc") "preserve-cache"
@@ -230,12 +238,15 @@ try {
     }
     Write-Utf8NoBom (Join-Path $Target "KloudysFH6Painter\KFPS.UI\program.txt") "corrupt-program"
     Remove-Item -LiteralPath (Join-Path $Target "KFPS Editor.exe")
+    Remove-Item -LiteralPath (Join-Path $Target "KFPSLiverySudio.exe")
     $repairCode = Invoke-TestUpdater -Executable $TestUpdater
     if ($repairCode -ne 0) {
         throw "Same-version signed repair failed with exit $repairCode"
     }
     Assert-Text (Join-Path $Target "KloudysFH6Painter\KFPS.UI\program.txt") "new-program"
     Assert-Text (Join-Path $Target "KFPS Editor.exe") "new-editor-launcher"
+    Assert-Text (Join-Path $Target "KFPSLiverySudio.exe") "new-studio-launcher"
+    foreach ($relative in $studioPersonal) { Assert-Text (Join-Path $Target ('KloudysFH6Painter/' + $relative)) 'preserve-studio' }
 
     $statePath = Join-Path $State "state.json"
     $persistent = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
@@ -260,6 +271,10 @@ try {
         no_op_exit = $noOpCode
         repair_exit = $repairCode
         editor_launchers_installed_and_repaired = $true
+        studio_launchers_installed_and_repaired = $true
+        studio_settings_projects_recoveries_profiles_preserved = $true
+        bootstrap_from = '1.0.4'
+        bootstrap_to = '1.0.5'
         old_updater_launched_from_installation = $true
         locked_installed_updater_rejected_without_mutation = $true
         locked_updater_exit = $lockedCode

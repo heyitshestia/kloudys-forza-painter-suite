@@ -4,8 +4,11 @@ import {
   jsonResponse,
   readJsonObject,
   requireUser,
+  sha256Hex,
 } from "./security";
 import type { Env, SessionUser } from "./types";
+import { canonicalTimestamp, grantStatement, legacyCutoff, type LegacyGrantProof } from './legacy_grants';
+import { getViewerAccess } from './access_policy';
 
 const ENVELOPE_KEYS = ["kid", "payload", "signature", "type", "version"];
 const PAYLOAD_KEYS = [
@@ -111,7 +114,7 @@ export async function verifySupporterEnvelope(
   envelope: unknown,
   expectedSubject: string,
   now = Date.now(),
-): Promise<{ entitlementId: string; issuedAt: string; expiresAt: string }> {
+): Promise<{ entitlementId: string; issuedAt: string; expiresAt: string; nonce:string }> {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
     throw new HttpError(400, "invalid_supporter_entitlement");
   }
@@ -168,15 +171,45 @@ export async function verifySupporterEnvelope(
     toArrayBuffer(payloadBytes),
   );
   if (!verified) throw new HttpError(400, "invalid_supporter_entitlement");
-  return { entitlementId, issuedAt, expiresAt };
+  return { entitlementId, issuedAt, expiresAt, nonce:String(payload.nonce) };
+}
+
+export async function verifyLegacyGrantEnvelope(env:Env,envelope:unknown,subject:string,
+  paired:Awaited<ReturnType<typeof verifySupporterEnvelope>>,now=Date.now()):Promise<LegacyGrantProof> {
+  const cutoff=legacyCutoff(env,now);
+  if (!cutoff) throw new HttpError(503,'legacy_grant_configuration_error');
+  const invalid=()=>new HttpError(400,'invalid_legacy_verified_grant');
+  if (!envelope || typeof envelope!=='object' || Array.isArray(envelope)) throw invalid();
+  const signed=envelope as Record<string,unknown>;
+  if (!exactKeys(signed,ENVELOPE_KEYS) || signed.type!=='kfps.community.legacy-verified-grant' ||
+      signed.version!==1 || signed.kid!==env.SUPPORTER_ENTITLEMENT_KEY_ID) throw invalid();
+  let bytes:Uint8Array, signature:Uint8Array, payload:Record<string,unknown>;
+  try {
+    bytes=base64UrlToBytes(signed.payload,4096);signature=base64UrlToBytes(signed.signature,512);
+    payload=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+  } catch { throw invalid(); }
+  if (!payload || typeof payload!=='object' || Array.isArray(payload) ||
+      !exactKeys(payload,['schema','audience','subject','entitlement_id','nonce','issued_at','expires_at','license_created_at','eligibility_cutoff']) ||
+      payload.schema!=='kfps.community.legacy-verified.v1' || payload.audience!=='kfps-community-verified-v1' ||
+      payload.subject!==subject || payload.entitlement_id!==paired.entitlementId || payload.nonce!==paired.nonce ||
+      payload.issued_at!==paired.issuedAt || payload.expires_at!==paired.expiresAt || payload.eligibility_cutoff!==cutoff) throw invalid();
+  const created=canonicalTimestamp(payload.license_created_at),cutoffMs=canonicalTimestamp(cutoff)!;
+  if (created===null || created>cutoffMs || cutoffMs>Date.parse(paired.issuedAt) || Date.parse(paired.expiresAt)<=now) throw invalid();
+  const canonical=new TextEncoder().encode(canonicalJson(payload as JsonValue));
+  if (bytes.length!==canonical.length || !bytes.every((b,i)=>b===canonical[i]) ||
+      !await crypto.subtle.verify('RSASSA-PKCS1-v1_5',await supporterPublicKey(env),toArrayBuffer(signature),toArrayBuffer(bytes))) throw invalid();
+  return {entitlementId:paired.entitlementId,licenseCreatedAt:String(payload.license_created_at),cutoff,
+    proofHash:await sha256Hex(bytes),issuedAt:paired.issuedAt};
 }
 
 export async function handleVerifySupporter(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   await enforceRateLimit(env, user.id, "supporter_verify", 20, 3600);
   const value = await readJsonObject(request, 16 * 1024);
-  if (!exactKeys(value, ["entitlement"])) throw new HttpError(400, "invalid_supporter_entitlement");
+  if (!exactKeys(value, 'legacy_verified_grant' in value ? ['entitlement','legacy_verified_grant'] : ['entitlement'])) throw new HttpError(400, "invalid_supporter_entitlement");
   const verified = await verifySupporterEnvelope(env, value.entitlement, user.id);
+  if ('legacy_verified_grant' in value && user.provider!=='github') throw new HttpError(403,'unsupported_identity');
+  const grant='legacy_verified_grant' in value ? await verifyLegacyGrantEnvelope(env,value.legacy_verified_grant,user.id,verified) : null;
   if (user.supporterEntitlementId && user.supporterEntitlementId !== verified.entitlementId) {
     throw new HttpError(409, "supporter_account_already_bound", "This Community account is already bound to another supporter entitlement.");
   }
@@ -187,24 +220,30 @@ export async function handleVerifySupporter(request: Request, env: Env): Promise
     throw new HttpError(409, "supporter_entitlement_already_bound", "This supporter entitlement is already bound to another Community account.");
   }
   try {
-    await env.DB.batch([
+    const statements=[
       env.DB.prepare(
         `UPDATE users
             SET supporter_entitlement_id = ?2,
                 supporter_verified_at = ?3,
                 supporter_verified_until = ?4,
                 updated_at = ?3
-          WHERE id = ?1`,
+          WHERE id = ?1 AND suspended_at IS NULL
+            AND (supporter_entitlement_id IS NULL OR supporter_entitlement_id=?2) RETURNING id`,
       ).bind(user.id, verified.entitlementId, verified.issuedAt, verified.expiresAt),
       env.DB.prepare(
         `INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at)
-         VALUES (?1, NULL, ?2, 'supporter_verified', ?3, ?4)`,
+         SELECT ?1, NULL, ?2, 'supporter_verified', ?3, ?4 WHERE changes()>0`,
       ).bind(crypto.randomUUID(), user.username, verified.expiresAt, verified.issuedAt),
-    ]);
+    ];
+    if (grant) statements.push(grantStatement(env,user,grant));
+    const results=await env.DB.batch(statements);
+    if (!results[0]?.results.length) throw new HttpError(409,'supporter_entitlement_already_bound');
   } catch {
     throw new HttpError(409, "supporter_entitlement_already_bound");
   }
-  return jsonResponse({ supporter: { active: true, verified_until: verified.expiresAt } });
+  const access=await getViewerAccess(env,request,user);
+  return jsonResponse({ supporter: { active: true, verified_until: verified.expiresAt },
+    access_policy:access.policy,capabilities:{verified:access.verified} });
 }
 
 export async function handleClearSupporter(request: Request, env: Env): Promise<Response> {
@@ -224,5 +263,7 @@ export async function handleClearSupporter(request: Request, env: Env): Promise<
        VALUES (?1, NULL, ?2, 'supporter_cleared', '', ?3)`,
     ).bind(crypto.randomUUID(), user.username, now),
   ]);
-  return jsonResponse({ supporter: { active: false, verified_until: "" } });
+  const access=await getViewerAccess(env,request,user);
+  return jsonResponse({ supporter: { active: false, verified_until: "" },
+    access_policy:access.policy,capabilities:{verified:access.verified} });
 }

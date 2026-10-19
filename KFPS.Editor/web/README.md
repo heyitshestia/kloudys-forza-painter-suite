@@ -4,16 +4,22 @@ The KFPS Vinyl Editor is the bundled independent desktop workspace for creating,
 tracing, repairing, and organizing FH-compatible vinyl JSON. It uses native
 Forza shape resources and enforces the 3,000-layer game budget.
 
-The editor runs entirely on the local machine. The small local server exists so
+Editing and project storage run on the local machine. The small local server exists so
 the embedded browser engine can load bundled shape assets and save projects back into the KFPS
 folder. It does not upload artwork. The server exposes only editor assets and
 rejects mutation requests that did not originate from the editor page.
 
 ## Open The Editor
 
-English and Korean are available from the lower-left language dropdown. A saved
-choice takes precedence over the Windows display language and applies when the
-editor is reopened. The first-run arrow notice stays until explicitly acknowledged.
+English, Korean and Japanese are available from the lower-left language dropdown.
+A saved choice takes precedence over the Windows display language and applies when
+the editor is reopened, without reloading unsaved artwork. The initial shortcut
+guide remains available on first use; the former language-arrow, sharing and
+modernization-update notices no longer run during startup. A separately published
+release announcement may appear once across KFPS, the editor and Studio during
+the fixed seven days after publication. It uses the Windows display language
+(Korean/Japanese, otherwise English), not the saved editor language. Unpublished
+or expired release content does not display that announcement.
 See [localization maintenance](locales/README.md) for the shared catalog workflow.
 
 Open `KFPS Editor.exe` beside `KFPS.exe`, or use the `Editor` page in KFPS:
@@ -31,6 +37,75 @@ tools, and project/game JSON formats have not been replaced.
 
 Close the editor before updating KFPS. The editor holds the installation's
 updater lock so an update cannot replace files underneath unsaved work.
+
+## Editing Workspace
+
+The document bar keeps Open Project, Save, Export JSON, Undo and Redo in reach.
+File contains New, Open JSON and Save As; Edit contains clipboard commands;
+View contains framing, panel visibility, themes and Reset workspace. Help
+contains the tour, full guide and rebindable keyboard shortcuts. Hover or focus
+an icon for its description and current shortcut where applicable.
+
+The left rail chooses the active tool. The options row reports the tool and
+selected-layer count, placement mode and quick actions. Mouse wheel zooms;
+middle or right drag pans without moving artwork. The canvas also has zoom and
+Fit Vinyl buttons. Right-click a painted overlap to choose a layer; enable
+Cycle overlaps to step through stacked objects with repeated clicks. Hidden
+and locked objects are excluded from overlap picking.
+
+Layers remain above the inspector. Each row shows its native-shape thumbnail,
+colour strip, name, visibility and lock state. Click a row to select it;
+Ctrl-click toggles membership and Shift-click selects a range. Double-click an
+individual layer to centre it without changing zoom. A focused row supports
+Space to select and Enter to reveal; modified Space supports range/toggle
+selection. Drag rows to reorder them, or into a group to add them. The ellipsis
+menu contains naming and group actions. Search works across the entire
+virtualized list, not only the currently visible rows.
+
+Properties puts exact transforms first, followed by appearance. Corner handles
+preserve proportions; side handles resize one axis. Shift-corner performs skew,
+as in the existing editor. Numeric X/Y scales remain independent. Enter or blur
+commits a valid numeric expression; Escape restores its previous value. Advanced
+selection, alignment and picking sections expand below appearance. Existing
+shape, asset, text, pixel, guide, reference, history and export panels remain
+available in the inspector tabs.
+
+Drag the dock's left edge to change width, or the divider between layers and
+properties to change height. Focus a divider and use arrow keys for precise
+adjustment; Home restores its default. View > Reset workspace recovers the
+default layout without touching artwork. Width, split, visibility and the last
+manually selected inspector tab are remembered.
+
+### Arrange Panels
+
+Drag an inspector tab, the Layers heading, or a left-rail tool to move its panel.
+Release over the left/right docking indicator to attach it, over a dock's tabs
+to insert it there, or over the workspace to create a floating panel. Drag a
+floating panel by its title tab; its lower-right corner resizes it. Floating
+panels stay inside this editor window, not in separate Windows windows.
+The full panel and its controls move with the pointer, in both the Windows
+and Chrome editors. Escape cancels the move and restores the previous layout.
+
+Right-click a tab (or press Shift+F10 while it is focused) for Float, Dock left,
+Dock right and Close. Floating panels also have options, collapse and close
+buttons. Closing a panel does not delete anything: View > Panels reopens it and
+brings covered panels to the front. Layers can move just like the inspector tabs.
+
+View > Lock panel positions prevents accidental tab rearrangement. View > Focus
+canvas temporarily hides the docks and floating panels. Selecting a panel/tool
+or toggling Focus canvas restores access. View > Reset workspace returns all
+panels to the standard arrangement without changing artwork.
+
+Focused floating title tabs support Alt+arrow keys to move the panel. Focus its
+resize corner and use arrow keys to resize, or Home for the default size. Side
+dividers also support arrow keys and Home. Escape cancels an unfinished drag or
+resize. Panel positions, tab order, floating size and collapsed state are saved
+with this editor's preferences; they are not part of exported artwork or themes.
+
+View > Theme applies any existing bundled/custom theme. Adjust previews, saves
+and loads the same theme format; no conversion is required. Closing Adjust
+without saving cancels the preview. English/Korean/Japanese labels and the original
+theme editor remain supported.
 
 ## Save, Recovery, And Export
 
@@ -417,13 +492,21 @@ The hard limit for import, duplication, text, pixel-art conversion, and export i
 
 ## Troubleshooting
 
-The one-time **Sharing Projects And Groups** notice follows the introduction.
-It requires **I acknowledge** before continuing and cannot be dismissed with
-Escape. Share `.fabric-project.json` files to preserve editable groups; exported
-game JSONs must contain flat vinyl layers. The acknowledgment is saved with the
-app-folder editor preferences and survives editor restarts. A failed settings
-write leaves the notice open for retry. Resetting the tutorial does not reset
-this separate acknowledgment.
+The initial shortcut guide is the retained first-use tutorial. The separate
+release announcement, when published and still within its seven-day window, is
+acknowledged once per installation across KFPS, the editor and Studio. It does
+not reset the tutorial or extend its own window after installation. After the
+tutorial closes, startup proceeds to recovery or the requested open action; the former
+**Sharing Projects And Groups**, language-arrow and modernization-update notices
+are not queued. Their legacy acknowledgement keys are retained for compatibility
+but have no effect on automatic startup, even when missing or stale. Do not clear
+preferences to try to restore those retired notices. Tutorial reset affects the
+retained shortcut guide; ordinary unsaved-work, destructive-action, recovery and
+compatibility safeguards remain in place.
+
+Share `.fabric-project.json` files to preserve editable groups; exported game
+JSONs must contain flat vinyl layers. Removing the sharing notice does not change
+either file format or the export checks.
 
 - If the editor does not open, read the status on the KFPS Editor page.
 - Check `runtime/fabric-editor/desktop.log` for native startup and JavaScript errors.
@@ -514,6 +597,17 @@ changes. Local audit profiles, synthetic images and detailed run logs are not
 distributed with the application.
 
 ## Developer Checks
+
+`tests/editor-startup-tips.node.js` checks six startup branches and retains the
+initial-help hook without invoking the retired notices.
+`tests/regression-startup-tips.js` checks the actual page: initial guide and
+acknowledgement, reload, absent/stale legacy flags, explicit Help/Shortcuts and
+unsaved New cancellation/acceptance. The language-switch regression defaults to
+EN/KO/JA, four themes and two viewport sizes; it checks failed-write rollback,
+no reload of unsaved artwork and Save As, not the retired arrow acknowledgement.
+See [localization coverage](locales/README.md#native-regression-coverage) for the
+fresh-process restart and Japanese catalog checks. These automated checks do not
+establish physical IME keystrokes or Windows display/DPI behavior.
 
 `python tools/fabric-editor/tests/editor-launch-native.py <fresh-output-directory>`
 exercises real Qt startup, occupied-port fallback, busy IPC rejection, a missing

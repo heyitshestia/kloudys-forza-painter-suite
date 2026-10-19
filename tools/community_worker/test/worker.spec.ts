@@ -159,6 +159,8 @@ async function clearR2(): Promise<void> {
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM moderation_events"),
+    env.DB.prepare("DELETE FROM verified_legacy_grants"),
+    env.DB.prepare("DELETE FROM vinyl_fingerprints"),
     env.DB.prepare("DELETE FROM reports"),
     env.DB.prepare("DELETE FROM follows"),
     env.DB.prepare("DELETE FROM favorites"),
@@ -862,7 +864,8 @@ describe("community worker", () => {
 
     const cleared = await jsonFetch("/v1/supporter/verify", "DELETE", undefined, supporter);
     expect(cleared.status).toBe(200);
-    expect(await cleared.json()).toEqual({ supporter: { active: false, verified_until: "" } });
+    expect(await cleared.json()).toMatchObject({ supporter: { active: false, verified_until: "" },
+      access_policy:{mode:'legacy_supporter'},capabilities:{verified:{active:false,reason:'policy_legacy'}} });
     const retainedBinding = await env.DB.prepare(
       "SELECT supporter_entitlement_id, supporter_verified_until FROM users WHERE username = ?1",
     ).bind("SupporterCreator").first<Record<string, unknown>>();

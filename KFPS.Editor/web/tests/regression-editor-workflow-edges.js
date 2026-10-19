@@ -1,5 +1,10 @@
 async page => {
   const check=(ok,message)=>{if(!ok)throw Error(message);};
+  const command=async id=>{
+    const menu=await page.locator(`#${id}`).evaluate(button=>button.closest('.workspaceMenu')?.id);
+    if(menu) await page.locator(`[aria-controls="${menu}"]`).click();
+    await page.locator(`#${id}`).click();
+  };
   await page.evaluate(async()=>{
     $('layerSearch').value = '';
     await loadPayload({shapes:Array.from({length:3000},(_,i)=>({type:1048677,color:[60,150,200,i%2?255:120],
@@ -23,7 +28,7 @@ async page => {
   check(await page.evaluate(()=>membersForGroupIds(['target']).length===3000),'Bulk redo mismatch');
   await page.evaluate(()=>{selectObjects([vinylObjects()[1000]],'test');lastLayerListKey=layerListObjectKey(vinylObjects()[1000]);copySelectedLayers();});
   const beforeFull=await page.evaluate(()=>JSON.stringify(snapshotShapes()));
-  await page.locator('#pasteLayer').click();await page.waitForFunction(()=>!editorCommands.busy);
+  await command('pasteLayer');await page.waitForFunction(()=>!editorCommands.busy);
   check(await page.evaluate(()=>JSON.stringify(snapshotShapes()))===beforeFull,'Capacity failure modified document');
   await page.evaluate(async()=>{
     await loadPayload({shapes:[
@@ -32,11 +37,11 @@ async page => {
     refreshLayers();
   });
   await page.locator('[data-layer-list-key="group:single"] .layerGroupTitle').click();
-  await page.locator('#copyLayer').click();await page.locator('#pasteLayer').click();await page.waitForFunction(()=>!editorCommands.busy);
+  await command('copyLayer');await command('pasteLayer');await page.waitForFunction(()=>!editorCommands.busy);
   check(await page.evaluate(()=>!!selectedVinylObjects()[0].kloudy.group_id&&selectedVinylObjects()[0].kloudy.group_id!=='single'),'One-member group copy lost explicit group');
   await page.locator('#undoBtn').click();await page.waitForFunction(()=>!editorCommands.busy);
   await page.evaluate(()=>{const one=vinylObjects()[0];selectObjects([one],'test');lastLayerListKey=layerListObjectKey(one);});
-  await page.locator('#copyLayer').click();await page.locator('#pasteLayer').click();await page.waitForFunction(()=>!editorCommands.busy);
+  await command('copyLayer');await command('pasteLayer');await page.waitForFunction(()=>!editorCommands.busy);
   check(await page.evaluate(()=>!selectedVinylObjects()[0].kloudy.group_id),'Individual from one-member group retained grouping');
   await page.locator('#groupActions').click(); await page.locator('#addSelectedToGroup').click();
   const cancelled=await page.evaluate(()=>JSON.stringify(snapshotShapes()));
@@ -63,7 +68,7 @@ async page => {
     await page.locator('#closeColorDialog').click();
     visuals.push({theme,...layout});
   }
-  await page.locator('#saveProjectAs').click();
+  await command('saveProjectAs');
   await page.locator('#textPromptInput').fill('Workflow edge regression');
   await page.locator('#textPromptInput').press('Enter');
   await page.waitForFunction(()=>!projectSaveInProgress&&!documentDirty);

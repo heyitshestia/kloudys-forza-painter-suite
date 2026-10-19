@@ -1,4 +1,5 @@
 import {fields} from './editor-diagnostics.mjs';
+import {validStudioRecord} from './studio-diagnostics.mjs';
 
 export const LOG_SCHEMA='kfps-private-editor-logs/1';
 export const APP_LOG_SCHEMA='kfps-private-app-logs/2';
@@ -13,7 +14,8 @@ const discoveryWarnings=new Set(['Log discovery limit reached; some logs were no
   'Some log entries could not be read or were linked.','Some log folders could not be read or were linked.',
   'Retained log file limit reached; some logs were not included.','Updater diagnostic location unavailable.']);
 const validSchema=value=>value===LOG_SCHEMA||value===APP_LOG_SCHEMA;
-const validName=(name,schema)=>names.has(name)||schema===APP_LOG_SCHEMA&&workerName.test(name);
+const studioName=/^studio-performance-000[012]\.log$/;
+const validName=(name,schema)=>names.has(name)||schema===APP_LOG_SCHEMA&&(workerName.test(name)||studioName.test(name));
 const timestamp=v=>typeof v==='string'&&/^\d{4}-\d\d-\d\dT[0-9:.+Z-]{8,30}$/.test(v);
 const integer=(v,max)=>Number.isSafeInteger(v)&&v>=0&&v<=max;
 const object=v=>v&&typeof v==='object'&&!Array.isArray(v);
@@ -76,9 +78,11 @@ export async function describePrivateLogs(file,{redact}={}) {
   for(const file of bundle.files) {
     check(object(file)&&Object.keys(file).every(k=>['name','modified_utc','source_bytes','omitted_lines','text'].includes(k)));
     check(validName(file.name,bundle.schema)&&timestamp(file.modified_utc)&&integer(file.source_bytes,4*1024*1024)&&integer(file.omitted_lines,10000000)&&typeof file.text==='string');
+    if(studioName.test(file.name))check(file.source_bytes<=256*1024&&encoder.encode(file.text).length<=256*1024);
     for(const line of file.text.split('\n')) {
       if(!line)continue;
       if(file.name.startsWith('performance'))event(JSON.parse(line));
+      else if(studioName.test(file.name))check(encoder.encode(line).length<=1024&&validStudioRecord(JSON.parse(line)));
       else check(typeof redact==='function'&&line.length<=60000&&redact(line,60000)===line,'Private logs contain text that has not passed privacy cleanup.');
     }
   }

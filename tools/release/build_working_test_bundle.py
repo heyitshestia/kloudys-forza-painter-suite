@@ -14,6 +14,7 @@ import zipfile
 
 from build_release_bundles import (
     APP_FOLDER,
+    copy_outer_launchers,
     copy_python_runtime,
     enforce_release_policy,
     sha256_file,
@@ -208,10 +209,7 @@ def main() -> int:
         app_root = release_root / APP_FOLDER
         shutil.copytree(source_root, app_root)
         (app_root / "BUILD_COMMIT").write_text(commit + "\n", encoding="ascii")
-        shutil.copy2(app_root / "KFPS.exe", release_root / "KFPS.exe")
-        editor_launcher = app_root / "KFPS Editor.exe"
-        if editor_launcher.is_file():
-            shutil.copy2(editor_launcher, release_root / editor_launcher.name)
+        copy_outer_launchers(app_root, release_root)
         (release_root / "Images").mkdir()
 
         if args.python_source:

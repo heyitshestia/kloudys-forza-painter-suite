@@ -20,7 +20,40 @@ Item {
     // WebEngine treats a repeated URL assignment as navigation. This string
     // changes only for a new session, unlike the service's shared status signal.
     readonly property string viewerSessionUrl: fullLiveryService.viewerUrl
+    readonly property string viewerThemeJson: JSON.stringify(studioThemeContext())
     signal wipNoticeAccepted()
+
+    function studioThemeContext() {
+        // Qt serializes translucent colors as ARGB; CSS requires explicit RGBA.
+        function color(value) {
+            return "rgba(" + Math.round(value.r * 255) + "," + Math.round(value.g * 255)
+                    + "," + Math.round(value.b * 255) + "," + value.a.toFixed(4) + ")"
+        }
+        const variables = {
+            "--bg": Theme.backgroundA, "--shell": Theme.backgroundB,
+            "--panel": Theme.surface, "--panel2": Theme.surfaceRaised, "--panel3": Theme.fieldSurface,
+            "--text": Theme.text, "--muted": Theme.muted, "--soft": Theme.subtle,
+            "--line": Theme.border, "--line2": Theme.borderStrong,
+            "--accent": Theme.primary, "--accent2": Theme.signalSecondary,
+            "--good": Theme.success, "--warn": Theme.warning, "--danger": Theme.danger,
+            "--canvas-bg": Theme.previewSurfaceSoft, "--fabric-canvas-bg": Theme.previewSurface,
+            "--editor-grid-line": Theme.borderSoft, "--editor-grid-axis": Theme.borderStrong,
+            "--editor-guide-line": Theme.signalSecondary, "--editor-guide-selected": Theme.primaryBright,
+            "--editor-guide-draft": Theme.primary, "--editor-notch-line": Theme.borderStrong,
+            "--editor-notch-muted": Theme.muted, "--editor-notch-active": Theme.primaryBright,
+            "--editor-selection-border": Theme.primary, "--editor-shape-outline": Theme.text,
+            "--editor-selection-corner": Theme.primaryBright, "--editor-selection-corner-stroke": Theme.surfaceStrong,
+            "--editor-skew-corner": Theme.warning, "--shape-tile-bg": Theme.fieldSurface,
+            "--dialog-bg": Theme.surfaceStrong, "--dialog-header": Theme.surfaceRaised
+        }
+        Object.keys(variables).forEach(key => variables[key] = color(variables[key]))
+        const fonts = []
+        if (Theme.classicMode && Theme.classicFontFamily !== "Microsoft Sans Serif" && Theme.classicFontFamily !== "sans-serif")
+            fonts.push({family: Theme.classicFontFamily, asset: "fonts/windows94/W95FA.otf"})
+        else if (!Theme.terminalMode && Theme.loadedUiFontFamily.length && Theme.uiFontFile.length)
+            fonts.push({family: Theme.loadedUiFontFamily, asset: Theme.uiFontFile})
+        return {name: Theme.activeThemeName, variables: variables, fontFamily: Theme.fontFamily, fontAssets: fonts}
+    }
 
     function openSelectedLivery() {
         if (fullLiveryService.selectedSource.length === 0 || fullLiveryService.gameFolder.length === 0)
@@ -105,6 +138,16 @@ Item {
                 }
 
                 GhostButton {
+                    objectName: "launchLiveryStudioButton"
+                    dense: true
+                    text: editorService.studioLaunching ? "Starting..." : "Livery Studio"
+                    iconName: "editor"
+                    enabled: !editorService.studioLaunching
+                    toolTipText: editorService.studioStatus.length > 0 ? editorService.studioStatus : "Open the independent car and vinyl workspace."
+                    onClicked: editorService.launchLiveryStudio(root.studioThemeContext())
+                }
+
+                GhostButton {
                     dense: true
                     text: fullLiveryService.gameFolder.length > 0 ? "FH6 Linked" : "FH6 Folder"
                     iconName: "folder"
@@ -161,6 +204,16 @@ Item {
                     font.weight: Font.DemiBold
                 }
             }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: editorService.studioStatus.length > 0
+            text: editorService.studioStatus
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(12)
+            wrapMode: Text.Wrap
         }
 
         GridLayout {
@@ -440,7 +493,14 @@ Item {
                         WebEngineView {
                             id: carView
                             url: root.viewerSessionUrl
-                            backgroundColor: "#090b0e"
+                            backgroundColor: Theme.previewSurface
+                            function applyViewerTheme() {
+                                runJavaScript("window.__kfpsReadonlyTheme?.(" + root.viewerThemeJson + ")")
+                            }
+                            Connections {
+                                target: root
+                                function onViewerThemeJsonChanged() { carView.applyViewerTheme() }
+                            }
                             settings.localContentCanAccessRemoteUrls: false
                             settings.localContentCanAccessFileUrls: false
                             settings.javascriptCanOpenWindows: false
@@ -451,9 +511,13 @@ Item {
                             onLoadingChanged: function(request) {
                                 if (request.status === WebEngineView.LoadFailedStatus)
                                     fullLiveryService.viewerFailed(url.toString(), request.errorString)
+                                else if (request.status === WebEngineView.LoadSucceededStatus)
+                                    applyViewerTheme()
                             }
                             onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceId) {
                                 if (message.indexOf("KFPS_VIEWER:") === 0) {
+                                    if (message.indexOf('"event":"ready"') >= 0 || message.indexOf('"event":"phase"') >= 0)
+                                        applyViewerTheme()
                                     fullLiveryService.viewerProcess(url.toString(), renderProcessPid)
                                     fullLiveryService.viewerEvent(url.toString(), message.slice(12))
                                 }

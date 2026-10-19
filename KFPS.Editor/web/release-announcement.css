@@ -1,0 +1,39 @@
+#kfpsReleaseAnnouncement {
+  box-sizing: border-box;
+  width: min(720px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 0;
+  border: 1px solid var(--line2, var(--line));
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--dialog-bg, var(--panel));
+  box-shadow: var(--shadow, none);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+#kfpsReleaseAnnouncement[open] { display: flex; flex-direction: column; }
+#kfpsReleaseAnnouncement::backdrop { background: var(--backdrop); }
+#kfpsReleaseAnnouncement .release-announcement-body {
+  min-height: 0; overflow: auto; padding: 22px 24px 12px; overflow-wrap: anywhere; scrollbar-gutter: stable;
+  scrollbar-color: var(--line2, var(--line)) var(--panel);
+}
+#kfpsReleaseAnnouncement .release-announcement-body::-webkit-scrollbar { width: 12px; }
+#kfpsReleaseAnnouncement .release-announcement-body::-webkit-scrollbar-track { background: var(--panel); }
+#kfpsReleaseAnnouncement .release-announcement-body::-webkit-scrollbar-thumb { background: var(--line2, var(--line)); border: 3px solid var(--panel); border-radius: 6px; }
+#kfpsReleaseAnnouncement h2 { margin: 0 0 16px; color: var(--text); font-size: 22px; line-height: 1.25; }
+#kfpsReleaseAnnouncement h3 { margin: 20px 0 7px; color: var(--text); font-size: 16px; }
+#kfpsReleaseAnnouncement p { margin: 10px 0; color: var(--text); font-size: inherit; line-height: inherit; }
+#kfpsReleaseAnnouncement .release-announcement-closing { font-weight: 600; margin-top: 18px; }
+#kfpsReleaseAnnouncement .release-announcement-actions {
+  flex: none; display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--line); flex-wrap: wrap;
+}
+#kfpsReleaseAnnouncement button { min-height: 36px; flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: 14px; }
+#kfpsReleaseAnnouncement :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 430px) {
+  #kfpsReleaseAnnouncement .release-announcement-body { padding: 16px; }
+  #kfpsReleaseAnnouncement .release-announcement-actions { padding: 12px 16px; }
+}

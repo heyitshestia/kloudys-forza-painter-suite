@@ -1,0 +1,429 @@
+{
+  "format": "kfps-converter-build-v2",
+  "mode": "pinned",
+  "kind": "converter",
+  "provenance": {
+    "reference_commit": "33de8f5589519c6e9320617eb3c148fb602ab5ff",
+    "observed_git_head": "33de8f5589519c6e9320617eb3c148fb602ab5ff",
+    "prerequisite_inventory_sha256": "192fe644c685c90bf7a1e49eb4a15fc125fe02a85ad37cfb78f0be8851290a97"
+  },
+  "sources": [
+    {
+      "root": "lab",
+      "path": "scripts/build-converter.ps1",
+      "bytes": 4869,
+      "sha256": "7d9dbf7831d00cba90e69838b717e6f58a2cccb8b4c489cff137aad524852558"
+    },
+    {
+      "root": "lab",
+      "path": "scripts/resolve-baseline.ps1",
+      "bytes": 1337,
+      "sha256": "1c329dc6ae74395139c50423f80beb3d9d3fd80af5538b0a269df7f84dbd11ec"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/GlbWriter.cs",
+      "bytes": 9996,
+      "sha256": "6ca1d63bd7af8f4930223458c629e0993f3edd38814f1294cc4940a9239f46b4"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/Kfps.LiveryLab.Converter.csproj",
+      "bytes": 1921,
+      "sha256": "5fc48dc59ec8891a83cf40e6614d2c9f1b40849c128cad47e71b5f94e2777978"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/LICENSE.ForzaTechStudio",
+      "bytes": 1063,
+      "sha256": "060de21653e46bb07f56056946ef3a80a52fd91de39dc6e7280906819a0c4cab"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/ModelImporter.cs",
+      "bytes": 29764,
+      "sha256": "2ed76312e7d8d25362d3b7f54e13c5c5b80331eb287ebb20e2f2fc2212fe0343"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/NativeMorphs.cs",
+      "bytes": 5082,
+      "sha256": "41362387e6e59b30653ab972d2f3efcd8b06320129dada09fb11f61295e9ed56"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/NuGet.Config",
+      "bytes": 184,
+      "sha256": "c84f912e5c256d8a5c713f5b3d5123df5fd0b19fdc66692d2fb288ea7edca0a9"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/PROVENANCE.md",
+      "bytes": 7971,
+      "sha256": "77066767c1a99768121a22f0eee1399bcab7dde5c4fc0256a9952734fa2a54be"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/PreviewWheelFit.cs",
+      "bytes": 5281,
+      "sha256": "95648d4b7641fa3831b137a95b2f89fd6e3bd3af3028d9019e1a50bf4cfc6262"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/Program.cs",
+      "bytes": 62215,
+      "sha256": "b52491257fbc80beb4195f922f4bfe5bdeb5871df97c539d32315764b4e5c005"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/baseline-prerequisites.json",
+      "bytes": 14044,
+      "sha256": "192fe644c685c90bf7a1e49eb4a15fc125fe02a85ad37cfb78f0be8851290a97"
+    },
+    {
+      "root": "lab",
+      "path": "src/chassis-converter/material_textures.py",
+      "bytes": 12215,
+      "sha256": "c22405280d793c06f0b70d575e85ab7cfe34f12d461cba676e41dc879966baf0"
+    },
+    {
+      "root": "lab",
+      "path": "src/kfps_livery_lab/converter_provenance.py",
+      "bytes": 13498,
+      "sha256": "45853c16d2cbbb43f9d85805ca28a680d3c0a134241f16d43d792db190d30745"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/DurangoTypes/Enums.cs",
+      "bytes": 6602,
+      "sha256": "51fadbb296bee97d0909762a06198b25a4dcc39ddb97838e494fb7f49e1e27f9"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/DurangoTypes/Structs.cs",
+      "bytes": 4145,
+      "sha256": "e7c711237210ee0866d0f5358cd7d1074b60b7d23340985b0bef26c460554449"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/BufferHeader.cs",
+      "bytes": 5351,
+      "sha256": "4dda48e74de9176e83e810a03380382f16f939880cadd2ea8331f6920ae57710"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/CbexBlob.cs",
+      "bytes": 955,
+      "sha256": "103c90d6896304960322bca16f31577df32de9a957d0d83f014743de848239c6"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/FrxtBlob.cs",
+      "bytes": 677,
+      "sha256": "e898b040c1011301f337b515d46b8529455c627066aed398fb4b5a8e58d82bc5"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/GenericBlob.cs",
+      "bytes": 510,
+      "sha256": "89ce8e8afd9b446ed2ffc4a0521ca83cce9f5fca46a3f4e1bac71161cbb1d803"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/IndexBufferBlob.cs",
+      "bytes": 668,
+      "sha256": "b064afd4c602b9a48bd815b3629d9272a5d03ede6aaa1d1f1055a809a32acc66"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/LightScenarioBlob.cs",
+      "bytes": 8822,
+      "sha256": "95a118e4709a11e0017850471da43612635bfa0038367629220426a905b77b62"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ManufacturerColorsBlob.cs",
+      "bytes": 5358,
+      "sha256": "f8e2fbc806ad38b2b92f8907bf401f6cd63ab8bc0e8d4075230f9ce7d8620e25"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MatLBlob.cs",
+      "bytes": 1353,
+      "sha256": "0124168317400afaf5ea66972fe93d18ba346f04c9acdc687313d4158b4819a4"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialBlob.cs",
+      "bytes": 3155,
+      "sha256": "e6ebc1d3db5a534b91d741f8d31f0f2c9c4e5899dd03a09ea7b3307d4e98bb1e"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialResourceBlob.cs",
+      "bytes": 682,
+      "sha256": "53ca646fa011872c44e0245879fe8356882ff30e198c12e5e6e7cb32dbe1ef75"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MaterialShaderParameterBlob.cs",
+      "bytes": 12560,
+      "sha256": "8d36f5fd9ae81dac9ca34d4bc258ed42b38391adf5ccb167f68de9220ddaf689"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MeshBlob.cs",
+      "bytes": 16517,
+      "sha256": "8dc52d5c815f92f4e68220d15d3d86a55292732a74cb32cdfea1833a38c68ca0"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ModelBlob.cs",
+      "bytes": 4340,
+      "sha256": "4093ebf1dc937faefc924a64a7f92b9ca232fac6dbccfdea3f8b5609b797ee26"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MorphBlob.cs",
+      "bytes": 926,
+      "sha256": "eb4810f0b891a49e0633c0127c3d81766bb7b2589a3d13ea7a052aeec21da1c5"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/MorphBufferBlob.cs",
+      "bytes": 635,
+      "sha256": "439f4fb1727a2644fe7a2dba1f88438b454633adfdffbc8a1517e770b7b27a2b"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ParmBlob.cs",
+      "bytes": 1197,
+      "sha256": "1ae099c4b7b694556e4d0b675caf1dd8a09e3a1d5d8f5e7c7a39ac4f72b3f138"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ParticlesBlob.cs",
+      "bytes": 541,
+      "sha256": "33b57b23a868d7d986de7b42d4b96eea2595979876a4f4ef2df389331cf4888f"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/RenderTargetBlob.cs",
+      "bytes": 5114,
+      "sha256": "890ae0b02c90768eb641df6d382e9445666acce58d3d0bc4aeaaec766e3efbab"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ShaderParameterMappingBlob.cs",
+      "bytes": 4268,
+      "sha256": "8e79b2c905c68ba50e49b021716db7f666da189498721ace88fef23e8c1aab95"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/ShudBlob.cs",
+      "bytes": 1113,
+      "sha256": "2ffd1ed3f3a93bbf656e92635134ebd895c72b0bf24c73db0ae5e543b8de3c11"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/SkeletonBlob.cs",
+      "bytes": 9255,
+      "sha256": "a1ce8c8701359fabf34c0fd31aa01d8eb60a6e70ae4ace7e875c30e0bc9bfe09"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/SkinBufferBlob.cs",
+      "bytes": 634,
+      "sha256": "42408f07293b8569348604dab7155b3a94344d1ffa141515c319d4e49e53736f"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/StexBlob.cs",
+      "bytes": 888,
+      "sha256": "d9ed4d605614bf1916d82a1fe4defe8e6bbd2e5d643ebee59f5f9f3e2ce3711b"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/TextureContentBlob.cs",
+      "bytes": 608,
+      "sha256": "c6aa990b720c9a720d5c6c7c66a284507e927503566abd8b11e383ed718b735b"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/TrevBlob.cs",
+      "bytes": 1106,
+      "sha256": "2390dda2ae939c1fc85ac29827f29449f23e8849b1950ebc84930fb5c03886f3"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VersVarsBlob.cs",
+      "bytes": 1254,
+      "sha256": "88dd0c9be4d959ef3476bd69cce1c3d8c8d351d0cb11e5ffaa5cfc7b82cd5ca3"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VertexBufferBlob.cs",
+      "bytes": 595,
+      "sha256": "0ab4b5b237a5884d4c83b2e91623d991ae4eb941ae2c5de44b71e71b8d6e78b8"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Blobs/VertexLayoutBlob.cs",
+      "bytes": 4064,
+      "sha256": "55b9e25b46c5e3ce4ae921457a99bb24e5c625692aa65439ac96d39a031fe22e"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Bundle.cs",
+      "bytes": 14133,
+      "sha256": "ffee34a8e00bd3dacad9c26c5e2cdf9abde5fbd5bac4aca46dc314fcc2b64a5e"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/BundleBlob.cs",
+      "bytes": 6046,
+      "sha256": "082c4ad5797332861c1ad1f26241f534adabd48a56c860d703a74a3c36750040"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/BundleMetadata.cs",
+      "bytes": 1803,
+      "sha256": "7bd26ab07a9b0adbf6934e36c94665ad1a7237da568abebc2c15575f1233bad8"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/CarbinParser.cs",
+      "bytes": 33161,
+      "sha256": "62e3f0b3b2fa50b2f0b69592d3d4959a7ea835c8398f623de22afab5878fd065"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/ACMRMetadata.cs",
+      "bytes": 542,
+      "sha256": "478fd28033418cbd2f9ea2de25f553aa7f8a372317f742c3caac1414a955490b"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/ARTXMetadata.cs",
+      "bytes": 2050,
+      "sha256": "0472d3e74afef14cfac333eafca668af0c036e57d0c3ef203ba5d4502abce6ed"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/AtlasMetadata.cs",
+      "bytes": 790,
+      "sha256": "11cb05ac8115203c48a3c20add4bee61d381ae0bdb0f7b6d52efc6f7a4641cda"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/BlendMetadata.cs",
+      "bytes": 850,
+      "sha256": "215043d1ab94dbacda60e796dd1426f3039b9f8f8a4d635978f5e629e6e508c8"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/BoundaryBoxMetadata.cs",
+      "bytes": 1040,
+      "sha256": "659c028e6ccaf869a3e53c2dcb33cd36313085c4a71c279dbc47b58cfd0436fb"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/IdentifierMetadata.cs",
+      "bytes": 589,
+      "sha256": "d5cfd8b08a5b2af6373a3ccecc5a02e6180d63693e72aa1d27534f9dd06e3103"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/NameMetadata.cs",
+      "bytes": 639,
+      "sha256": "3e8176cfb46c286f2d7e06ba1487b496b34c289a7ead4002320cc4aa17ddfaef"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/RawMetadata.cs",
+      "bytes": 591,
+      "sha256": "6ec839e50e3a1137240cb175a8d84af3b8052ba0d049f3933a51f06e1147187e"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaderMetadata.cs",
+      "bytes": 2278,
+      "sha256": "5adc41770519fe01cc40185c1af5d77d4317f5941050806572671332316e0515"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaders/DurangoTextureContentHeader.cs",
+      "bytes": 6231,
+      "sha256": "7fec916b23edc1db55cf4c063e90b96fc35cd91abb55588eba34a718bfbb89d7"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureContentHeaders/PCTextureContentHeader.cs",
+      "bytes": 11767,
+      "sha256": "c8ca3b6de5e64c97b8d9eda81694f183713b3ea4399a3b497259a59bf6d2c5b4"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/TextureReferenceMetadata.cs",
+      "bytes": 926,
+      "sha256": "9734744ab9ed9372ac936b8da03957130dd6af3d2d456a793d7263662b284dee"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/VDCLMetadata.cs",
+      "bytes": 2832,
+      "sha256": "3fc40c37c13f690c9664f83e9f33116107f7691e1c10ab91f96582a8a73e8abc"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/Metadata/VertexDeclarationMetadata.cs",
+      "bytes": 2123,
+      "sha256": "4057b05328b7e8ea2c7940d8cb21471d8858c7f9d02a550028e2e214c86f0036"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Bundles/StreamExtensions.cs",
+      "bytes": 3214,
+      "sha256": "1e3ed16380343af64ceb27ede43bfda634adbc5264e204c600f8d3e0bc2e4b84"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Shared/DxgiUtils.cs",
+      "bytes": 18108,
+      "sha256": "5505163280bc23babe5cb7d7a85e077a83f7b354b93981872b70d6add66dad9a"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ForzaTools.Shared/VertexElement.cs",
+      "bytes": 377,
+      "sha256": "6a4689dad5f329186dcb4d710d9846d8d96e9f1907c797c2bb321c56fb74debf"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/LICENSE",
+      "bytes": 1063,
+      "sha256": "060de21653e46bb07f56056946ef3a80a52fd91de39dc6e7280906819a0c4cab"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/ModelImporter.cs",
+      "bytes": 26175,
+      "sha256": "27bda24a5531cd903f9db3f132ffcd223aaf0a07d0b9f416bb7b5942d8ec9b35"
+    },
+    {
+      "root": "baseline",
+      "path": "tools/livery/chassis-converter/vendor/ForzaTechStudio/PROVENANCE.md",
+      "bytes": 504,
+      "sha256": "17b4d995e3d845368df4ab3bffe947e5339933d12ef278633ec7eea8a73bf171"
+    }
+  ],
+  "artifacts": [
+    {
+      "root": "build",
+      "path": "publish/Kfps.LiveryLab.Converter.exe",
+      "bytes": 36725056,
+      "sha256": "072f89ff49a36552f7d1c977df051309a41fdec7c9578b9240e8054e32f24f81"
+    }
+  ],
+  "assurance": "Exact source/build byte integrity, not a game-render parity claim."
+}

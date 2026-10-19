@@ -53,7 +53,7 @@ func buildPayload(arguments []string) error {
 	baseURLArg := flags.String("base-url", "", "HTTPS payload base URL")
 	versionArg := flags.String("version", "", "KFPS version; defaults to VERSION")
 	commitArg := flags.String("commit", "", "Git commit; defaults to HEAD")
-	bootstrapVersion := flags.String("bootstrap-version", "1.0.4", "bootstrap updater version")
+	bootstrapVersion := flags.String("bootstrap-version", "1.0.5", "bootstrap updater version")
 	sequence := flags.Uint64("sequence", 0, "monotonic stable-channel sequence")
 	publishedArg := flags.String("published-utc", "", "RFC3339 publication timestamp")
 	retired := repeatedFlag{
@@ -223,11 +223,16 @@ func buildPayload(arguments []string) error {
 		{Source: filepath.Join(appSnapshot, "KFPS.exe"), Path: "KFPS.exe"},
 		{Source: updaterOutput, Path: "KFPS-Updater.exe"},
 	}
-	editorLauncher := filepath.Join(appSnapshot, "KFPS Editor.exe")
-	if info, err := os.Stat(editorLauncher); err == nil && info.Mode().IsRegular() {
-		launcherFiles = append(launcherFiles, payloadFile{Source: editorLauncher, Path: "KFPS Editor.exe"})
-	} else if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read desktop editor launcher: %w", err)
+	for _, name := range []string{"KFPS Editor.exe", "KFPSLiverySudio.exe"} {
+		launcher := filepath.Join(appSnapshot, name)
+		if info, err := os.Stat(launcher); err == nil {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("desktop launcher is not a regular file: %s", name)
+			}
+			launcherFiles = append(launcherFiles, payloadFile{Source: launcher, Path: name})
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("read desktop launcher %s: %w", name, err)
+		}
 	}
 
 	applicationName := "kfps-" + version + "-application.zip"

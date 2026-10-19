@@ -4,7 +4,7 @@
 >
 > Hi! Enjoying KFPS? Supporting me on Ko-fi helps me keep improving it and bringing new ideas to life. Thank you for being part of the community!
 >
-> <a href="https://ko-fi.com/s/2d1507698d"><img src="docs/screenshots/showcase/ko-fi-support.avif" alt="Support me on Ko-fi" width="240"></a>
+> <a href="https://ko-fi.com/O7O020EQNQ"><img src="docs/screenshots/showcase/ko-fi-support.avif" alt="Optional donations on Ko-fi" width="240"></a>
 
 **Kloudy's Forza Painter Suite**
 
@@ -93,7 +93,7 @@ Reference images no longer have a 16-megapixel cap. The project allows **100 MiB
 
 ![KFPS Outputs showing the generated Mini Kloudy checkpoint files and live transfer controls](docs/screenshots/showcase/outputs.png)
 
-Outputs brings **Generated finals**, **Editor exports**, **Game exports**, and the **Library** into one file browser. Search, preview, organize, and choose a JSON before transferring it. The game-save vinyl library is a supporter feature; community downloads have their own access rules.
+Outputs brings **Generated finals**, **Editor exports**, **Game exports**, and the **Library** into one file browser. Search, preview, organize, and choose a JSON before transferring it. Local game-save vinyl libraries and full library transfers are free; community downloads have their own access rules.
 
 **Online/live** means reading or editing the memory of a game running on your PC. It does **not** mean uploading your design to the internet. **Offline** means processing supported local save files.
 
@@ -106,7 +106,7 @@ Outputs brings **Generated finals**, **Editor exports**, **Game exports**, and t
 | Forza Horizon 6 | Yes | Yes | Yes | Yes |
 | Forza Motorsport (FM8) | Yes | Yes | Yes | Yes |
 
-Live transfers are free. Offline **vinyl-group** library tools require a [supporter key](#support-kfps). Support depends on the game's build and save format; this table is not a promise for every store version or future game update. FH4's live support is build-specific, and its offline import requires the game to be closed and uses the Microsoft Store/Xbox WGS save path.
+Live transfers and offline **vinyl-group** library tools do not require a supporter key. Support depends on the game's build and save format; this table is not a promise for every store version or future game update. FH4's live support is build-specific, and its offline import requires the game to be closed and uses the Microsoft Store/Xbox WGS save path.
 
 ### Enter the Right Layer Count
 
@@ -119,7 +119,7 @@ The **Template layers** field serves both live actions, but the number you enter
 
 Count the shapes inside groups, not the group headers. Keep **only one supported game** running, open the intended vinyl group, and do not change game screens during a transfer. Leave **Clear Extra Template Layers** enabled for normal imports. A design cannot fit into fewer template slots than it needs.
 
-Offline tools avoid the live template workflow. Close the game before offline vinyl-group writes, follow the tool's save checks, and keep backups. A save folder is not the game's installed `media` or `Content` folder.
+Offline tools avoid the live template workflow. Follow the selected game's save checks and keep backups. FH4 offline import requires the game closed; adding a new FH6 vinyl can work with the game open, while replacing an existing FH6 vinyl requires it closed. A save folder is not the game's installed `media` or `Content` folder.
 
 ## Full-Car Liveries
 
@@ -146,7 +146,11 @@ Browse artwork, search by tags or creator, inspect previews, and find handmade o
 
 Connect a GitHub identity to download, favorite, follow creators, report listings, or publish your own work. Publishing renders a preview from the selected JSON and lets you provide a title, description, tags, and revisions. Your Community username is permanent, so check it before confirming.
 
-Supporters can also connect their entitlement to use the supporter catalog. Share only work you created or have permission to distribute. A listing in KFPS is not a guarantee that the artwork complies with a game's rules.
+On servers using the **Verified** policy, new access requires **both 14 days since your first GitHub connection to Community and 10 eligible Handmade vinyl uploads of your own**. The server records the first connection date; signing out or reconnecting does not reset it. You can upload during the waiting period. Toolmade vinyls, liveries, duplicate designs and revisions do not add credit. Scheduled work counts once published. Earned credit survives normal deletion or expiry, but moderation can revoke invalid credit or suspend access. Sharing permission and authorship are separate: older Handmade uploads may need an authorship claim or review.
+
+**Existing valid key holders receive permanent Verified access after one successful verification**, without the waiting period or upload requirement. The grant remains when the local key is removed or a temporary proof expires. It belongs to the connected Community account; normal account moderation and separate supporter-theme key checks still apply. Donations do not buy Verified access.
+
+The client follows the connected server's policy. A server still using the legacy supporter policy retains its current key checks until the server is upgraded. This local development branch does not deploy that upgrade. Existing GitHub sessions and private artwork storage are retained; compact thumbnails are public, while full media and downloads follow server access checks. Share only work you created or have permission to distribute. A listing in KFPS is not a guarantee that the artwork complies with a game's rules.
 
 ## Image Tools
 
@@ -186,15 +190,9 @@ The editor has its own **Signature Pink, Dark, Blackout, and Whiteout** themes, 
 
 ## Support KFPS
 
-**[Get a supporter key on Ko-fi](https://ko-fi.com/s/2d1507698d)** to support development and unlock:
+**[Optional donations on Ko-fi](https://ko-fi.com/O7O020EQNQ)** help support development. Generation, both editors, output management and supported local/live import/export, including full library transfers, do not require payment or a key. Game, ownership and save-format checks still apply; **FH5 offline import remains unavailable**.
 
-- **Offline vinyl libraries:** export supported FH4, FH5, FH6, and FM8 libraries, and import compatible JSON into supported FH4, FH6, or FM8 saves without starting the game. **FH5 offline import is not included because it is not available.**
-- **Four extra main-app themes:** Windows 94, Patron's Atelier, Carbon Dark, and Overdrive 200X.
-- **Supporter Community access:** browse, download, and share supporter-only vinyls with a connected Community profile.
-
-**One-time purchase, not a subscription.** Add your key in KFPS Settings after purchase. Generation, the standalone editor, output management, public Community browsing, and live import/export remain available without a key. The experimental full-car Liveries page is also public.
-
-![KFPS Support page explaining the one-time purchase, its benefits, and the features that stay free](docs/screenshots/showcase/support.png)
+**Existing supporter keys** still unlock four extra main-app themes: Windows 94, Patron's Atelier, Carbon Dark and Overdrive 200X. Add or remove an existing key in Settings. Theme access is checked locally from its signature: no PC binding, duplicate-use checks, online activation or recurring registration. Old activation records do not restrict these themes. Public themes and editor custom themes remain free. Donations do not issue new keys.
 
 ## Help and Updates
 

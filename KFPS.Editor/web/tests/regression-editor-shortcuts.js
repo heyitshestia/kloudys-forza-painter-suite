@@ -1,6 +1,13 @@
 async (page) => {
   page.setDefaultTimeout(20000);
   const check = (ok, message) => { if (!ok) throw Error(message); };
+  const command = async (id, menu) => {
+    const target = page.locator(`#${id}`);
+    if (!await target.isVisible() && await page.locator(`#workspace${menu}Menu`).count()) {
+      await page.locator(`#workspace${menu}Menu`).click();
+    }
+    await target.click();
+  };
   await page.evaluate(async () => {
     resetShortcuts();
     await loadPayload({ shapes: [{ type: 1048677, data: [0, 0, 1, 1, 0, 0, 0], color: [10, 20, 30, 255], editor_id: 'shortcut-test' }] });
@@ -11,7 +18,7 @@ async (page) => {
   const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 32; return c.toDataURL().split(',')[1]; });
   await page.locator('#overlayInput').setInputFiles({ name: 'shortcut-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
   await page.waitForFunction(() => !!editorReference.image);
-  await page.locator('#shortcutsBtn').click();
+  await command('shortcutsBtn', 'Help');
   const field = page.locator('[data-shortcut-action="colorSlot1"]');
   const rejected = [
     { key: 'ArrowLeft' }, { key: 'ArrowRight', ctrlKey: true }, { key: 'Home' }, { key: 'Enter' },
@@ -52,7 +59,7 @@ async (page) => {
     document.dispatchEvent(event);
   });
   check(await page.evaluate(() => JSON.stringify(snapshotShapes())) === before, 'AltGr input invoked a colour action');
-  await page.locator('#saveProjectAs').click(); await page.locator('#textPromptInput').fill('Shortcut validation');
+  await command('saveProjectAs', 'File'); await page.locator('#textPromptInput').fill('Shortcut validation');
   await page.locator('#textPromptInput').press('Enter'); await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);
   await page.evaluate(async () => { await flushPendingAutosave(); await KfpsEditorPreferences.flush(); });
   await page.reload(); await page.waitForFunction(() => window.KfpsDesktop?.ready);
@@ -65,7 +72,7 @@ async (page) => {
   });
   await page.reload(); await page.waitForFunction(() => window.KfpsDesktop?.ready);
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close()));
-  await page.locator('#shortcutsBtn').click();
+  await command('shortcutsBtn', 'Help');
   check(await page.evaluate(() => shortcutFor('duplicate') === '1' && shortcutFor('colorSlot1') === ''
     && shortcutFor('colorSlot2') === '2' && shortcutFor('colorSlot4') === 'F8' && shortcutFor('colorSlot5') === ''
     && shortcutFor('colorSlot6') === '' && shortcutFor('toggleReference') === 'Space'), 'Saved unsafe/duplicate bindings bypassed validation');

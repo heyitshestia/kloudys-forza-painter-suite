@@ -36,7 +36,7 @@ class AppController(QObject):
         "liveries": "Package, share, and inspect complete FH6 car liveries with exact-car compatibility rules.",
         "community": "Browse, share, and download community-made vinyl artwork.",
         "editor": "Open the local vinyl editor and manage saved projects.",
-        "support": "See the optional one-time supporter extras and open the official Ko-fi page.",
+        "support": "Optional donations and supporter-theme keys.",
         "help": "Workflow guides, import notes, and troubleshooting.",
         "settings": "Preferences, folders, maintenance, and diagnostics.",
         "generate": "Full generator controls for advanced/manual runs.",

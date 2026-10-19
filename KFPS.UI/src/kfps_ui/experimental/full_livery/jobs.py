@@ -754,118 +754,18 @@ def install_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> d
 
 
 def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event, progress=None) -> dict[str, Any]:
-    started = time.perf_counter()
-    timings = {}
-
-    def phase(name: str, message: str) -> None:
-        if cancel_event.is_set():
-            raise InterruptedError("Local preview preparation was cancelled.")
-        timings[name] = round(time.perf_counter() - started, 4)
-        if progress is not None:
-            progress(message)
-
-    phase("vehicle_index", "Checking local car assets")
-    game_folder = str(payload.get("game_folder") or "")
-    car_id = int(payload.get("car_id") or 0)
-    package_path = Path(str(payload.get("package_path") or "")).resolve()
-    index = load_or_build_vehicle_asset_index(game_folder, paths.vehicle_index)
-    asset = index.get(car_id)
-    if asset is None:
-        raise FullLiveryPackageError(f"The local FH6 installation has no car archive for target ID {car_id}.")
-    warnings = []
-    expected_model = str(payload.get("expected_model_code") or "")
-    if expected_model and asset.model_code.casefold() != expected_model.casefold():
-        warnings.append(f"local model code {asset.model_code} differs from package model {expected_model}")
-    expected_hash = str(payload.get("expected_archive_sha256") or "")
-    if expected_hash and sha256_file(Path(asset.archive_path)) != expected_hash:
-        warnings.append("the local car archive is a different game revision")
-    mesh_path = paths.mesh_cache / (
-        f"{asset.model_code}-{asset.archive_mtime_ns}.local-chassis-v{INSPECTION_MESH_CACHE_REVISION}.glb"
-    )
-    mesh_cache_hit = True
-    phase("mesh", "Checking cached car geometry")
-    try:
-        mesh_validation = validated_derived_file(mesh_path, validate_local_chassis_glb, INSPECTION_MESH_CACHE_REVISION)
-    except (OSError, PortableMeshConverterError):
-        mesh_cache_hit = False
-        mesh_path.unlink(missing_ok=True)
-        mesh_path.parent.mkdir(parents=True, exist_ok=True)
-        convert_vehicle_model_to_glb(asset, mesh_path, cancel_event=cancel_event)
-        mesh_validation = validated_derived_file(mesh_path, validate_local_chassis_glb, INSPECTION_MESH_CACHE_REVISION)
-    if cancel_event.is_set():
-        raise InterruptedError("Local chassis preparation was cancelled.")
-    package_key = _file_hash(package_path)[:24]
-    quality_scale = 2 if payload.get("quality_scale") == 2 else 1
-    if quality_scale == 2 and psutil.virtual_memory().available < 2 * 1024**3:
-        quality_scale = 1
-        warnings.append("Standard preview quality used because less than 2 GB of RAM was available")
-    render_root = paths.render_cache / f"{package_key}-{asset.archive_mtime_ns}-r{RENDER_CONTRACT_REVISION}-q{quality_scale}"
-
-    def local_layers():
-        validate_livery_inspection_artifact(package_path)
-        if package_path.suffix.casefold() == ".kfpspreview":
-            source = Path(str(payload.get("source_path") or "")).resolve()
-            expected, _ = _preview_target(paths, source, game_folder)
-            if expected.resolve() != package_path:
-                raise FullLiveryPackageError("The local livery changed. Scan saves and reopen it before rendering High quality.")
-            decoded = unwrap_forza_container(source)
-            if not inspect_clivery_privacy(decoded)["source_owned"]:
-                raise FullLiveryPackageError("This full livery belongs to another player and cannot be opened by KFPS.")
-            return _decode_livery_contract(decoded)[0]["layers"]
-        with zipfile.ZipFile(package_path) as bundle:
-            return json.loads(bundle.read("livery/layers.json"))["layers"]
-
-    can_rerender = package_path.suffix.casefold() == ".kfpslivery" or bool(payload.get("source_path"))
-    phase("textures", "Preparing livery textures")
-    render_contract = build_local_livery_atlases(
-        package_path,
-        asset,
-        render_root,
-        mesh_path=mesh_path,
-        mesh_validation=mesh_validation,
-        cancel_event=cancel_event,
-        progress=progress,
-        quality_scale=quality_scale,
-        layer_provider=local_layers if can_rerender else None,
-        game_folder=game_folder,
-    )
-    warnings.extend(render_contract.get("quality_notes") or [])
-    catalog = FullLiveryCatalog(paths.catalog_file, paths.quarantine)
-    catalog.record_cache_entry(
-        f"mesh:{asset.model_code}:{asset.archive_mtime_ns}",
-        kind="mesh",
-        path=mesh_path,
-        source_fingerprint=str(asset.archive_mtime_ns),
-        revision=INSPECTION_MESH_CACHE_REVISION,
-    )
-    catalog.record_cache_entry(
-        f"atlas:{render_root.name}", kind="atlas", path=render_root,
-        source_fingerprint=package_key, revision=RENDER_CONTRACT_REVISION,
-    )
-    try:
-        cache_usage = catalog.prune_derived_cache(paths.cache, protected=[mesh_path, render_root, package_path])
-    except OSError as exc:
-        cache_usage = {"cleanup_error": str(exc)}
-    phase("complete", "Starting 3D preview")
-    return {
-        "package_id": str(payload.get("package_id") or ""),
-        "package_path": str(package_path),
-        "mesh_path": str(mesh_path.resolve()),
-        "render_root": render_contract["root"],
-        "render_contract": render_contract,
-        "model_code": asset.model_code,
-        "revision_warning": "; ".join(warnings),
-        "mesh_cache_hit": mesh_cache_hit,
-        "timings_seconds": timings,
-        "cache_usage": cache_usage,
-    }
+    from .operations import prepare_mesh as prepare_studio_mesh
+    return prepare_studio_mesh(paths, payload, cancel_event, progress=progress)
 
 
 def clear_cache(paths: JobPaths, _payload: dict[str, Any], _cancel_event) -> dict[str, int]:
     paths.cache.relative_to(paths.root)
     if paths.cache.name != f"v{CACHE_REVISION}":
         raise RuntimeError("Refusing to clear an unexpected full-livery cache revision.")
-    files = bytes_removed = 0
+    from .operations import clear_studio_cache
+    studio = clear_studio_cache(paths.app_root)
+    files = int(studio.get("removed_files", 0))
+    bytes_removed = int(studio.get("removed_bytes", 0))
     if paths.cache.is_dir():
         for candidate in paths.cache.rglob("*"):
             if candidate.is_file():

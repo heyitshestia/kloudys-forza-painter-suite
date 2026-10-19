@@ -6,6 +6,7 @@ import {NUMBERS, BOOLS, ASSETS, ENUMS, normalizeEditor} from '../public/editor-d
 import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {SCHEMA, normalizeReport, readJsonLimited, validWebhook, publicSummary, redact} from '../public/protocol.mjs';
 import {describeScreenshot} from '../public/screenshots.mjs';
+import {describePrivateLogs} from '../public/private-logs.mjs';
 import {submissionBody} from '../src/submission.mjs';
 import {logBlob,logMetadata} from './log-fixture.mjs';
 
@@ -104,12 +105,22 @@ with tempfile.TemporaryDirectory() as directory:
  logger=EditorDiagnostics(root, runtime)
  logger.accept({'schema':1,'page':'a'*32,'seq':1,'metrics':{'frameMax':280},'state':{'layers':355,'editorRevision':2026091101},'events':[{'kind':'long-task','duration':280,'action':'rotate','message':'DO_NOT_SEND'}]})
  logger.close()
+ studio=root/'tools/livery-studio/runs/diagnostics'
+ studio.mkdir(parents=True)
+ good={'schema_version':1,'utc':'2026-10-19T12:00:00Z','session':'a'*16,'sequence':1,'event':'render','shape_count':3000,'frame_ms':18.5}
+ (studio/'studio.jsonl').write_text(json.dumps(good)+'\\n'+json.dumps({**good,'project':'DO_NOT_SEND'})+'\\n')
  report=build_support_report(root, {'page':'editor','log':'Synthetic app error','services':{'editor':{'lastError':'Dragging shapes becomes slow.'}}}, since=time.time()-20, collect=lambda:{})
  attachment=collect_retained_log_bundle(root,snapshot=report['technical'])
  report['private_logs']=attachment[0]
  print(json.dumps({'report':report,'logs':base64.b64encode(attachment[1]).decode('ascii')}))`;
   const prepared = JSON.parse(execFileSync(process.platform === 'win32' ? 'py' : 'python3', [...(process.platform === 'win32' ? ['-3.12'] : []), '-c', code], {cwd: root, encoding: 'utf8'}));
   const raw=prepared.report, retained=new Blob([Buffer.from(prepared.logs,'base64')],{type:'application/gzip'});
+  const collected=(await describePrivateLogs(retained,{redact})).bundle;
+  const studio=collected.files.find(f=>f.name==='studio-performance-0000.log');
+  assert(studio, 'The actual installed collector must include Studio diagnostics');
+  assert.equal(studio.omitted_lines,1);
+  assert.equal(JSON.parse(studio.text).shape_count,3000);
+  assert(!JSON.stringify(collected).includes('DO_NOT_SEND'));
   raw.technical.logs.push(...Array.from({length: 8}, (_, i) => ({source: `worker-${i}`, text: `Error: worker ${i} failed`, age_seconds: 25, previous_session: true})));
   const reviewed = normalizeReport(raw);
   assert.deepEqual(normalizeReport(reviewed), reviewed);
@@ -128,6 +139,7 @@ with tempfile.TemporaryDirectory() as directory:
   assert.deepEqual(Buffer.from(await posts[0].options.body.get('files[1]').arrayBuffer()),Buffer.from(await retained.arrayBuffer()));
   assert.equal(posts[1].options.body.includes('GPU reset'), false);
   assert.equal(posts[1].options.body.includes('worker-7'), false);
+  assert.equal(posts[1].options.body.includes('studio-performance'), false);
 });
 
 test('diagnostics drop unknown text, wrong types and nonfinite numbers; logs remain bounded', () => {

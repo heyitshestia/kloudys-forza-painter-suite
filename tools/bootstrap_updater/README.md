@@ -14,6 +14,15 @@ The complete architecture, compatibility rules, diagnostics contract, and public
 
 ## Installation behavior
 
+Version 1.0.5 additionally manages `KFPSLiverySudio.exe` at the outer installation
+root. A manifest that manages this launcher requires minimum bootstrap 1.0.5,
+so older updaters use the existing signed handoff before applying it. Studio
+settings, legacy recoveries, sessions, diagnostics and browser/cache data are
+protected against both replacement and retirement. The only managed files under
+Studio's `runs` tree are the exact converter executable and its build receipt.
+Car-organized projects and recoveries remain covered by the existing `imgs/`
+protection. This does not authorize packaging user data.
+
 Version 1.0.4 checks existing destinations for Windows replacement locks before
 installation and retries transient lock errors for up to three seconds. A lock
 that appears later can still fail installation, so rollback checks backup hashes

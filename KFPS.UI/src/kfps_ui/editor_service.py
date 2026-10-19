@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
 import threading
 import time
@@ -19,12 +20,53 @@ from .editor_launch import launch_editor
 PROJECT_SCAN_MAX_BYTES = 150 * 1024 * 1024
 
 
+def _studio_module_path(app_root: Path, module_name: str) -> Path:
+    if module_name not in {"host_bridge.py", "source_editor.py"}:
+        raise ValueError("Unsupported Studio module.")
+    root = Path(app_root).absolute()
+    package = root / "tools/livery-studio"
+    boundary = root
+    for item in (package, package.parent, root):
+        if item.is_symlink() or item.is_junction():
+            raise ValueError("Studio package discovery cannot follow redirected paths.")
+    if not package.exists() and not package.is_symlink() and not package.is_junction():
+        if root.name != "repo":
+            raise ValueError("Livery Studio is not installed in tools/livery-studio.")
+        package, boundary = root.parent / "livery", root.parent
+        config = package / "settings/local-launch.json"
+        for item in (config, *config.parents):
+            if item.is_symlink() or item.is_junction():
+                raise ValueError("Studio workspace discovery cannot follow redirected paths.")
+            if item == boundary:
+                break
+        try:
+            with config.open("rb") as stream:
+                body = stream.read(65537)
+            value = json.loads(body) if len(body) <= 65536 else None
+            if not isinstance(value, dict) or not isinstance(value.get("kfpsRoot"), str):
+                raise ValueError("Missing workspace host identity.")
+            if Path(value["kfpsRoot"]).resolve() != root.resolve():
+                raise ValueError("Studio is configured for another KFPS installation.")
+        except (OSError, ValueError) as exc:
+            raise ValueError("The isolated Studio workspace configuration is unavailable or invalid.") from exc
+    path = package / "src/kfps_livery_lab" / module_name
+    for item in (path, *path.parents):
+        if item.is_symlink() or item.is_junction():
+            raise ValueError("Studio discovery cannot follow redirected paths.")
+        if item == boundary:
+            break
+    if not path.is_file() or not path.resolve().is_relative_to(package.resolve()):
+        raise ValueError("Livery Studio is incomplete in its selected package.")
+    return path
+
+
 class EditorService(QObject):
     changed = Signal()
     editorOutputsChanged = Signal()
     launchCompleted = Signal(bool, str, str)
     previewCompleted = Signal(str, str)
     scanCompleted = Signal(int, object, str)
+    studioLaunchCompleted = Signal(bool, str)
 
     def __init__(
         self,
@@ -55,6 +97,8 @@ class EditorService(QObject):
         self._search = ""
         self._status = "Ready to open the editor."
         self._launching = False
+        self._studio_launching = False
+        self._studio_status = ""
         self._running = False
         self._last_error = ""
         self._preview_lock = threading.Lock()
@@ -72,6 +116,7 @@ class EditorService(QObject):
         self.launchCompleted.connect(self._finish_launch)
         self.previewCompleted.connect(self._finish_preview)
         self.scanCompleted.connect(self._finish_scan)
+        self.studioLaunchCompleted.connect(self._finish_studio_launch)
         self.refresh()
 
     @staticmethod
@@ -80,6 +125,51 @@ class EditorService(QObject):
             return path.stat().st_mtime_ns
         except OSError:
             return 0
+
+    @Property(bool, notify=changed)
+    def studioLaunching(self):
+        return self._studio_launching
+
+    @Property(str, notify=changed)
+    def studioStatus(self):
+        return self._studio_status
+
+    @Slot()
+    @Slot("QVariantMap")
+    def launchLiveryStudio(self, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_launching = True
+        self._studio_status = "Preparing Livery Studio..."
+        self.changed.emit()
+        try:
+            # Detach the QML snapshot before sending it to the background worker.
+            request = {"ui_theme": json.loads(json.dumps(theme, allow_nan=False))} if theme else {}
+            self._start_thread(target=self._launch_studio_worker, args=(request,), name="kfps-studio-launch")
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_studio_worker(self, request):
+        try:
+            path = _studio_module_path(self.paths.app_root, "host_bridge.py")
+            spec = importlib.util.spec_from_file_location("_kfps_studio_host", path)
+            bridge = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bridge)
+            result = bridge.launch_from_host(self.paths.app_root, request, open_window=True, cancelled=self._cancel_event)
+            if not self._closed:
+                self.studioLaunchCompleted.emit(True, result["message"])
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
+    @Slot(bool, str)
+    def _finish_studio_launch(self, ok, message):
+        if self._closed:
+            return
+        self._studio_launching = False
+        self._studio_status = message
+        self.log.append(message, "info" if ok else "error")
+        self.changed.emit()
 
     def _poll_editor_changes(self):
         if self._closed:

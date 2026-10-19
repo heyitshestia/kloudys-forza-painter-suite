@@ -209,7 +209,7 @@ ADAPTERS: Dict[str, GameAdapter] = {
             "touch the live editor or Horizon save formats."
         ),
         offline_import_summary="Creating a separate FM8 LayerGroups/data folder from the selected JSON.",
-        offline_import_help="Write the selected JSON into a new FM8 local LayerGroups entry without opening the game.",
+        offline_import_help="Write the selected JSON into a new local FM8 LayerGroups entry with its own vinyl identity. FM8 can remain open.",
     ),
 }
 

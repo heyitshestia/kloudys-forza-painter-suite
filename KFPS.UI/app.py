@@ -27,6 +27,8 @@ from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.backup_service import BackupService
 from kfps_ui.announcement_service import AnnouncementService
+from kfps_ui.release_announcement_service import ReleaseAnnouncementService
+from kfps_ui.activity_service import ActivityService
 from kfps_ui.changelog_service import ChangelogService
 from kfps_ui.cgroup_library_service import CGroupLibraryService
 from kfps_ui.community_service import CommunityService
@@ -414,6 +416,8 @@ def main():
     backup = BackupService(paths, settings, logs)
     version = VersionService(paths.app_root / "VERSION", demo=args.demo)
     announcements = AnnouncementService(demo=args.demo)
+    release_announcement = ReleaseAnnouncementService(paths.app_root)
+    activity = ActivityService(paths.app_root)
     runtime = RuntimeService(demo=args.demo)
     source = SourceImageService(paths, desktop, logs)
     upscaler = UpscaleService(paths, desktop, source, logs)
@@ -434,7 +438,7 @@ def main():
     supporter.communityEntitlementReady.connect(community.applySupporterEntitlement)
     community.supporterRepairRequested.connect(supporter.repairActivation)
     def sync_community_supporter_state():
-        community.setLocalSupporterState(supporter.activationState, supporter.keyValid)
+        community.setLocalSupporterState(supporter.activationState, supporter.keyValid, supporter.themeKeyId)
     supporter.changed.connect(sync_community_supporter_state)
     sync_community_supporter_state()
     def enforce_available_theme():
@@ -473,6 +477,8 @@ def main():
         "logs": logs,
         "versionService": version,
         "announcementService": announcements,
+        "releaseAnnouncementService": release_announcement,
+        "activityService": activity,
         "runtimeService": runtime,
         "desktop": desktop,
         "backupService": backup,
@@ -631,6 +637,8 @@ def main():
         backup,
         changelog,
         announcements,
+        release_announcement,
+        activity,
         version,
         logs,
     ]

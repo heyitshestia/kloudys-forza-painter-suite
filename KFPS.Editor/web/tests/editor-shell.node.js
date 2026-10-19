@@ -133,9 +133,17 @@ assert.doesNotMatch(script, /\.toSVG\(/);
 assert.doesNotMatch(script, /loadSVGFrom(?:String|URL)/);
 const postBlocks = [...script.matchAll(/fetch\([^;]+?method:\s*"POST"[^;]+?\);?/gs)]
   .map((match) => match[0]);
-assert.deepEqual([...new Set(postBlocks.map(block => block.match(/^fetch\((\w+)/)[1]))].sort(), [
-  "PROJECT_OPEN_FOLDER_API", "STARTUP_HELP_CONFIRMED_API",
-].sort(), "all main-thread mutation endpoints should be checked; worker requests have their own integration test");
+const mutationTargets = postBlocks.map(block => {
+  const target = block.match(/^fetch\(\s*(\w+|"(?:\\.|[^"\\])*")\s*,/);
+  assert.ok(target, "every mutation fetch must use a reviewed constant or literal endpoint");
+  return target[1].startsWith('"') ? JSON.parse(target[1]) : target[1];
+});
+const expectedMutationTargets = ["PROJECT_OPEN_FOLDER_API", "STARTUP_HELP_CONFIRMED_API"];
+// The editor-only transfer deliberately has no optional Studio launch hooks.
+if (script.includes("async function openLiveryStudio()")) expectedMutationTargets.push("/api/fabric-editor/livery-studio");
+if (script.includes("async function returnLiverySource()")) expectedMutationTargets.push("/api/fabric-editor/studio-source-return");
+assert.deepEqual([...new Set(mutationTargets)].sort(), expectedMutationTargets.sort(),
+  "all main-thread mutation endpoints should be checked; worker requests have their own integration test");
 postBlocks.forEach((block) => {
   assert.match(
     block,

@@ -176,7 +176,7 @@ function extractShapes(design: unknown): { shapes: unknown[]; sourceFormat: stri
   throw new HttpError(400, "invalid_design", "The JSON does not contain a supported shape list.");
 }
 
-function canonicalizeDesign(value: unknown, schema: DetectedSchema): CanonicalDesign {
+export function canonicalizeDesign(value: unknown, schema: DetectedSchema): CanonicalDesign {
   const extracted = extractShapes(value);
   if (extracted.shapes.length < 1 || extracted.shapes.length > MAX_SHAPES) {
     throw new HttpError(400, "invalid_shape_count", `Designs must contain between 1 and ${MAX_SHAPES} shapes.`);

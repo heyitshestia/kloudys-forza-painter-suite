@@ -18,10 +18,13 @@ parser.add_argument("output", type=Path)
 parser.add_argument("scripts", nargs="+", type=Path)
 parser.add_argument("--timeout", type=int, default=600)
 parser.add_argument("--profile", type=Path, help="Reuse an isolated test-run profile")
+parser.add_argument("--export-root", type=Path, help="Fresh isolated export folder for cross-root source qualification")
 parser.add_argument("--normal-close", action="store_true", help="Verify the native clean-close handshake")
 parser.add_argument("--abrupt-exit", action="store_true", help="Exit a successful isolated suite without the native shutdown handshake")
 parser.add_argument("--foreground-test", action="store_true", help="Only for tests that require native focus or unoccluded rendering")
-parser.add_argument("--app-root", type=Path, help="Use an isolated staged installation instead of source")
+roots = parser.add_mutually_exclusive_group()
+roots.add_argument("--app-root", type=Path, help="Use an isolated staged installation instead of source")
+roots.add_argument("--installed-root", type=Path, help="Use a real installed host with all test data in isolated E-drive runs")
 parser.add_argument("--screen-index", type=int, help="Place the real window on this Qt screen without changing display settings")
 parser.add_argument("--maximize", action="store_true", help="Use the selected screen's available area")
 args = parser.parse_args()
@@ -31,14 +34,37 @@ for script in args.scripts:
     if not script.is_file():
         parser.error(f"Regression script not found: {script}")
 root = Path(__file__).resolve().parents[3]
-app_root = args.app_root.resolve() if args.app_root else root
-if app_root != root and not app_root.is_relative_to(root / "runtime/test-runs"):
-    raise ValueError("Staged installations must remain inside runtime/test-runs")
-out = args.output.resolve()
-out.mkdir(parents=True, exist_ok=False)
-profile = args.profile.resolve() if args.profile else out / "profile"
-if not profile.is_relative_to(root / "runtime" / "test-runs"):
-    raise ValueError("Native regression profiles must remain inside runtime/test-runs")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+installed = None
+if args.installed_root:
+    if args.export_root:
+        parser.error("Installed qualification already isolates its export folder")
+    if args.foreground_test or args.abrupt_exit or args.screen_index is not None or args.maximize:
+        parser.error("Installed qualification is hidden-only and requires owned cleanup")
+    from installed_workflow_support import (resolve_paths, initialize_private_run, verify_installed,
+                                            observe_installed, finish_installed, WORKSPACE)
+    installed = resolve_paths(args.installed_root, args.output, profile=args.profile)
+    initialize_private_run(installed)
+    import atexit
+    atexit.register(finish_installed, installed, args.scripts)
+    app_root, out, profile = installed["app"], installed["out"], installed["profile"]
+    export_root = installed["exports"]
+else:
+    app_root = args.app_root.resolve() if args.app_root else root
+    if app_root != root and not app_root.is_relative_to(root / "runtime/test-runs"):
+        raise ValueError("Staged installations must remain inside runtime/test-runs")
+    out = args.output.resolve()
+    profile = args.profile.resolve() if args.profile else out / "profile"
+    if not profile.is_relative_to(root / "runtime" / "test-runs"):
+        raise ValueError("Native regression profiles must remain inside runtime/test-runs")
+    out.mkdir(parents=True, exist_ok=False)
+    export_key = hashlib.sha256(str(profile).casefold().encode()).hexdigest()[:24]
+    export_root = app_root / "runtime/test-runs/native-exports" / export_key
+    if args.export_root:
+        from installed_workflow_support import private_path
+        export_root = private_path(args.export_root)
+        if export_root.exists():
+            raise ValueError("Preserve exports: choose a fresh export folder")
 with socket.socket() as sock:
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -53,20 +79,26 @@ from kfps_editor.host import EditorDesktop
 import kfps_editor.host as host_module
 if not Path(host_module.__file__).resolve().is_relative_to(app_root):
     raise RuntimeError("Native host loaded from the wrong installation")
+if installed:
+    installed_identity = verify_installed(installed)
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 app = QApplication([])
 app.setQuitOnLastWindowClosed(False)
 host_options = {}
-if (app_root / "KFPS.Editor/src/kfps_editor/baseline.py").is_file():
+if installed:
+    identity = dict(installed_identity, test_debugging=True)
+    host_options["baseline"] = identity
+elif (app_root / "KFPS.Editor/src/kfps_editor/baseline.py").is_file():
     from kfps_editor.baseline import verify
     identity = verify(app_root)
     identity["test_debugging"] = True
     host_options["baseline"] = identity
-# Export IDs remain installation-relative, including isolated test profiles.
-export_key = hashlib.sha256(str(profile).casefold().encode()).hexdigest()[:24]
-host = EditorDesktop(app_root, profile, export_root=app_root / "runtime/test-runs/native-exports" / export_key, **host_options)
-if not args.foreground_test:
+host = EditorDesktop(app_root, profile, export_root=export_root, **host_options)
+if installed:
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    host.present_window = lambda **kwargs: None
+elif not args.foreground_test:
     from native_window_policy import keep_in_background
     keep_in_background(host)
 child = None
@@ -99,6 +131,8 @@ dialog_guard = QTimer()
 dialog_guard.timeout.connect(reject_unexpected_native_dialogs)
 dialog_guard.start(100)
 def check_resource_stop():
+    if installed:
+        observe_installed(installed)
     if (out / "stop-test.json").exists():
         raise RuntimeError("External resource guard stopped this isolated native test")
 
@@ -125,7 +159,7 @@ try:
         "pid": os.getpid(), "profile": str(profile), "python": sys.version,
         "appRoot": str(app_root), "hostSource": host_module.__file__,
         "exportRoot": str(host.server.paths.exports),
-        "windowPolicy": "foreground" if args.foreground_test else "background-no-activation",
+        "windowPolicy": "hidden-installed" if installed else "foreground" if args.foreground_test else "background-no-activation",
         "started": time.time(), "scripts": [str(script) for script in args.scripts],
         "screens": [{"name": screen.name(), "primary": screen == app.primaryScreen(),
                      "geometry": screen.geometry().getRect(),
@@ -143,8 +177,10 @@ try:
         time.sleep(.01)
     log = (out / "runner.log").open("w", encoding="utf-8")
     child_env = dict(os.environ, KFPS_TEST_APP_ROOT=str(app_root), KFPS_TEST_PYTHON=sys.executable)
+    if installed:
+        child_env["NODE_PATH"] = str(WORKSPACE / "dependencies/node_modules")
     child = subprocess.Popen([
-        shutil.which("node"), str(Path(__file__).with_suffix(".cjs")),
+        str(WORKSPACE / "dependencies/node.exe") if installed else shutil.which("node"), str(Path(__file__).with_suffix(".cjs")),
         str(port), str(out), *[str(script.resolve()) for script in args.scripts],
     ], cwd=out, env=child_env, stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     while child.poll() is None:
@@ -194,7 +230,11 @@ finally:
         child.wait()
     if log:
         log.close()
-    host.shutdown()
-    host.hide()
+    try:
+        host.shutdown()
+        host.hide()
+    finally:
+        if installed:
+            finish_installed(installed, args.scripts)
 print((out / "runner.log").read_text(encoding="utf-8") if (out / "runner.log").exists() else "No runner output")
 sys.exit(result)

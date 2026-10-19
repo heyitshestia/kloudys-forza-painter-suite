@@ -125,7 +125,6 @@ class FabricEditorServerTests(unittest.TestCase):
                     patch.object(fabric_server, "EDITOR_SERVER_MARKER", root / "server.json"),
                     patch.object(fabric_server, "EDITOR_PROJECT_CHANGE_MARKER", root / "project-change.json"),
                     patch.object(fabric_server, "EDITOR_OUTPUT_CHANGE_MARKER", root / "output-change.json"),
-                    patch.object(fabric_server, "_safe_relpath", side_effect=lambda path: Path(path).name),
                     patch.object(fabric_server.Handler, "_send_json", lose_reply),
                     RunningEditorServer() as server,
                 ):
@@ -382,7 +381,6 @@ class FabricEditorServerTests(unittest.TestCase):
                 patch.object(fabric_server, "EDITOR_JSON_ROOT", editor_root),
                 patch.object(fabric_server, "EDITOR_SERVER_MARKER", Path(temporary) / "server.json"),
                 patch.object(fabric_server, "EDITOR_OUTPUT_CHANGE_MARKER", output_marker),
-                patch.object(fabric_server, "_safe_relpath", side_effect=lambda path: Path(path).name),
                 RunningEditorServer() as base_url,
             ):
                 status, saved = post_json(

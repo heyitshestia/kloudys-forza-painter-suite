@@ -46,11 +46,11 @@
       "category": "community",
       "title": "Browse and download community vinyls",
       "summary": "Search the shared catalog, inspect a full preview, and save a compatible JSON to your local library.",
-      "keywords": ["community", "browse", "catalog", "download", "creator", "favorite", "github", "preview", "supporter", "supporters"],
+      "keywords": ["community", "browse", "catalog", "download", "creator", "favorite", "github", "preview", "supporter", "supporters", "verified", "contributions"],
       "steps": [
-        "Open Community. Browsing, searching, filtering, creator pages, and previews work without an account.",
+        "Open Community. Browsing, searching, filtering, creator pages, and compact thumbnails work without an account. Full media and downloads can have additional access requirements.",
         "Use the category, game, and sort menus to narrow the catalog. Search matches artwork titles, tags, and creator names.",
-        "Open Supporters to browse vinyls shared only with verified KFPS supporters. The tab stays visible without a key and shows how to unlock supporter vinyl sharing.",
+        "Open Verified to find protected artwork when the connected server uses the Verified policy. New access needs both 14 days since your first GitHub connection to Community and 10 eligible Handmade vinyls of your own. Existing key holders receive permanent Verified access after one valid verification. A server still using the legacy policy shows Supporters instead and keeps its existing key checks.",
         "Select a tile to read its details. Double-click the tile or preview to open the large inspector, then zoom or use the arrow buttons to move between results.",
         "Connect your GitHub identity, then select Download to Library. KFPS validates the file before placing it in the local community download folder.",
         "Open Outputs and choose the relevant library source when you are ready to inspect, edit, or import the downloaded JSON.",
@@ -59,14 +59,15 @@
       "sections": [
         {"heading": "Use at your own risk", "body": "Catalog availability is not approval by Turn 10 Studios, Playground Games, Microsoft, or the Forza enforcement team. Community content is not classified against current game rules. You are responsible for what you download, import, publish, or display."},
         {"heading": "Accounts and usernames", "body": "GitHub establishes a stable identity. Your separate public Community username is chosen once and cannot be changed. KFPS shows the exact spelling and capitalization on a second confirmation screen before sending the claim."},
-        {"heading": "Supporter vinyl sharing", "body": "Supporter-only listings are visible and downloadable only after an active supporter key is connected to your signed-in Community profile. The activation service sends the Community service a short-lived signed entitlement; supporter keys, receipts, purchaser details, and device identity are not shared with the Community service."},
+        {"heading": "Verified access", "body": "For new contributors, both requirements must be met: 14 days since your first GitHub connection to Community and 10 eligible Handmade vinyls of your own. You can earn upload credit during the waiting period. The server uses your original Community connection date, not your GitHub account age or your computer's clock; signing out and reconnecting does not reset it. Community shows your contribution progress, waiting requirement and the connected server's access rules. Donations do not buy Verified access or issue keys. Compact thumbnails remain public; full media, downloads and protected interactions follow the server's access checks. Existing sign-ins are retained. A legacy server keeps its existing supporter access until its policy is upgraded."},
+        {"heading": "Existing key holders", "body": "A valid existing key needs to be verified once for permanent Verified access on its connected Community account. These holders do not need the waiting period or ten uploads. Removing the key locally, signing out or expiry of a temporary verification proof does not remove the recorded grant. Account moderation still applies. Supporter themes use only the signed local key, with no PC registration or duplicate-use checks. An ineligible migration is not retried automatically; use Verify existing supporter to retry after a service or account correction."},
         {"heading": "Reports", "body": "Sign in, select somebody else's listing, and choose Report in the artwork detail view. Choose the closest reason and add useful context. Reports stay private and visibly flag the listing in the administrator's review console."},
         {"heading": "Compatibility labels", "body": "KFPS reads the JSON format and any embedded game origin. Recognized formats show their detected label. An unrecognized label means the shape list passed structural checks, but KFPS cannot promise that every part will import correctly."}
       ],
       "pitfalls": [
         "A polished preview does not guarantee that a design is permitted under the game's current rules.",
         "Do not import a downloaded file if KFPS reports that its structure or checksum is invalid.",
-        "Browsing and previews are public; downloading and all contribution features require an account."
+        "Browsing and compact thumbnails are public; downloading and all contribution features require an account. Protected full media may require additional access."
       ],
       "related": ["community-publish", "json-browser", "wrong-shapes", "support-checklist"]
     },
@@ -75,14 +76,14 @@
       "category": "community",
       "title": "Publish a community vinyl",
       "summary": "Share a local KFPS JSON with a rendered preview, useful listing details, and an auditable revision history.",
-      "keywords": ["community", "upload", "publish", "revision", "moderation", "rights", "profile"],
+      "keywords": ["community", "upload", "publish", "revision", "moderation", "rights", "profile", "verified", "authorship", "contributions"],
       "steps": [
         "Open Community, connect your GitHub identity, and choose your permanent Community username if this is your first upload. Review it, then confirm the exact spelling and capitalization on the second screen.",
         "Open Upload, choose Generated finals, Editor exports, Game exports, or Library, then select a JSON tile. Use Import JSON File when the file is somewhere else. KFPS renders the preview from that JSON; it does not upload a source image.",
         "Check the detected JSON format and game origin, then add a short title, useful description, category, and searchable tags. You do not choose a game manually.",
-        "Choose Handmade or Toolmade, then choose Everyone or Supporters as the audience. Supporters requires verified supporter access. Classification and audience cannot be changed after publication, including through a revision.",
+        "Choose Handmade or Toolmade, then choose the audience. A Verified-policy server offers public or Verified sharing; protected publishing requires earned Verified access. A legacy server keeps Everyone or Supporters and its existing key check. Classification and audience cannot be changed through a revision.",
         "If KFPS marks a structurally valid format as unrecognized, read and accept the compatibility warning before publishing. Files without a usable shape list are rejected.",
-        "Confirm that you made the artwork or have permission to share it, then publish it.",
+        "Confirm your right to share the work. On a Verified-policy server, separately declare authorship: your own vinyl or work shared with permission. Only your own Handmade vinyls can earn contribution credit; Toolmade work can still be shared but does not count. Permission to distribute somebody else's work does not earn credit. Then publish it.",
         "Use My uploads to track published, rejected, or removed work. A server configured for manual review may also show pending work.",
         "To update published work, select it as the revision target, choose the replacement JSON, and explain what changed. The original local file is not modified.",
         "To remove your work, open My uploads, select the listing, and choose Remove. This unlists the community copy; it does not delete your local JSON or copies already downloaded by other users."
@@ -91,7 +92,8 @@
         {"heading": "What leaves this computer", "body": "The service receives a sanitized KFPS design, a full rendered preview, a compact thumbnail, and the public listing fields you enter. Local paths, source images, generator reports, settings, supporter data, and arbitrary JSON metadata are removed or rejected."},
         {"heading": "Supported formats", "body": "KFPS recognizes its primitive JSONs, canonical Community JSON, FH5/FH6/FM8 live type-code exports, local save-library exports, decoded Forza file exports, flat C_group JSON, and converted Forza Designer 6 files. FD6 files are converted in a private runtime copy for preview and upload; the selected original is not changed."},
         {"heading": "Validation and reports", "body": "The service checks structure, size, shape values, previews, hashes, and duplicates before publishing. These checks cannot judge ownership or artwork content. Signed-in users can privately report a listing, which highlights it for administrator review."},
-        {"heading": "Audience", "body": "Everyone listings appear in the public catalog. Supporters listings use the same Handmade or Toolmade classification but stay in the protected supporter catalog. A revision may replace the design and update normal listing details, but it cannot move an existing listing into or out of supporter-only sharing."},
+        {"heading": "Audience", "body": "Public listings appear in the public catalog. Protected listings keep their restricted audience, whether the connected server calls it Verified or legacy Supporters. A revision can replace the design and update normal listing details, but cannot make a protected listing public or move a public listing into the protected catalog."},
+        {"heading": "Own-vinyl contributions", "body": "Verified uses lifetime credit for eligible, distinct Handmade vinyls of your own. New contributors need 10 credits and must also complete the 14-day Community connection waiting period. Toolmade vinyls and liveries do not count. Duplicate designs and revisions do not add credit. Scheduled vinyls count only once publication starts. Normal removal or expiry does not remove earned credit; moderation can revoke invalid credit or suspend access. Older Handmade uploads need a separate authorship claim or review because the old sharing-permission confirmation is not proof of authorship. Unsupported formats can still upload when valid, but may need review before earning credit. Handmade classification and an authorship declaration are not independent proof of how a design was made."},
         {"heading": "Ownership", "body": "Only upload work you created or have permission to distribute. Removing a listing stops normal catalog access but cannot recall copies that other users already downloaded."}
       ],
       "pitfalls": [
@@ -297,14 +299,14 @@
         "For online export, open the vinyl group in Vinyl Group Editor and enter the group's exact layer count in Outputs. Keep only that supported game running.",
         "Select Online Export from Running Game. KFPS detects the game, reads the open group, and adds the resulting JSON to Game Exports.",
         "For online import, open a saved circle template. The default 3000 is for a 3000-layer import template, not every export. Ungrouping is recommended but optional for supported groups.",
-        "Offline vinyl-group features require a supporter unlock. They read or write supported local save files and do not require the game to be open. Choose the correct game before scanning its library."
+        "Online and offline vinyl-group tools, including full library transfers, do not require a supporter key. Offline tools read or write supported local save files. Choose the correct game before scanning its library and follow that game's save checks."
       ],
       "sections": [
         {"heading": "Online means live", "body": "Online import and export read or edit the detected game's live memory. Keep exactly one of FH4, FH5, FH6, or FM8 running on the same Windows computer as KFPS. Game selectors are used only for offline save-file work."},
         {"heading": "FH4 support", "body": "FH4 supports online live transfer, local save-library scanning, and offline import into the Microsoft Store/Xbox WGS save. Close FH4 before offline import. KFPS creates a separate vinyl group and backs up the complete account save slot before writing."},
         {"heading": "FH6 offline imports", "body": "Save at least one small vinyl group in FH6 using your own account and wait for saving to finish. Offline Import adds a new vinyl through the save files and works with FH6 open or closed; offline refers to the transfer method, not whether the game is running. KFPS checks the current save and your account ID, then uses the matching creator name from your own saved vinyls. Each new import gets a new vinyl ID and the correct shape count; an old vinyl's header is not copied. If accounts or save locations are ambiguous, choose your account's current save folder. Missing creator information stops the import instead of naming you KFPS. Reopen the in-game vinyl library after import, or restart FH6 if it has not refreshed. A changing save stops the import so you can retry after saving finishes. Replacing an existing vinyl, unlike adding a new one, requires FH6 to be closed. Previously imported files are not automatically repaired; import the source JSON again after updating."},
         {"heading": "Offline support", "body": "FH4, FH6, and FM8 support offline import. FH4, FH5, FH6, and FM8 support offline save-library scanning and export. FH5 offline export is available; FH5 offline import is not. The disabled import button reflects this distinction."},
-        {"heading": "Build and save compatibility", "body": "Support depends on the installed game build and local save format. FH4's offline import targets Microsoft Store/Xbox WGS saves, not every Steam save layout. Full-car FH6 livery packages are a separate public tool, not the supporter vinyl-group library."}
+        {"heading": "Build and save compatibility", "body": "Support depends on the installed game build and local save format. FH4's offline import targets Microsoft Store/Xbox WGS saves, not every Steam save layout. Full-car FH6 livery packages are a separate public tool, not the vinyl-group library."}
       ],
       "pitfalls": [
         "The number in Template layers must match the group currently open in the game.",

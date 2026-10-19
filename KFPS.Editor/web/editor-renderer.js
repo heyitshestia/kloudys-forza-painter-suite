@@ -4,6 +4,53 @@
   else root.KfpsEditorRenderer = factory();
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
+  const maskOutlinePaths = new WeakMap();
+  function drawNativeMaskOutline(object, context) {
+    if (typeof Path2D !== "function" || typeof Path2D.prototype?.addPath !== "function"
+      || !object.kloudyMaskOutline || object.type !== "path"
+      || object.objectCaching || object.group || object.shadow || object.clipPath || object.backgroundColor
+      || object.paintFirst === "stroke" || !object.strokeUniform
+      || typeof object.fill !== "string" || typeof object.stroke !== "string"
+      || object.globalCompositeOperation !== "source-over") return false;
+    const { path, pathOffset, scaleX, scaleY } = object;
+    if (!pathOffset || ![pathOffset.x, pathOffset.y, scaleX, scaleY].every(Number.isFinite)
+      || scaleX <= 0 || scaleY <= 0) return false;
+    let cached = maskOutlinePaths.get(object);
+    if (!cached || cached.source !== path || cached.x !== pathOffset.x || cached.y !== pathOffset.y) {
+      if (!Array.isArray(path) || !path.length || path.length % 4 !== 0
+        || !path.every((part, index) => part[0] === "MLLZ"[index % 4]
+          && (index % 4 === 3 || (Number.isFinite(part[1]) && Number.isFinite(part[2]))))) return false;
+      // Native parsing avoids quadratic closePath replay. Keep every coordinate
+      // and triangle edge; this path is only the editor's red mask-outline UI.
+      const data = path.map(part => part[0] === "Z" ? "Z"
+        : `${part[0]} ${part[1] - pathOffset.x} ${part[2] - pathOffset.y}`).join(" ");
+      cached = { source: path, x: pathOffset.x, y: pathOffset.y, fill: new Path2D(data) };
+      maskOutlinePaths.set(object, cached);
+    }
+    if (!cached.stroke || cached.scaleX !== scaleX || cached.scaleY !== scaleY) {
+      cached.stroke = new Path2D();
+      cached.stroke.addPath(cached.fill, { a: scaleX, b: 0, c: 0, d: scaleY, e: 0, f: 0 });
+      cached.scaleX = scaleX; cached.scaleY = scaleY;
+    }
+    if (object.fill) {
+      context.save();
+      try {
+        object._setFillStyles(context, object);
+        context.fill(cached.fill, object.fillRule === "evenodd" ? "evenodd" : "nonzero");
+      } finally { context.restore(); }
+    }
+    if (object.stroke && object.strokeWidth !== 0) {
+      context.save();
+      try {
+        context.scale(1 / scaleX, 1 / scaleY);
+        object._setLineDash(context, object.strokeDashArray);
+        object._setStrokeStyles(context, object);
+        context.stroke(cached.stroke);
+      } finally { context.restore(); }
+    }
+    return true;
+  }
+
   function create({ scene, reference, view, catalog, geometry, colors, schedule, diagnostics, maxLayers, KfpsI18n }) {
     const HYBRID_RENDER_MIN_LAYERS = 300;
     const HYBRID_RENDER_MIN_REFERENCE_PIXELS = 4 * 1024 * 1024;
@@ -862,5 +909,5 @@
       get minimumLayers() { return HYBRID_RENDER_MIN_LAYERS; },
     };
   }
-  return { create };
+  return { create, drawNativeMaskOutline };
 });

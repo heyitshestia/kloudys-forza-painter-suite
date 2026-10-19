@@ -17,6 +17,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QFileDialog
 
 from .community_client import CommunityApiError, build_query
+from .community_access import artwork_access, contribution_status, upload_access
 from .community_gallery_images import GalleryImages
 from .community_preview_service import inspect_file, data_url
 from .community_preview_photos import read_photos
@@ -71,7 +72,7 @@ class CommunityGalleryService(QObject):
         self.root = community.paths.runtime_root / "community" / "gallery"
         self.root.mkdir(parents=True, exist_ok=True)
         self.images = GalleryImages()
-        self.images.events.requested.connect(self._request_image)
+        self.images.events.requested.connect(self._request_image, Qt.QueuedConnection)
         self.artwork_model = DictListModel(["artwork"], self)
         self.creator_model = DictListModel(["artwork"], self)
         self._rows, self._creator_rows, self._records = [], [], {}
@@ -126,6 +127,42 @@ class CommunityGalleryService(QObject):
     def authenticated(self): return self.community.authenticated and not self.community.usernameRequired
     @Property(bool, notify=changed)
     def supporter(self): return self.community.supporterAccess
+    @Property(str, notify=changed)
+    def policyMode(self): return self.community.policyMode
+    @Property(bool, notify=changed)
+    def policyReady(self): return self.community.policyReady
+    @Property(bool, notify=changed)
+    def restrictedAccess(self): return self.community.restrictedAccess
+    @Property(bool, notify=changed)
+    def verifiedAccess(self): return self.community.verifiedAccess
+    @Property(int, notify=changed)
+    def verifiedCount(self): return self.community.verifiedCount
+    @Property(int, notify=changed)
+    def verifiedRequired(self): return self.community.verifiedRequired
+    @Property(str, notify=changed)
+    def verifiedReason(self): return self.community.verifiedReason
+    @Property(int, notify=changed)
+    def requiredAccountAgeDays(self): return self.community.requiredAccountAgeDays
+    @Property(str, notify=changed)
+    def connectedAt(self): return self.community.connectedAt
+    @Property(str, notify=changed)
+    def eligibleAfter(self): return self.community.eligibleAfter
+    @Property(bool, notify=changed)
+    def grandfatheredVerified(self): return self.community.grandfatheredVerified
+    @Property(bool, notify=changed)
+    def claimsEnabled(self): return self.community.claimsEnabled
+    @Property(bool, notify=changed)
+    def claimsView(self): return self.community.claimsView
+    @Property("QStringList", notify=changed)
+    def claimSelection(self): return self.community.claimSelection
+    @Property("QVariantList", notify=changed)
+    def claimResults(self): return self.community.claimResults
+    @Property("QVariantList", notify=changed)
+    def claimEntries(self): return self.community.claimEntries
+    @Property(bool, notify=changed)
+    def claimsBusy(self): return self.community.claimsBusy
+    @Property(str, notify=changed)
+    def claimError(self): return self.community.claimError
     @Property(bool, constant=True)
     def moderator(self): return False
     @Property(str, notify=changed)
@@ -163,7 +200,7 @@ class CommunityGalleryService(QObject):
         if self._closed: return
         self._job_id += 1
         ident, epoch = self._job_id, self._epoch
-        self._jobs[ident] = (epoch, callback, quiet)
+        self._jobs[ident] = (epoch, callback, quiet, self.community.accessSnapshot())
         if not quiet:
             self._active += 1
             self._message, self._error = "", False
@@ -179,13 +216,13 @@ class CommunityGalleryService(QObject):
     def _finish(self, ident, value):
         job = self._jobs.pop(ident, None)
         if job is None: return
-        epoch, callback, quiet = job
+        epoch, callback, quiet, snapshot = job
         if not quiet: self._active = max(0, self._active - 1)
-        if epoch != self._epoch or self._closed: return
+        if epoch != self._epoch or self._closed or snapshot != self.community.accessSnapshot(): return
         if isinstance(value, Exception):
             logging.warning("Community gallery operation failed: %s", value)
             if not quiet: self._message, self._error = str(value), True
-            if isinstance(value, CommunityApiError) and value.status == 401:
+            if isinstance(value, CommunityApiError) and value.status in {401, 403, 409, 426}:
                 self.community.refreshAccount()
             callback(None)
         else:
@@ -194,8 +231,9 @@ class CommunityGalleryService(QObject):
 
     def _account_changed(self):
         client = self.community.sessionClient()
-        fingerprint = (client.token, self.community.username, self.supporter)
+        fingerprint = (client.token, self.community.username, self.policyMode, self.policyReady, self.restrictedAccess)
         if fingerprint != self._fingerprint:
+            identity_changed = self._fingerprint is None or fingerprint[:2] != self._fingerprint[:2]
             self._fingerprint = fingerprint
             self._epoch += 1
             self._catalog_loading = self._creator_loading = False
@@ -203,7 +241,9 @@ class CommunityGalleryService(QObject):
             self.images.clear()
             self._image_sources.clear(); self._image_pending.clear(); self._image_ready.clear()
             self._records.clear(); self._rows.clear(); self._creator_rows.clear()
-            self._selected, self._creator, self._pending = {}, {}, None
+            self._selected, self._creator = {}, {}
+            if identity_changed:
+                self._pending = None
             self.artwork_model.replace([]); self.creator_model.replace([])
             if not self.authenticated and self._scope in ("Favorites", "Following", "My uploads"):
                 self._scope = "Browse"
@@ -223,6 +263,30 @@ class CommunityGalleryService(QObject):
     @Slot("QStringList", str, result="QVariantMap")
     def prepareTags(self, current, entered): return prepare_tags(current, entered)
 
+    @Slot(bool)
+    def setClaimsView(self, enabled):
+        if enabled:
+            self._scope = "My uploads"
+            self._filters.update(kind="vinyl", creator="", supporters=False)
+        self.community.setClaimsView(enabled)
+        self.refresh()
+
+    @Slot(str)
+    def toggleClaim(self, ident):
+        record = self._records.get(ident, {})
+        if record.get("creator", {}).get("username") == self.username:
+            self.community.toggleClaimRecord(record)
+
+    @Slot(bool)
+    def submitClaims(self, confirmed):
+        self.community.submitClaims(confirmed)
+
+    @Slot()
+    def refreshAccess(self):
+        self.community.refreshAccount()
+        if self.policyMode == "legacy_supporter":
+            self.community.refreshSupporterEntitlement()
+
     def _path(self, page, creator=""):
         scopes = {"Featured": "featured", "Browse": "browse", "Timed Releases": "timed", "Livery": "browse", "Supporters": "browse", "Favorites": "favorites", "Following": "following", "My uploads": "mine"}
         sorts = {"Newest": "new", "Top rated": "votes", "Most downloaded": "downloads", "Name": "name"}
@@ -233,6 +297,10 @@ class CommunityGalleryService(QObject):
             values.update(search=filters["search"], kind="livery" if self._scope == "Livery" else filters["kind"], game=filters["game"], category=filters["category"],
                           classification="" if filters["classification"] == "All" else filters["classification"],
                           supporters="1" if self._scope == "Supporters" or filters["supporters"] else "")
+            if self.policyMode == "verified_v1" and self._scope == "Supporters":
+                values.update(scope="verified", supporters="")
+            if self.claimsView and self._scope == "My uploads":
+                values.update(scope="mine", kind="vinyl", contribution_view="claims", supporters="")
         return build_query("artworks", values)
 
     @Slot()
@@ -281,6 +349,8 @@ class CommunityGalleryService(QObject):
                 if row: self.select(row["id"])
 
     def _image_url(self, record, kind, path, digest=""):
+        if not path:
+            return ""
         key = f"{self._epoch}/{record['id']}/{kind}/{digest or record.get('current_revision', 1)}"
         self._image_sources[key] = (path, digest, record["id"], kind)
         return f"image://community-gallery/{key}?ready={self._image_ready.get(key, 0)}"
@@ -289,7 +359,9 @@ class CommunityGalleryService(QObject):
         ident = str(record["id"])
         self._records[ident] = dict(record)
         creator = record.get("creator", {})
-        locked = bool(record.get("supporter_only")) and not self.supporter
+        access = artwork_access(record, self.policyMode if self.policyReady else "unsupported", self.authenticated, self.restrictedAccess)
+        locked = bool(record.get("supporter_only")) and not access["can_download"]
+        contribution = contribution_status(record.get("contribution")) if creator.get("username") == self.username else {}
         starts, ends = record.get("starts_at"), record.get("ends_at")
         row = dict(id=ident, title=record.get("title", ""), description=record.get("description", ""),
             creator=creator.get("username", ""), kind=record.get("kind", "vinyl"), car=record.get("car", ""),
@@ -299,7 +371,10 @@ class CommunityGalleryService(QObject):
             favorite=bool(record.get("favorited")), followed=bool(creator.get("followed")), score=record.get("vote_score", 0),
             vote=record.get("vote", 0), downloads=record.get("downloads", 0), license=record.get("license", ""),
             state="available" if record.get("status") == "published" else record.get("status", "pending"),
-            downloadable=not locked, sample=False, warning=record.get("schema_warning", ""), starts=starts, ends=ends, window="", photoUrls=[])
+            downloadable=access["can_download"], canViewMedia=access["can_view_media"], canInteract=access["can_interact"],
+            audience=access["audience"], restrictionReason=access["restriction_reason"] or "", contribution=contribution,
+            canClaim=bool(contribution.get("can_claim")) and record.get("kind", "vinyl") == "vinyl" and record.get("classification") == "handmade" and self.claimsEnabled,
+            sample=False, warning=record.get("schema_warning", ""), starts=starts, ends=ends, window="", photoUrls=[])
         if starts and ends:
             values = [datetime.fromisoformat(v.replace("Z", "+00:00")) for v in (starts, ends)]
             row["window"] = " - ".join(v.astimezone().strftime("%d %b %Y, %H:%M %Z") for v in values)
@@ -344,8 +419,8 @@ class CommunityGalleryService(QObject):
     def _selected_media(self):
         if not self._selected: return
         record = self._records[self._selected["id"]]
-        if not self._selected["locked"]:
-            self._selected["previewUrl"] = self._image_url(record, "preview", record["preview_url"], record.get("preview_sha256", ""))
+        if self._selected.get("canViewMedia"):
+            self._selected["previewUrl"] = self._image_url(record, "preview", record.get("preview_url", ""), record.get("preview_sha256", ""))
             self._selected["photoUrls"] = [self._image_url(record, f"photo{index}", path)
                 for index, path in enumerate(record.get("photo_urls", []))] if self.authenticated else []
             if self._selected["kind"] == "livery" and not (record.get("cover_is_first_photo") and self._selected["photoUrls"]):
@@ -362,6 +437,8 @@ class CommunityGalleryService(QObject):
     @Slot(str, str)
     def filter(self, key, value):
         if key == "scope":
+            if value != "My uploads" and self.claimsView:
+                self.community.setClaimsView(False)
             if value == "Livery": self._filters["kind"] = "livery"
             elif self._scope == "Livery": self._filters["kind"] = "All"
             if value == "Supporters": self._filters["supporters"] = True
@@ -429,7 +506,7 @@ class CommunityGalleryService(QObject):
 
     @Slot(int)
     def vote(self, value):
-        if not self._selected: return
+        if not self._selected.get("canInteract"): return
         ident = self._selected["id"]
         vote = 0 if self._selected.get("vote") == value else value
         def done(result):
@@ -442,6 +519,7 @@ class CommunityGalleryService(QObject):
         if not self._selected: return
         ident, name = self._selected["id"], self._selected["creator"]
         if kind == "favorites":
+            if not self._selected.get("canInteract"): return
             def done(result):
                 if result is not None:
                     self._records[ident].update(result); self._update_views(ident)
@@ -476,6 +554,7 @@ class CommunityGalleryService(QObject):
 
     @Slot(str)
     def report(self, reason):
+        if not self._selected.get("canInteract"): return
         ident = self._selected.get("id", "")
         self._post(f"artworks/{quote(ident)}/report", {"reason": "other", "details": reason},
                    lambda result: self._notice("Report sent to staff.", "운영진에게 신고를 보냈습니다.") if result is not None else None)
@@ -514,6 +593,7 @@ class CommunityGalleryService(QObject):
             self._selected = {}
             self._rows.clear(); self.artwork_model.replace([])
             self.refresh()
+            self.community.refreshAccount()
             if self._creator_name: self.viewCreator(self._creator_name)
 
     @Slot()
@@ -577,6 +657,19 @@ class CommunityGalleryService(QObject):
         if self.busy or not self._pending: return
         pending, client = dict(self._pending), self.community.sessionClient()
         version = self.community._app_version
+        try:
+            access = upload_access(self.policyMode if self.policyReady else "unsupported", self.restrictedAccess,
+                                   bool(fields.get("supporter")), pending["kind"], str(fields.get("authorship") or ""))
+            revision_id = str(fields.get("revision_id") or "")
+            if revision_id:
+                record = self._records.get(revision_id, {})
+                if (not record or record.get("creator", {}).get("username") != self.username
+                        or bool(record.get("supporter_only")) != bool(fields.get("supporter"))):
+                    raise CommunityApiError(409, "audience_immutable", "Refresh the selected upload. A revision must keep its audience.")
+        except CommunityApiError as exc:
+            self._message, self._error = exc.message, True
+            self.changed.emit()
+            return
         def upload():
             tags = prepare_tags([], fields.get('tags', ''))
             if tags['error']: raise ValueError(tags['error'])
@@ -587,6 +680,7 @@ class CommunityGalleryService(QObject):
                 tags=tags['tags'], supporter_only=bool(fields.get('supporter')), confirm_rights=bool(fields.get('rights')),
                 confirm_compatibility=bool(fields.get('compatibility')), client_version=version,
                 license=licenses.get(fields.get('license'), fields.get('license', 'kfps-community-share-v1')), **utc_schedule(fields))
+            metadata.update(access)
             if pending['kind'] == 'vinyl':
                 cover = png_thumbnail(pending['preview'], 900, 700)
                 metadata.update(design=json.loads(pending['payload']), preview_base64=base64.b64encode(cover).decode(),
@@ -621,6 +715,7 @@ class CommunityGalleryService(QObject):
                 self._notice('Artwork uploaded.', '작품을 업로드했습니다.')
             self.published.emit()
             self.refresh()
+            self.community.refreshAccount()
         self._call(upload, ready)
 
     def _livery_payload(self, record, client):
@@ -636,13 +731,14 @@ class CommunityGalleryService(QObject):
 
     @Slot()
     def download(self):
-        if self.busy or not self._selected or self._selected.get('locked'): return
+        if self.busy or not self.authenticated or not self._selected.get('downloadable'): return
         record = dict(self._records[self._selected['id']])
         client = self.community.sessionClient()
         def fetch():
             if record.get('kind', 'vinyl') == 'vinyl':
                 return self.community.downloadGalleryVinyl(record, client)
             raw = self._livery_payload(record, client)
+            self.community.assertAccessSnapshot(client.access_snapshot)
             from .experimental.full_livery.paths import FullLiveryPaths
             folder = FullLiveryPaths.for_app(self.community.paths).package_root
             target = folder / (str(record['id']) + '.kfpslivery')
@@ -660,7 +756,7 @@ class CommunityGalleryService(QObject):
 
     @Slot()
     def openRender(self):
-        if self.busy or not self._selected or self._selected.get('locked') or self._selected.get('kind') != 'livery': return
+        if self.busy or not self.authenticated or not self._selected.get('canViewMedia') or self._selected.get('kind') != 'livery': return
         record, client = dict(self._records[self._selected['id']]), self.community.sessionClient()
         ident = record['id']
         self.closeRender()

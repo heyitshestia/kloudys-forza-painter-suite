@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import ctypes
+import logging
 import re
 import sys
 from pathlib import Path
@@ -16,8 +18,15 @@ from kfps_editor.manifest import editor_web_root
 def editor_system_language() -> str:
     """Windows UI language, not the independent regional date/number format."""
     if sys.platform == "win32":
-        from tools.kfps_display_language import is_korean_display_language
-        return "ko" if is_korean_display_language() else "en"
+        try:
+            get_language = ctypes.WinDLL("kernel32", use_last_error=True).GetUserDefaultUILanguage
+            get_language.argtypes = []
+            get_language.restype = ctypes.c_ushort
+            primary_language = get_language() & 0x03FF
+            return {0x11: "ja", 0x12: "ko"}.get(primary_language, "en")
+        except (AttributeError, OSError):
+            logging.getLogger(__name__).warning("Could not determine the Windows display language", exc_info=True)
+            return "en"
     from PySide6.QtCore import QLocale
     languages = QLocale.system().uiLanguages()
     return languages[0] if languages else "en"
@@ -27,13 +36,14 @@ class EditorTranslator:
     """Translate app-owned messages; keep user filenames and diagnostics opaque."""
 
     def __init__(self, app_root: Path, runtime: Path, system_locale: str = "en") -> None:
-        self.language = "ko" if re.match(r"^ko(?:[-_]|$)", system_locale, re.I) else "en"
+        system = re.match(r"^(ko|ja)(?:[-_]|$)", system_locale, re.I)
+        self.language = system[1].lower() if system else "en"
         self.messages: dict[str, str] = {}
         self._patterns: list[tuple[str, re.Pattern[str], list[int]]] = []
         try:
             preferences = json.loads((runtime / "preferences.json").read_text(encoding="utf-8"))
             selected = preferences.get("settings", {}).get("kloudyFabricLanguage")
-            if selected in ("en", "ko"):
+            if selected in ("en", "ko", "ja"):
                 self.language = selected
         except (OSError, ValueError, AttributeError, TypeError):
             # The editor's existing preference-error UI handles corrupt settings.

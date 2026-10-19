@@ -93,6 +93,9 @@ def _collect_log_bundle(root: Path, *, include_workers, snapshot=None, session_l
         add_generated("diagnostic-context-0000.log", collect_context(root))
     paths = [(name, root, root / "runtime/fabric-editor" / name) for name in NAMES]
     if include_workers:
+        from .support_studio import NAMES as STUDIO_NAMES, RELATIVE_ROOT as STUDIO_ROOT
+        paths.extend((f"studio-performance-{index:04}.log", root, root / STUDIO_ROOT / name)
+                     for index, name in enumerate(STUDIO_NAMES))
         found, discovery_warnings = discover_worker_logs(root, now=time.time(), retained=True)
         warnings.extend(discovery_warnings)
         for index, (source, path) in enumerate(found, 1):
@@ -120,13 +123,20 @@ def _collect_log_bundle(root: Path, *, include_workers, snapshot=None, session_l
             paths.extend(items.popleft() for items in groups.values() if items)
     for name, anchor, path in paths:
         try:
-            raw, opened = read_known_file(anchor, path, MAX_FILE_BYTES)
+            maximum = 256 * 1024 if name.startswith("studio-performance") else MAX_FILE_BYTES
+            raw, opened = read_known_file(anchor, path, maximum)
             lines, omitted = [], 0
             for line in raw.decode("utf-8", errors="replace").splitlines():
-                if name.startswith("performance"):
+                if name.startswith(("performance", "studio-performance")):
                     try:
-                        lines.append(compact(clean_record(json.loads(line))))
-                    except (ValueError, TypeError, KeyError, OverflowError):
+                        if name.startswith("studio-performance"):
+                            if len(line.encode("utf-8")) > 1024:
+                                raise ValueError("oversized_record")
+                            from .support_studio import clean_studio_record
+                            lines.append(compact(clean_studio_record(json.loads(line))))
+                        else:
+                            lines.append(compact(clean_record(json.loads(line))))
+                    except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
                         omitted += 1
                 else:
                     # Never split an oversized line inside a secret or encoded blob.
@@ -160,7 +170,7 @@ def _collect_log_bundle(root: Path, *, include_workers, snapshot=None, session_l
         from .support_logs import SOURCES
         add_generated("collection-index-0000.log", {
             "scope": "known diagnostic files from this installation, at report preparation time",
-            "sources_checked": [item[0] for item in SOURCES] + ["editor-performance", "updater-worker"],
+            "sources_checked": [item[0] for item in SOURCES] + ["editor-performance", "studio-performance", "updater-worker"],
             "files": inventory, "discovery_warnings": sorted(set(warnings)),
             "limits": {"file_bytes": MAX_FILE_BYTES, "raw_bytes": MAX_RAW_BYTES, "archive_bytes": MAX_ARCHIVE_BYTES}})
     if not files and not warnings:

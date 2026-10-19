@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <BaselineRoot Condition="'$(BaselineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\repo</BaselineRoot>
+    <VendorRoot>$(BaselineRoot)\tools\livery\chassis-converter\vendor\ForzaTechStudio</VendorRoot>
+    <AssemblyName Condition="'$(ConverterTests)' == 'true'">Kfps.LiveryLab.Converter.Tests</AssemblyName>
+    <StartupObject Condition="'$(ConverterTests)' == 'true'">Kfps.ChassisConverter.ConverterTests</StartupObject>
+    <NoWarn>$(NoWarn);8632;8981</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs;GlbWriter.cs;ModelImporter.cs;NativeMorphs.cs;PreviewWheelFit.cs" />
+    <Compile Include="$(VendorRoot)\**\*.cs" Exclude="$(VendorRoot)\ModelImporter.cs;$(VendorRoot)\**\obj\**;$(VendorRoot)\**\bin\**" LinkBase="Vendor" />
+    <Compile Include="..\..\tests\ConverterTests.cs" Condition="'$(ConverterTests)' == 'true'" />
+    <PackageReference Include="Syroot.BinaryData" Version="5.2.2" />
+  </ItemGroup>
+  <Target Name="CheckIsolatedBuild" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(IsolatedBuild)' != 'true'" Text="Use scripts/build-converter.ps1 to keep all generated files out of baseline/source." />
+    <Error Condition="!Exists('$(VendorRoot)\ModelImporter.cs')" Text="Verified baseline vendor source is missing." />
+  </Target>
+</Project>

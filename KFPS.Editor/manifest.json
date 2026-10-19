@@ -6,6 +6,14 @@
   "web": [
     {"path":"index.html","role":"page","owner":"O01","diagnostic":true},
     {"path":"style.css","role":"style","owner":"O01"},
+    {"path":"workspace.css","role":"style","owner":"O01"},
+    {"path":"release-announcement.css","role":"style","owner":"O01"},
+    {"path":"release-announcement.js","role":"module","owner":"O01","diagnostic":true},
+    {"path":"activity-client.js","role":"module","owner":"O01","diagnostic":true},
+    {"path":"editor-workspace.js","role":"module","owner":"O01","diagnostic":true,"localize":true},
+    {"path":"editor-docking.js","role":"module","owner":"O01","diagnostic":true,"localize":true},
+    {"path":"vendor/lucide-icons.js","role":"vendor","owner":"O01"},
+    {"path":"vendor/LICENSE.lucide","role":"license","owner":"O01"},
     {"path":"editor.js","role":"composition","owner":"O01","diagnostic":true,"localize":true},
     {"path":"editor-core.js","role":"module","owner":"O13","diagnostic":true},
     {"path":"editor-fabric-adapter.js","role":"module","owner":"O04","diagnostic":true},
@@ -32,8 +40,10 @@
     {"path":"vendor/fabric.min.js","role":"vendor","owner":"O04","diagnostic":true},
     {"path":"locales/en.js","role":"catalog","owner":"O16","diagnostic":true},
     {"path":"locales/ko.js","role":"catalog","owner":"O16","diagnostic":true},
+    {"path":"locales/ja.js","role":"catalog","owner":"O16","diagnostic":true},
     {"path":"locales/en.json","role":"catalog-source","owner":"O16"},
     {"path":"locales/ko.json","role":"catalog-source","owner":"O16"},
+    {"path":"locales/ja.json","role":"catalog-source","owner":"O16"},
     {"path":"shape-names.json","role":"resource-map","owner":"O13"},
     {"path":"shape-words.json","role":"resource-map","owner":"O13"}
   ],
@@ -78,6 +88,10 @@
     {"path":"kfps_shapes/schema.py","owner":"O13","role":"shape-schema"},
     {"path":"tools/editor_manifest.py","owner":"O20","role":"manifest-compatibility"},
     {"path":"tools/kfps_display_language.py","owner":"O16","role":"display-language"},
+    {"path":"tools/kfps_release_announcement.py","owner":"O16","role":"release-announcement"},
+    {"path":"tools/kfps_activity.py","owner":"O16","role":"activity-counter"},
+    {"path":"tools/kfps_activity_host.py","owner":"O16","role":"activity-host"},
+    {"path":"KFPS.UI/content/release-announcement.json","owner":"O16","role":"release-announcement-content"},
     {"path":"tools/source_download_guard.py","owner":"O20","role":"source-guard"}
   ],
   "runtime_modules": ["PySide6", "PySide6.QtWebEngineWidgets", "psutil", "win32api", "win32file", "PIL", "numpy"]

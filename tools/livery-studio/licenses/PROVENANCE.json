@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "decision": "Redistribute original MIT license notices with the self-contained converter. No game assets.",
+  "files": [
+    {
+      "path": "LICENSE.dotnet.txt",
+      "source_package": "microsoft.netcore.app.runtime.win-x64/9.0.0/LICENSE.TXT",
+      "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b"
+    },
+    {
+      "path": "THIRD-PARTY-NOTICES.dotnet.txt",
+      "source_package": "microsoft.netcore.app.runtime.win-x64/9.0.0/THIRD-PARTY-NOTICES.TXT",
+      "sha256": "40686c6447a7d5b5d3693068e4571b5f483d7ed335aeee773ef662440de4c5d5"
+    },
+    {
+      "path": "LICENSE.System.Memory.txt",
+      "source_package": "system.memory/4.5.2/LICENSE.TXT",
+      "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b"
+    },
+    {
+      "path": "THIRD-PARTY-NOTICES.System.Memory.txt",
+      "source_package": "system.memory/4.5.2/THIRD-PARTY-NOTICES.TXT",
+      "sha256": "7864a01e2fdef7e8fdf81b906efb1466f083206affea7ba7e6dadea429754765"
+    },
+    {
+      "path": "LICENSE.Syroot.BinaryData.txt",
+      "source_url": "https://gitlab.com/Syroot/BinaryData/-/raw/master/LICENSE",
+      "package_versions": [
+        "Syroot.BinaryData 5.2.2",
+        "Syroot.BinaryData.Core 5.2.0"
+      ],
+      "sha256": "287cb2f41eb6d99177b76f346e6484ceea835a0c1f3751ec583c5533f7135464"
+    }
+  ]
+}

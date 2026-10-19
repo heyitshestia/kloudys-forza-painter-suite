@@ -7,6 +7,7 @@
 })(typeof window !== "undefined" ? window : globalThis, function (root) {
   "use strict";
   const KEY = "kloudyFabricLanguage";
+  const LANGUAGES = ["en", "ko", "ja"];
   let language = "en";
   let patterns = null;
   let knownMessages = null;
@@ -31,10 +32,13 @@
   function init(preferences) {
     let selected = null;
     try { selected = new URLSearchParams(root.location?.search || "").get("lang"); } catch (_) { /* Optional QA override. */ }
-    if (!["en", "ko"].includes(selected)) {
+    if (!LANGUAGES.includes(selected)) {
       try { selected = (preferences || root.localStorage)?.getItem(KEY); } catch (_) { /* Browser storage can be disabled. */ }
     }
-    if (!["en", "ko"].includes(selected)) selected = /^ko(?:-|_|$)/i.test(root.KfpsEditorSystemLanguage || root.navigator?.language || "") ? "ko" : "en";
+    if (!LANGUAGES.includes(selected)) {
+      const system = /^(ko|ja)(?:-|_|$)/i.exec(root.KfpsEditorSystemLanguage || root.navigator?.language || "");
+      selected = system ? system[1].toLowerCase() : "en";
+    }
     language = selected;
     patterns = null;
     knownMessages = null;
@@ -122,7 +126,7 @@
   const api = Object.freeze({
     KEY, init, t, term: t, message, history: source => message(source, true), error, familyLabel, shapeLabel, applyStatic, recoveryPattern,
     get language() { return language; },
-    get locale() { return language === "ko" ? "ko-KR" : "en-US"; },
+    get locale() { return { en: "en-US", ko: "ko-KR", ja: "ja-JP" }[language]; },
   });
   init();
   return api;

@@ -29,10 +29,17 @@ PreviewDialog {
         C.KfpsTextField { id: confirmation; visible: communityService.usernameRequired; Layout.fillWidth: true; placeholderText: root.ui("Confirm username", "사용자 이름 다시 입력") }
         PreviewPrimaryButton { visible: communityService.usernameRequired; text: root.ui("Save username", "이름 저장"); onClicked: communityService.chooseUsername(username.text, confirmation.text) }
         PreviewText { Layout.fillWidth: true; visible: communityService.authenticated && !communityService.usernameRequired; text: "@" + communityService.username; textWeight: Font.DemiBold }
-        PreviewText { Layout.fillWidth: true; visible: communityService.authenticated; text: communityService.supporterAccess ? root.ui("Supporter access verified. Thank you for supporting KFPS!", "서포터 확인이 완료됐어요. KFPS를 응원해 주셔서 감사합니다!") : root.ui("Regular artwork is available to everyone signed in. Supporter artwork needs a verified supporter key in KFPS.", "일반 작품은 로그인한 누구나 이용할 수 있어요. 서포터 전용 작품은 KFPS에 등록한 유효한 서포터 키가 필요합니다.") }
+        CommunityAccess { Layout.fillWidth: true; accessService: preview; ui: root.ui }
+        PreviewButton {
+            objectName: "VerifyExistingSupporter"
+            visible: communityService.existingSupporterVerificationAvailable
+            enabled: !communityService.busy
+            text: root.ui("Verify my existing supporter key", "기존 서포터 키 확인")
+            onClicked: communityService.verifyExistingSupporter()
+        }
         RowLayout {
             visible: communityService.authenticated
-            PreviewButton { text: root.ui("Refresh access", "이용 권한 새로고침"); onClicked: { communityService.refreshAccount(); communityService.refreshSupporterEntitlement() } }
+            PreviewButton { text: root.ui("Refresh access", "이용 권한 새로고침"); onClicked: preview.refreshAccess() }
             PreviewButton { text: root.ui("Sign out", "로그아웃"); onClicked: communityService.signOut() }
         }
         PreviewText { Layout.fillWidth: true; text: communityService.errorMessage || communityService.statusMessage; color: communityService.errorMessage ? Theme.danger : Theme.muted }

@@ -73,8 +73,10 @@ NUMBERS = frozenset((
     "draws", "totalDraws", "selectedId", "buttons", "modifiers", "clientDrops", "criticalDrops", "editorRevision",
     "operationId", "jobId", "documentGeneration", "queueDepth", "documentId", "commitId", "firstCommitId",
     "commandId", "inputId", "historyId", "workerDuration", "renderDuration", "meshCount", "cachePixels", "cacheCount",
+    "floatingPanels", "leftPanels", "hiddenPanels", "viewportWidth", "viewportHeight", "devicePixelRatio",
 ))
-BOOLS = frozenset(("visible", "focused", "referenceAbove", "referenceVisible", "browserOk", "serverOk", "ready", "minimized"))
+BOOLS = frozenset(("visible", "focused", "referenceAbove", "referenceVisible", "browserOk", "serverOk", "ready", "minimized",
+    "panelDrag", "panelsLocked", "focusCanvas"))
 ENUMS = {
     "kind": KINDS, "action": ACTIONS,
     "job": frozenset(("recovery", "browserRecovery", "readRecovery", "recoveryHead", "parseFile", "parseText", "fetchJSON", "referenceImage", "saveProject", "saveExport")),

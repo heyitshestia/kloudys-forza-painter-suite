@@ -3,12 +3,14 @@ import QtQuick.Controls 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 import "../components"
+import "../community-preview" as Community
 
 Item {
     id: root
     objectName: "CommunityPage"
     anchors.fill: parent
     clip: true
+    function ui(en, ko) { return typeof settings !== "undefined" && settings.communityLanguage === "ko" ? ko : en }
 
     property int activeTab: 0
     property bool revisionMode: false
@@ -24,7 +26,7 @@ Item {
     readonly property bool compactHeight: Theme.logical(height) < 720
     readonly property bool featuredCatalog: communityService.selectedScopeIndex === 0
     readonly property bool supporterCatalogLocked: communityService.selectedScopeIndex === 4
-                                                   && !communityService.supporterAccess
+                                                   && communityService.policyMode === "legacy_supporter" && !communityService.restrictedAccess
     readonly property bool activeSupporterKey: communityService.supporterKeyConnected
     // The live-status banner is shell-owned, so keep its page alignment stable
     // while Browse, Upload, and Profile exchange their internal layouts.
@@ -75,6 +77,7 @@ Item {
         root.uploadClassification = ""
         root.uploadSupporterOnly = false
         rightsConfirmation.checked = false
+        uploadAuthorship.currentIndex = 0
         compatibilityConfirmation.checked = false
         revisionNote.text = ""
     }
@@ -116,6 +119,7 @@ Item {
         var licenseIndex = communityService.licenses.indexOf(String(selected.license || ""))
         uploadLicenseBox.currentIndex = licenseIndex >= 0 ? licenseIndex : 0
         rightsConfirmation.checked = false
+        uploadAuthorship.currentIndex = 0
         compatibilityConfirmation.checked = false
         revisionNote.text = ""
         root.activeTab = 1
@@ -168,6 +172,7 @@ Item {
         root.syncUploadSelection()
         root.syncProfile()
     }
+    onVisibleChanged: if (visible) communityService.refreshAccount()
 
     Connections {
         target: communityService
@@ -399,9 +404,7 @@ Item {
                                                       : index === 1 ? "Show all non-featured published community artwork."
                                                       : index === 2 ? "Show only non-featured artwork classified as Handmade."
                                                       : index === 3 ? "Show only non-featured artwork classified as Toolmade."
-                                                      : index === 4 ? (communityService.supporterAccess
-                                                                     ? "Show artwork shared only with verified KFPS supporters."
-                                                                     : "Open supporter vinyl sharing and access options.")
+                                                      : index === 4 ? root.ui("Browse restricted artwork under the current server policy.", "현재 서버 정책에 따른 제한 작품을 둘러봅니다.")
                                                       : index === 5 ? "Show artwork you marked as a favorite."
                                                       : index === 6 ? "Show artwork from creators you follow."
                                                                     : "Show your uploads and publication status."
@@ -452,6 +455,13 @@ Item {
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.px(9.6)
                                 }
+                            }
+
+                            Community.CommunityAccess {
+                                Layout.fillWidth: true
+                                visible: communityService.selectedScopeIndex === 7 && communityService.policyMode === "verified_v1"
+                                accessService: communityService
+                                ui: root.ui
                             }
 
                             Rectangle {
@@ -518,6 +528,7 @@ Item {
                                         required property int favorites
                                         required property bool featured
                                         required property bool supporterOnly
+                                        required property string audience
                                         required property bool usesMasks
                                         required property string statusLabel
 
@@ -536,6 +547,7 @@ Item {
                                         cardFavorites: favorites
                                         cardFeatured: featured
                                         cardSupporterOnly: supporterOnly
+                                        cardAudience: audience
                                         cardUsesMasks: usesMasks
                                         cardStatusLabel: statusLabel
                                         cardSelected: communityService.selectedIndex === index
@@ -576,13 +588,7 @@ Item {
 
                                         Text {
                                             width: parent.width
-                                            text: !communityService.supporterKeyAvailable
-                                                  ? "Get access to supporter vinyl sharing"
-                                                  : !root.activeSupporterKey
-                                                    ? "Connect your supporter key"
-                                                    : !communityService.authenticated
-                                                      ? "Connect to the supporter catalog"
-                                                      : "Confirming supporter access"
+                                            text: root.ui("Legacy server: Supporter access", "기존 서버: 서포터 이용 권한")
                                             color: Theme.text
                                             font.family: Theme.displayFamily
                                             font.pixelSize: Theme.px(root.compactHeight ? 19 : 23)
@@ -593,13 +599,7 @@ Item {
 
                                         Text {
                                             width: parent.width
-                                            text: !communityService.supporterKeyAvailable
-                                                  ? "Share your best vinyls with other supporters, and browse artwork creators have chosen to keep within the supporter community."
-                                                  : !root.activeSupporterKey
-                                                    ? "This catalog needs a connected supporter key so access can be verified securely."
-                                                    : !communityService.authenticated
-                                                      ? "Sign in with GitHub to connect supporter access to your Community profile."
-                                                      : "KFPS is checking this supporter registration before loading the private catalog."
+                                            text: root.ui("This server still uses Supporter access for restricted artwork. Verified claims are not available here.", "이 서버는 제한 작품에 기존 서포터 권한을 사용합니다. Verified 원작자 확인은 아직 지원하지 않습니다.")
                                             color: Theme.muted
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(root.compactHeight ? 10.8 : 12)
@@ -610,42 +610,24 @@ Item {
 
                                         PrimaryButton {
                                             anchors.horizontalCenter: parent.horizontalCenter
-                                            iconName: !communityService.supporterKeyAvailable ? "heart" : "external"
+                                            iconName: "refresh"
                                             showArrow: true
-                                            text: !communityService.supporterKeyAvailable
-                                                  ? "Get a Supporter Key"
-                                                  : !root.activeSupporterKey
-                                                    ? "Check Supporter Key"
-                                                    : !communityService.authenticated
-                                                      ? "Connect Community Account"
-                                                      : "Check Supporter Access"
+                                            text: communityService.authenticated ? root.ui("Refresh access", "이용 권한 새로고침") : root.ui("Sign in with GitHub", "GitHub로 로그인")
                                             enabled: true
-                                            toolTipText: !communityService.supporterKeyAvailable
-                                                         ? "Open the KFPS supporter-key page on Ko-fi."
-                                                         : !root.activeSupporterKey
-                                                           ? "Retry supporter-key activation."
-                                                           : !communityService.authenticated
-                                                             ? "Connect your GitHub identity to the Community library."
-                                                             : "Request a fresh supporter Community verification."
+                                            toolTipText: text
                                             onClicked: {
-                                                if (!communityService.supporterKeyAvailable)
-                                                    desktop.openUrl("https://ko-fi.com/s/2d1507698d")
-                                                else if (!root.activeSupporterKey)
-                                                    communityService.repairSupporterAccess()
-                                                else if (!communityService.authenticated)
+                                                if (!communityService.authenticated)
                                                     root.openLogin()
-                                                else
+                                                else {
+                                                    communityService.refreshAccount()
                                                     communityService.refreshSupporterEntitlement()
+                                                }
                                             }
                                         }
 
                                         Text {
                                             width: parent.width
-                                            text: !communityService.supporterKeyAvailable
-                                                  ? "A supporter key unlocks this catalog and the other KFPS supporter features."
-                                                  : !root.activeSupporterKey
-                                                    ? communityService.supporterStatus
-                                                    : communityService.supporterStatus
+                                            text: communityService.supporterStatus
                                             color: Theme.subtle
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(9.5)
@@ -823,6 +805,7 @@ Item {
                                         Text {
                                             Layout.fillWidth: true
                                             text: String(communityService.selectedArtwork.title || "Untitled")
+                                            textFormat: Text.PlainText
                                             color: Theme.text
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.px(16.5)
@@ -834,11 +817,18 @@ Item {
 
                                         CommunityClassificationLine {
                                             Layout.fillWidth: true
-                                            supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
+                                            supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly) && communityService.policyMode === "legacy_supporter"
                                             classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
                                             categoryLabel: String(communityService.selectedArtwork.category || "Other")
                                             schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
                                             textPixelSize: Theme.px(9.8)
+                                        }
+                                        Text {
+                                            visible: communityService.selectedArtwork.audience === "verified"
+                                            text: "Verified"
+                                            color: Theme.primaryBright
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.px(10)
                                         }
                                     }
 
@@ -1010,11 +1000,11 @@ Item {
                                         dense: true
                                         iconName: "transfer"
                                         text: communityService.selectedSupporterLocked
-                                              ? "Supporter Download"
+                                              ? root.ui("Restricted download", "제한 다운로드")
                                               : (communityService.authenticated ? "Download to Library" : "Connect to Download")
                                         enabled: !communityService.busy
                                         toolTipText: communityService.selectedSupporterLocked
-                                                     ? "See how to unlock this supporter vinyl."
+                                                     ? root.ui("Review the current server requirements for this artwork.", "이 작품에 적용되는 현재 서버 이용 조건을 확인합니다.")
                                                      : communityService.authenticated
                                                      ? "Download, verify, and add this JSON to Outputs > Library."
                                                      : "Connect a Community account before downloading this JSON."
@@ -1025,7 +1015,7 @@ Item {
                                         dense: true
                                         iconName: "heart"
                                         text: Boolean(communityService.selectedArtwork.favorited) ? "Saved" : "Favorite"
-                                        enabled: communityService.authenticated && !communityService.busy
+                                        enabled: !!communityService.selectedArtwork.canInteract && !communityService.busy
                                         toolTipText: communityService.authenticated
                                                      ? "Add or remove this artwork from your favorites."
                                                      : "Connect an account to save favorites."
@@ -1051,6 +1041,7 @@ Item {
                                         dense: true
                                         iconName: "reports"
                                         text: "Report"
+                                        enabled: !!communityService.selectedArtwork.canInteract && !communityService.busy
                                         toolTipText: "Privately flag this artwork for administrator review."
                                         onClicked: reportDialog.open()
                                     }
@@ -1074,6 +1065,30 @@ Item {
                                         onClicked: root.prepareRevision()
                                     }
 
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: communityService.claimsEnabled
+                                    spacing: Theme.px(7)
+                                    GhostButton {
+                                        visible: communityService.selectedOwned && communityService.claimsEnabled && !!communityService.selectedArtwork.canClaim
+                                        dense: true
+                                        text: communityService.claimSelection.indexOf(communityService.selectedArtwork.id) >= 0 ? root.ui("Deselect claim", "확인 선택 해제") : root.ui("Select original claim", "원본 확인 선택")
+                                        toolTipText: root.ui("Select this original Handmade vinyl for your authorship review, up to ten uploads at a time.", "원작자 확인 검토를 위해 이 원본 수작업 비닐을 선택합니다. 한 번에 최대 10개까지 선택할 수 있습니다.")
+                                        enabled: !communityService.claimsBusy && (communityService.claimSelection.indexOf(communityService.selectedArtwork.id) >= 0 || communityService.claimSelection.length < 10)
+                                        onClicked: communityService.toggleSelectedClaim()
+                                    }
+                                    GhostButton {
+                                        visible: communityService.claimsEnabled
+                                        dense: true
+                                        text: root.ui("Review claims", "확인 요청 검토") + " (" + communityService.claimSelection.length + "/10)"
+                                        toolTipText: root.ui("Review selected uploads and explicitly confirm that you created the Handmade originals.", "선택한 업로드를 검토하고 수작업 원본을 직접 창작했는지 명시적으로 확인합니다.")
+                                        enabled: communityService.claimSelection.length > 0 || communityService.claimResults.length > 0
+                                        onClicked: claimsDialog.open()
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
                                     GhostButton {
                                         visible: communityService.selectedOwned
                                         dense: true
@@ -1588,17 +1603,15 @@ Item {
                                     GhostButton {
                                         id: supportersUploadChoice
                                         Layout.fillWidth: true
-                                        text: "Supporters"
+                                        text: communityService.policyMode === "verified_v1" ? root.ui("Verified", "Verified 전용") : root.ui("Supporters", "서포터 전용")
                                         checkable: true
                                         checked: root.uploadSupporterOnly
                                         ButtonGroup.group: uploadAudienceGroup
                                         accentText: checked
-                                        enabled: !root.revisionMode && communityService.supporterAccess
+                                        enabled: !root.revisionMode && communityService.restrictedAccess
                                         toolTipText: root.revisionMode
                                                      ? "Audience is fixed after the first upload."
-                                                     : communityService.supporterAccess
-                                                       ? "Share this artwork only with currently verified KFPS supporters."
-                                                       : communityService.supporterStatus
+                                                     : root.ui("Restricted publishing requires access under the current server policy.", "제한 공개에는 현재 서버 정책에 따른 이용 권한이 필요합니다.")
                                         onClicked: root.uploadSupporterOnly = true
                                     }
                                 }
@@ -1641,6 +1654,14 @@ Item {
                                     }
                                 }
 
+                                KfpsComboBox {
+                                    id: uploadAuthorship; objectName: "RetainedUploadAuthorship"
+                                    Layout.fillWidth: true
+                                    visible: communityService.policyMode === "verified_v1"
+                                    toolTipText: root.ui("Declare original authorship or permission to share. Only your own Handmade vinyls can earn contribution credit.", "직접 창작한 작품인지 공유 허가를 받은 작품인지 선택합니다. 직접 창작한 수작업 비닐만 기여로 인정됩니다.")
+                                    model: [root.ui("Choose authorship", "원작자 여부 선택"), root.ui("I created this original vinyl", "제가 직접 창작한 원본 비닐입니다"), root.ui("I have permission to share it", "공유 허가를 받은 작품입니다")]
+                                }
+
                                 KfpsCheckBox {
                                     id: rightsConfirmation
                                     Layout.fillWidth: true
@@ -1665,7 +1686,9 @@ Item {
                                              && uploadTitle.text.trim().length > 0
                                              && uploadCategory.currentIndex > 0
                                              && root.uploadClassification.length > 0
-                                             && (!root.uploadSupporterOnly || communityService.supporterAccess)
+                                             && communityService.policyReady
+                                             && (!root.uploadSupporterOnly || communityService.restrictedAccess)
+                                             && (communityService.policyMode !== "verified_v1" || uploadAuthorship.currentIndex > 0)
                                              && rightsConfirmation.checked
                                              && (communityService.uploadSchemaKnown || compatibilityConfirmation.checked)
                                              && (!root.revisionMode || (communityService.selectedOwned && revisionNote.text.trim().length > 0))
@@ -1683,12 +1706,12 @@ Item {
                                             communityService.submitRevision(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
                                                 uploadTags.text, root.uploadClassification, root.uploadLicense(), root.uploadSupporterOnly, rightsConfirmation.checked,
-                                                compatibilityConfirmation.checked, revisionNote.text)
+                                                compatibilityConfirmation.checked, revisionNote.text, uploadAuthorship.currentIndex === 1 ? "own" : uploadAuthorship.currentIndex === 2 ? "permission" : "")
                                         } else {
                                             communityService.submitUpload(
                                                 uploadTitle.text, uploadDescription.text, uploadCategory.currentText,
                                                 uploadTags.text, root.uploadClassification, root.uploadLicense(), root.uploadSupporterOnly, rightsConfirmation.checked,
-                                                compatibilityConfirmation.checked)
+                                                compatibilityConfirmation.checked, uploadAuthorship.currentIndex === 1 ? "own" : uploadAuthorship.currentIndex === 2 ? "permission" : "")
                                         }
                                     }
                                 }
@@ -1796,14 +1819,13 @@ Item {
                                             font.pixelSize: Theme.px(9.7)
                                         }
 
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: communityService.supporterStatus
-                                            color: communityService.supporterAccess ? Theme.success : Theme.muted
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.px(9.4)
-                                            font.weight: communityService.supporterAccess ? Font.DemiBold : Font.Normal
-                                            elide: Text.ElideRight
+                                        Community.CommunityAccess { Layout.fillWidth: true; accessService: communityService; ui: root.ui }
+                                        GhostButton {
+                                            visible: communityService.existingSupporterVerificationAvailable
+                                            text: root.ui("Verify my existing supporter key", "기존 서포터 키 확인")
+                                            toolTipText: root.ui("Ask the Community server to verify your existing key for a permanent Verified grant, when eligible.", "기존 키가 영구 Verified 자격 대상인지 커뮤니티 서버에 확인합니다.")
+                                            enabled: !communityService.busy
+                                            onClicked: communityService.verifyExistingSupporter()
                                         }
                                     }
 
@@ -1925,8 +1947,16 @@ Item {
                                     toolTipText: "Browse your uploads and their publication status."
                                     onClicked: {
                                         root.activeTab = 0
+                                        if (communityService.claimsView) communityService.setClaimsView(false)
                                         communityService.setScopeIndex(7)
                                     }
+                                }
+                                GhostButton {
+                                    Layout.fillWidth: true
+                                    visible: communityService.claimsEnabled
+                                    text: root.ui("Original vinyl claims (including past uploads)", "원본 비닐 확인 (이전 업로드 포함)")
+                                    toolTipText: root.ui("Review your current and past Handmade uploads for explicit original-authorship claims.", "현재 및 이전 수작업 업로드를 검토하고 원작자 확인을 요청합니다.")
+                                    onClicked: { root.activeTab = 0; communityService.setClaimsView(true) }
                                 }
 
                                 GhostButton {
@@ -2027,7 +2057,7 @@ Item {
         dim: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         width: Math.min(root.width - Theme.px(48), Theme.px(560))
-        height: Theme.px(330)
+        height: Math.min(root.height - Theme.px(48), Theme.px(500))
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
         padding: Theme.px(22)
@@ -2050,7 +2080,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: root.activeSupporterKey ? "Let's check your supporter access" : "Like this vinyl?"
+                text: root.ui("Restricted Community artwork", "제한된 커뮤니티 작품")
                 color: Theme.text
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(22)
@@ -2059,17 +2089,10 @@ Item {
                 wrapMode: Text.Wrap
             }
 
-            Text {
+            Community.CommunityAccess {
                 Layout.fillWidth: true
-                text: root.activeSupporterKey
-                      ? "This vinyl is shared with supporters. Your key is already connected, so KFPS just needs to confirm your Community access."
-                      : "Unlock this vinyl and many more, plus instant imports and exports and new supporter themes, by becoming a KFPS supporter."
-                color: Theme.muted
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.px(11.3)
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-                lineHeight: 1.08
+                accessService: communityService
+                ui: root.ui
             }
 
             Item { Layout.fillHeight: true }
@@ -2080,33 +2103,32 @@ Item {
 
                 GhostButton {
                     Layout.fillWidth: true
-                    text: "No thank you"
+                    text: root.ui("Close", "닫기")
                     toolTipText: "Close this message and keep browsing."
                     onClicked: supporterUnlockDialog.close()
                 }
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    iconName: "external"
+                    iconName: "refresh"
                     showArrow: true
-                    text: root.activeSupporterKey ? "Check my access" : "Take me there"
-                    toolTipText: root.activeSupporterKey
-                                 ? "Confirm the supporter key already connected to this KFPS installation."
-                                 : "Open the KFPS supporter-key page on Ko-fi."
+                    text: root.ui("Refresh access", "이용 권한 새로고침")
+                    toolTipText: text
                     onClicked: {
                         supporterUnlockDialog.close()
-                        if (!root.activeSupporterKey) {
-                            desktop.openUrl("https://ko-fi.com/s/2d1507698d")
-                        } else if (!communityService.authenticated) {
+                        if (!communityService.authenticated) {
                             root.openLogin()
                         } else {
-                            communityService.refreshSupporterEntitlement()
+                            communityService.refreshAccount()
+                            if (communityService.policyMode === "legacy_supporter") communityService.refreshSupporterEntitlement()
                         }
                     }
                 }
             }
         }
     }
+
+    Community.CommunityClaims { id: claimsDialog; parent: Overlay.overlay; accessService: communityService; ui: root.ui }
 
     Popup {
         id: loginDialog
@@ -2477,6 +2499,7 @@ Item {
                 Text {
                     Layout.maximumWidth: Theme.px(540)
                     text: String(communityService.selectedArtwork.title || "Untitled")
+                    textFormat: Text.PlainText
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(14.5)
@@ -2637,6 +2660,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: String(communityService.selectedArtwork.title || "Untitled")
+                                textFormat: Text.PlainText
                                 color: Theme.text
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.px(17)
@@ -2660,7 +2684,7 @@ Item {
 
                             CommunityClassificationLine {
                                 Layout.fillWidth: true
-                                supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly)
+                                supporterOnly: Boolean(communityService.selectedArtwork.supporterOnly) && communityService.policyMode === "legacy_supporter"
                                 classificationLabel: String(communityService.selectedArtwork.classificationLabel || "Toolmade")
                                 categoryLabel: String(communityService.selectedArtwork.category || "Other")
                                 schemaLabel: String(communityService.selectedArtwork.schemaLabel || "KFPS-compatible JSON")
@@ -2781,11 +2805,11 @@ Item {
                                     dense: true
                                     iconName: "transfer"
                                     text: communityService.selectedSupporterLocked
-                                          ? "Supporter Download"
+                                          ? root.ui("Restricted download", "제한 다운로드")
                                           : (communityService.authenticated ? "Download to Library" : "Connect to Download")
                                     enabled: !communityService.busy
                                     toolTipText: communityService.selectedSupporterLocked
-                                                 ? "See how to unlock this supporter vinyl."
+                                                 ? root.ui("Review the current server requirements for this artwork.", "이 작품에 적용되는 현재 서버 이용 조건을 확인합니다.")
                                                  : communityService.authenticated
                                                  ? "Download and verify this JSON, accepting responsibility for its in-game use."
                                                  : "Connect a Community account before downloading this JSON."

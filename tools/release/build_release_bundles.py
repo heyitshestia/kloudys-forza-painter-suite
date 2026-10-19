@@ -15,6 +15,8 @@ import tarfile
 import tempfile
 import zipfile
 
+from studio_release_policy import copy_outer_launchers, validate_packaged_studio
+
 
 APP_FOLDER = "KloudysFH6Painter"
 FORBIDDEN_PARTS = {
@@ -38,6 +40,7 @@ PRESERVED_IMAGE_DIRS = {
     PurePosixPath("imgs/library"),
     PurePosixPath("imgs/luma-bands"),
     PurePosixPath("imgs/handmade"),
+    PurePosixPath("imgs/livery-projects"),
 }
 
 
@@ -116,6 +119,7 @@ def enforce_release_policy(app_root: Path) -> None:
     if violations:
         preview = "\n".join(f"  {item}" for item in violations[:25])
         raise RuntimeError(f"Release source contains forbidden runtime/personal paths:\n{preview}")
+    validate_packaged_studio(app_root)
 
 
 def copy_python_runtime(source: Path, destination: Path) -> None:
@@ -446,14 +450,7 @@ def build_one(
         app_root = release_root / APP_FOLDER
         shutil.copytree(exported, app_root)
         (app_root / "BUILD_COMMIT").write_text(commit + "\n", encoding="ascii")
-        shutil.copy2(app_root / "KFPS.exe", release_root / "KFPS.exe")
-        editor_launcher = app_root / "KFPS Editor.exe"
-        if editor_launcher.is_file():
-            shutil.copy2(editor_launcher, release_root / editor_launcher.name)
-        updater = app_root / "KFPS-Updater.exe"
-        if not updater.is_file():
-            raise RuntimeError("Release source is missing KFPS-Updater.exe.")
-        shutil.copy2(updater, release_root / "KFPS-Updater.exe")
+        copy_outer_launchers(app_root, release_root)
         (release_root / "Images").mkdir()
 
         if kind == "recommended":

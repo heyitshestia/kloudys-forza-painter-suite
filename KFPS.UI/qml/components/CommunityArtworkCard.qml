@@ -19,6 +19,7 @@ Item {
     property int cardFavorites: 0
     property bool cardFeatured: false
     property bool cardSupporterOnly: false
+    property string cardAudience: "public"
     property bool cardUsesMasks: false
     property bool cardSelected: false
     property string cardStatusLabel: "Published"
@@ -131,6 +132,7 @@ Item {
                         spacing: Theme.px(3)
 
                         Icon {
+                            visible: root.cardAudience !== "verified"
                             name: "heart"
                             iconSize: Theme.px(11)
                             tint: Theme.primaryBright
@@ -138,7 +140,7 @@ Item {
                         }
 
                         Text {
-                            text: "SUPPORTER"
+                            text: root.cardAudience === "verified" ? "VERIFIED" : "SUPPORTER"
                             color: Theme.primaryBright
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(8.3)
@@ -180,6 +182,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: root.artworkTitle
+                    textFormat: Text.PlainText
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(13.2)
@@ -192,6 +195,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: "@" + root.cardCreatorName
+                    textFormat: Text.PlainText
                     color: Theme.primaryBright
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.px(10.7)

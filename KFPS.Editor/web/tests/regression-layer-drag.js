@@ -27,6 +27,7 @@ async (page,options={}) => {
     await h.fileInput(page,'#overlayInput',options.reference);
     await page.waitForFunction(()=>!!editorReference.image&&!recoveryRestoreDepth);
   }
+  if (await page.locator('#workspaceViewMenu').count()) await page.locator('#workspaceViewMenu').click();
   await page.locator('#fitView').click();
   const initial=await h.scene(page);
   const expectedCount=handmade ? handmade.layers : 3000;

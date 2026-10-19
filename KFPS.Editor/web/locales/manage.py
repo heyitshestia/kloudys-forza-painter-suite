@@ -1,4 +1,4 @@
-"""Maintain the editor's English/Korean catalogs and offline browser packs."""
+"""Maintain the editor's English/Korean/Japanese catalogs and offline browser packs."""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +15,7 @@ EDITOR = HERE.parent
 ROOT = EDITOR.parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.editor_manifest import load_manifest, native_source
-LANGUAGES = ("en", "ko")
+LANGUAGES = ("en", "ko", "ja")
 SECTIONS = ("messages", "html", "families", "shapeLabels")
 JS_REFERENCE = re.compile(r'(?:KfpsI18n\.(?:t|term)|\btr)\(\s*("(?:\\.|[^"\\])*")')
 
@@ -134,7 +134,7 @@ def validate(catalogs, allow_missing=False):
                 if not value:
                     continue
                 slots = lambda text: set(re.findall(r"\{(\d+)\}", text))
-                omitted = set(map(str, catalog.get("pluralOmissions", {}).get(key, []))) if language == "ko" else set()
+                omitted = set(map(str, catalog.get("pluralOmissions", {}).get(key, []))) if language in ("ko", "ja") else set()
                 if slots(value) != slots(key) - omitted:
                     errors.append(f"{language}.{section}: placeholder mismatch: {key!r}")
                 if section in ("html", "messages") and re.search(r"<[a-z]", key):
@@ -148,8 +148,12 @@ def validate(catalogs, allow_missing=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("sync", "build", "check"))
-    parser.add_argument("--allow-missing", action="store_true", help="Allow untranslated Korean drafts to fall back to English (not for CI).")
+    parser.add_argument("--allow-missing", action="store_true", help="Allow untranslated locale drafts to fall back to English (not for CI).")
+    parser.add_argument("--language", choices=LANGUAGES,
+                        help="Build only this offline pack; all catalogs are still validated.")
     args = parser.parse_args()
+    if args.language and args.command != "build":
+        parser.error("--language is only supported with build")
     catalogs = {language: read_catalog(language) for language in LANGUAGES}
     if args.command == "sync":
         for section in SECTIONS:
@@ -158,17 +162,23 @@ def main():
                 keys.update(source_messages())
             for key in sorted(keys):
                 catalogs["en"][section].setdefault(key, key.replace("_", " ") if section == "families" else key)
-                catalogs["ko"][section].setdefault(key, "")
+                for language, catalog in catalogs.items():
+                    if language != "en":
+                        catalog[section].setdefault(key, "")
         for language, catalog in catalogs.items():
             write_catalog(language, catalog)
-        missing = sum(not value for section in SECTIONS for value in catalogs["ko"][section].values())
-        print(f"Catalogs synchronized without deleting keys. {missing} Korean entries need translation.")
+        missing = ", ".join(
+            f"{language}: {sum(not value for section in SECTIONS for value in catalog[section].values())}"
+            for language, catalog in catalogs.items() if language != "en")
+        print(f"Catalogs synchronized without deleting keys. Entries needing translation: {missing}.")
         return 0
     errors = validate(catalogs, args.allow_missing)
     if errors:
         print("\n".join(errors))
         return 1
     for language, catalog in catalogs.items():
+        if args.language and language != args.language:
+            continue
         target = HERE / f"{language}.js"
         expected = pack(language, catalog)
         if args.command == "build":
@@ -178,7 +188,7 @@ def main():
     if errors:
         print("\n".join(errors))
         return 1
-    print(f"English/Korean catalogs {args.command}: source keys, placeholders, HTML contracts and offline packs passed.")
+    print(f"English/Korean/Japanese catalogs {args.command}: source keys, placeholders, HTML contracts and offline packs passed.")
     return 0
 
 

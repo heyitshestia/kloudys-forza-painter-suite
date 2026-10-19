@@ -306,7 +306,7 @@ class CGroupLibraryScanTests(unittest.TestCase):
         self.assertFalse(is_valid_shape_at(self._framed_shape(0x0200, sy=0.0), 0, 32))
         self.assertTrue(is_valid_shape_at(self._framed_shape(0x0200), 0, 32))
 
-    def test_library_visibility_does_not_unlock_offline_save_tools(self):
+    def test_busy_offline_slots_remain_blocked_for_all_supporter_states(self):
         class DummyLog:
             def __init__(self):
                 self.messages = []
@@ -324,26 +324,29 @@ class CGroupLibraryScanTests(unittest.TestCase):
                 runtime_root=app_root / "runtime",
                 bundled_python=app_root / "python" / "python.exe",
             )
-            log = DummyLog()
-            service = CGroupLibraryService(
-                paths, object(), object(), log,
-                supporter=SimpleNamespace(unlocked=False),
-                demo=True,
-            )
-            self.addCleanup(service.close)
-            try:
-                with patch.object(service._executor, "submit") as submit:
-                    service.scanSaves("fh6")
-                    service.createLayerGroupFromSelectedJson(str(app_root / "fixture.json"), "fh6")
-                    service.installJsonToFH6LayerGroup(
-                        str(app_root / "fixture.json"), str(app_root / "LayerGroup"),
-                    )
-                submit.assert_not_called()
-                self.assertFalse(service.running)
-                self.assertEqual(service.status, "Supporter unlock required")
-                self.assertTrue(all("unlock" in message.lower() for message, _level in log.messages))
-            finally:
-                service.close()
+            for supporter in (None, SimpleNamespace(unlocked=False), SimpleNamespace(unlocked=True)):
+                with self.subTest(supporter=supporter):
+                    log = DummyLog()
+                    service = CGroupLibraryService(paths, object(), object(), log, supporter=supporter)
+                    self.assertIs(service.supporter, supporter)
+                    service._running = True
+                    try:
+                        with patch.object(service._executor, "submit") as submit, patch(
+                            "kfps_ui.cgroup_library_service.QFileDialog.getExistingDirectory"
+                        ) as dialog:
+                            service.scanSaves("fh6")
+                            service.installSelectedJsonToFH6(str(app_root / "fixture.json"))
+                            service.createLayerGroupFromSelectedJson(str(app_root / "fixture.json"), "fh6")
+                            service.installJsonToFH6LayerGroup(
+                                str(app_root / "fixture.json"), str(app_root / "LayerGroup"),
+                            )
+                        submit.assert_not_called()
+                        dialog.assert_not_called()
+                        self.assertTrue(service.running)
+                        self.assertEqual(4, len(log.messages))
+                        self.assertTrue(all("already running" in message for message, _level in log.messages))
+                    finally:
+                        service.close()
 
     def test_offline_color_encoding_distinguishes_byte_ones_from_normalized_floats(self):
         self.assertEqual((1, 0, 1, 255), normalize_rgba([1, 0, 1, 255]))

@@ -37,6 +37,28 @@ class HelpAccuracyTests(unittest.TestCase):
         self.assertIn("fh5 offline export is available; fh5 offline import is not", self.text("export-games"))
         self.assertIn("microsoft store/xbox wgs", self.text("export-games"))
 
+    def test_free_transfers_keep_game_specific_save_guards(self):
+        text = self.text("export-games")
+        self.assertIn("do not require a supporter key", text)
+        self.assertIn("including full library transfers", text)
+        self.assertNotIn("require a supporter unlock", text)
+        for phrase in ("close fh4", "works with fh6 open or closed",
+                       "replacing an existing vinyl", "requires fh6 to be closed",
+                       "a changing save stops the import"):
+            self.assertIn(phrase, text)
+
+    def test_verified_help_separates_authorship_from_sharing_permission(self):
+        browse = self.text("community-browse")
+        publish = self.text("community-publish")
+        for phrase in ("10", "handmade", "14 days", "first github connection",
+                       "both", "connected server", "legacy",
+                       "donations", "compact thumbnails", "permanent", "existing key"):
+            self.assertIn(phrase, browse)
+        for phrase in ("authorship", "permission", "toolmade vinyls and liveries do not count",
+                       "revisions do not", "scheduled", "lifetime"):
+            self.assertIn(phrase, publish)
+        self.assertNotIn("listings are visible and downloadable only", browse)
+
     def test_editor_storage_and_sharing_boundaries(self):
         source = (ROOT / "KFPS.Editor" / "web" / "editor.js").read_text(encoding="utf-8")
         self.assertIn("EDITOR_PROJECT_MAX_BYTES = 150 * 1024 * 1024", source)
@@ -60,6 +82,7 @@ class HelpAccuracyTests(unittest.TestCase):
             ("reference", "editor-snapping", "75 MiB"),
             ("report", "reports", "Nothing is sent until"),
             ("livery", "full-livery-packages", "Export does not launch"),
+            ("verified", "community-browse", "10"),
         ):
             service.setCategory("all")
             service.search(query)

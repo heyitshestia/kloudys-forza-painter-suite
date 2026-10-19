@@ -24,10 +24,11 @@ class CommunityApiError(RuntimeError):
 
 
 class CommunityApiClient:
-    def __init__(self, base_url: str, token: str = "", test_auth_token: str = ""):
+    def __init__(self, base_url: str, token: str = "", test_auth_token: str = "", policy_observer=None):
         self.base_url = str(base_url or "").rstrip("/")
         self.token = str(token or "")
         self.test_auth_token = str(test_auth_token or "")
+        self._policy_observer = policy_observer
         parsed = urllib.parse.urlsplit(self.base_url)
         if (
             parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password
@@ -66,6 +67,7 @@ class CommunityApiClient:
         headers = {
             "Accept": "application/json",
             "User-Agent": "KFPS-Community-Client/1",
+            "X-Community-Access-Contract": "1",
         }
         if data is not None:
             headers["Content-Type"] = "application/json"
@@ -83,7 +85,7 @@ class CommunityApiClient:
             raise CommunityApiError(502, "invalid_service_response", "The community service returned invalid JSON.") from exc
 
     def binary(self, path: str, authenticated: bool = False, maximum: int = 26 * 1024 * 1024):
-        headers = {"Accept": "*/*", "User-Agent": "KFPS-Community-Client/1"}
+        headers = {"Accept": "*/*", "User-Agent": "KFPS-Community-Client/1", "X-Community-Access-Contract": "1"}
         if authenticated:
             if not self.token:
                 raise CommunityApiError(401, "authentication_required", "Sign in to use this community feature.")
@@ -107,6 +109,7 @@ class CommunityApiClient:
         request = urllib.request.Request(self.url(path), data=b"".join(chunks), method="POST", headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {self.token}",
             "Accept": "application/json", "User-Agent": "KFPS-Community-Client/1",
+            "X-Community-Access-Contract": "1",
         })
         raw, _ = self._open(request, 1024 * 1024)
         try:
@@ -114,10 +117,14 @@ class CommunityApiClient:
         except ValueError as exc:
             raise CommunityApiError(502, "invalid_service_response", "The upload response could not be read.") from exc
 
-    @staticmethod
-    def _open(request: urllib.request.Request, maximum: int):
+    def _observe_policy(self, headers):
+        if self._policy_observer is not None:
+            self._policy_observer(headers.get("X-Community-Access-Policy"))
+
+    def _open(self, request: urllib.request.Request, maximum: int):
         try:
             with _OPENER.open(request, timeout=30) as response:
+                self._observe_policy(response.headers)
                 declared = int(response.headers.get("Content-Length") or 0)
                 if declared > maximum:
                     raise CommunityApiError(413, "response_too_large", "The community response is too large.")
@@ -126,6 +133,7 @@ class CommunityApiClient:
                     raise CommunityApiError(413, "response_too_large", "The community response is too large.")
                 return raw, dict(response.headers.items())
         except urllib.error.HTTPError as error:
+            self._observe_policy(error.headers)
             raw = error.read(256 * 1024)
             try:
                 payload = json.loads(raw.decode("utf-8"))

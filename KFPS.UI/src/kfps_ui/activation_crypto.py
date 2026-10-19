@@ -288,3 +288,66 @@ def verify_community_entitlement(
     ):
         return None, "Supporter Community entitlement time window is invalid."
     return payload, ""
+
+
+def _canonical_utc_millis(value: object) -> float | None:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z", value,
+    ):
+        return None
+    return _iso_timestamp(value)
+
+
+def verify_community_legacy_verified_grant(
+    envelope: object,
+    *,
+    entitlement: object,
+    subject: str,
+    nonce: str,
+    now: float | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    paired, error = verify_community_entitlement(entitlement, subject=subject, nonce=nonce, now=now)
+    if paired is None:
+        return None, error
+    if (
+        not isinstance(envelope, dict)
+        or set(envelope) != {"type", "version", "kid", "payload", "signature"}
+        or type(envelope.get("version")) is not int
+        or envelope.get("kid") != entitlement.get("kid")
+    ):
+        return None, "Legacy Verified grant envelope is invalid."
+    for field, maximum in (("payload", 8192), ("signature", 1024)):
+        value = envelope.get(field)
+        if not isinstance(value, str) or not 1 <= len(value) <= maximum or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            return None, "Legacy Verified grant encoding is invalid."
+        try:
+            if b64url_encode(b64url_decode(value)) != value:
+                return None, "Legacy Verified grant encoding is not canonical."
+        except Exception:
+            return None, "Legacy Verified grant encoding is invalid."
+    payload, error = _signed_payload(
+        envelope,
+        expected_type="kfps.community.legacy-verified-grant",
+        expected_schema="kfps.community.legacy-verified.v1",
+    )
+    if payload is None:
+        return None, error
+    if set(payload) != {
+        "schema", "audience", "subject", "entitlement_id", "nonce", "issued_at", "expires_at",
+        "license_created_at", "eligibility_cutoff",
+    } or payload.get("audience") != "kfps-community-verified-v1":
+        return None, "Legacy Verified grant fields or audience are invalid."
+    if (
+        any(not isinstance(value, str) for value in payload.values())
+        or not 1 <= len(payload["subject"]) <= 64
+        or not re.fullmatch(r"[A-Za-z0-9_-]{22,86}", payload["nonce"])
+    ):
+        return None, "Legacy Verified grant claim types are invalid."
+    if any(payload[field] != paired[field] for field in ("subject", "entitlement_id", "nonce", "issued_at", "expires_at")):
+        return None, "Legacy Verified grant does not match the accompanying entitlement."
+    created = _canonical_utc_millis(payload["license_created_at"])
+    cutoff = _canonical_utc_millis(payload["eligibility_cutoff"])
+    issued = _iso_timestamp(paired["issued_at"])
+    if created is None or cutoff is None or issued is None or not created <= cutoff <= issued:
+        return None, "Legacy Verified grant eligibility dates are invalid."
+    return payload, ""

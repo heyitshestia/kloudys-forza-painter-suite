@@ -1895,7 +1895,8 @@ class FullLiveryPackageTests(unittest.TestCase):
                 inspection_model_entries(asset),
             )
 
-    def test_corrected_vehicle_assembly_uses_a_new_mesh_cache_revision(self):
+    def test_vehicle_preparation_uses_shared_studio_cache_and_preserves_identity(self):
+        from kfps_ui.experimental.full_livery import operations
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             paths = AppPaths(
@@ -1907,7 +1908,7 @@ class FullLiveryPackageTests(unittest.TestCase):
                 bundled_python=root / "python" / "python.exe",
             )
             package = root / "fixture.kfpslivery"
-            package.write_bytes(b"fixture")
+            manifest = build_package(package, car_id=1)
             asset = VehicleAsset(
                 car_id=1,
                 model_code="TEST_CAR",
@@ -1918,27 +1919,28 @@ class FullLiveryPackageTests(unittest.TestCase):
                 clip_entry="clip",
             )
             worker_paths = full_livery_job_paths(paths)
-            render_contract = {"root": str(worker_paths.render_cache / "fixture")}
+            adapter = MagicMock()
+            mesh = root / "studio-cache" / "mesh" / "vehicle.glb"
+            adapter.prepare_readonly.return_value = {"mesh_path": str(mesh), "readonly_descriptor": "shared-descriptor"}
             with (
-                patch.object(full_livery_jobs, "load_or_build_vehicle_asset_index", return_value={1: asset}),
-                patch.object(full_livery_jobs, "validated_derived_file", return_value={}),
-                patch.object(full_livery_jobs, "build_local_livery_atlases", return_value=render_contract),
+                patch("tools.livery.vehicle_assets.load_or_build_vehicle_asset_index", return_value={1: asset}),
+                patch.object(operations, "studio_module", return_value=adapter),
             ):
                 result = full_livery_jobs.prepare_mesh(
                     worker_paths,
                     {
                         "game_folder": str(root),
                         "car_id": 1,
-                        "package_id": "fixture",
+                        "package_id": manifest["package_id"],
                         "package_path": str(package),
                         "expected_model_code": "TEST_CAR",
                     },
                     threading.Event(),
                 )
-            self.assertEqual(
-                f"TEST_CAR-1234.local-chassis-v{full_livery_jobs.INSPECTION_MESH_CACHE_REVISION}.glb",
-                Path(result["mesh_path"]).name,
-            )
+            self.assertEqual(Path(result["mesh_path"]), mesh)
+            self.assertEqual(result["readonly_descriptor"], "shared-descriptor")
+            self.assertEqual(result["package_id"], manifest["package_id"])
+            self.assertEqual(adapter.prepare_readonly.call_args.args[2], asset)
 
     def test_full_livery_facade_has_no_in_process_future_executor(self):
         self.assertFalse(hasattr(FullLiveryService, "_future_result"))

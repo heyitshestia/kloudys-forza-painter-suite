@@ -15,11 +15,15 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, Qt
 from PySide6.QtGui import QGuiApplication
 
 from .app_paths import AppPaths
 from .community_catalog import normalize_artwork, versioned_asset_url
+from .community_access import (
+    POLICY_MODES, claim_request, claim_results, claim_selection,
+    contribution_status, policy_mode, upload_access, verified_capability,
+)
 from .community_client import CommunityApiClient, CommunityApiError, build_query
 from .community_credentials import CommunityCredentialStore
 from .community_tags import MAX_TAGS, SUGGESTED_TAGS, prepare_tags
@@ -38,6 +42,7 @@ ARTWORK_ROLES = [
     "revision", "downloads", "favorites", "favorited", "createdAt", "updatedAt", "publishedAt",
     "previewUrl", "thumbnailUrl", "downloadUrl", "contentSha256", "previewSha256", "thumbnailSha256", "creatorName", "creatorAvatar",
     "creatorBio", "creatorFollowers", "creatorFollowed",
+    "audience", "canViewMedia", "canDownload", "canInteract", "restrictionReason", "contribution", "canClaim",
 ]
 IGNORED_USER_ROLES = ["username", "avatarUrl", "ignoredAt"]
 
@@ -127,6 +132,7 @@ class CommunityService(QObject):
     supporterRepairRequested = Signal()
     _resultReady = Signal(str, object)
     _githubDeviceReady = Signal(object)
+    _policyObserved = Signal(object)
 
     def __init__(
         self, paths: AppPaths, desktop: DesktopService, log: LogService,
@@ -148,11 +154,29 @@ class CommunityService(QObject):
         self._token = self._credentials.load_token()
         self._github_client_id_override = os.environ.get("KFPS_COMMUNITY_GITHUB_CLIENT_ID", "").strip()[:128]
         self._client = CommunityApiClient(self._base_url, self._token)
+        self._access_lock = threading.RLock()
+        self._request_context = threading.local()
+        self._access_epoch = 0
+        self._policy_mode = "legacy_supporter"
+        self._policy_ready = False
+        self._verified = {}
+        self._policy_refresh_pending = False
+        self._missing_policy_epoch = -1
+        self._claims_view = False
+        self._claim_selection = {}
+        self._claim_results = []
+        self._claim_error = ""
+        self._claims_busy = False
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="community")
         self._futures: set[concurrent.futures.Future] = set()
         self._futures_lock = threading.Lock()
         self._resultReady.connect(self._apply_result)
         self._githubDeviceReady.connect(self._apply_github_device)
+        self._policyObserved.connect(self._on_policy_observed, Qt.ConnectionType.QueuedConnection)
+        self._policy_timer = QTimer(self)
+        self._policy_timer.setSingleShot(True)
+        self._policy_timer.setInterval(0)
+        self._policy_timer.timeout.connect(self.refreshAccount)
         self._filter_timer = QTimer(self)
         self._filter_timer.setSingleShot(True)
         self._filter_timer.setInterval(260)
@@ -194,8 +218,12 @@ class CommunityService(QObject):
         self._supporter_entitlement_pending = False
         self._supporter_request_after = 0.0
         self._supporter_request_subject = ""
+        self._supporter_request_marker = ""
         self._local_supporter_state = ""
         self._local_supporter_key_available = False
+        self._local_supporter_key_id = ""
+        self._migration_outcome_file = self._root / f"legacy-migration-{self._endpoint_key}.json"
+        self._migration_completed = self._load_migration_outcomes()
         self._supporter_clear_inflight = False
         self._supporter_clear_after = 0.0
         self._supporter_clear_required = False
@@ -284,9 +312,12 @@ class CommunityService(QObject):
     def sortOptions(self):
         return SORT_LABELS
 
-    @Property("QStringList", constant=True)
+    @Property("QStringList", notify=changed)
     def scopeOptions(self):
-        return SCOPE_LABELS
+        labels = list(SCOPE_LABELS)
+        if self.policyMode == "verified_v1":
+            labels[4] = "Verified"
+        return labels
 
     @Property(str, notify=changed)
     def searchQuery(self):
@@ -352,7 +383,86 @@ class CommunityService(QObject):
 
     @Property(bool, notify=changed)
     def selectedSupporterLocked(self):
-        return bool(self._selected.get("supporterOnly")) and not self.supporterAccess
+        return bool(self._selected.get("supporterOnly")) and not self._selected.get("canDownload", self.restrictedAccess)
+
+    @Property(str, notify=changed)
+    def policyMode(self):
+        return self._policy_mode
+
+    @Property(bool, notify=changed)
+    def policyReady(self):
+        return self._policy_ready and self._policy_mode in POLICY_MODES
+
+    @Property(bool, notify=changed)
+    def verifiedAccess(self):
+        return bool(self.authenticated and self.policyReady and self.policyMode == "verified_v1" and self._verified.get("active"))
+
+    @Property(int, notify=changed)
+    def verifiedCount(self):
+        return int(self._verified.get("eligible_vinyl_count", 0))
+
+    @Property(int, constant=True)
+    def verifiedRequired(self):
+        return 10
+
+    @Property(str, notify=changed)
+    def verifiedReason(self):
+        return str(self._verified.get("reason") or "unavailable")
+
+    @Property(int, constant=True)
+    def requiredAccountAgeDays(self):
+        return 14
+
+    @Property(str, notify=changed)
+    def connectedAt(self):
+        return str(self._verified.get("connected_at") or "")
+
+    @Property(str, notify=changed)
+    def eligibleAfter(self):
+        return str(self._verified.get("eligible_after") or "")
+
+    @Property(bool, notify=changed)
+    def grandfatheredVerified(self):
+        return bool(self.verifiedAccess and self._verified.get("grandfathered_at")
+                    and self.verifiedReason == "grandfathered_supporter")
+
+    @Property(bool, notify=changed)
+    def existingSupporterVerificationAvailable(self):
+        return bool(self.authenticated and self.policyReady and self._local_supporter_key_available
+                    and not self._verified.get("grandfathered_at"))
+
+    @Property(bool, notify=changed)
+    def restrictedAccess(self):
+        return self.policyReady and (self.verifiedAccess if self.policyMode == "verified_v1" else self.supporterAccess)
+
+    @Property(bool, notify=changed)
+    def claimsEnabled(self):
+        return bool(self.authenticated and self.policyReady and self.policyMode == "verified_v1"
+                    and self.verifiedReason not in {"account_suspended", "unsupported_identity", "unavailable"})
+
+    @Property(bool, notify=changed)
+    def claimsView(self):
+        return self._claims_view
+
+    @Property("QStringList", notify=changed)
+    def claimSelection(self):
+        return list(self._claim_selection)
+
+    @Property("QVariantList", notify=changed)
+    def claimResults(self):
+        return list(self._claim_results)
+
+    @Property("QVariantList", notify=changed)
+    def claimEntries(self):
+        return list(self._claim_selection.values())
+
+    @Property(bool, notify=changed)
+    def claimsBusy(self):
+        return self._claims_busy
+
+    @Property(str, notify=changed)
+    def claimError(self):
+        return self._claim_error
 
     @Property(bool, notify=changed)
     def canSelectPrevious(self):
@@ -526,13 +636,163 @@ class CommunityService(QObject):
     def downloadedPath(self):
         return self._downloaded_path
 
+    def accessSnapshot(self):
+        with self._access_lock:
+            return self._access_epoch, self._token, self.restrictedAccess
+
+    def assertAccessSnapshot(self, snapshot):
+        if snapshot != self.accessSnapshot():
+            raise CommunityApiError(409, "access_changed", "Community access changed. Refresh before trying again.")
+
+    def _new_client(self, token=None, test_auth_token=""):
+        snapshot = getattr(self._request_context, "snapshot", None) or self.accessSnapshot()
+        captured_token = snapshot[1] if token is None or hasattr(self._request_context, "snapshot") else token
+        client = CommunityApiClient(self._base_url, captured_token)
+        client.test_auth_token = test_auth_token
+        client.access_snapshot = snapshot
+        client.policy_header = None
+
+        def observe(header):
+            self.assertAccessSnapshot(snapshot)
+            client.policy_header = header
+            with self._access_lock:
+                unexpected = header is not None and ((header not in POLICY_MODES and self._policy_mode != "unsupported") or (
+                    self._policy_ready and header != self._policy_mode))
+                missing = header is None and self._policy_mode == "verified_v1" and self._missing_policy_epoch != snapshot[0]
+                if unexpected:
+                    self._policy_ready = False
+                    self._verified = {}
+                    self._access_epoch += 1
+                    if header not in POLICY_MODES:
+                        self._policy_mode = "unsupported"
+                if missing:
+                    self._missing_policy_epoch = snapshot[0]
+            if unexpected or missing:
+                self._policyObserved.emit({"epoch": self._access_epoch, "invalidate": unexpected})
+            if unexpected:
+                raise CommunityApiError(409, "access_changed", "Community access changed. Refresh before trying again.")
+
+        client._policy_observer = observe
+        return client
+
+    def _run_captured(self, function, snapshot):
+        self.assertAccessSnapshot(snapshot)
+        self._request_context.snapshot = snapshot
+        try:
+            return function()
+        finally:
+            del self._request_context.snapshot
+
+    def _clear_access_media(self):
+        self._supporter_asset_memory.clear()
+        self._private_preview_inflight.clear()
+        self._claim_selection.clear()
+        if not self.claimsEnabled:
+            self._claims_view = False
+        for row in self._rows:
+            row.update(canViewMedia=False, canDownload=False, canInteract=False)
+            if row.get("supporterOnly"):
+                row.update(previewUrl="", thumbnailUrl="")
+        if self._selected:
+            self._selected.update(canViewMedia=False, canDownload=False, canInteract=False)
+            if self._selected.get("supporterOnly"):
+                self._selected.update(previewUrl="", thumbnailUrl="")
+        self._artwork_model.replace(self._rows)
+        self.catalogInvalidated.emit()
+
+    @Slot(object)
+    def _on_policy_observed(self, event):
+        if self._closed or event.get("epoch") != self._access_epoch:
+            return
+        if event.get("invalidate"):
+            self._clear_access_media()
+        self.changed.emit()
+        if not self._policy_refresh_pending and not self._policy_timer.isActive():
+            self._policy_timer.start()
+
+    def _apply_access(self, config, session, header=None):
+        mode = policy_mode(config)
+        if session and policy_mode(session) != mode:
+            mode = "unsupported"
+        if header is not None and header != mode:
+            mode = "unsupported"
+        capability = verified_capability(session, mode)
+        if self._token and mode == "verified_v1" and not capability:
+            mode = "unsupported"
+        previous = (self._policy_mode, self._policy_ready, bool(self._verified.get("active")))
+        with self._access_lock:
+            self._policy_mode = mode
+            self._policy_ready = mode in POLICY_MODES
+            self._verified = capability if mode in POLICY_MODES else {}
+            current = (mode, self._policy_ready, bool(self._verified.get("active")))
+            if previous != current:
+                self._access_epoch += 1
+        if previous != current:
+            self._clear_access_media()
+
+    @Slot(bool)
+    def setClaimsView(self, enabled):
+        self._claims_view = bool(enabled and self.claimsEnabled)
+        self._claim_selection.clear()
+        if self._claims_view:
+            self._scope = "mine"
+        self._page = 1
+        self.changed.emit()
+        self.refresh()
+
+    def toggleClaimRecord(self, record):
+        if not self.claimsEnabled or self._claims_busy:
+            return
+        artwork_id = str(record.get("id") or "")
+        if artwork_id in self._claim_selection:
+            del self._claim_selection[artwork_id]
+        elif (len(self._claim_selection) < 10 and record.get("kind", "vinyl") == "vinyl"
+              and record.get("classification") == "handmade"
+              and contribution_status(record.get("contribution")).get("can_claim")):
+            try:
+                self._claim_selection[artwork_id] = {**claim_selection(record), "title": str(record.get("title") or "")}
+            except CommunityApiError as exc:
+                self._error = exc.message
+        self.changed.emit()
+
+    @Slot()
+    def toggleSelectedClaim(self):
+        row = self._selected
+        if self.selectedOwned:
+            self.toggleClaimRecord({"id": row.get("id"), "title": row.get("title"), "current_revision": row.get("revision"),
+                                   "content_sha256": row.get("contentSha256"), "contribution": row.get("contribution"), "classification": row.get("classification")})
+
+    @Slot(bool)
+    def submitClaims(self, confirmed):
+        if not confirmed or not self.claimsEnabled or self._claims_busy:
+            return
+        selections = list(self._claim_selection.values())
+        try:
+            payload = claim_request(selections)
+        except CommunityApiError as exc:
+            self._error = exc.message
+            self._claim_error = exc.code
+            self.changed.emit()
+            return
+        self._claims_busy = True
+        self._claim_results = []
+        self._claim_error = ""
+
+        def work():
+            result = self._new_client().json("profile/vinyl-claims", "POST", payload, authenticated=True, maximum=64 * 1024)
+            return {"results": claim_results(result, selections), "selections": selections}
+
+        self._submit("claims", work)
+
     def _submit(self, operation: str, function) -> None:
         if self._closed:
             return
         self._busy_count += 1
         self._error = ""
         self.changed.emit()
-        future = self._executor.submit(function)
+        snapshot = self.accessSnapshot()
+        migration_marker = self._supporter_request_marker if operation == "supporter_verify" else ""
+        future = self._executor.submit(self._run_captured, function, snapshot)
         self._track_future(future)
 
         def completed(result_future):
@@ -544,6 +804,9 @@ class CommunityService(QObject):
                 envelope = {"ok": False, "status": exc.status, "code": exc.code, "message": exc.message}
             except Exception as exc:
                 envelope = {"ok": False, "status": 0, "code": "local_error", "message": str(exc) or "The operation failed."}
+            envelope["snapshot"] = snapshot
+            if operation == "supporter_verify":
+                envelope["migration_marker"] = migration_marker
             self._resultReady.emit(operation, envelope)
 
         future.add_done_callback(completed)
@@ -551,7 +814,8 @@ class CommunityService(QObject):
     def _submit_background(self, operation: str, function) -> None:
         if self._closed:
             return
-        future = self._executor.submit(function)
+        snapshot = self.accessSnapshot()
+        future = self._executor.submit(self._run_captured, function, snapshot)
         self._track_future(future)
 
         def completed(result_future):
@@ -563,6 +827,7 @@ class CommunityService(QObject):
                 envelope = {"ok": False, "status": exc.status, "code": exc.code, "message": exc.message}
             except Exception as exc:
                 envelope = {"ok": False, "status": 0, "code": "local_error", "message": str(exc) or "The operation failed."}
+            envelope["snapshot"] = snapshot
             self._resultReady.emit(operation, envelope)
 
         future.add_done_callback(completed)
@@ -591,7 +856,7 @@ class CommunityService(QObject):
         self._submit("bootstrap", self._bootstrap)
 
     def _bootstrap(self):
-        client = CommunityApiClient(self._base_url, self._token)
+        client = self._new_client()
         health = client.json("health")
         config = client.json("config")
         session = {}
@@ -608,7 +873,8 @@ class CommunityService(QObject):
         # Featured is public metadata, including thumbnails for curated supporter
         # artwork. Full supporter assets and downloads remain entitlement-protected.
         catalog = client.json(self._catalog_path("featured"), authenticated=bool(client.token))
-        return {"health": health, "config": config, "session": session, "expired": expired, "catalog": catalog}
+        return {"health": health, "config": config, "session": session, "expired": expired,
+                "catalog": catalog, "policy_header": client.policy_header}
 
     def _catalog_path(self, selected_scope=None):
         selected_scope = selected_scope or self._scope
@@ -621,6 +887,8 @@ class CommunityService(QObject):
             })
         classification = selected_scope if selected_scope in {"handmade", "toolmade"} else ""
         scope = "browse" if classification else selected_scope
+        if scope == "supporters" and self.policyMode == "verified_v1":
+            scope = "verified"
         return build_query("artworks", {
             "search": self._search,
             "category": self._category,
@@ -631,6 +899,9 @@ class CommunityService(QObject):
             "creator": self._creator_filter,
             "page": self._page,
             "limit": 24,
+            "view": "gallery" if self._claims_view and scope == "mine" else "",
+            "kind": "vinyl" if self._claims_view and scope == "mine" else "",
+            "contribution_view": "claims" if self._claims_view and scope == "mine" else "",
         })
 
     def _clear_catalog(self):
@@ -653,7 +924,7 @@ class CommunityService(QObject):
             self._apply_demo_catalog()
             self.changed.emit()
             return
-        if self._scope == "supporters" and not self.supporterAccess:
+        if self._scope == "supporters" and self.policyMode == "legacy_supporter" and not self.supporterAccess:
             self._clear_catalog()
             self._status = "Supporter vinyl sharing is available with verified supporter access."
             self.ensureSupporterEntitlement()
@@ -664,7 +935,7 @@ class CommunityService(QObject):
         path = self._catalog_path()
         token = self._token
         self._status = "Refreshing community artwork..."
-        self._submit(f"catalog:{generation}", lambda: CommunityApiClient(self._base_url, token).json(path, authenticated=bool(token)))
+        self._submit(f"catalog:{generation}", lambda: self._new_client(token).json(path, authenticated=bool(token)))
 
     @Slot(str)
     def setSearchQuery(self, value):
@@ -721,11 +992,14 @@ class CommunityService(QObject):
         if SCOPE_VALUES[index] == self._scope:
             return
         self._scope = SCOPE_VALUES[index]
+        if self._scope != "mine":
+            self._claims_view = False
+            self._claim_selection.clear()
         self._creator_filter = ""
         self._page = 1
         self._selection_touched = False
         self.changed.emit()
-        if self._scope == "supporters" and not self.supporterAccess:
+        if self._scope == "supporters" and self.policyMode == "legacy_supporter" and not self.supporterAccess:
             self._supporter_request_after = 0.0
         self.refresh()
 
@@ -826,8 +1100,7 @@ class CommunityService(QObject):
         self._submit("auth", lambda: self._github_auth_flow(client_id))
 
     def _auth_test(self, installation):
-        client = CommunityApiClient(
-            self._base_url,
+        client = self._new_client(
             test_auth_token=os.environ.get("KFPS_COMMUNITY_TEST_AUTH_TOKEN", "").strip(),
         )
         result = client.json("auth/test", "POST", {
@@ -871,7 +1144,7 @@ class CommunityService(QObject):
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             })
             if token_result.get("access_token"):
-                client = CommunityApiClient(self._base_url)
+                client = self._new_client("")
                 result = client.json("auth/github", "POST", {"access_token": token_result["access_token"]})
                 client.token = str(result.get("token") or "")
                 result["session"] = client.json("session", authenticated=True)
@@ -931,7 +1204,7 @@ class CommunityService(QObject):
             self._error = "Confirm the exact username, including capitalization, before choosing it permanently."
             self.changed.emit()
             return
-        self._submit("choose_username", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("choose_username", lambda: self._new_client().json(
             "profile/username", "POST",
             {"username": username, "confirm_username": confirmed}, authenticated=True
         ))
@@ -940,21 +1213,66 @@ class CommunityService(QObject):
     def updateProfile(self, bio, website):
         if not self.authenticated:
             return
-        self._submit("update_profile", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("update_profile", lambda: self._new_client().json(
             "profile", "PATCH", {"bio": str(bio or ""), "website_url": str(website or "")}, authenticated=True
         ))
 
     @Slot()
     def refreshAccount(self):
-        if self.authenticated and not self.demo:
-            self._submit("session_refresh", lambda: CommunityApiClient(self._base_url, self._token).json(
-                "session", authenticated=True
-            ))
+        if self.demo or self._closed or self._policy_refresh_pending:
+            return
+        self._policy_refresh_pending = True
+
+        def work():
+            client = self._new_client()
+            config = client.json("config")
+            session = client.json("session", authenticated=True) if client.token else {}
+            return {"config": config, "session": session, "policy_header": client.policy_header}
+
+        self._submit("session_refresh", work)
+
+    def _load_migration_outcomes(self):
+        # Retry suppression only, never an access grant. Store opaque pair hashes.
+        try:
+            if self._migration_outcome_file.stat().st_size > 8192:
+                return []
+            payload = json.loads(self._migration_outcome_file.read_text(encoding="utf-8"))
+            values = payload.get("completed") if isinstance(payload, dict) and payload.get("version") == 1 else None
+            if not isinstance(values, list) or len(values) > 64:
+                return []
+            return list(dict.fromkeys(value for value in values if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value)))
+        except (OSError, ValueError, UnicodeError):
+            return []
+
+    def _migration_marker(self):
+        subject = str(self._session_user.get("id") or "")
+        if not subject:
+            return ""
+        return hashlib.sha256((subject + "\n" + self._local_supporter_key_id).encode("utf-8")).hexdigest()
+
+    def _save_migration_outcomes(self):
+        if not self._local_supporter_key_id:
+            return
+        try:
+            self._atomic_write(self._migration_outcome_file, json.dumps({
+                "version": 1, "completed": self._migration_completed[-64:],
+            }, separators=(",", ":")).encode("utf-8"))
+        except OSError:
+            self.log.append("Could not save the existing-holder migration retry preference.", "warning")
+
+    def _remember_migration_outcome(self):
+        if self.policyMode != "verified_v1":
+            return
+        marker = self._supporter_request_marker or self._migration_marker()
+        if marker and marker not in self._migration_completed:
+            self._migration_completed = [*self._migration_completed[-63:], marker]
+            self._save_migration_outcomes()
 
     @Slot()
     def ensureSupporterEntitlement(self):
         if (
-            self.demo or not self.authenticated or self.usernameRequired
+            self._closed or self.demo or not self.policyReady or not self.authenticated or self.usernameRequired
+            or (self.policyMode == "verified_v1" and (self._verified.get("grandfathered_at") or self._local_supporter_state != "active"))
             or (self._local_supporter_state and self._local_supporter_state != "active")
         ):
             return
@@ -965,30 +1283,57 @@ class CommunityService(QObject):
         subject = str(self._session_user.get("id") or "").strip()
         if not subject:
             return
+        marker = self._migration_marker()
+        if self.policyMode == "verified_v1" and marker in self._migration_completed:
+            return
         now = time.time()
         verified_until = self._iso_timestamp(self._supporter.get("verified_until"))
-        if self.supporterAccess and verified_until > now + 8 * 60:
+        if self.supporterAccess and verified_until > now + 8 * 60 and (
+                self.policyMode == "legacy_supporter" or self._verified.get("grandfathered_at")):
             return
         if self._supporter_entitlement_pending or now < self._supporter_request_after:
             return
         self._supporter_entitlement_pending = True
         self._supporter_request_subject = subject
+        self._supporter_request_marker = marker
         self._supporter_request_after = now + 5 * 60
         self._supporter_status = "Verifying supporter Community access..."
+        self._status = self._supporter_status
         self.changed.emit()
         self.supporterEntitlementRequested.emit(subject)
 
     @Slot()
     def refreshSupporterEntitlement(self):
+        if self._supporter_entitlement_pending:
+            return
+        marker = self._migration_marker()
+        if marker in self._migration_completed:
+            self._migration_completed.remove(marker)
+            self._save_migration_outcomes()
         self._supporter_request_after = 0.0
+        self._error = ""
         self.ensureSupporterEntitlement()
+
+    @Slot()
+    def verifyExistingSupporter(self):
+        if not self.existingSupporterVerificationAvailable:
+            return
+        if self._local_supporter_state != "active":
+            self.repairSupporterAccess()
+        else:
+            self.refreshSupporterEntitlement()
 
     @Slot(object)
     def applySupporterEntitlement(self, result):
-        if not isinstance(result, dict):
+        if not isinstance(result, dict) or not self.policyReady:
             return
         subject = str(result.get("subject") or "")
         if not subject or subject != str(self._session_user.get("id") or ""):
+            return
+        if self._supporter_request_marker and self._supporter_request_marker != self._migration_marker():
+            self._supporter_entitlement_pending = False
+            self._supporter_request_marker = ""
+            self.ensureSupporterEntitlement()
             return
         if self._local_supporter_state and self._local_supporter_state != "active":
             self._supporter_entitlement_pending = False
@@ -1003,20 +1348,37 @@ class CommunityService(QObject):
         self._supporter_entitlement_pending = False
         self._supporter_request_subject = ""
         if not result.get("ok"):
+            if result.get("code") in {"not_eligible", "community_account_already_bound"}:
+                self._remember_migration_outcome()
             self._supporter_status = str(
-                result.get("message") or "An active supporter registration was not found on this device."
+                result.get("message") or "The existing theme key could not be verified for Community access."
             )
+            self._status = self._supporter_status
             self.changed.emit()
             return
         entitlement = result.get("entitlement")
         if not isinstance(entitlement, dict):
             self._supporter_status = "Supporter Community verification returned an invalid response."
+            self._status = self._supporter_status
+            self.changed.emit()
+            return
+        if self.policyMode == "verified_v1" and not isinstance(result.get("legacy_verified_grant"), dict):
+            self._remember_migration_outcome()
+            self._supporter_status = "Existing key checked; no permanent Verified grant is available. You can retry manually."
+            self._status = self._supporter_status
             self.changed.emit()
             return
         token = self._token
+        payload = {"entitlement": entitlement}
+        # The issuer service validates this optional signed object. Forward it
+        # unchanged only to a worker advertising the understood new contract.
+        if (isinstance(result.get("legacy_verified_grant"), dict)
+                and self.policyReady and "access_policy" in self._config):
+            payload["legacy_verified_grant"] = result["legacy_verified_grant"]
         self._supporter_status = "Confirming supporter Community access..."
-        self._submit("supporter_verify", lambda: CommunityApiClient(self._base_url, token).json(
-            "supporter/verify", "POST", {"entitlement": entitlement}, authenticated=True
+        self._supporter_entitlement_pending = True
+        self._submit("supporter_verify", lambda: self._new_client(token).json(
+            "supporter/verify", "POST", payload, authenticated=True
         ))
 
     @staticmethod
@@ -1025,13 +1387,16 @@ class CommunityService(QObject):
 
     @Slot(str)
     @Slot(str, bool)
-    def setLocalSupporterState(self, state, key_available=False):
+    @Slot(str, bool, str)
+    def setLocalSupporterState(self, state, key_available=False, key_id=""):
         state = str(state or "").strip()
         previous = self._local_supporter_state
+        previous_key = self._local_supporter_key_id
+        self._local_supporter_key_id = str(key_id) if re.fullmatch(r"[a-f0-9]{64}", str(key_id)) else ""
         self._local_supporter_state = state
         self._local_supporter_key_available = bool(key_available)
         if state == "active":
-            if previous != state:
+            if previous != state or previous_key != self._local_supporter_key_id:
                 self._supporter_request_after = 0.0
             self.ensureSupporterEntitlement()
         elif self._hard_inactive_supporter_state(state):
@@ -1041,17 +1406,20 @@ class CommunityService(QObject):
     @Slot()
     def repairSupporterAccess(self):
         if self._local_supporter_key_available:
-            self._supporter_status = "Checking the local supporter registration..."
+            self._supporter_status = "Check the existing theme key in Settings before retrying Community verification."
             self.changed.emit()
             self.supporterRepairRequested.emit()
 
     def _clear_supporter_access(self):
+        had_access = bool(self._supporter.get("active"))
         if self._supporter.get("active") or self._supporter.get("verified_until"):
             self._supporter_clear_required = True
         self._supporter = {"active": False, "verified_until": ""}
+        if had_access and self.policyMode == "legacy_supporter":
+            self._clear_access_media()
         self._supporter_entitlement_pending = False
         self._supporter_status = "Supporter Community access is not active on this device."
-        if self._scope == "supporters":
+        if self._scope == "supporters" and self.policyMode == "legacy_supporter":
             self._clear_catalog()
             self._status = "Supporter vinyl sharing is available with verified supporter access."
         now = time.time()
@@ -1063,13 +1431,18 @@ class CommunityService(QObject):
         self._supporter_clear_inflight = True
         self._supporter_clear_after = now + 60
         token = self._token
-        self._submit("supporter_clear", lambda: CommunityApiClient(self._base_url, token).json(
+        self._submit("supporter_clear", lambda: self._new_client(token).json(
             "supporter/verify", "DELETE", authenticated=True
         ))
 
     @Slot()
     def _supporter_tick(self):
+        if self.policyMode != "legacy_supporter":
+            self.refreshAccount()
+            return
         access = self.supporterAccess
+        if not access and any(row.get("supporterOnly") and row.get("canViewMedia") for row in self._rows):
+            self._clear_access_media()
         if self._scope == "supporters" and not access:
             self._supporter_status = "Supporter Community access expired and needs to be verified again."
             self._clear_catalog()
@@ -1088,9 +1461,16 @@ class CommunityService(QObject):
         self._session_user = {}
         self._session_stats = {}
         self._supporter = {}
+        with self._access_lock:
+            self._access_epoch += 1
+            self._verified = {}
+        self._claim_results = []
+        self._claim_error = ""
+        self._clear_access_media()
         self._ignored_user_model.replace([])
         self._supporter_entitlement_pending = False
         self._supporter_request_subject = ""
+        self._supporter_request_marker = ""
         self._supporter_clear_inflight = False
         self._supporter_clear_required = False
         self._supporter_status = "Connect a supporter registration to unlock this catalog."
@@ -1139,9 +1519,10 @@ class CommunityService(QObject):
         )
 
     @Slot(str, str, str, str, str, str, bool, bool, bool)
+    @Slot(str, str, str, str, str, str, bool, bool, bool, str)
     def submitUpload(
         self, title, description, category, tags_text, classification, license,
-        supporter_only, confirm_rights, confirm_compatibility,
+        supporter_only, confirm_rights, confirm_compatibility, authorship="",
     ):
         inspection = self._upload_inspection
         if not inspection:
@@ -1152,24 +1533,28 @@ class CommunityService(QObject):
             self._error = "Sign in and choose your permanent username before uploading."
             self.changed.emit()
             return
-        if supporter_only and not self.supporterAccess:
-            self._error = "Verify an active supporter registration before publishing supporter artwork."
-            self.refreshSupporterEntitlement()
+        try:
+            access = upload_access(self.policyMode if self.policyReady else "unsupported", self.restrictedAccess,
+                                   supporter_only, "vinyl", authorship)
+        except CommunityApiError as exc:
+            self._error = exc.message
             self.changed.emit()
             return
         payload = self._upload_payload(
             title, description, category, tags_text, classification, license,
             supporter_only, confirm_rights, confirm_compatibility,
         )
+        payload.update(access)
         self._upload_status = "Uploading for server validation and publication..."
-        self._submit("upload", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("upload", lambda: self._new_client().json(
             "artworks", "POST", payload, authenticated=True
         ))
 
     @Slot(str, str, str, str, str, str, bool, bool, bool, str)
+    @Slot(str, str, str, str, str, str, bool, bool, bool, str, str)
     def submitRevision(
         self, title, description, category, tags_text, classification, license,
-        supporter_only, confirm_rights, confirm_compatibility, change_note,
+        supporter_only, confirm_rights, confirm_compatibility, change_note, authorship="",
     ):
         if not self._upload_inspection:
             self._error = "Choose and validate the replacement JSON first."
@@ -1179,14 +1564,24 @@ class CommunityService(QObject):
             self._error = "Select one of your own uploads before submitting a revision."
             self.changed.emit()
             return
+        try:
+            if bool(supporter_only) != bool(self._selected.get("supporterOnly")):
+                raise CommunityApiError(409, "audience_immutable", "A revision must keep the existing audience.")
+            access = upload_access(self.policyMode if self.policyReady else "unsupported", self.restrictedAccess,
+                                   supporter_only, "vinyl", authorship)
+        except CommunityApiError as exc:
+            self._error = exc.message
+            self.changed.emit()
+            return
         payload = self._upload_payload(
             title, description, category, tags_text, classification, license,
             supporter_only, confirm_rights, confirm_compatibility,
         )
         payload["change_note"] = str(change_note or "").strip()
+        payload.update(access)
         artwork_id = urllib.parse.quote(str(self._selected.get("id") or ""))
         self._upload_status = "Uploading the revision for server validation and publication..."
-        self._submit("revision", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("revision", lambda: self._new_client().json(
             f"artworks/{artwork_id}/revisions", "POST", payload, authenticated=True
         ))
 
@@ -1223,7 +1618,7 @@ class CommunityService(QObject):
         payload = {
             "tags": [item.strip() for item in str(tags_text or "").split(",") if item.strip()],
         }
-        self._submit("metadata", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("metadata", lambda: self._new_client().json(
             f"artworks/{artwork_id}", "PATCH", payload, authenticated=True
         ))
 
@@ -1233,9 +1628,11 @@ class CommunityService(QObject):
             self._error = "Sign in to save community favorites."
             self.changed.emit()
             return
+        if not self._selected.get("canInteract", False):
+            return
         artwork_id = str(self._selected["id"])
         favorite = not bool(self._selected.get("favorited"))
-        self._submit("favorite", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("favorite", lambda: self._new_client().json(
             f"artworks/{urllib.parse.quote(artwork_id)}/favorite", "POST", {"favorite": favorite}, authenticated=True
         ))
 
@@ -1247,7 +1644,7 @@ class CommunityService(QObject):
             self.changed.emit()
             return
         followed = bool(self._selected.get("creatorFollowed") or self._profile.get("followed"))
-        self._submit("follow", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("follow", lambda: self._new_client().json(
             f"creators/{urllib.parse.quote(creator)}/follow", "POST", {"follow": not followed}, authenticated=True
         ))
 
@@ -1258,7 +1655,7 @@ class CommunityService(QObject):
             self.changed.emit()
             return
         token = self._token
-        self._submit("ignored_users", lambda: CommunityApiClient(self._base_url, token).json(
+        self._submit("ignored_users", lambda: self._new_client(token).json(
             "profile/ignored", authenticated=True
         ))
 
@@ -1269,7 +1666,7 @@ class CommunityService(QObject):
             self._error = "Sign in and choose a creator before changing ignore status."
             self.changed.emit()
             return
-        self._submit("ignore", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("ignore", lambda: self._new_client().json(
             f"creators/{urllib.parse.quote(username)}/ignore", "POST",
             {"ignored": bool(ignored)}, authenticated=True,
         ))
@@ -1280,7 +1677,7 @@ class CommunityService(QObject):
         if not username:
             return
         token = self._token
-        self._submit("creator", lambda: CommunityApiClient(self._base_url, token).json(
+        self._submit("creator", lambda: self._new_client(token).json(
             f"creators/{urllib.parse.quote(username)}", authenticated=bool(token)
         ))
 
@@ -1290,8 +1687,10 @@ class CommunityService(QObject):
             self._error = "Sign in before reporting community content."
             self.changed.emit()
             return
+        if not self._selected.get("canInteract", False):
+            return
         artwork_id = str(self._selected["id"])
-        self._submit("report", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("report", lambda: self._new_client().json(
             f"artworks/{urllib.parse.quote(artwork_id)}/report", "POST",
             {"reason": str(reason or "other"), "details": str(details or "")}, authenticated=True
         ))
@@ -1301,7 +1700,7 @@ class CommunityService(QObject):
         if not self.hasSelection or not self.authenticated:
             return
         artwork_id = str(self._selected["id"])
-        self._submit("remove", lambda: CommunityApiClient(self._base_url, self._token).json(
+        self._submit("remove", lambda: self._new_client().json(
             f"artworks/{urllib.parse.quote(artwork_id)}", "DELETE", authenticated=True
         ))
 
@@ -1309,12 +1708,12 @@ class CommunityService(QObject):
     def downloadSelected(self):
         if not self.hasSelection:
             return
-        if self.selectedSupporterLocked:
-            self._error = "Verified supporter access is required to download this artwork."
-            self.changed.emit()
-            return
         if not self.authenticated:
             self._error = "Sign in before downloading community artwork."
+            self.changed.emit()
+            return
+        if not self.policyReady or not self._selected.get("canDownload", False):
+            self._error = "Your account cannot download this artwork under the current server policy."
             self.changed.emit()
             return
         selected = dict(self._selected)
@@ -1322,10 +1721,11 @@ class CommunityService(QObject):
         self._status = "Downloading and validating the selected community JSON..."
         self._submit("download", lambda: self._download_artwork(selected, token))
 
-    def _download_artwork(self, selected, token):
-        client = CommunityApiClient(self._base_url, token)
+    def _download_artwork(self, selected, token, client=None):
+        client = client or self._new_client(token)
         raw, _headers = client.binary(str(selected.get("downloadUrl") or ""), authenticated=True)
         validate_download(raw, str(selected.get("contentSha256") or ""))
+        self.assertAccessSnapshot(client.access_snapshot)
         creator = community_file_part(selected.get("creatorName"), "Unknown")
         title = community_file_part(selected.get("title"), "Community Artwork")
         folder = self.paths.library_root / "Community" / creator / title
@@ -1383,23 +1783,26 @@ class CommunityService(QObject):
 
     def sessionClient(self):
         """Capture credentials before dispatching a gallery background operation."""
-        return CommunityApiClient(self._base_url, self._token)
+        return self._new_client()
 
     def galleryConfiguration(self):
         return dict(self._config)
 
     def downloadGalleryVinyl(self, record, client):
-        return self._download_artwork(normalize_artwork(record, client.url), client.token)
+        return self._download_artwork(normalize_artwork(record, client.url), client.token, client)
 
     def acceptGalleryDownload(self, result):
         self._apply_result("download", {"ok": True, "value": result})
 
     def _schedule_private_previews(self):
-        if not self._token:
-            return
         for row in self._rows:
+            if row.get("status") == "published":
+                self._schedule_public_asset(row, "thumbnail")
+                continue
+            if not self._token:
+                continue
             if row.get("supporterOnly"):
-                if not self.supporterAccess:
+                if not row.get("canViewMedia", False):
                     continue
                 artwork_id = str(row.get("id") or "")
                 digest = str(row.get("thumbnailSha256") or "")
@@ -1419,7 +1822,7 @@ class CommunityService(QObject):
                         self._fetch_supporter_asset(artwork_id, digest, asset_url, token, "thumbnail"),
                 )
                 continue
-            if row.get("status") == "published" or not row.get("previewUrl"):
+            if not row.get("canViewMedia") or not row.get("_previewAssetUrl"):
                 continue
             artwork_id = str(row.get("id") or "")
             digest = str(row.get("previewSha256") or "")
@@ -1436,7 +1839,7 @@ class CommunityService(QObject):
             if key in self._private_preview_inflight:
                 continue
             self._private_preview_inflight.add(key)
-            preview_url = str(row.get("previewUrl") or "")
+            preview_url = str(row.get("_previewAssetUrl") or "")
             token = self._token
             self._submit_background(
                 f"private_preview:{key}",
@@ -1445,8 +1848,29 @@ class CommunityService(QObject):
             )
         self._schedule_selected_supporter_preview()
 
+    def _schedule_public_asset(self, row, kind):
+        digest = str(row.get("thumbnailSha256" if kind == "thumbnail" else "previewSha256") or "")
+        asset_url = str(row.get("_thumbnailAssetUrl" if kind == "thumbnail" else "_previewAssetUrl") or "")
+        if not asset_url:
+            return
+        artwork_id = str(row.get("id") or "")
+        memory_key = f"public:{kind}:{digest or artwork_id}"
+        if memory_key in self._supporter_asset_memory:
+            self._set_row_memory_asset(artwork_id, digest, kind, self._supporter_asset_memory[memory_key], public=True)
+            return
+        operation = f"public_{kind}:{artwork_id}:{digest}"
+        if operation in self._private_preview_inflight:
+            return
+        self._private_preview_inflight.add(operation)
+        self._submit_background(operation, lambda: self._fetch_supporter_asset(
+            artwork_id, digest, asset_url, "", kind, public=True))
+
     def _schedule_selected_supporter_preview(self):
-        if not self._token or not self.supporterAccess or not self._selected.get("supporterOnly"):
+        if (self._selected.get("status") == "published" and not self._selected.get("supporterOnly")
+                and self._selected.get("canViewMedia")):
+            self._schedule_public_asset(self._selected, "preview")
+            return
+        if not self._token or not self._selected.get("canViewMedia", False) or not self._selected.get("supporterOnly"):
             return
         artwork_id = str(self._selected.get("id") or "")
         digest = str(self._selected.get("previewSha256") or "")
@@ -1465,20 +1889,20 @@ class CommunityService(QObject):
             lambda: self._fetch_supporter_asset(artwork_id, digest, asset_url, token, "preview"),
         )
 
-    def _fetch_supporter_asset(self, artwork_id, digest, asset_url, token, kind):
+    def _fetch_supporter_asset(self, artwork_id, digest, asset_url, token, kind, public=False):
         maximum = 2 * 1024 * 1024 if kind == "thumbnail" else 8 * 1024 * 1024
-        raw, _headers = CommunityApiClient(self._base_url, token).binary(
-            asset_url, authenticated=True, maximum=maximum,
+        raw, _headers = self._new_client(token).binary(
+            asset_url, authenticated=not public, maximum=maximum,
         )
         if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
             raise CommunityApiError(502, "invalid_preview", "The supporter artwork preview is not a PNG.")
         if digest and hashlib.sha256(raw).hexdigest() != digest:
             raise CommunityApiError(502, "preview_checksum_mismatch", "The supporter artwork preview checksum does not match.")
         data_url = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
-        return {"id": artwork_id, "digest": digest, "kind": kind, "data_url": data_url}
+        return {"id": artwork_id, "digest": digest, "kind": kind, "data_url": data_url, "public": public}
 
-    def _set_row_memory_asset(self, artwork_id, digest, kind, data_url):
-        memory_key = f"{kind}:{digest or artwork_id}"
+    def _set_row_memory_asset(self, artwork_id, digest, kind, data_url, public=False):
+        memory_key = f"{'public:' if public else ''}{kind}:{digest or artwork_id}"
         self._supporter_asset_memory[memory_key] = data_url
         while len(self._supporter_asset_memory) > 64:
             self._supporter_asset_memory.pop(next(iter(self._supporter_asset_memory)))
@@ -1495,11 +1919,13 @@ class CommunityService(QObject):
                 return
 
     def _fetch_private_preview(self, artwork_id, digest, preview_url, token, target):
-        raw, _headers = CommunityApiClient(self._base_url, token).binary(preview_url, authenticated=True, maximum=2 * 1024 * 1024)
+        client = self._new_client(token)
+        raw, _headers = client.binary(preview_url, authenticated=True, maximum=2 * 1024 * 1024)
         if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
             raise CommunityApiError(502, "invalid_preview", "The private artwork preview is not a PNG.")
         if digest and hashlib.sha256(raw).hexdigest() != digest:
             raise CommunityApiError(502, "preview_checksum_mismatch", "The private artwork preview checksum does not match.")
+        self.assertAccessSnapshot(client.access_snapshot)
         target.parent.mkdir(parents=True, exist_ok=True)
         self._atomic_write(target, raw)
         return {"id": artwork_id, "digest": digest, "path": str(target)}
@@ -1525,6 +1951,7 @@ class CommunityService(QObject):
         self._filter_timer.stop()
         self._supporter_timer.stop()
         self._authentication_timer.stop()
+        self._policy_timer.stop()
         self._github_cancel.set()
         with self._futures_lock:
             futures = list(self._futures)
@@ -1546,9 +1973,28 @@ class CommunityService(QObject):
     def _apply_result(self, operation, envelope):
         if self._closed:
             return
-        background_asset = operation.startswith(("private_preview:", "supporter_thumbnail:", "supporter_preview:"))
+        background_asset = operation.startswith(("private_preview:", "supporter_thumbnail:", "supporter_preview:", "public_thumbnail:", "public_preview:"))
         if not background_asset:
             self._busy_count = max(0, self._busy_count - 1)
+        if operation == "session_refresh":
+            self._policy_refresh_pending = False
+        if operation == "claims":
+            self._claims_busy = False
+        if (operation == "supporter_verify" and "migration_marker" in envelope
+                and envelope["migration_marker"] != self._supporter_request_marker):
+            self.changed.emit()
+            return
+        if "snapshot" in envelope and envelope["snapshot"] != self.accessSnapshot():
+            if operation == "claims":
+                self._claim_error = "access_changed"
+            elif operation == "supporter_verify":
+                self._supporter_entitlement_pending = False
+                self._supporter_request_subject = ""
+                self._supporter_request_marker = ""
+            self.changed.emit()
+            if operation in {"session_refresh", "bootstrap", "claims", "supporter_verify"} and not self._policy_timer.isActive():
+                self._policy_timer.start()
+            return
         upload_inspection = operation.startswith("inspect_upload:")
         if upload_inspection:
             try:
@@ -1561,6 +2007,8 @@ class CommunityService(QObject):
         if not envelope.get("ok"):
             code = str(envelope.get("code") or "request_failed")
             message = str(envelope.get("message") or "The community request failed.")
+            if operation == "claims":
+                self._claim_error = code
             if background_asset:
                 self._private_preview_inflight.discard(operation)
                 self._private_preview_inflight.discard(operation.split(":", 1)[1])
@@ -1581,6 +2029,8 @@ class CommunityService(QObject):
             if operation == "supporter_verify":
                 self._supporter_entitlement_pending = False
                 self._supporter_request_subject = ""
+                if code in {"not_eligible", "community_account_already_bound", "supporter_account_already_bound", "legacy_grant_not_eligible"}:
+                    self._remember_migration_outcome()
                 self._supporter_status = message
                 if code == "username_required":
                     self._supporter_request_after = 0.0
@@ -1601,6 +2051,11 @@ class CommunityService(QObject):
                 self._session_user = {}
                 self._session_stats = {}
                 self._supporter = {}
+                self._verified = {}
+                self._access_epoch += 1
+                self._clear_access_media()
+            if int(envelope.get("status") or 0) in {403, 409, 426} and operation != "session_refresh":
+                self._policy_timer.start()
             self._error = message
             self._status = "Community request failed."
             if upload_inspection:
@@ -1618,7 +2073,7 @@ class CommunityService(QObject):
                 self._credentials.clear_token()
                 self._token = ""
                 self._client.token = ""
-            self._apply_session(value.get("session") or {})
+            self._apply_session(value.get("session") or {}, value.get("policy_header"))
             self._status = "Community library connected."
             if self._scope == "featured":
                 self._apply_catalog(value.get("catalog") or {})
@@ -1639,10 +2094,12 @@ class CommunityService(QObject):
                 self._error = "Windows could not securely store the community session."
             self._token = token
             self._client.token = token
+            self._access_epoch += 1
             self._apply_session(value.get("session") or {})
             self._status = "Community account connected."
             self._finish_authentication()
             self.refresh()
+            self.refreshAccount()
         elif operation == "choose_username":
             user = dict(value.get("user") or {})
             self._session_user.update(user)
@@ -1653,11 +2110,22 @@ class CommunityService(QObject):
             self._session_user.update(dict(value.get("user") or {}))
             self._status = "Creator profile updated."
         elif operation == "session_refresh":
-            self._apply_session(value)
+            self._connected = True
+            self._config = dict(value.get("config") or {})
+            self._apply_session(value.get("session") or {}, value.get("policy_header"))
             self._status = "Community account is up to date."
+            self.refresh()
+        elif operation == "claims":
+            titles = {item["artwork_id"]: item["title"] for item in value["selections"]}
+            self._claim_results = [{**item, "title": titles[item["artwork_id"]]} for item in value["results"]]
+            self._claim_selection.clear()
+            self._status = "Original-authorship claims processed. Results are shown per upload."
+            self.refreshAccount()
+            self.refresh()
         elif operation == "supporter_verify":
             self._supporter = dict(value.get("supporter") or {})
             self._supporter_entitlement_pending = False
+            self._remember_migration_outcome()
             self._supporter_status = (
                 "Supporter Community access is verified."
                 if self.supporterAccess else "Supporter Community verification expired."
@@ -1665,6 +2133,7 @@ class CommunityService(QObject):
             self._status = "Supporter Community access updated."
             if self.supporterAccess and self._scope in {"supporters", "featured"}:
                 self.refresh()
+            self.refreshAccount()
         elif operation == "supporter_clear":
             self._supporter_clear_inflight = False
             self._supporter_clear_required = False
@@ -1677,6 +2146,7 @@ class CommunityService(QObject):
             else:
                 self._supporter_status = "Supporter Community access is not active on this device."
                 self._status = "Supporter Community access cleared."
+            self.refreshAccount()
         elif upload_inspection:
             self._upload_inspection = value
             self._upload_status = (
@@ -1696,6 +2166,7 @@ class CommunityService(QObject):
             self._selected = {"id": str(artwork.get("id") or "")}
             self._selection_touched = bool(self._selected["id"])
             self.refresh()
+            self.refreshAccount()
         elif operation == "revision":
             revision = int(value.get("revision") or 0)
             self._upload_status = (
@@ -1710,6 +2181,7 @@ class CommunityService(QObject):
             self._selected = {"id": str(value.get("artwork_id") or "")}
             self._selection_touched = bool(self._selected["id"])
             self.refresh()
+            self.refreshAccount()
         elif operation == "metadata":
             artwork = dict(value.get("artwork") or {})
             self._status = "Upload tags updated."
@@ -1771,11 +2243,12 @@ class CommunityService(QObject):
         elif operation.startswith("private_preview:"):
             self._private_preview_inflight.discard(operation.split(":", 1)[1])
             self._set_row_preview(str(value.get("id") or ""), str(value.get("digest") or ""), Path(str(value.get("path") or "")))
-        elif operation.startswith(("supporter_thumbnail:", "supporter_preview:")):
+        elif operation.startswith(("supporter_thumbnail:", "supporter_preview:", "public_thumbnail:", "public_preview:")):
             self._private_preview_inflight.discard(operation)
             self._set_row_memory_asset(
                 str(value.get("id") or ""), str(value.get("digest") or ""),
                 str(value.get("kind") or "thumbnail"), str(value.get("data_url") or ""),
+                public=bool(value.get("public")),
             )
         self.changed.emit()
 
@@ -1789,10 +2262,24 @@ class CommunityService(QObject):
         self.changed.emit()
         self.openGithubVerification()
 
-    def _apply_session(self, payload):
+    def _apply_session(self, payload, header=None):
+        previous_user = str(self._session_user.get("id") or "")
+        previous_restricted_access = self.restrictedAccess
         self._session_user = dict(payload.get("user") or {})
         self._session_stats = dict(payload.get("stats") or {})
         self._supporter = dict(payload.get("supporter") or {})
+        if previous_user != str(self._session_user.get("id") or ""):
+            self._access_epoch += 1
+            self._supporter_request_after = 0.0
+            self._supporter_entitlement_pending = False
+            self._supporter_request_subject = ""
+            self._supporter_request_marker = ""
+            self._claim_results = []
+            self._claim_error = ""
+            self._clear_access_media()
+        self._apply_access(self._config, payload, header)
+        if previous_restricted_access != self.restrictedAccess:
+            self._clear_access_media()
         self._supporter_status = (
             "Supporter Community access is verified."
             if self.supporterAccess else "Connect an active supporter registration to unlock this catalog."
@@ -1825,7 +2312,14 @@ class CommunityService(QObject):
         self._write_cache(payload)
 
     def _normalize_artwork(self, item):
-        return normalize_artwork(item, self._client.url)
+        row = normalize_artwork(item, self._client.url,
+                                self.policyMode if self.policyReady else "unsupported", self.authenticated, self.restrictedAccess)
+        # Qt images receive validated local bytes, never a direct Community URL
+        # that would bypass the negotiated transport headers and access epoch.
+        row.update(previewUrl="", thumbnailUrl="")
+        if row["supporterOnly"] and not item.get("thumbnail_url"):
+            row["_thumbnailAssetUrl"] = ""
+        return row
 
     def _update_selected(self, key, value):
         self._selected[key] = value
@@ -1864,7 +2358,10 @@ class CommunityService(QObject):
                 "endpoint": self._endpoint_key,
                 "scope": self._scope,
                 "saved_at": time.time(),
-                "catalog": catalog,
+                "catalog": {**catalog, "items": [
+                    {key: value for key, value in item.items() if key not in {"access", "contribution"}}
+                    for item in items if isinstance(item, dict)
+                ]},
             }
             self._atomic_write(target, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
         except Exception:
@@ -1875,6 +2372,7 @@ class CommunityService(QObject):
         return self._root / f"catalog-cache.{self._endpoint_key}.{safe_scope}.v5.json"
 
     def _load_demo_rows(self):
+        self._policy_ready = True
         self._token = "demo-session"
         self._client.token = self._token
         self._session_user = {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import http.server
+import importlib.util
 import argparse
 import hmac
 import io
@@ -38,6 +39,8 @@ from kfps_editor.recovery import RecoveryStore
 from kfps_editor.projects import ProjectStore, ProjectSaveError, read_bounded_document
 from kfps_editor.diagnostics import DiagnosticBusy, EditorDiagnostics, MAX_REQUEST as DIAGNOSTIC_MAX_REQUEST
 from kfps_editor.manifest import editor_web_root, load_manifest
+from tools.kfps_release_announcement import ReleaseAnnouncement
+from tools.kfps_activity_host import ActivityHost
 
 WEB_ROOT = editor_web_root(ROOT)
 EDITOR = WEB_ROOT / "index.html"
@@ -73,6 +76,10 @@ EDITOR_ASSET_MAX_BYTES = 8 * 1024 * 1024
 EDITOR_PROJECT_MAX_BYTES = 150 * 1024 * 1024
 EDITOR_MUTATION_HEADER = "X-KFPS-Editor-Session"
 EDITOR_MUTATION_APIS = {
+    "/api/fabric-editor/activity-ready",
+    "/api/fabric-editor/release-announcement",
+    "/api/fabric-editor/livery-studio",
+    "/api/fabric-editor/studio-source-return",
     EDITOR_DIAGNOSTICS_API,
     STARTUP_HELP_API,
     EDITOR_PREFS_API,
@@ -122,6 +129,10 @@ class ServerPaths(NamedTuple):
     @classmethod
     def for_runtime(cls, app_root: Path, runtime: Path, *, exports: Path | None = None):
         runtime = Path(runtime).resolve()
+        if exports is None and (runtime / "studio-source-edit.json").is_file():
+            helper = _studio_source_helper()
+            helper.editor_context(runtime)
+            exports = runtime / "exports"
         return cls(*(runtime / name for name in (
             "startup-help-confirmed.json", "preferences.json", "autosave.json", "server.json",
             "editor-output-change.json", "project-change.json", "themes", "projects", "assets")),
@@ -134,6 +145,60 @@ class ServerPaths(NamedTuple):
         return cls(STARTUP_HELP_MARKER, EDITOR_PREFS_MARKER, EDITOR_AUTOSAVE_MARKER,
             EDITOR_SERVER_MARKER, EDITOR_OUTPUT_CHANGE_MARKER, EDITOR_PROJECT_CHANGE_MARKER,
             EDITOR_THEME_ROOT, EDITOR_PROJECT_ROOT, EDITOR_ASSET_ROOT, EDITOR_JSON_ROOT)
+
+
+_studio_source_module = None
+
+
+def _studio_module_path(app_root: Path, module_name: str) -> Path:
+    if module_name not in {"host_bridge.py", "source_editor.py"}:
+        raise ValueError("Unsupported Studio module.")
+    root = Path(app_root).absolute()
+    package = root / "tools/livery-studio"
+    boundary = root
+    for item in (package, package.parent, root):
+        if item.is_symlink() or item.is_junction():
+            raise ValueError("Studio package discovery cannot follow redirected paths.")
+    if not package.exists() and not package.is_symlink() and not package.is_junction():
+        if root.name != "repo":
+            raise ValueError("Livery Studio is not installed in tools/livery-studio.")
+        package, boundary = root.parent / "livery", root.parent
+        config = package / "settings/local-launch.json"
+        for item in (config, *config.parents):
+            if item.is_symlink() or item.is_junction():
+                raise ValueError("Studio workspace discovery cannot follow redirected paths.")
+            if item == boundary:
+                break
+        try:
+            with config.open("rb") as stream:
+                body = stream.read(65537)
+            value = json.loads(body) if len(body) <= 65536 else None
+            if not isinstance(value, dict) or not isinstance(value.get("kfpsRoot"), str):
+                raise ValueError("Missing workspace host identity.")
+            if Path(value["kfpsRoot"]).resolve() != root.resolve():
+                raise ValueError("Studio is configured for another KFPS installation.")
+        except (OSError, ValueError) as exc:
+            raise ValueError("The isolated Studio workspace configuration is unavailable or invalid.") from exc
+    path = package / "src/kfps_livery_lab" / module_name
+    for item in (path, *path.parents):
+        if item.is_symlink() or item.is_junction():
+            raise ValueError("Studio discovery cannot follow redirected paths.")
+        if item == boundary:
+            break
+    if not path.is_file() or not path.resolve().is_relative_to(package.resolve()):
+        raise ValueError("Livery Studio is incomplete in its selected package.")
+    return path
+
+
+def _studio_source_helper():
+    global _studio_source_module
+    if _studio_source_module is None:
+        path = _studio_module_path(ROOT, "source_editor.py")
+        spec = importlib.util.spec_from_file_location("_kfps_studio_source_editor", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _studio_source_module = module
+    return _studio_source_module
 
 
 def _read_preferences(*, paths: ServerPaths | None = None) -> dict:
@@ -324,16 +389,31 @@ def _resolve_full_type_resource(type_code: int) -> tuple[str, int] | None:
     return resolve_full_type_resource(type_code)
 
 
-def _safe_relpath(path: Path) -> str:
-    return path.resolve().relative_to(ROOT.resolve()).as_posix()
+def _safe_relpath(path: Path, *, paths: ServerPaths | None = None) -> str:
+    path = path.resolve()
+    if path.is_relative_to(ROOT.resolve()):
+        return path.relative_to(ROOT.resolve()).as_posix()
+    paths = paths if paths is not None else ServerPaths.legacy()
+    if path.is_relative_to(paths.exports.resolve()):
+        return "@exports/" + path.relative_to(paths.exports.resolve()).as_posix()
+    raise ValueError("JSON path is outside the editable browser roots")
 
 
 def _resolve_browser_id(path_id: str, *, paths: ServerPaths | None = None) -> Path:
     paths = paths if paths is not None else ServerPaths.legacy()
-    if not path_id or "\x00" in path_id:
+    if not isinstance(path_id, str) or not path_id or "\x00" in path_id:
         raise ValueError("missing JSON id")
-    candidate = (ROOT / path_id).resolve()
-    allowed_roots = [GENERATED_ROOT.resolve(), paths.exports.resolve(), EXPORTED_JSON_ROOT.resolve()]
+    if (any(value in path_id for value in ("\\", ":")) or
+            any(part in {"", ".", ".."} for part in path_id.split("/"))):
+        raise ValueError("JSON path is outside the editable browser roots")
+    if path_id.startswith("@exports/"):
+        candidate = (paths.exports / path_id[len("@exports/"):]).resolve()
+        allowed_roots = [paths.exports.resolve()]
+    else:
+        if path_id.startswith("@"):
+            raise ValueError("JSON path is outside the editable browser roots")
+        candidate = (ROOT / path_id).resolve()
+        allowed_roots = [GENERATED_ROOT.resolve(), paths.exports.resolve(), EXPORTED_JSON_ROOT.resolve()]
     if not any(candidate.is_relative_to(root) for root in allowed_roots):
         raise ValueError("JSON path is outside the editable browser roots")
     if candidate.suffix.lower() != ".json" or not candidate.is_file():
@@ -481,21 +561,21 @@ def _shape_count(path: Path) -> int:
     return len(shapes) if isinstance(shapes, list) else 0
 
 
-def _preview_url(path: Path) -> str:
-    return f"{JSON_PREVIEW_API}?id={quote(_safe_relpath(path))}"
+def _preview_url(path: Path, *, paths: ServerPaths | None = None) -> str:
+    return f"{JSON_PREVIEW_API}?id={quote(_safe_relpath(path, paths=paths))}"
 
 
-def _json_entry(path: Path, source: str) -> dict:
+def _json_entry(path: Path, source: str, *, paths: ServerPaths | None = None) -> dict:
     stat = path.stat()
     count = _shape_count(path)
     return {
-        "id": _safe_relpath(path),
+        "id": _safe_relpath(path, paths=paths),
         "name": path.name,
         "source": source,
         "layers": count,
         "mtime": stat.st_mtime,
         "mtime_label": f"{stat.st_mtime:.0f}",
-        "preview_url": _preview_url(path),
+        "preview_url": _preview_url(path, paths=paths),
     }
 
 
@@ -566,7 +646,7 @@ def _editor_groups(*, paths: ServerPaths | None = None) -> list[dict]:
         except ValueError:
             continue
         run_key = rel.parts[0] if len(rel.parts) > 1 else path.stem
-        entry = _json_entry(path, "editor")
+        entry = _json_entry(path, "editor", paths=paths)
         group = groups.setdefault(run_key, {
             "key": run_key,
             "title": run_key,
@@ -1066,6 +1146,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         paths = self.server.paths
         parsed = urlparse(self.path)
+        if parsed.path == "/api/fabric-editor/studio-source-context":
+            if not self._mutation_authorized():
+                self._send_json({"error": "editor session authorization failed"}, status=403)
+                return
+            try:
+                if parsed.query or parsed.fragment:
+                    raise ValueError("Invalid Studio source context request.")
+                runtime = paths.preferences.parent
+                result = (_studio_source_helper().editor_context(runtime)
+                          if (runtime / "studio-source-edit.json").is_file() else None)
+                self._send_json({"enabled": result is not None, "context": result})
+            except (OSError, ValueError, RuntimeError) as exc:
+                self._send_json({"error": "Studio source context is unavailable."}, status=getattr(exc, "status", 400))
+            return
         if parsed.path == EDITOR_DIAGNOSTICS_API:
             if not self._mutation_authorized():
                 self._send_json({"error": "editor session authorization failed"}, status=403)
@@ -1095,7 +1189,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if parsed.path == EDITOR_PREFS_API:
             try:
                 payload = _read_preferences(paths=paths)
-                settings = _validated_settings(payload.get("settings", {}))
+                stored = payload.get("settings", {})
+                settings = _validated_settings({key: value for key, value in stored.items()
+                    if key in EDITOR_SETTING_KEYS} if isinstance(stored, dict) else stored)
             except (OSError, ValueError) as err:
                 self._send_json({"error": f"Could not read editor preferences: {err}"}, status=500)
                 return
@@ -1184,7 +1280,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"error": str(err)}, status=400)
                 return
             self._send_json({
-                "id": _safe_relpath(path),
+                "id": _safe_relpath(path, paths=paths),
                 "name": path.name,
                 "payload": payload,
             })
@@ -1216,7 +1312,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     result = store.outcome(query["request_id"][0])
                     if exporting and result.get("receipt"):
                         target = (paths.exports / result["receipt"]["target_id"]).resolve()
-                        result.update(id=_safe_relpath(target), name=target.name)
+                        if not target.is_relative_to(paths.exports.resolve()):
+                            raise ValueError("JSON path is outside the editable browser roots")
+                        result.update(id=_safe_relpath(target, paths=paths), name=target.name)
                 else:
                     result = {"current": store.verify((query.get("id") or [""])[0], (query.get("fingerprint") or [""])[0])}
             except (ValueError, OSError) as err:
@@ -1290,6 +1388,88 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 {"error": "editor session authorization failed"},
                 status=403,
             )
+            return
+        if parsed.path == "/api/fabric-editor/activity-ready":
+            try:
+                if (parsed.query or parsed.fragment or self.headers.get_all("Content-Length", []) != ["2"]
+                        or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Encoding")
+                        or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json"):
+                    self._discard_small_rejected_body()
+                    raise ValueError("Invalid activity readiness request.")
+                self.connection.settimeout(3)
+                if self.rfile.read(2) != b"{}":
+                    raise ValueError("Invalid activity readiness request.")
+                self.server.activity_counter.start()
+                self._send_json({"ok": True})
+            except (OSError, ValueError):
+                self._send_json({"error": "Invalid activity readiness request."}, status=400)
+            return
+        if parsed.path == "/api/fabric-editor/release-announcement":
+            try:
+                lengths = self.headers.get_all("Content-Length", [])
+                if (parsed.query or parsed.fragment or len(lengths) != 1
+                        or not lengths[0].isascii() or not lengths[0].isdigit() or len(lengths[0]) > 4
+                        or not 0 < int(lengths[0]) <= 1024
+                        or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Encoding")
+                        or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json"):
+                    self._discard_small_rejected_body()
+                    raise ValueError("Invalid release notice request.")
+                self.connection.settimeout(3)
+                raw = self.rfile.read(int(lengths[0]))
+                if len(raw) != int(lengths[0]):
+                    raise ValueError("Truncated release notice request.")
+                self._send_json(self.server.release_announcement.dispatch(json.loads(raw)))
+            except (OSError, ValueError, RecursionError):
+                self._send_json({"error": "Invalid release notice request."}, status=400)
+            return
+        if parsed.path == "/api/fabric-editor/studio-source-return":
+            try:
+                lengths = self.headers.get_all("Content-Length", [])
+                if (parsed.query or parsed.fragment or len(lengths) != 1
+                        or not lengths[0].isascii() or not lengths[0].isdigit()
+                        or not 0 < int(lengths[0]) <= 8 * 1024 * 1024
+                        or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Encoding")
+                        or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json"):
+                    self._discard_small_rejected_body()
+                    raise ValueError("Invalid Studio source return request.")
+                self.connection.settimeout(10)
+                raw = self.rfile.read(int(lengths[0]))
+                if len(raw) != int(lengths[0]):
+                    raise ValueError("Truncated Studio source return request.")
+                helper = _studio_source_helper()
+                result = helper.editor_return(paths.preferences.parent, helper.model.decode_json(raw))
+                self._send_json(result)
+            except (OSError, ValueError, RuntimeError, RecursionError) as exc:
+                self._send_json({"error": str(exc)}, status=getattr(exc, "status", 400))
+            return
+        if parsed.path == "/api/fabric-editor/livery-studio":
+            if not self.server.studio_launch_lock.acquire(blocking=False):
+                self._discard_small_rejected_body()
+                self._send_json({"error": "Livery Studio is already starting."}, status=409)
+                return
+            try:
+                lengths = self.headers.get_all("Content-Length", [])
+                if (len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit()
+                        or not 0 < int(lengths[0]) <= 8 * 1024 * 1024
+                        or self.headers.get("Transfer-Encoding") or self.headers.get("Content-Encoding")
+                        or self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json"):
+                    self._discard_small_rejected_body()
+                    raise ValueError("Invalid Studio launch request.")
+                self.connection.settimeout(5)
+                body = self.rfile.read(int(lengths[0]))
+                if len(body) != int(lengths[0]):
+                    raise ValueError("Truncated Studio launch request.")
+                bridge_path = _studio_module_path(ROOT, "host_bridge.py")
+                spec = importlib.util.spec_from_file_location("_kfps_studio_host", bridge_path)
+                bridge = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(bridge)
+                request = bridge.validate_request(bridge.model.decode_json(body))
+                result = bridge.launch_from_host(ROOT, request, open_window=True)
+                self._send_json(result)
+            except (OSError, ValueError, RuntimeError, TimeoutError, RecursionError) as exc:
+                self._send_json({"error": str(exc)}, status=400)
+            finally:
+                self.server.studio_launch_lock.release()
             return
         if parsed.path == EDITOR_DIAGNOSTICS_API:
             try:
@@ -1423,8 +1603,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     raise ValueError("editor export payload must contain a shapes list")
                 store = self.server.export_store()
                 with store.lock:
-                    target = _unique_editor_export_path(str(data.get("name") or "vinyl"), paths=paths)
-                    result = store.save(target.relative_to(paths.exports).as_posix(), payload, request_id=data.get("request_id"))
+                    request_id = data.get("request_id")
+                    previous = store.outcome(request_id) if request_id is not None else {}
+                    if previous.get("receipt"):
+                        target_id = previous["receipt"]["target_id"]
+                    else:
+                        target = _unique_editor_export_path(str(data.get("name") or "vinyl"), paths=paths)
+                        target_id = target.relative_to(paths.exports).as_posix()
+                    result = store.save(target_id, payload, request_id=request_id)
+                    target = (paths.exports / result["receipt"]["target_id"]).resolve()
+                    browser_id = _safe_relpath(target, paths=paths)
                 self._record_save_commit("saveExport", result, started)
                 _record_desktop_change(paths.output_change, target)
             except ProjectSaveError as err:
@@ -1435,7 +1623,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
             self._send_json({
                 **result,
-                "id": _safe_relpath(target),
+                "id": browser_id,
                 "path": str(target),
                 "name": target.name,
             })
@@ -1508,14 +1696,17 @@ class EditorServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, *args, paths: ServerPaths | None = None, **kwargs):
+    def __init__(self, *args, paths: ServerPaths | None = None, release_announcement=None, activity_counter=None, **kwargs):
         self.paths = paths if paths is not None else ServerPaths.legacy()
+        self.release_announcement = release_announcement or ReleaseAnnouncement(ROOT)
+        self.activity_counter = ActivityHost(ROOT, counter=activity_counter)
         self.preview_cache_epoch = secrets.token_hex(8)
         self.editor_session_token = secrets.token_urlsafe(32)
         self.autosave_lock = threading.Lock()
         self.preferences_lock = threading.Lock()
         self.asset_lock = threading.Lock()
         self.asset_preview_lock = threading.Lock()
+        self.studio_launch_lock = threading.Lock()
         self.asset_previews = OrderedDict()
         self.autosave_revision = None
         self._recovery = None
@@ -1550,7 +1741,9 @@ class EditorServer(socketserver.ThreadingTCPServer):
             return self._diagnostics
 
     def server_close(self):
+        self.activity_counter.stop()
         super().server_close()
+        self.release_announcement.close()
         if self._diagnostics is not None:
             self._diagnostics.close()
 
@@ -1615,13 +1808,14 @@ class EditorServer(socketserver.ThreadingTCPServer):
         with self.preferences_lock:
             payload = _read_preferences(paths=paths)
             previous = payload.get("settings", {})
-            settings = {key: value for key, value in previous.items() if key in EDITOR_SETTING_KEYS} if isinstance(previous, dict) else {}
+            # Keep existing future/custom fields opaque; incoming patches remain allowlisted.
+            settings = dict(previous) if isinstance(previous, dict) else {}
             for key, value in patch.items():
                 if value is None:
                     settings.pop(key, None)
                 else:
                     settings[key] = value
-            _validated_settings(settings)
+            _validated_settings({key: value for key, value in settings.items() if key in EDITOR_SETTING_KEYS})
             payload["settings"] = settings
             if theme is not None:
                 payload["theme"] = theme

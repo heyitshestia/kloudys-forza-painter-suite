@@ -377,7 +377,9 @@ class FullLiveryInspectorSupervisor(QObject):
     def running(self) -> bool:
         return self._process.state() != QProcess.ProcessState.NotRunning
 
-    def start(self, *, package: str, mesh: str, render_root: str, render_contract: dict[str, Any]) -> None:
+    def start(self, *, package: str, mesh: str, render_root: str, render_contract: dict[str, Any],
+              readonly_descriptor: str = "", readonly_descriptor_sha256: str = "",
+              package_id: str = "") -> None:
         if self._closed:
             return
         request = {
@@ -385,6 +387,9 @@ class FullLiveryInspectorSupervisor(QObject):
             "mesh": mesh,
             "render_root": render_root,
             "render_contract": render_contract,
+            "readonly_descriptor": readonly_descriptor,
+            "readonly_descriptor_sha256": readonly_descriptor_sha256,
+            "package_id": package_id,
         }
         if self.running:
             self._pending = request
@@ -407,6 +412,10 @@ class FullLiveryInspectorSupervisor(QObject):
             "mesh": str(Path(mesh).resolve()),
             "render_root": str(Path(render_root).resolve()),
             "render_contract": render_contract,
+            "readonly_descriptor": str(request.get("readonly_descriptor") or ""),
+            "readonly_descriptor_sha256": str(request.get("readonly_descriptor_sha256") or ""),
+            "package_id": str(request.get("package_id") or ""),
+            "app_root": str(self.app_paths.app_root.resolve()),
             "inspector_root": str((self.app_paths.app_root / "tools" / "livery-inspector").resolve()),
         })
         program, arguments = _inspector_command(self.app_paths, config, ready, stop)
