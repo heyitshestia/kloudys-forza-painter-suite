@@ -1,6 +1,7 @@
 """Typed editor source inventory. Inclusion policy stays with each consumer."""
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -60,6 +61,20 @@ def native_source(role, root=ROOT):
     return root / matches[0]
 
 
+def support_diagnostic_assets(source):
+    match = re.search(r"export const ASSETS = (\[[^;]+\]);", source)
+    if not match:
+        raise ValueError("Expected one support diagnostics inventory")
+    assets = ast.literal_eval(match[1])
+    if not isinstance(assets, list):
+        raise ValueError("Invalid support diagnostics inventory")
+    for addition in re.findall(r"^ASSETS\.push\(([^;]+)\);", source, re.M):
+        assets.extend(ast.literal_eval("[" + addition + "]"))
+    if any(not isinstance(value, str) for value in assets) or len(assets) != len(set(assets)):
+        raise ValueError("Invalid or duplicate support diagnostics asset")
+    return assets
+
+
 def check():
     data = load_manifest()
     web = ROOT / data["web_root"]
@@ -76,9 +91,9 @@ def check():
     if set(loaded) - declared:
         raise ValueError("Page loads sources absent from the editor manifest")
     public = ROOT / "tools/support_worker/public/editor-diagnostics.mjs"
-    expected = json.dumps(list(diagnostic_assets()), separators=(",", ":"))
-    match = re.search(r"export const ASSETS = (\[[^;]+\]);", public.read_text(encoding="utf-8"))
-    if not match or json.loads(match[1].replace("'", '"')) != json.loads(expected):
+    # Support retains its original serialization order for report retry hashes.
+    assets = support_diagnostic_assets(public.read_text(encoding="utf-8"))
+    if set(assets) != set(diagnostic_assets()):
         raise ValueError("Support diagnostics source inventory is stale; run editor_manifest.py sync")
     print(f'Editor manifest: {len(declared)} web sources, {len(data["native"])} native sources verified')
 
@@ -86,10 +101,14 @@ def check():
 def sync():
     public = ROOT / "tools/support_worker/public/editor-diagnostics.mjs"
     source = public.read_text(encoding="utf-8")
-    replacement = "export const ASSETS = " + json.dumps(list(diagnostic_assets())) + ";"
+    expected = diagnostic_assets()
+    retained = [name for name in support_diagnostic_assets(source) if name in expected]
+    retained.extend(name for name in expected if name not in retained)
+    replacement = "export const ASSETS = " + json.dumps(retained) + ";"
     source, count = re.subn(r"export const ASSETS = \[[^;]+\];", lambda _: replacement, source)
     if count != 1:
         raise ValueError("Expected one support diagnostics inventory")
+    source = re.sub(r"^ASSETS\.push\([^;]+\);\r?\n?", "", source, flags=re.M)
     public.write_text(source, encoding="utf-8", newline="\n")
 
 

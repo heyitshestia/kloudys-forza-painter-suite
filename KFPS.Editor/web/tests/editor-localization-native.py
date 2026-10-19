@@ -4,8 +4,9 @@ import json
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "KFPS.Editor/src"))
@@ -23,13 +24,14 @@ class NativeLocalizationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "Windows display-language selection")
     def test_display_language_not_regional_format(self):
-        with patch("tools.kfps_display_language.is_korean_display_language", return_value=True):
-            self.assertEqual(editor_system_language(), "ko")
-        with patch("tools.kfps_display_language.is_korean_display_language", return_value=False):
-            self.assertEqual(editor_system_language(), "en")
+        for identifier, expected in ((0x0412, "ko"), (0x0411, "ja"), (0x0409, "en")):
+            kernel = SimpleNamespace(GetUserDefaultUILanguage=Mock(return_value=identifier))
+            with self.subTest(language=expected), patch("ctypes.WinDLL", return_value=kernel):
+                self.assertEqual(editor_system_language(), expected)
+                kernel.GetUserDefaultUILanguage.assert_called_once_with()
 
     def test_native_dialogs_preserve_buttons_choice_and_plain_text(self):
-        for language in ("en", "ko"):
+        for language in ("en", "ko", "ja"):
             with self.subTest(language=language), tempfile.TemporaryDirectory() as temporary:
                 runtime = Path(temporary)
                 (runtime / "preferences.json").write_text(json.dumps({"settings": {"kloudyFabricLanguage": language}}), encoding="utf-8")
@@ -70,9 +72,9 @@ class NativeLocalizationTests(unittest.TestCase):
                     host.deleteLater()
                     self.app.processEvents()
 
-    def test_startup_errors_are_available_in_both_languages(self):
+    def test_startup_errors_are_available_in_all_languages(self):
         from kfps_editor.localization import EditorTranslator
-        for language in ("en", "ko"):
+        for language in ("en", "ko", "ja"):
             translator = EditorTranslator(ROOT, Path("missing-test-profile"), language)
             for role in ("instance-lock", "startup"):
                 from kfps_editor.manifest import native_source
