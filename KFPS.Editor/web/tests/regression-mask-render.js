@@ -1,7 +1,7 @@
-async page => {
+async (page, options = {}) => {
   const save = (name, value) => fs.writeFileSync(path.join(output, name), JSON.stringify(value, null, 2));
-  await page.evaluate(async () => {
-    const resources = [['Primitives', 1], ['Gradient_Shapes', 1], ['Racing_Icons', 30], ['Tears', 39]];
+  await page.evaluate(async primaryMaskResource => {
+    const resources = [['Primitives', 1], ['Gradient_Shapes', 1], primaryMaskResource, ['Tears', 39]];
     await loadPayload({ shapes: resources.map(([family, slot], i) => ({
       type: editorCatalog.resourceToTypeCode(family, slot), resource_family: family, resource_index: slot,
       editor_id: `mask-gate-${i}`, color: [90 + i * 20, 130, 190, i === 1 ? 117 : 255], mask: i >= 2,
@@ -98,7 +98,7 @@ async page => {
       const row = { label, baselineMs, productMs, guide, signal, disabledHelpers, artwork, helpersExcluded: true };
       maskGateRows.push(row); return row;
     };
-  });
+  }, options.primaryMaskResource || ['Racing_Icons', 30]);
   const rows = [];
   for (const zoom of [.25, 1.1581196581196582, 3.25]) {
     rows.push(await page.evaluate(zoom => {

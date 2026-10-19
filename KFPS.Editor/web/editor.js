@@ -1101,9 +1101,16 @@ function cloneFabricPathData(pathData) {
 }
 
 function isNativeTrianglePath(pathData) {
-  return Array.isArray(pathData) && pathData.length > 0 && pathData.length % 4 === 0
-    && pathData.every((part, index) => part[0] === "MLLZ"[index % 4]
-      && (index % 4 === 3 || (Number.isFinite(part[1]) && Number.isFinite(part[2]))));
+  if (!Array.isArray(pathData) || pathData.length < 4) return false;
+  // The catalog preserves native bounds with two move-only anchors when it
+  // omits fully transparent triangles. They must not disable the fast fill.
+  const anchors = pathData.length % 4 === 2 ? 2 : 0;
+  return (pathData.length - anchors) % 4 === 0
+    && pathData.every((part, index) => {
+      const command = index < anchors ? "M" : "MLLZ"[(index - anchors) % 4];
+      return Array.isArray(part) && part[0] === command
+        && (command === "Z" || (Number.isFinite(part[1]) && Number.isFinite(part[2])));
+    });
 }
 
 function renderNativeTriangleFill(ctx) {

@@ -17,9 +17,14 @@
       || scaleX <= 0 || scaleY <= 0) return false;
     let cached = maskOutlinePaths.get(object);
     if (!cached || cached.source !== path || cached.x !== pathOffset.x || cached.y !== pathOffset.y) {
-      if (!Array.isArray(path) || !path.length || path.length % 4 !== 0
-        || !path.every((part, index) => part[0] === "MLLZ"[index % 4]
-          && (index % 4 === 3 || (Number.isFinite(part[1]) && Number.isFinite(part[2]))))) return false;
+      if (!Array.isArray(path) || path.length < 4) return false;
+      // Match native fills, including the catalog's transparent-triangle bounds anchors.
+      const anchors = path.length % 4 === 2 ? 2 : 0;
+      if ((path.length - anchors) % 4 !== 0 || !path.every((part, index) => {
+        const command = index < anchors ? "M" : "MLLZ"[(index - anchors) % 4];
+        return Array.isArray(part) && part[0] === command
+          && (command === "Z" || (Number.isFinite(part[1]) && Number.isFinite(part[2])));
+      })) return false;
       // Native parsing avoids quadratic closePath replay. Keep every coordinate
       // and triangle edge; this path is only the editor's red mask-outline UI.
       const data = path.map(part => part[0] === "Z" ? "Z"

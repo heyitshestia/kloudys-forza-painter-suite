@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.107
+
+### Smoother Shape Editing
+
+- Fixed the severe lag when editing Community 4 shape 9. Moving, resizing and recolouring it should feel much more responsive now.
+- The same fix also covers Community 4 shapes 10 and 39, plus affected font characters.
+- No simplified shapes or reduced resolution. Your artwork, saved files and graphics settings stay unchanged.
+- Tested in both the normal editor and Chrome, including masks, undo/redo and saving and reopening projects.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.106
 
 ### Livery 3D Preview Fix

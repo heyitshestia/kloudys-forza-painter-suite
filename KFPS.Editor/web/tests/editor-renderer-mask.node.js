@@ -43,11 +43,24 @@ test('mask paths are reused and invalidated by scale, offset or source replaceme
   assert.equal(f.paths.length, 7);
 });
 
+test('transparent-triangle bounds anchors keep the exact fast mask outline', () => {
+  const f = fixture();
+  f.object.path = [['M', -90, -80], ['M', 90, 80], ...f.object.path];
+  assert.equal(drawNativeMaskOutline(f.object, f.context), true);
+  assert.equal(f.paths[0].data, f.object.path.map(p => p[0] === 'Z' ? 'Z' :
+    `${p[0]} ${p[1] - f.object.pathOffset.x} ${p[2] - f.object.pathOffset.y}`).join(' '));
+  drawNativeMaskOutline(f.object, f.context);
+  assert.equal(f.paths.length, 2);
+});
+
 test('ordinary artwork and unsupported mask paint states always use Fabric', () => {
   for (const change of [{ kloudyMaskOutline: false }, { objectCaching: true }, { group: {} },
     { shadow: {} }, { clipPath: {} }, { backgroundColor: 'red' }, { paintFirst: 'stroke' },
     { strokeUniform: false }, { fill: {} }, { stroke: {} }, { globalCompositeOperation: 'destination-out' },
-    { scaleX: 0 }, { scaleY: NaN }, { pathOffset: null }, { path: [['C', 1, 2]] }]) {
+    { scaleX: 0 }, { scaleY: NaN }, { pathOffset: null }, { path: [['C', 1, 2]] },
+    { path: [['M', -90, -80], ['M', 90, 80]] },
+    { path: [null, ['L', 1, 2], ['L', 3, 4], ['Z']] },
+    { path: [['M', NaN, 0], ['M', 90, 80], ['M', 0, 0], ['L', 1, 2], ['L', 3, 4], ['Z']] }]) {
     const f = fixture(change);
     assert.equal(drawNativeMaskOutline(f.object, f.context), false);
     assert.deepEqual(f.calls, []);
