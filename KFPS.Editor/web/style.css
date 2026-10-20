@@ -1647,9 +1647,9 @@ body.layerGroupingActive .layerGroupRow.layerDropTarget {
 }
 
 .editorTourLayer {
-  position: fixed;
+  /* Keep the card out of a stacking context below the highlighted target. */
+  position: absolute;
   inset: 0;
-  z-index: 120;
   pointer-events: none;
 }
 
@@ -1658,13 +1658,15 @@ body.layerGroupingActive .layerGroupRow.layerDropTarget {
 }
 
 .editorTourBackdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  z-index: 120;
   background: rgba(8, 8, 12, 0.38);
 }
 
 .editorTourSpotlight {
-  position: absolute;
+  position: fixed;
+  z-index: 122;
   left: 0;
   top: 0;
   width: 120px;
@@ -1681,7 +1683,8 @@ body.layerGroupingActive .layerGroupRow.layerDropTarget {
 }
 
 .editorTourCanvasPulse {
-  position: absolute;
+  position: fixed;
+  z-index: 122;
   left: 50%;
   top: 50%;
   width: 220px;
@@ -1703,7 +1706,8 @@ body.layerGroupingActive .layerGroupRow.layerDropTarget {
 }
 
 .editorTourCard {
-  position: absolute;
+  position: fixed;
+  z-index: 123;
   width: min(380px, calc(100vw - 32px));
   display: grid;
   gap: 9px;

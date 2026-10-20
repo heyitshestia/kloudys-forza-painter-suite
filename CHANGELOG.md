@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.108
+
+### Editor Tour Fix
+
+- Fixed the tour card getting stuck behind the highlighted canvas. The full card and its buttons now stay visible in both the normal editor and Chrome.
+- Checked all twelve tour steps, four themes, smaller windows and resizing. No changes to artwork rendering or saved projects.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.107
 
 ### Smoother Shape Editing
