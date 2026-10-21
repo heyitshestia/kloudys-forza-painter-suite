@@ -102,7 +102,7 @@
       <div class="quickActionGroup" aria-label="Selected layer quick actions">
         <button id="quickDuplicateLayer" type="button" title="Duplicate selected layer(s). Respects Shape Click above/below placement mode.">Duplicate</button>
         <button id="quickDeleteLayer" type="button" title="Delete selected layer(s).">Delete</button>
-        <button id="quickGroupSelected" type="button" title="Create an editor-only group from selected layers.">Group</button>
+        <button id="quickGroupSelected" type="button" title="Create a group from selected layers.">Group</button>
         <button id="quickFitSelected" type="button" title="Zoom to selected layer(s).">Fit</button>
       </div>
       <div class="contextItem statusChip ready">
@@ -187,13 +187,13 @@
               <button id="sendBackward" title="Move selected layer(s) one step toward the bottom/back.">Back</button>
               <button id="sendBack" title="Move selected layers all the way to the bottom/back.">To Back</button>
               <button id="selectionLockToggle" title="Keep the current selection active through accidental canvas misclicks." aria-pressed="false">Lock Selection</button>
-              <button id="groupSelected" title="Create an editor-only group from the selected layers. Exports stay flat.">Group</button>
+              <button id="groupSelected" title="Create a group from selected layers.">Group</button>
               <button id="groupActions" type="button" popovertarget="layerGroupActions" title="Group actions" aria-label="Group actions">...</button>
               <button id="renameSelectedLayer" title="Rename one selected layer inside this editor project.">Rename Layer</button>
-              <button id="renameSelectedGroup" title="Rename the selected editor-only group. Exports stay flat.">Rename Group</button>
+              <button id="renameSelectedGroup" title="Rename the selected group.">Rename Group</button>
               <button id="hideSelectedGroup" title="Hide or show every layer in the selected editor group.">Hide Group</button>
               <button id="lockSelectedGroup" title="Lock or unlock every layer in the selected editor group.">Lock Group</button>
-              <button id="ungroupSelected" title="Remove selected layers from their editor-only group.">Ungroup</button>
+              <button id="ungroupSelected" title="Remove selected layers from their group.">Ungroup</button>
               <button id="changeSelectedShape" title="With layers selected, replace those layers. With nothing selected, choose a used shape type to replace globally.">Change Shape</button>
             </div>
             <div id="globalShapeReplacePanel" class="globalShapeReplacePanel" hidden>
@@ -813,8 +813,8 @@
     <div class="helpBody startupHelpBody">
       <div id="projectSharingMessage">
         <p>To share a design <b>with its editor groups preserved</b>, share the editable <b>project file</b> (<code>.fabric-project.json</code>) created with <b>Save</b> or <b>Save As</b>.</p>
-        <p><b>Export JSON</b> creates a flat, game-ready vinyl file. <b>It cannot preserve editor groups.</b></p>
-        <p><b>Do not add group structures to exported JSONs.</b> Grouped exports are incompatible with KFPS's entire importing mechanism, which requires flat vinyl layers.</p>
+        <p><b>Export JSON</b> creates a vinyl file for offline import. <b>Nested groups are included.</b></p>
+        <p><b>Offline exports preserve nested groups.</b> Interleaved groups are split to preserve drawing order. Live-memory transfers remain flat.</p>
         <p>Share the <b>project</b> for editing together. Use <b>Export JSON</b> for importing into a game through KFPS.</p>
       </div>
       <div class="startupConfirmBox">

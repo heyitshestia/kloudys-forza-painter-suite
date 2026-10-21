@@ -45,8 +45,7 @@ class GameAdapterDeclarationTests(unittest.TestCase):
             self.assertTrue(adapter.supports("live_import"))
             self.assertTrue(adapter.supports("live_export"))
             self.assertTrue(adapter.supports("offline_export"))
-        self.assertFalse(get_adapter("fh5").supports("offline_import"))
-        for key in ("fh4", "fh6", "fm8"):
+        for key in ("fh4", "fh5", "fh6", "fm8"):
             self.assertTrue(get_adapter(key).supports("offline_import"))
             self.assertTrue(get_adapter(key).offline_import_handler)
 
@@ -72,15 +71,16 @@ class GameAdapterDeclarationTests(unittest.TestCase):
         calls: list[Path] = []
         fake = SimpleNamespace(
             _create_fh6_layer_group_install_work=lambda path: calls.append(path) or {"game": "fh6"},
+            _create_fh5_layer_group_install_work=lambda path: calls.append(path) or {"game": "fh5"},
             _create_fh4_layer_group_install_work=lambda path: calls.append(path) or {"game": "fh4"},
             _create_fm8_layer_group_install_work=lambda path: calls.append(path) or {"game": "fm8"},
         )
-        for key in ("fh6", "fh4", "fm8"):
+        for key in ("fh6", "fh5", "fh4", "fm8"):
             result = CGroupLibraryService._create_folder_install_work(fake, source, key)
             self.assertEqual(key, result["game"])
-        self.assertEqual([source, source, source], calls)
-        with self.assertRaisesRegex(ValueError, "not available"):
-            CGroupLibraryService._create_folder_install_work(fake, source, "fh5")
+        self.assertEqual([source] * 4, calls)
+        self.assertIn("Steam", ADAPTERS["fh5"].offline_import_help)
+        self.assertIn("unverified", ADAPTERS["fh5"].offline_import_help)
 
 
 class GameAdapterDiscoveryTests(unittest.TestCase):

@@ -128,7 +128,7 @@
         objects.forEach((object,index)=>applyPath(object,shapePath(grouped.shapes[index])));
         scene.expand(id);
         scene.focus?.(id);
-        finish("group layers",tr("{0}: grouped {1} layer(s). Export remains flat.",name,objects.length));
+        finish("group layers",tr("{0}: grouped {1} layer(s).",name,objects.length));
         return true;
       },
       async renameLayer() {
@@ -152,11 +152,11 @@
         if(!objects.length){view.status(tr("Selected group has no editable layers."));return false;}
         const current=scene.groupName(objects[0],ids[0]),generation=edits.generation();
         const name=await requestName(tr("Rename Editor Group"),tr("Group name"),current,
-          tr("Groups organize the project only. The exported game JSON remains a flat layer list."));
+          tr("Offline vinyl exports preserve groups. Interleaved groups are split to keep drawing order; live imports remain flat."));
         if(name===null||!valid(generation,objects)||objects.some(object=>!objectPath(object).some(group=>group.id===ids[0])))return false;
         const cleaned=String(name).trim().slice(0,64)||current;
         objects.forEach(object=>applyPath(object,objectPath(object).map(group=>group.id===ids[0]?{...group,name:cleaned}:group)));
-        finish("rename group",tr("Renamed editor group to {0}. Export remains flat.",cleaned));
+        finish("rename group",tr("Renamed editor group to {0}.",cleaned));
         return true;
       },
       ungroup() {

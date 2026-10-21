@@ -507,7 +507,11 @@ class EditorService(QObject):
             )
         self.changed.emit()
 
-    def _launch(self, project: str, mode: str):
+    @Slot(str)
+    def launchJson(self, path: str):
+        self._launch("", "activate", json_path=path)
+
+    def _launch(self, project: str, mode: str, *, json_path: str | None = None):
         if self._closed:
             return
         if self._launching:
@@ -538,6 +542,23 @@ class EditorService(QObject):
                 self.changed.emit()
                 return
 
+        json_id = ""
+        if json_path is not None:
+            try:
+                candidate = Path(json_path).resolve()
+                roots = (self.paths.generated_root, self.paths.editor_json_root,
+                         self.paths.exported_root, self.paths.library_root)
+                if (not json_path or candidate.suffix.lower() != ".json" or not candidate.is_file()
+                        or not any(candidate.is_relative_to(root.resolve()) for root in roots)):
+                    raise ValueError("Choose an existing JSON from the Outputs folders.")
+                json_id = candidate.relative_to(self.paths.app_root.resolve()).as_posix()
+            except (OSError, ValueError) as exc:
+                self._last_error = str(exc)
+                self._status = "The selected JSON cannot be opened."
+                self.log.append(self._last_error, "error")
+                self.changed.emit()
+                return
+
         self._launching = True
         self._last_error = ""
         self._status = "Opening the editor window..."
@@ -545,7 +566,7 @@ class EditorService(QObject):
         try:
             self._start_thread(
                 target=self._launch_worker,
-                args=(launcher, project_id, mode),
+                args=(launcher, project_id, mode, json_id) if json_id else (launcher, project_id, mode),
                 name="kfps-editor-launch",
             )
         except Exception as exc:
@@ -570,11 +591,12 @@ class EditorService(QObject):
             raise
         return worker
 
-    def _launch_worker(self, launcher: Path, project_id: str, mode: str):
+    def _launch_worker(self, launcher: Path, project_id: str, mode: str, json_id: str = ""):
         try:
             if self._cancel_event.is_set():
                 return
-            message = launch_editor(self.paths, project_id, mode or "activate", self._cancel_event)
+            options = {"json_id": json_id} if json_id else {}
+            message = launch_editor(self.paths, project_id, mode or "activate", self._cancel_event, **options)
             if not self._closed:
                 self.launchCompleted.emit(True, "", message)
         except Exception as exc:

@@ -14,6 +14,7 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 def main() -> int:
     parser = argparse.ArgumentParser(description="KFPS Vinyl Editor")
     parser.add_argument("--project-id", default="")
+    parser.add_argument("--json-id", default="", help="Open a JSON from the Outputs folders.")
     parser.add_argument("--mode", choices=("activate", "new", "json", "tutorial"), default="activate")
     parser.add_argument("--runtime-root", type=Path, help="Editor data directory; defaults to the installation runtime/fabric-editor directory.")
     parser.add_argument("--from-kfps", action="store_true", help=argparse.SUPPRESS)
@@ -55,10 +56,10 @@ def main() -> int:
             os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = str(args.test_debug_port)
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--remote-allow-origins=*"
         from .ipc import forward_request, instance_name, validate_request, wait_until_ready
-        request = validate_request({"project": args.project_id, "mode": args.mode})
+        request = validate_request({"project": args.project_id, "json": args.json_id, "mode": args.mode})
         if args.background:
             request["background"] = True
-        record_startup(runtime, "launch-request", mode=args.mode, has_project=bool(args.project_id),
+        record_startup(runtime, "launch-request", mode=args.mode, has_project=bool(args.project_id), has_json=bool(args.json_id),
                        from_kfps=args.from_kfps, background=args.background,
                        display_host="chrome" if chrome else "desktop")
         name = instance_name(APP_ROOT, runtime)

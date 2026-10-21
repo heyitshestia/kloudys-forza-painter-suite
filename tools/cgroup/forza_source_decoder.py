@@ -2074,10 +2074,14 @@ def decompose_matrix(matrix: list[list[float]]) -> tuple[float, float, float, fl
     return x, y, sx, sy, normalize_rotation(math.degrees(rotation)), skew
 
 
-def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = None) -> list[dict[str, Any]]:
+def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = None,
+                 *, preserve_groups: bool = False) -> list[dict[str, Any]]:
     layers: list[dict[str, Any]] = []
+    group_serial = 0
 
-    def walk(node: GroupNode, parent_matrix: list[list[float]], inherited_mask: bool, inherited_section: str | None) -> None:
+    def walk(node: GroupNode, parent_matrix: list[list[float]], inherited_mask: bool,
+             inherited_section: str | None, path: tuple = ()) -> None:
+        nonlocal group_serial
         current_section = node.section or inherited_section
         current_mask = inherited_mask or node.mask
         node_matrix = matmul(parent_matrix, group_matrix(node.transform))
@@ -2099,10 +2103,15 @@ def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = No
                         "section": item.section or current_section or section,
                         "is_raster_logo": item.is_raster_logo,
                         "raster_id": item.raster_id,
+                        **({"editor_group_path": [{"id": key, "name": name} for key, name in path]}
+                           if preserve_groups and path else {}),
                     }
                 )
             else:
-                walk(item, node_matrix, current_mask, current_section)
+                group_serial += 1
+                key = f"native-{section}-group-{group_serial}" if section else f"native-group-{group_serial}"
+                child_path = (*path, (key, f"Group {group_serial}")) if preserve_groups else ()
+                walk(item, node_matrix, current_mask, current_section, child_path)
 
     walk(root, affine(1.0, 0.0, 0.0, 0.0, 1.0, 0.0), False, section)
     return layers
@@ -2110,7 +2119,7 @@ def flatten_tree(root: GroupNode, layer_start: int = 0, section: str | None = No
 
 def cgroup_to_layers(payload: bytes, game: str | None = "fh6") -> tuple[list[dict[str, Any]], dict[str, Any]]:
     root, layer_start, warnings, stats = build_cgroup_tree(payload, game=game)
-    layers = flatten_tree(root, layer_start=layer_start)
+    layers = flatten_tree(root, layer_start=layer_start, preserve_groups=True)
     return layers, {
         "source_kind": "cgroup",
         "payload_size": len(payload),
@@ -2251,7 +2260,8 @@ def inspect_clivery_privacy(payload: bytes) -> dict[str, Any]:
 
 
 def build_livery_sections(
-    body: bytes, counts: list[int], *, numeric_spans: list[tuple[int, int]] | None = None
+    body: bytes, counts: list[int], *, numeric_spans: list[tuple[int, int]] | None = None,
+    preserve_groups: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     warnings: list[str] = []
     layers: list[dict[str, Any]] = []
@@ -2326,7 +2336,15 @@ def build_livery_sections(
         # terminal state before flattening the section tree.
         if pos < end and body[pos] == 0x01:
             mark_previous_terminal_shape_as_mask(state)
-        decoded = flatten_tree(section_root, layer_start=0, section=name)
+        export_root = section_root
+        if preserve_groups and len(section_root.items) == 1:
+            envelope = section_root.items[0]
+            # A section's markerless envelope is structural, not a user group.
+            # Flattening from it still applies its transform and mask state.
+            if (isinstance(envelope, GroupNode) and envelope.source == "markerless"
+                    and envelope.offset == section_start):
+                export_root = envelope
+        decoded = flatten_tree(export_root, layer_start=0, section=name, preserve_groups=preserve_groups)
         if slot == 5:
             for layer in decoded:
                 data = layer.get("data") or []
@@ -2347,9 +2365,9 @@ def build_livery_sections(
     return layers, warnings
 
 
-def clivery_to_layers(payload: bytes) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def clivery_to_layers(payload: bytes, *, preserve_groups: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     body, counts, meta = extract_livery_payload(payload)
-    layers, warnings = build_livery_sections(body, counts)
+    layers, warnings = build_livery_sections(body, counts, preserve_groups=preserve_groups)
     return layers, {
         "source_kind": "clivery",
         "payload_size": len(payload),
@@ -2431,6 +2449,11 @@ def layers_to_kfps_json_layers(layers: Iterable[dict[str, Any]], game: str | Non
             shape["resource_normalized_for_game"] = game_key
         if layer.get("section"):
             shape["source_section"] = layer["section"]
+        if layer.get("editor_group_path"):
+            path = [dict(item) for item in layer["editor_group_path"]]
+            shape["editor_group_path"] = path
+            shape["editor_group_id"] = path[-1]["id"]
+            shape["editor_group_name"] = path[-1]["name"]
         matches = lookup.get(word, [])
         if normalized:
             for family, slot, name in matches:
@@ -2466,7 +2489,7 @@ def decode_forza_source(path: Path | str, allow_locked: bool = False, game: str 
     if kind == "cgroup":
         layers, report = cgroup_to_layers(payload, game=game_key)
     else:
-        layers, report = clivery_to_layers(payload)
+        layers, report = clivery_to_layers(payload, preserve_groups=True)
     json_layers, identity_warnings = layers_to_kfps_json_layers(layers, game=game_key)
     report["privacy_warnings"] = privacy_warnings
     report["identity_warnings"] = identity_warnings

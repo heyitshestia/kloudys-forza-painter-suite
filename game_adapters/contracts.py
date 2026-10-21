@@ -153,6 +153,13 @@ class GameAdapter:
         text = str(path).replace("\\", "/").casefold()
         if any(token.casefold() in text for token in strategy.package_tokens):
             return True
+        for folder in (path, *path.parents):
+            normalized = folder.as_posix().casefold()
+            if (strategy.local_ugc_relative
+                    and normalized.endswith("/" + "/".join(strategy.local_ugc_relative).casefold())):
+                return True
+            if any(folder.match(pattern) for pattern in strategy.package_globs):
+                return True
         app_id = strategy.steam_app_id
         return bool(app_id and (f"/{app_id}/" in text or text.endswith(f"/{app_id}/remote")))
 

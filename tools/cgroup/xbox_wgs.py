@@ -1,4 +1,4 @@
-"""Strict Xbox WGS container support for FH4 local vinyl groups.
+"""Strict Xbox WGS metadata and additive local vinyl-group writing.
 
 The FH4 Microsoft Store build stores each user-created vinyl group as a WGS
 container. This module owns that container format so the general C_group codec
@@ -11,7 +11,8 @@ The implementation is intentionally conservative:
 - the complete WGS account slot is backed up before any save-file write;
 - original files are fingerprinted and rechecked immediately before commit;
 - the new logical files are reopened and verified after the atomic index swap;
-- any failed verification restores the original index and removes the new entry.
+- failed verification restores our index and removes our new entry when safe;
+- failed/conflicting rollback retains recovery material and reports its location.
 """
 
 from __future__ import annotations
@@ -22,10 +23,11 @@ import re
 import shutil
 import struct
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 
 WGS_INDEX_VERSION = 0x0E
@@ -45,6 +47,10 @@ class WgsFormatError(ValueError):
 
 class WgsConcurrentChangeError(RuntimeError):
     """Raised when Xbox or another process changes the save during staging."""
+
+
+class WgsRecoveryRequiredError(RuntimeError):
+    """A retained backup is needed; automatic rollback could not finish safely."""
 
 
 class _Reader:
@@ -112,16 +118,18 @@ def _u64(value: int) -> bytes:
 
 def _utf16(value: str) -> bytes:
     text = str(value)
-    if len(text) > MAX_WGS_STRING_CHARS:
+    encoded = text.encode("utf-16le")
+    units = len(encoded) // 2
+    if units > MAX_WGS_STRING_CHARS:
         raise WgsFormatError(f"WGS metadata string is too long ({len(text)} characters)")
-    return _u32(len(text)) + text.encode("utf-16le")
+    return _u32(units) + encoded
 
 
 def _fixed_utf16(value: str, characters: int = WGS_FILE_NAME_CHARS) -> bytes:
     text = str(value)
-    if len(text) > characters:
-        raise WgsFormatError(f"WGS logical filename is too long: {text!r}")
     encoded = text.encode("utf-16le")
+    if len(encoded) > characters * 2:
+        raise WgsFormatError(f"WGS logical filename is too long: {text!r}")
     return encoded + b"\x00" * (characters * 2 - len(encoded))
 
 
@@ -317,8 +325,12 @@ def parse_wgs_file_list(path: Path | str, *, require_files: bool = True) -> WgsF
     if count > MAX_WGS_FILES:
         raise WgsFormatError(f"{source} declares an unreasonable file count {count}")
     entries: list[WgsFileEntry] = []
+    names: set[str] = set()
     for _ in range(count):
         name = reader.fixed_utf16(WGS_FILE_NAME_CHARS)
+        if not name or name.casefold() in names or any(c in name for c in "\x00/\\"):
+            raise WgsFormatError(f"{source} has an invalid or duplicate logical filename {name!r}")
+        names.add(name.casefold())
         primary = reader.guid_le()
         secondary = reader.guid_le()
         primary_path = source.parent / primary.hex.upper()
@@ -454,16 +466,53 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _slot_snapshot(slot: Path) -> dict[str, tuple[int, str]]:
+def _slot_snapshot(slot: Path, *, exclude: Iterable[Path] = ()) -> dict[str, tuple[int, str]]:
     snapshot: dict[str, tuple[int, str]] = {}
+    excluded = tuple(exclude)
     for path in sorted(slot.rglob("*")):
+        if any(path == item or item in path.parents for item in excluded):
+            continue
+        if path.is_symlink() or path.is_junction():
+            raise WgsFormatError(f"WGS slot contains a linked path: {path}")
         if not path.is_file():
             continue
         relative = path.relative_to(slot)
-        if any(".kfps" in part.casefold() for part in relative.parts):
-            continue
         snapshot[relative.as_posix()] = (path.stat().st_size, _file_sha256(path))
     return snapshot
+
+
+@contextmanager
+def _slot_write_lock(slot: Path):
+    # Shared by KFPS installations in this Windows session, not by Xbox/cloud sync.
+    if os.name != "nt":
+        raise WgsFormatError("WGS save writing is supported on Windows only")
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+    kernel.CreateMutexW.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.ReleaseMutex.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    key = hashlib.sha256(str(slot).casefold().encode("utf-8")).hexdigest()
+    handle = kernel.CreateMutexW(None, False, "Local\\KFPS.WGS." + key)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    acquired = False
+    try:
+        state = kernel.WaitForSingleObject(handle, 0)
+        if state == 0x102:
+            raise WgsConcurrentChangeError("Another KFPS process is writing this WGS account slot")
+        if state not in (0, 0x80):
+            raise ctypes.WinError(ctypes.get_last_error())
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            kernel.ReleaseMutex(handle)
+        kernel.CloseHandle(handle)
 
 
 def _write_bytes_fsync(path: Path, data: bytes) -> None:
@@ -506,7 +555,7 @@ def _unique_container_name(index: WgsIndex, now: datetime) -> tuple[str, datetim
         if name.casefold() not in existing:
             return name, candidate_time
         candidate_time += timedelta(seconds=1)
-    raise WgsFormatError("Could not allocate a unique FH4 LayerGroup name")
+    raise WgsFormatError("Could not allocate a unique WGS LayerGroup name")
 
 
 def create_wgs_layer_group(
@@ -518,39 +567,71 @@ def create_wgs_layer_group(
     thumbnail_data: bytes,
     backup_root: Path | str,
     now: datetime | None = None,
+    check_ready: Callable[[], None] | None = None,
+    verify: Callable[[Path, Path, Path], None] | None = None,
 ) -> WgsCreateResult:
     """Create and verify a new WGS layer-group container.
 
-    The caller must ensure FH4 is closed before invoking this function.
+    The caller must ensure the game is closed. check_ready may raise for a
+    cancellation or game start; it is checked before publishing the index.
+    verify runs on staged and committed files, inside the rollback boundary.
     """
 
-    slot = Path(slot_path).resolve()
-    if not slot.is_dir() or not (slot / "containers.index").is_file():
-        raise WgsFormatError(f"FH4 WGS slot is missing containers.index: {slot}")
-    if template.slot_path.resolve() != slot:
-        raise WgsFormatError("FH4 WGS template belongs to a different account slot")
-    if not cgroup_data or not header_data or not thumbnail_data:
-        raise WgsFormatError("FH4 WGS import requires C_group, header, and thumbnail data")
+    source_slot = Path(slot_path)
+    if source_slot.is_symlink() or source_slot.is_junction():
+        raise WgsFormatError("A linked WGS account slot is not a supported write destination")
+    slot = source_slot.resolve()
+    with _slot_write_lock(slot):
+        return _create_wgs_layer_group_locked(
+            slot, template, cgroup_data=cgroup_data, header_data=header_data,
+            thumbnail_data=thumbnail_data, backup_root=backup_root, now=now,
+            check_ready=check_ready, verify=verify,
+        )
 
+
+def _create_wgs_layer_group_locked(
+    slot: Path, template: WgsLayerGroup, *, cgroup_data: bytes, header_data: bytes,
+    thumbnail_data: bytes, backup_root: Path | str, now: datetime | None,
+    check_ready: Callable[[], None] | None, verify: Callable[[Path, Path, Path], None] | None,
+) -> WgsCreateResult:
+    def ready() -> None:
+        if check_ready is not None:
+            check_ready()
+
+    ready()
+    if not slot.is_dir() or not (slot / "containers.index").is_file():
+        raise WgsFormatError(f"WGS slot is missing containers.index: {slot}")
+    if template.slot_path.resolve() != slot:
+        raise WgsFormatError("WGS template belongs to a different account slot")
+    if not cgroup_data or not header_data or not thumbnail_data:
+        raise WgsFormatError("WGS import requires C_group, header, and thumbnail data")
+    backup_root = Path(backup_root).resolve()
+    if backup_root == slot or slot in backup_root.parents:
+        raise WgsFormatError("The safety backup must be outside the WGS account slot")
+
+    original_snapshot = _slot_snapshot(slot)
     index_path = slot / "containers.index"
     original_index_bytes = index_path.read_bytes()
     index = parse_wgs_index_bytes(original_index_bytes, index_path)
     roundtrip = serialize_wgs_index(index)
     if roundtrip != original_index_bytes:
-        raise WgsFormatError("FH4 containers.index failed the byte-for-byte round-trip safety gate")
+        raise WgsFormatError("WGS containers.index failed the byte-for-byte round-trip safety gate")
     template_folder = next(
         (folder for folder in index.folders if folder.folder_guid == template.folder.folder_guid),
         None,
     )
-    if template_folder is None:
-        raise WgsFormatError("FH4 template layer group is no longer present in containers.index")
+    if template_folder != template.folder:
+        raise WgsConcurrentChangeError("WGS template changed or is no longer registered")
+    active_descriptor = slot / template_folder.directory_name / f"container.{template_folder.sequence}"
+    if template.file_list.path.resolve() != active_descriptor.resolve():
+        raise WgsFormatError("WGS template is not the active registered descriptor")
     template_file_bytes = template.file_list.path.read_bytes()
     parsed_template_files = parse_wgs_file_list(template.file_list.path)
     if serialize_wgs_file_list(
         parsed_template_files.sequence,
         ((item.name, item.primary_guid, item.secondary_guid) for item in parsed_template_files.entries),
     ) != template_file_bytes:
-        raise WgsFormatError("FH4 container file list failed the byte-for-byte round-trip safety gate")
+        raise WgsFormatError("WGS container file list failed the byte-for-byte round-trip safety gate")
 
     moment = now or datetime.now().astimezone()
     if moment.tzinfo is None:
@@ -589,20 +670,31 @@ def create_wgs_layer_group(
         folders=index.folders + (new_folder,),
     )
     new_index_bytes = serialize_wgs_index(new_index)
-    parsed_new_index = parse_wgs_index_bytes(new_index_bytes, "staged FH4 containers.index")
+    parsed_new_index = parse_wgs_index_bytes(new_index_bytes, "staged WGS containers.index")
     if serialize_wgs_index(parsed_new_index) != new_index_bytes:
-        raise WgsFormatError("Staged FH4 containers.index failed independent reserialization")
+        raise WgsFormatError("Staged WGS containers.index failed independent reserialization")
 
-    original_snapshot = _slot_snapshot(slot)
-    backup = _unique_backup_path(Path(backup_root), slot, moment)
-    shutil.copytree(slot, backup)
     if _slot_snapshot(slot) != original_snapshot:
-        raise WgsConcurrentChangeError("FH4 save changed while KFPS was making the safety backup; no import was written")
+        raise WgsConcurrentChangeError("WGS save changed during preflight; no import was written")
+    backup = _unique_backup_path(backup_root, slot, moment)
+
+    def copy_checked(source, destination):
+        ready()
+        result = shutil.copy2(source, destination)
+        ready()
+        return result
+
+    shutil.copytree(slot, backup, copy_function=copy_checked)
+    if _slot_snapshot(slot) != original_snapshot:
+        raise WgsConcurrentChangeError("WGS save changed while KFPS was making the safety backup; no import was written")
+    if _slot_snapshot(backup) != original_snapshot:
+        raise WgsFormatError(f"WGS safety backup failed byte verification: {backup}")
+    ready()
 
     final_folder = slot / folder_guid.hex.upper()
     staging_folder = slot / f".{folder_guid.hex.upper()}.kfps-{uuid.uuid4().hex}.tmp"
-    index_replaced = False
     folder_committed = False
+    new_files_snapshot: dict[str, tuple[int, str]] = {}
     try:
         staging_folder.mkdir()
         _write_bytes_fsync(staging_folder / cgroup_guid.hex.upper(), cgroup_data)
@@ -619,33 +711,48 @@ def create_wgs_layer_group(
         for logical_name, expected_data in expected_staged.items():
             staged_path = staged_files.get(logical_name)
             if staged_path is None or staged_path.read_bytes() != expected_data:
-                raise WgsFormatError(f"Staged FH4 logical file failed verification: {logical_name}")
+                raise WgsFormatError(f"Staged WGS logical file failed verification: {logical_name}")
+        if verify is not None:
+            verify(staged_files["c_group"], staged_files["header"], staged_files["thumb.png"])
+        new_files_snapshot = _slot_snapshot(staging_folder)
 
-        if _slot_snapshot(slot) != original_snapshot:
-            raise WgsConcurrentChangeError("FH4 save changed while KFPS was staging the import; no import was committed")
-        os.replace(staging_folder, final_folder)
+        ready()
+        if _slot_snapshot(slot, exclude=(staging_folder,)) != original_snapshot:
+            raise WgsConcurrentChangeError("WGS save changed while KFPS was staging the import; no import was committed")
+        # Windows rename refuses an existing destination, including a new empty folder.
+        os.rename(staging_folder, final_folder)
         folder_committed = True
+        ready()
+        if _slot_snapshot(slot, exclude=(final_folder,)) != original_snapshot:
+            raise WgsConcurrentChangeError("WGS save changed immediately before index publication")
         _replace_bytes_fsync(index_path, new_index_bytes)
-        index_replaced = True
 
         verified_index = read_wgs_index(slot)
-        if len(verified_index.folders) != len(index.folders) + 1:
-            raise WgsFormatError("FH4 containers.index did not retain the new layer group")
+        if verified_index != new_index or index_path.read_bytes() != new_index_bytes:
+            raise WgsFormatError("WGS containers.index did not retain the new layer group")
         verified_group = next(
             (group for group in read_wgs_layer_groups(slot) if group.folder.folder_guid == folder_guid),
             None,
         )
         if verified_group is None:
-            raise WgsFormatError("FH4 WGS import could not reopen the new layer group")
+            raise WgsFormatError("WGS import could not reopen the new layer group")
         cgroup_path = verified_group.cgroup_path
         header_path = verified_group.header_path
         thumbnail_path = verified_group.thumbnail_path
         if not cgroup_path or cgroup_path.read_bytes() != cgroup_data:
-            raise WgsFormatError("FH4 WGS import C_group verification failed")
+            raise WgsFormatError("WGS import C_group verification failed")
         if not header_path or header_path.read_bytes() != header_data:
-            raise WgsFormatError("FH4 WGS import header verification failed")
+            raise WgsFormatError("WGS import header verification failed")
         if not thumbnail_path or thumbnail_path.read_bytes() != thumbnail_data:
-            raise WgsFormatError("FH4 WGS import thumbnail verification failed")
+            raise WgsFormatError("WGS import thumbnail verification failed")
+        if verify is not None:
+            verify(cgroup_path, header_path, thumbnail_path)
+        if _slot_snapshot(final_folder) != new_files_snapshot:
+            raise WgsConcurrentChangeError("The new WGS container changed during verification")
+        expected_existing = dict(original_snapshot)
+        expected_existing["containers.index"] = (len(new_index_bytes), hashlib.sha256(new_index_bytes).hexdigest())
+        if _slot_snapshot(slot, exclude=(final_folder,)) != expected_existing:
+            raise WgsConcurrentChangeError("WGS save changed during post-commit verification")
         return WgsCreateResult(
             slot_path=slot,
             folder_path=final_folder,
@@ -655,14 +762,28 @@ def create_wgs_layer_group(
             thumbnail_path=thumbnail_path,
             backup_path=backup,
         )
-    except Exception:
-        if index_replaced:
+    except Exception as original_error:
+        if folder_committed:
             try:
-                _replace_bytes_fsync(index_path, original_index_bytes)
-            except OSError:
-                pass
-        if folder_committed and final_folder.is_dir():
-            shutil.rmtree(final_folder, ignore_errors=True)
+                current_index = index_path.read_bytes()
+                if _slot_snapshot(final_folder) != new_files_snapshot:
+                    raise WgsConcurrentChangeError("The new container changed; it was retained")
+                if current_index == new_index_bytes:
+                    expected = dict(original_snapshot)
+                    expected["containers.index"] = (len(new_index_bytes), hashlib.sha256(new_index_bytes).hexdigest())
+                    if _slot_snapshot(slot, exclude=(final_folder,)) != expected:
+                        raise WgsConcurrentChangeError("Another writer changed the slot; automatic rollback stopped")
+                    _replace_bytes_fsync(index_path, original_index_bytes)
+                elif current_index != original_index_bytes:
+                    raise WgsConcurrentChangeError("Another writer changed the index; automatic rollback stopped")
+                if index_path.read_bytes() != original_index_bytes:
+                    raise WgsFormatError("Restored WGS index did not verify")
+                shutil.rmtree(final_folder)
+            except Exception as rollback_error:
+                raise WgsRecoveryRequiredError(
+                    f"WGS import failed ({original_error}); rollback could not finish ({rollback_error}). "
+                    f"Close the game before recovery. Safety backup: {backup}; retained container: {final_folder}."
+                ) from rollback_error
         raise
     finally:
         if staging_folder.is_dir():

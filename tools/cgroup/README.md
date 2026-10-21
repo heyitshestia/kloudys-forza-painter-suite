@@ -8,6 +8,10 @@ New format changes still require in-game qualification.
 
 - `shape_identity.py`: canonical shape identity helpers.
 - `cgroup_codec.py`: flat `C_group` encoder/decoder.
+- `vinyl_document.py`: validated, ordered nested-group encoder used by offline
+  KFPS imports. Flat documents retain their existing encoding; masked leaves
+  with zero alpha are retained. Geometry, colours, masks and order are checked
+  through the independent native decoder before any save write.
 - `export_kfps_json_to_cgroup.py`: KFPS JSON to flat `C_group`.
 - `import_cgroup_to_kfps_json.py`: flat `C_group` to KFPS JSON.
 - `audit_shape_identity.py`: identity conflict and round-trip report.
@@ -17,8 +21,11 @@ New format changes still require in-game qualification.
   to KFPS JSON.
 - `find_forza_sources.py`: helper to locate `C_group`/`C_livery` files under
   common Windows save/download/desktop roots.
-- `xbox_wgs.py`: strict FH4 Microsoft Store/Xbox WGS metadata reader and
-  additive layer-group writer.
+- `xbox_wgs.py`: strict Microsoft Store/Xbox WGS metadata reader and additive
+  layer-group writer, with full selected-slot backups and guarded rollback.
+- `fh5_offline.py`: explicitly selected FH5 WGS test imports, own-account
+  validation and fresh v6 headers. Native game/cloud acceptance is unverified;
+  this does not enable Steam, Helium or PGS writes.
 - `fh6_identity.py`: current-account verification and fresh FH6 vinyl headers.
 
 ## FH6 Vinyl Header Safety Contract
@@ -84,9 +91,36 @@ Before an offline import commits anything, KFPS requires all of the following:
 - The final index replacement is atomic and the committed logical files reopen
   with their exact staged bytes.
 
-Any staging or verification failure removes the new container and restores the
-original index. FH4 WGS import is intentionally additive; KFPS does not replace
-or delete an existing FH4 vinyl group.
+Handled staging/verification failures restore the original index and remove the
+new container only when the state still belongs to this operation. If another
+writer changed it, or rollback fails, KFPS preserves recovery material and reports
+its exact location instead of overwriting newer data. FH4 WGS import is additive;
+KFPS does not replace or delete an existing FH4 vinyl group. A Windows-session
+mutex serializes cooperating KFPS writers, but cannot lock out Xbox cloud sync.
+These checks do not make the operation power-loss-proof.
+
+## FH5 Test Import and Group Preservation
+
+The UI's **FH5 WGS Import (Test)** action requires explicit confirmation and the
+active `container.N` of an owned Microsoft Store/Xbox vinyl. FH5 must be closed,
+with cloud synchronization finished. The UI asks the user to confirm sync state;
+it cannot detect that state automatically. Identity, package, active descriptor,
+blob layout, header/count and unchanged source evidence must agree. The entire
+account slot is backed up and byte-verified before publishing a new entry.
+Use live import for FH4/FH5 Steam installations. FH6/FM8 retain their existing
+supported local-save paths and do not gain a game-closed gate for additive imports.
+
+Editor JSON exports now carry optional existing `editor_group_*` fields without
+changing the flat shape array. Offline import preserves nested grouping; live
+import remains flat. Native formats do not store our editor group names, so a
+save-library scan regenerates generic names. Interleaved groups split into
+contiguous groups to preserve drawing order, with a warning in the log.
+Explicit boolean/0-or-1 mask fields retain precedence over the legacy data slot;
+malformed flags and conflicting explicit aliases are rejected.
+
+Studio's section-vinyl JSON export preserves individual placements as groups and
+uses the same preflight validation. Full-car native authoring restrictions remain
+unchanged. See `docs/OFFLINE-TRANSFER-IMPROVEMENTS.md` for tests and limitations.
 
 The format implementation was independently verified against local FH4 files.
 The following projects were used only as format-behavior references; no source
@@ -153,6 +187,12 @@ python -m tools.cgroup.export_forza_source_to_kfps_json \
 
 The exporter writes a sibling `.report.json` with decode details, warnings,
 section counts for `C_livery`, and ambiguous shape-word/resource matches.
+Both native vinyl and full-livery JSON extraction retain nested groups using the
+existing optional `editor_group_*` fields. Full-livery group IDs are distinct per
+section; `source_section` remains on each shape. Section envelopes are not exposed
+as user groups. Group names are generic because native saves do not store editor
+names. Existing flattened JSON must be re-extracted from the original save to
+recover grouping. The canonical livery package/render decoder stays unchanged.
 
 Privacy guard: by default the prototype refuses known locked payload markers:
 

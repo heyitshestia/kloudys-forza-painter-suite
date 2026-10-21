@@ -220,9 +220,9 @@ def layer_from_shape(shape: dict[str, Any], index: int, target_game: str | None 
     if legacy is not False:
         return legacy
     color = normalize_rgba(shape.get("color"))
-    if color[3] <= 0:
-        return None
     data = list(shape.get("data") or [])
+    if color[3] <= 0 and not shape_mask_flag(shape, data):
+        return None
     if len(data) < 5:
         raise ValueError(f"shape {index + 1} needs data [x,y,sx,sy,rotation]")
     while len(data) < 6:
@@ -270,7 +270,7 @@ def legacy_layer_from_shape(shape: dict[str, Any], index: int) -> CGroupLayer | 
     except (TypeError, ValueError) as exc:
         raise ValueError(f"legacy shape {index + 1} has invalid geometry data") from exc
     color = normalize_rgba(shape.get("color"))
-    if color[3] <= 0:
+    if color[3] <= 0 and not shape_mask_flag(shape, data):
         return None
     if type_code in LEGACY_RECTANGLE_TYPES:
         shape_word = LEGACY_RECTANGLE_WORD

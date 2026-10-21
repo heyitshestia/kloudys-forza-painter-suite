@@ -31,11 +31,13 @@ class HelpAccuracyTests(unittest.TestCase):
         self.assertIn("not the JSON shape count", tooltip)
         self.assertIn("not its group count", tooltip)
 
-    def test_fh5_export_is_not_fh5_import(self):
+    def test_fh5_import_is_labelled_experimental_and_store_specific(self):
         self.assertTrue(ADAPTERS["fh5"].capabilities.offline_export)
-        self.assertFalse(ADAPTERS["fh5"].capabilities.offline_import)
-        self.assertIn("fh5 offline export is available; fh5 offline import is not", self.text("export-games"))
-        self.assertIn("microsoft store/xbox wgs", self.text("export-games"))
+        self.assertTrue(ADAPTERS["fh5"].capabilities.offline_import)
+        for phrase in ("experimental", "steam (test)", "microsoft store/xbox wgs",
+                       "exit steam", "cloud synchronization", "in-game testing",
+                       "owned layergroup_", "remotecache.vdf"):
+            self.assertIn(phrase, self.text("export-games"))
 
     def test_free_transfers_keep_game_specific_save_guards(self):
         text = self.text("export-games")
@@ -65,7 +67,8 @@ class HelpAccuracyTests(unittest.TestCase):
         self.assertIn("EDITOR_REFERENCE_MAX_BYTES = 100 * 1024 * 1024", source)
         for phrase in ("100 mib", "150 mib", "75 mib", "79 mb", "no 16-megapixel"):
             self.assertIn(phrase, self.text("editor-snapping"))
-        self.assertIn("cannot preserve editor groups", self.text("editor-export"))
+        self.assertIn("optional group metadata", self.text("editor-export"))
+        self.assertIn("live-memory transfers remain flat", self.text("editor-export"))
         self.assertIn("kfps editor.exe", self.text("editor-overview"))
         self.assertIn("before a checkpoint finishes", self.text("editor-history"))
 

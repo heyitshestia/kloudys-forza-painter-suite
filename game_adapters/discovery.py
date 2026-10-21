@@ -180,40 +180,36 @@ def discover_save_roots(adapter: GameAdapter, cached_roots: Iterable[Path] = ())
 
 def is_xbox_game_save_root(root: Path) -> bool:
     text = str(root).replace("\\", "/").casefold().rstrip("/")
-    return "/xboxgames/gamesave" in text
+    return text.endswith("/xboxgames/gamesave") or "/xboxgames/gamesave/" in text
 
 
 def targeted_xbox_layer_groups(root: Path) -> list[Path]:
     text = str(root).replace("\\", "/").casefold().rstrip("/")
-    if text.endswith("/xboxgames/gamesave"):
-        pgs_roots = [root / "pgs"]
-    elif text.endswith("/xboxgames/gamesave/pgs"):
-        pgs_roots = [root]
-    else:
+    if not is_xbox_game_save_root(root):
         return []
-    paths: list[Path] = []
-    for pgs in pgs_roots:
-        if not pgs.exists():
-            continue
-        try:
-            users = [item for item in pgs.iterdir() if item.is_dir()]
-        except OSError:
-            continue
-        for user_folder in users:
+    tail = text.rsplit("/xboxgames/gamesave", 1)[1].strip("/")
+    parts = tail.split("/") if tail else []
+    if (len(parts) > 5 or (parts and parts[0] != "pgs")
+            or (len(parts) >= 4 and parts[3] != "containersroot")
+            or (len(parts) == 5 and not parts[4].startswith("layergroup_"))):
+        return []
+    # Start at the selected subtree, never at a sibling account or save slot.
+    folders = [root]
+    for depth in range(len(parts), 5):
+        children = []
+        for folder in folders:
             try:
-                save_slots = [item for item in user_folder.iterdir() if item.is_dir()]
+                if depth in (0, 3):
+                    candidate = folder / ("pgs" if depth == 0 else "ContainersRoot")
+                    if candidate.is_dir():
+                        children.append(candidate)
+                else:
+                    children.extend(item for item in folder.iterdir() if item.is_dir()
+                                    and (depth != 4 or item.name.casefold().startswith("layergroup_")))
             except OSError:
                 continue
-            for slot in save_slots:
-                containers = slot / "ContainersRoot"
-                if not containers.is_dir():
-                    continue
-                try:
-                    groups = [item for item in containers.iterdir() if item.is_dir() and item.name.startswith("LayerGroup_")]
-                except OSError:
-                    continue
-                paths.extend(group / "C_group" for group in groups)
-    return paths
+        folders = children
+    return [folder / "C_group" for folder in folders]
 
 
 def targeted_fh4_wgs_layer_groups(root: Path) -> list[Path]:

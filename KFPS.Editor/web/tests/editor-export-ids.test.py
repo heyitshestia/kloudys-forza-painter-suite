@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT / "KFPS.Editor/src"), str(ROOT)]
 from kfps_editor import server as module
 
-EVIDENCE = ROOT.parent / "livery/runs/20261018-confirm-transfer/editor-tips/export-ids"
+EVIDENCE = ROOT / "runtime/test-runs/editor-export-ids"
 PAYLOAD = {"shapes": [{"type": 1048677, "color": [70, 160, 210, 220],
                        "data": [2, -3, 1, .8, 17, .12, 0]}]}
 
@@ -208,6 +208,14 @@ class ExportIdTests(unittest.TestCase):
 
     def test_actual_http_export_list_preview_load_receipt_legacy_root(self):
         self.exercise_http(legacy=True)
+
+    def test_nested_groups_survive_http_export_reopen_and_receipt_recovery(self):
+        shapes = [{**PAYLOAD["shapes"][0], "editor_group_id": "inner", "editor_group_name": "Inner",
+                   "editor_group_path": [{"id": "outer", "name": "Outer"}, {"id": "inner", "name": "Inner"}]}]
+        shapes.append({**PAYLOAD["shapes"][0], "editor_group_id": "outer", "editor_group_name": "Outer"})
+        shapes.append(dict(PAYLOAD["shapes"][0]))
+        with patch.dict(globals(), PAYLOAD={"shapes": shapes}):
+            self.exercise_http()
 
     @unittest.skipUnless(os.name == "nt" and ROOT.drive.upper() == "E:", "Windows E/C path semantics")
     def test_actual_http_export_list_preview_load_receipt_cross_drive(self):

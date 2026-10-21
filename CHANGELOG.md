@@ -1,5 +1,18 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.113
+
+### Keep Your Groups Together
+
+- Finished editor JSON exports now keep nested groups. Offline transfers for FH4, FH5, FH6 and FM8 retain that structure, and extracting owned game vinyls brings the groups back into the editor. Existing flat files still work. Live-memory transfers are unchanged and remain flat.
+- Fixed the native framing that caused FH6 to reject grouped Studio section exports. The corrected sections were checked in-game on four cars for alignment and ungrouping, and an editor-made nested vinyl completed its FH6 round trip. Game-saved groups can come back with generic names and without an outer placement wrapper.
+- Studio section exports keep each placed vinyl together and check the file before export. This does not unlock the separate experimental full-car authoring exporter.
+- Right-click a JSON in Outputs and choose **Open in Editor**. It uses your normal native or Chrome setting, asks before replacing unsaved work, and leaves the original file alone.
+- Added **Steam (Test)** offline import destinations for FH4/FH5 and **FH5 WGS Import (Test)** for Microsoft Store/Xbox saves. These add new vinyls with verified backups, not replacements. Their game-library and cloud-sync acceptance still needs in-game testing; the warnings and Test labels stay visible.
+- Hardened offline validation, cancellation and rollback. Exports check nested membership as well as shape order, colours, masks and placement. Imports stop on changed saves or unrecognized formats and retain recovery information when rollback cannot safely finish.
+- Fixed PGS scans when you select an account, save slot, ContainersRoot or individual LayerGroup folder. Overlapping roots no longer duplicate results. Recognized FH4 save folders avoid the generic scan cutoff, and FM8 remembers its native UGC location correctly.
+- Updated the editor's grouping guidance in English, Korean and Japanese. Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.112
 
 ### Studio Vinyl Preview Quality

@@ -20,7 +20,7 @@ def instance_name(app_root: Path, runtime: Path) -> str:
     return "kfps-editor-" + hashlib.sha256(identity.encode()).hexdigest()[:32]
 
 def validate_request(payload: object) -> dict:
-    if not isinstance(payload, dict) or set(payload) - {"project", "mode", "background"}:
+    if not isinstance(payload, dict) or set(payload) - {"project", "json", "mode", "background"}:
         raise ValueError("Invalid editor launch request.")
     project = payload.get("project", "")
     mode = payload.get("mode", "activate")
@@ -33,7 +33,18 @@ def validate_request(payload: object) -> dict:
         raise ValueError("Invalid editor launch mode.")
     if "background" in payload and type(payload["background"]) is not bool:
         raise ValueError("Invalid editor activation request.")
+    json_id = payload.get("json", "")
+    if not isinstance(json_id, str) or len(json_id) > 2048:
+        raise ValueError("Invalid editor JSON path.")
+    if json_id and (project or mode != "activate"
+                    or any(char in json_id for char in ("\\", ":", "\x00"))
+                    or any(part in {"", ".", ".."} for part in json_id.split("/"))
+                    or not json_id.lower().endswith(".json")
+                    or not json_id.startswith(("imgs/generated/", "imgs/editor/", "imgs/exported/", "imgs/library/", "@exports/"))):
+        raise ValueError("The requested JSON must be inside the Outputs folders.")
     request = {"project": project, "mode": mode}
+    if json_id:
+        request["json"] = json_id
     if payload.get("background"):
         request["background"] = True
     return request

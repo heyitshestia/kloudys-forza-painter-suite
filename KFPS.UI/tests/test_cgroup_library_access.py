@@ -20,7 +20,7 @@ sys.path.insert(0, str(UI / "src"))
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.cgroup_library_service import CGroupLibraryService
 from tools.cgroup.fh6_identity import build_vinyl_header, parse_vinyl_header
@@ -237,7 +237,7 @@ class OfflineLibraryAccessTests(unittest.TestCase):
                 self.assertEqual(before, snapshot(f.root / "saves"))
                 self.assertIsNone(f.service._pending_fh6_json)
 
-    def test_unsupported_game_and_missing_source_keep_validation_for_all_keys(self):
+    def test_declined_experimental_import_and_missing_source_write_nothing_for_all_keys(self):
         for name, unlocked in KEY_STATES:
             with self.subTest(key=name), self.fixture(unlocked) as f:
                 before = snapshot(f.account.containers)
@@ -246,8 +246,8 @@ class OfflineLibraryAccessTests(unittest.TestCase):
                 f.service.installSelectedJsonToFH6(missing)
                 self.assertIsNone(f.service._future)
                 f.dialog.assert_not_called()
-                f.service.createLayerGroupFromSelectedJson(str(f.source), "fh5")
-                self.assertEqual("FH5 offline import disabled", f.service.status)
+                with patch("kfps_ui.cgroup_library_service.QMessageBox.question", return_value=QMessageBox.No):
+                    f.service.createLayerGroupFromSelectedJson(str(f.source), "fh5")
                 self.assertIsNone(f.service._future)
                 self.unchanged(f, before)
 

@@ -24,6 +24,7 @@ Item {
     readonly property bool selectionCanMove: contextSelectionCanMove
 
     signal openFolderRequested(string path)
+    signal openEditorRequested(string path)
     signal cutRequested()
     signal copyRequested()
     signal pasteRequested(string destination)
@@ -81,6 +82,21 @@ Item {
         contentItem: ColumnLayout {
             id: contextColumn
             spacing: Theme.px(4)
+
+            GhostButton {
+                Layout.fillWidth: true
+                visible: root.contextPath.length > 0 && !root.contextIsFolder
+                         && !root.contextIsSource && root.contextSelectionCount === 1
+                text: "Open in Editor"
+                iconName: "editor"
+                dense: true
+                toolTipText: "Open this JSON in the vinyl editor. The original file stays unchanged."
+                onClicked: {
+                    var path = root.contextPath
+                    contextMenu.close()
+                    root.openEditorRequested(path)
+                }
+            }
 
             GhostButton {
                 Layout.fillWidth: true

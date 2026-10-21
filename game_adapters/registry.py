@@ -90,7 +90,7 @@ ADAPTERS: Dict[str, GameAdapter] = {
         label="Forza Horizon 5",
         short_label="FH5",
         aliases=("forza horizon 5",),
-        capabilities=GameCapabilities(True, True, False, True),
+        capabilities=GameCapabilities(True, True, True, True),
         stores=(MICROSOFT_STORE, STEAM),
         ownership=FAIL_CLOSED_OWNERSHIP,
         save_discovery=SaveDiscoveryStrategy(
@@ -113,13 +113,18 @@ ADAPTERS: Dict[str, GameAdapter] = {
             ("ForzaHorizon5.exe",),
             fixed_rtti_descriptor_names=(b"21530671058802", b"12610023981480"),
         ),
-        offline_import_handler="",
+        offline_import_handler="_create_fh5_layer_group_install_work",
         scan_notice=(
             "FH5's first save-library scan can take time with many vinyls because each group is decoded and its "
             "preview is prepared. Later scans reuse cached previews."
         ),
-        offline_import_summary="FH5 offline import is unavailable. Use online import with FH5 running.",
-        offline_import_help="FH5 local save-file importing is not available. Use online import with FH5 running.",
+        offline_import_summary="Experimental FH5 WGS or Steam import with a verified account backup.",
+        offline_import_help=(
+            "Test-only Microsoft Store/Xbox WGS import: close FH5, wait for cloud sync, and select your own "
+            "vinyl's active container.N. Adds a new vinyl after backing up the account slot; native game/cloud "
+            "acceptance is unverified. Steam users can choose Steam (Test) and select an owned vinyl header. "
+            "Helium and PGS writes are not supported."
+        ),
     ),
     "fh4": GameAdapter(
         key="fh4",
@@ -137,6 +142,7 @@ ADAPTERS: Dict[str, GameAdapter] = {
             package_tokens=("sunrisebasegame", "forzahorizon4"),
             package_markers=("wgs", "Helium"),
             steam_app_id="1293830",
+            unbounded_matching_walk=True,
         ),
         locator=LocatorStrategy("fh4_static_rtti", "packaged_final_build", True, False),
         shape_schema=ShapeSchemaCompatibility("fh4", "kfps_forza_json_v1"),
@@ -156,10 +162,11 @@ ADAPTERS: Dict[str, GameAdapter] = {
             "FH4 offline scan reads user-created vinyl groups from supported local saves. It does not edit the save "
             "or require FH4 to be running."
         ),
-        offline_import_summary="Creating a new FH4 vinyl group in the local Xbox WGS save container.",
+        offline_import_summary="Creating a new FH4 vinyl group in the selected WGS or Steam save format.",
         offline_import_help=(
             "With FH4 fully closed, create a new vinyl in the Microsoft Store/Xbox WGS save after backing up the "
-            "complete local slot."
+            "complete local slot. Steam users can choose Steam (Test), exit Steam after synchronization, "
+            "and select an owned vinyl header. Steam game/cloud acceptance remains unverified."
         ),
     ),
     "fm8": GameAdapter(

@@ -218,6 +218,7 @@ class EditorDesktop(QMainWindow):
         self.module._write_server_marker(port, self.server.editor_session_token, paths=self._server_paths)
         self._write_state("starting")
         query = (f"?project={quote(request['project'], safe='')}" if request["project"]
+                 else f"?json={quote(request['json'], safe='')}" if request.get("json")
                  else "?browse=json" if request["mode"] == "json"
                  else f"?mode={request['mode']}" if request["mode"] in {"new", "tutorial"} else "")
         self.url = QUrl(f"http://127.0.0.1:{port}/tools/fabric-editor/index.html#session={quote(self.server.editor_session_token, safe='')}")
@@ -345,7 +346,7 @@ class EditorDesktop(QMainWindow):
             self._write_state("starting")
             # Recreating Chromium's page can take longer than the IPC ACK budget.
             QTimer.singleShot(0, self.reload_editor)
-        if not request["project"] and request["mode"] == "activate":
+        if not request["project"] and not request.get("json") and request["mode"] == "activate":
             return
         self._queued_requests.append(request)
         self._dispatch_open()

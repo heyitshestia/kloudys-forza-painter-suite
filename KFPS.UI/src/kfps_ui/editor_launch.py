@@ -38,8 +38,8 @@ def editor_is_open(paths) -> bool:
 
 
 
-def launch_editor(paths, project: str = "", mode: str = "activate", cancelled=None, *, background=False) -> str:
-    request = validate_request({"project": project, "mode": mode or "activate"})
+def launch_editor(paths, project: str = "", mode: str = "activate", cancelled=None, *, background=False, json_id="") -> str:
+    request = validate_request({"project": project, "mode": mode or "activate", "json": json_id})
     if background:
         request["background"] = True
     runtime = paths.runtime_root / "fabric-editor"
@@ -57,6 +57,8 @@ def launch_editor(paths, project: str = "", mode: str = "activate", cancelled=No
         args.append("--background")
     if project:
         args.extend(["--project-id", project])
+    if json_id:
+        args.extend(["--json-id", json_id])
     args, env = launch_command(paths.app_root, entry, args, fallback=paths.python_executable)
     env["KFPS_APP_ROOT"] = str(paths.app_root)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

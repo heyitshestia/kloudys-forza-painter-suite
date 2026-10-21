@@ -37,6 +37,9 @@ class OutputContextMenuActionTests(unittest.TestCase):
             ):
                 (exported / name).write_text(payload, encoding="utf-8")
 
+            entry = app_root / "KFPS.UI" / "editor.py"
+            entry.parent.mkdir(parents=True, exist_ok=True)
+            entry.touch()
             report = app_root / "runtime" / "output-actions.json"
             environment = os.environ.copy()
             environment.update({

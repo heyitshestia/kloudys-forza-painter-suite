@@ -114,6 +114,10 @@ function startupBrowseMode() {
   }
 }
 
+function startupJsonId() {
+  return new URLSearchParams(window.location.search || "").get("json") || "";
+}
+
 const DEFAULT_SHORTCUTS = {
   selectTool: "V",
   shapeLibrary: "S",
@@ -3253,10 +3257,10 @@ function objectToShape(object, options = {}) {
     shape.editor_id = meta.editor_id || null;
     shape.editor_hidden = !objectEditorVisible(object);
     shape.editor_locked = Boolean(meta.locked);
-    shape.editor_group_id = meta.group_id || null;
-    shape.editor_group_name = meta.group_name || null;
-    if (meta.group_path?.length > 1) shape.editor_group_path = meta.group_path.map(group => ({ ...group }));
     if (meta.pixel_art_generated === true) shape.editor_pixel_art_generated = true;
+  }
+  if (includeEditorMeta || options.includeGroups === true) {
+    Object.assign(shape, KfpsEditorLayerGroups.fields(KfpsEditorLayerGroups.objectPath(object)));
   }
   return shape;
 }
@@ -6793,6 +6797,11 @@ async function addProjectPayloadNow(payload, displayName, context) {
 }
 
 async function loadStartupProjectFromQuery() {
+  if (startupJsonId()) {
+    try { await openOutputJson(startupJsonId()); }
+    catch (err) { showError(KfpsI18n.t("JSON browser import failed"), err); }
+    return false;
+  }
   const projectId = startupProjectId();
   if (!projectId) return false;
   setBusy(KfpsI18n.t("Loading selected project..."));
@@ -6806,6 +6815,20 @@ async function loadStartupProjectFromQuery() {
     clearBusy(KfpsI18n.t("Project load failed."));
     showError(KfpsI18n.t("Project load failed"), err);
     return false;
+  }
+}
+
+async function openOutputJson(id) {
+  const name = id.split("/").pop();
+  if (!await confirmWorkspaceReplacement(name)) return false;
+  const generation = beginDocumentLoad();
+  setBusy(KfpsI18n.t("Loading JSON: {0}", name));
+  await nextFrame();
+  try {
+    const data = await readEditorDocument(`${JSON_FILE_API}?id=${encodeURIComponent(id)}`);
+    return await loadPayload(data.payload, { generation, name: cleanProjectBaseName(name, "vinyl"), projectName: null });
+  } finally {
+    if (generation === documentGeneration) clearBusy();
   }
 }
 
@@ -8763,7 +8786,7 @@ async function exportJson() {
     if (generation !== documentGeneration) return;
     flushPendingNudgeHistory();
     if (refreshExportValidation().errors.length) return;
-    payload = { shapes: vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false })) };
+    payload = { shapes: vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false, includeGroups: true })) };
     if (!payload.shapes.length) return;
     result = await saveEditorJsonToAppFolder(exportName, payload);
     if (generation === documentGeneration) {
@@ -12227,7 +12250,7 @@ async function continueEditorStartup() {
     const url = new URL(location.href);
     url.searchParams.delete("mode");
     window.history.replaceState(null, "", url);
-  } else if (!startupProjectId() && !startupBrowseMode() && mode !== "tutorial") {
+  } else if (!startupProjectId() && !startupJsonId() && !startupBrowseMode() && mode !== "tutorial") {
     await maybeShowAutosaveRecovery();
   }
   if (startupBrowseMode() === "json") openJsonBrowser();
@@ -13422,6 +13445,8 @@ async function executeDesktopOperation(operation, payload = {}) {
     const data = await readEditorDocument(`${PROJECT_FILE_API}?id=${encodeURIComponent(payload.project)}`);
     if (!await loadProjectPayload(data.payload, data.name || "project", { generation, receipt: data.receipt })) return { cancelled: true };
     clearBusy(KfpsI18n.t("Loaded project: {0}", data.name || payload.project));
+  } else if (payload.json) {
+    if (!await openOutputJson(payload.json)) return { cancelled: true };
   } else if (payload.mode === "new") {
     await startBlankCanvas();
   } else if (payload.mode === "json") {

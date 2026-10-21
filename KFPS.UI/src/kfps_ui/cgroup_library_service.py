@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from game_adapters import get_adapter_or_default, iter_adapters
 from game_adapters import discovery as game_discovery
@@ -30,6 +30,13 @@ from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .preview_service import PreviewService
 from .qt_utils import safe_file_part
+
+
+def _log_offline_encoding(service, report: dict) -> None:
+    log = getattr(service, "log", None)
+    if log is not None:
+        for warning in report.get("warnings", []):
+            log.append(str(warning), level="warning")
 
 
 class CGroupLibraryService(QObject):
@@ -138,7 +145,8 @@ class CGroupLibraryService(QObject):
         )
         return (
             f"Online import/export auto-detects {live_games} when exactly one supported game is running. "
-            f"{offline_imports} also support offline import; {offline_exports} support offline save-library scanning."
+            f"{offline_imports} also support offline import; {offline_exports} support offline save-library scanning. "
+            "FH4/FH5 offer Microsoft Store/Xbox WGS and Steam destinations. Steam and FH5 WGS imports are test paths."
         )
 
     @Slot(str, str, result=bool)
@@ -146,14 +154,27 @@ class CGroupLibraryService(QObject):
         return get_adapter_or_default(game).supports(operation)
 
     @Slot(str, result=str)
-    def offlineImportLabel(self, game: str) -> str:
+    @Slot(str, str, result=str)
+    def offlineImportLabel(self, game: str, store: str = "wgs") -> str:
         adapter = get_adapter_or_default(game)
+        if store == "steam" and adapter.key in ("fh4", "fh5"):
+            return f"{adapter.short_label} Steam Import (Test)"
+        if adapter.key == "fh5":
+            return "FH5 WGS Import (Test)"
         if adapter.supports("offline_import"):
             return f"Offline Import to {adapter.short_label}"
         return f"{adapter.short_label} Offline Import Unavailable"
 
     @Slot(str, result=str)
-    def offlineImportHelp(self, game: str) -> str:
+    @Slot(str, str, result=str)
+    def offlineImportHelp(self, game: str, store: str = "wgs") -> str:
+        adapter = get_adapter_or_default(game)
+        if store == "steam" and adapter.key in ("fh4", "fh5"):
+            return (
+                "Select one of your own saved Steam vinyl headers. Adds a new vinyl after a verified account backup; "
+                "never replaces existing vinyls. Close the game, finish cloud sync and exit Steam first. "
+                "Game visibility and cloud synchronization still need in-game testing."
+            )
         return get_adapter_or_default(game).offline_import_help
 
     @Slot()
@@ -229,7 +250,8 @@ class CGroupLibraryService(QObject):
         self.createLayerGroupFromSelectedJson(json_path, "FH6")
 
     @Slot(str, str)
-    def createLayerGroupFromSelectedJson(self, json_path: str, game: str = "fh6"):
+    @Slot(str, str, str)
+    def createLayerGroupFromSelectedJson(self, json_path: str, game: str = "fh6", store: str = "wgs"):
         if self._closed or self._running:
             self.log.append("C_group folder install is already running.")
             return
@@ -240,12 +262,59 @@ class CGroupLibraryService(QObject):
         adapter = get_adapter_or_default(game)
         game_key = adapter.key
         game_label = adapter.short_label
+        if store not in ("wgs", "steam") or (store == "steam" and game_key not in ("fh4", "fh5")):
+            self.log.append("Choose a supported offline import destination.", "error")
+            return
         if not adapter.supports("offline_import") or not adapter.offline_import_handler:
             self._status = f"{adapter.short_label} offline import disabled"
             self._summary = adapter.offline_import_summary
             self.changed.emit()
             self.log.append(adapter.offline_import_help, "error")
             return
+        destination = None
+        if store == "steam":
+            answer = QMessageBox.question(
+                None, f"Experimental {game_label} Steam import",
+                "This adds a new vinyl and keeps a verified backup of the selected Steam save account. "
+                "No existing vinyl, game profile or Steam cloud metadata will be replaced.\n\n"
+                f"Close {game_label}, wait for cloud synchronization to finish, then exit Steam. "
+                "Next, select the .header file of one of your own saved vinyl groups. "
+                "Game visibility and cloud synchronization of new files are not yet confirmed.\n\n"
+                "Are the game and Steam closed, and do you want to test this import?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes or self._closed:
+                return
+            roots = game_discovery.discover_steam_remote_roots(adapter.save_discovery.steam_app_id)
+            selected, _ = QFileDialog.getOpenFileName(
+                None, f"Choose your {game_label} Steam vinyl's .header file",
+                str(roots[0] if roots else self.paths.app_root), "Steam vinyl header (LayerGroup_*.header)",
+            )
+            if not selected or self._closed:
+                return
+            destination = Path(selected)
+        elif game_key == "fh5":
+            answer = QMessageBox.question(
+                None, "Experimental FH5 Microsoft Store/Xbox import",
+                "This adds a new vinyl and keeps a verified backup of the entire selected WGS account slot. "
+                "Game visibility and cloud synchronization are not yet confirmed. This destination is WGS, not Steam.\n\n"
+                "Close FH5 and wait for Xbox cloud synchronization to finish. Select the container.N file "
+                "of one of your own saved vinyl groups next. No existing vinyl will be replaced.\n\n"
+                "Is FH5 closed and synchronization finished, and do you want to test this import?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes or self._closed:
+                return
+            start = Path(os.environ.get("LOCALAPPDATA", str(self.paths.app_root))) / "Packages" / (
+                "Microsoft.624F8B84B80_8wekyb3d8bbwe/SystemAppData/wgs"
+            )
+            selected, _ = QFileDialog.getOpenFileName(
+                None, "Choose your FH5 vinyl's active container.N file",
+                str(start if start.exists() else self.paths.app_root), "WGS container (container.*)",
+            )
+            if not selected or self._closed:
+                return
+            destination = Path(selected)
         self._running = True
         self._active_game_key = game_key
         self._status = "Offline import"
@@ -254,7 +323,12 @@ class CGroupLibraryService(QObject):
         self.log.append(f"Offline import: creating a new {game_label} vinyl group in supported local save data...")
         self._pending_fh6_json = source if game_key == "fh6" else None
         self._cancel_event.clear()
-        future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
+        if store == "steam":
+            future = self._executor.submit(self._create_steam_layer_group_install_work, source, game_key, destination)
+        elif game_key == "fh5":
+            future = self._executor.submit(self._create_fh5_layer_group_install_work, source, destination)
+        else:
+            future = self._executor.submit(self._create_folder_install_work, Path(source), game_key)
         self._future = future
         future.add_done_callback(self._emit_future_result)
 
@@ -266,7 +340,7 @@ class CGroupLibraryService(QObject):
         self._running = True
         self._active_game_key = "fh6"
         self._status = "Installing FH6 folder"
-        self._summary = "Backing up the selected FH6 LayerGroup folder, then writing a flat C_group."
+        self._summary = "Backing up the selected FH6 LayerGroup folder, then writing a validated C_group."
         self.changed.emit()
         self.log.append("Installing selected JSON into an FH6 LayerGroup folder...")
         self._cancel_event.clear()
@@ -906,13 +980,15 @@ class CGroupLibraryService(QObject):
             )
 
     def _prepare_fh6_import(self, json_path: Path, folder: Path, identity, *, asset_id=None):
-        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, read_flat_cgroup, write_cgroup_file
+        from tools.cgroup.cgroup_codec import write_cgroup_file
         from tools.cgroup.fh6_identity import build_vinyl_header
+        from tools.cgroup.vinyl_document import encode_vinyl_json
 
-        payload = build_flat_cgroup_from_json(json_path)
-        parsed = read_flat_cgroup(write_cgroup_file(folder / "C_group", payload))
+        payload, encoding = encode_vinyl_json(json_path, "fh6")
+        _log_offline_encoding(self, encoding)
+        write_cgroup_file(folder / "C_group", payload)
         payload_digest = hashlib.sha256((folder / "C_group").read_bytes()).digest()
-        layers = int(parsed.get("count") or 0)
+        layers = encoding["layers"]
         header = build_vinyl_header(
             self._title_for_install_json(json_path), identity.account.user_id, identity.name,
             layers, asset_id=asset_id,
@@ -937,11 +1013,12 @@ class CGroupLibraryService(QObject):
         header = parse_vinyl_header(raw)
         decoded = decode_forza_source(folder / "C_group", allow_locked=False, game="fh6")
         if (raw != expected_header or header.layer_count != layers or len(decoded.layers) != layers
+                or decoded.report.get("warnings")
                 or hashlib.sha256((folder / "C_group").read_bytes()).digest() != payload_digest):
             raise ValueError("FH6 import verification failed: header and vinyl data do not agree.")
 
     def _create_fm8_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
-        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload
+        from tools.cgroup.vinyl_document import encode_vinyl_json
         from tools.cgroup.fm8_identity import build_vinyl_header, parse_vinyl_header
         from tools.cgroup.fm8_ownership import assess_fm8_layer_group_files
         from tools.cgroup.forza_source_decoder import DecodeError, decode_forza_source
@@ -976,12 +1053,12 @@ class CGroupLibraryService(QObject):
         temp_folder = Path(tempfile.mkdtemp(prefix=".kfps-fm8-import-", dir=layer_groups_root))
         target_installed = False
         try:
-            payload = build_flat_cgroup_from_json(json_path, target_game="fm8")
+            payload, encoding = encode_vinyl_json(json_path, target_game="fm8")
+            _log_offline_encoding(self, encoding)
             self._atomic_write_bytes(temp_folder / "data", payload)
-            parsed = parse_flat_payload(payload)
 
             title = self._title_for_install_json(json_path)
-            expected_layers = int(parsed.get("count") or 0)
+            expected_layers = encoding["layers"]
             header = build_vinyl_header(source_header_bytes, source_identity.asset_id, title,
                                         expected_layers, uuid.UUID(folder_name))
             self._atomic_write_bytes(temp_folder / "header", header)
@@ -1011,7 +1088,7 @@ class CGroupLibraryService(QObject):
             if (installed_header != header or installed_identity.layer_count != expected_layers
                     or (target_folder / "data").read_bytes() != payload):
                 raise ValueError("The new FM8 vinyl header or data changed during installation.")
-            if len(verified.layers) != expected_layers:
+            if len(verified.layers) != expected_layers or verified.report.get("warnings"):
                 raise ValueError(
                     f"The newly created FM8 vinyl group reopened with {len(verified.layers)} layer(s), "
                     f"expected {expected_layers}."
@@ -1024,7 +1101,7 @@ class CGroupLibraryService(QObject):
             if temp_folder.exists():
                 shutil.rmtree(temp_folder, ignore_errors=True)
 
-        layers = int(parsed.get("count") or 0)
+        layers = expected_layers
         return {
             "ok": True,
             "game": "fm8",
@@ -1044,8 +1121,86 @@ class CGroupLibraryService(QObject):
         if self._cancel_event.is_set():
             raise concurrent.futures.CancelledError("FM8 import cancelled before committing save files.")
 
+    def _create_steam_layer_group_install_work(
+        self, json_path: Path, game_key: str, destination: Path | None,
+    ) -> dict[str, Any]:
+        from tools.cgroup.steam_offline import create_steam_layer_group, inspect_steam_target
+        from tools.cgroup.vinyl_document import encode_vinyl_json
+
+        adapter = get_adapter_or_default(game_key)
+
+        def ready():
+            if self._cancel_event.is_set():
+                raise concurrent.futures.CancelledError("Steam import cancelled before publishing save files.")
+            if any(self._game_process_running(name) for name in (*adapter.process_names, "steam.exe")):
+                raise ValueError(f"Close {adapter.short_label}, finish cloud sync, then exit Steam before offline import.")
+
+        ready()
+        if destination is None:
+            raise ValueError("Select your own Steam vinyl .header file using the Steam import destination.")
+        target = inspect_steam_target(destination, game_key)
+        payload, encoding = encode_vinyl_json(json_path, game_key)
+        _log_offline_encoding(self, encoding)
+        thumbnail = self._render_save_thumb_bytes(json_path, "PNG")
+        if not thumbnail:
+            raise ValueError("A fresh vinyl thumbnail could not be rendered. No save files were changed.")
+        result = create_steam_layer_group(
+            target, payload=payload, title=self._title_for_install_json(json_path), thumbnail_data=thumbnail,
+            expected_layers=encoding["layers"], check_ready=ready,
+            backup_root=self.paths.runtime_root / f"{game_key}-steam-import-backups",
+        )
+        self._save_cached_roots([target.account.parent], game_key)
+        return {
+            "ok": True, "game": game_key, "candidates": 1, "exported": 1, "skipped": 0, "outputs": [],
+            "message": (
+                f"{adapter.short_label} Steam test import written and verified: {encoding['layers']} layers. "
+                f"Destination: {result.cgroup_path}. Safety backup: {result.backup_path}. "
+                "Existing saves were not replaced. Start Steam and check My Vinyl Groups in-game; "
+                "KFPS cannot confirm native game visibility or cloud synchronization."
+            ),
+        }
+
+    def _create_fh5_layer_group_install_work(self, json_path: Path, destination: Path | None = None) -> dict[str, Any]:
+        from tools.cgroup.fh5_offline import (
+            build_fh5_vinyl_header, create_fh5_wgs_layer_group, inspect_fh5_wgs_target,
+        )
+        from tools.cgroup.vinyl_document import encode_vinyl_json
+
+        def ready():
+            if self._cancel_event.is_set():
+                raise concurrent.futures.CancelledError("FH5 import cancelled before publishing save files.")
+            if any(self._game_process_running(name) for name in get_adapter_or_default("fh5").process_names):
+                raise ValueError("Close FH5 completely and wait for Xbox cloud sync before WGS import.")
+
+        ready()
+        if destination is None:
+            raise ValueError("Select your FH5 Microsoft Store/Xbox container.N using FH5 WGS Import (Test). For Steam, choose the Steam destination.")
+        target = inspect_fh5_wgs_target(destination)
+        payload, encoding = encode_vinyl_json(json_path, "fh5")
+        _log_offline_encoding(self, encoding)
+        count = encoding["layers"]
+        header = build_fh5_vinyl_header(target, self._title_for_install_json(json_path), count)
+        thumbnail = self._render_save_thumb_bytes(json_path, "PNG")
+        if not thumbnail:
+            raise ValueError("A fresh FH5 vinyl thumbnail could not be rendered. No save files were changed.")
+        result = create_fh5_wgs_layer_group(
+            target, payload=payload, header_data=header, thumbnail_data=thumbnail, expected_layers=count,
+            backup_root=self.paths.runtime_root / "fh5-offline-import-backups",
+            check_ready=ready, cancel_event=self._cancel_event,
+        )
+        return {
+            "ok": True, "game": "fh5", "candidates": 1, "exported": 1, "skipped": 0, "outputs": [],
+            "message": (
+                f"FH5 WGS test import written and verified: {count} layers for {target.header.creator}. "
+                f"Destination: {result.folder_path}. Safety backup: {result.backup_path}. "
+                "Existing vinyls were not replaced. Check the game library before relying on this test import; "
+                "KFPS cannot confirm game visibility or cloud synchronization."
+            ),
+        }
+
     def _create_fh4_layer_group_install_work(self, json_path: Path) -> dict[str, Any]:
-        from tools.cgroup.cgroup_codec import build_flat_cgroup_from_json, parse_flat_payload, wrap_payload
+        from tools.cgroup.cgroup_codec import wrap_payload
+        from tools.cgroup.vinyl_document import encode_vinyl_json
         from tools.cgroup.forza_source_decoder import DecodeError, cgroup_to_layers, decode_forza_source
         from tools.cgroup.xbox_wgs import (
             WgsFormatError,
@@ -1057,10 +1212,16 @@ class CGroupLibraryService(QObject):
         json_path = json_path.resolve()
         if not json_path.is_file():
             raise ValueError(f"JSON does not exist: {json_path}")
-        if self._game_process_running("ForzaHorizon4.exe"):
-            raise ValueError(
-                "Close FH4 completely before offline import. KFPS will not write Xbox WGS save files while the game is running."
-            )
+        def ready():
+            cancel = getattr(self, "_cancel_event", None)
+            if cancel is not None and cancel.is_set():
+                raise concurrent.futures.CancelledError("FH4 import cancelled before publishing save files.")
+            if self._game_process_running("ForzaHorizon4.exe"):
+                raise ValueError(
+                    "Close FH4 completely before offline import. KFPS will not write Xbox WGS save files while the game is running."
+                )
+
+        ready()
 
         roots = self._default_save_roots("fh4")
         slots = find_wgs_slots(roots)
@@ -1098,10 +1259,10 @@ class CGroupLibraryService(QObject):
                 "Save one simple vinyl group in FH4, close the game, and scan again." + detail
             )
 
-        payload = build_flat_cgroup_from_json(json_path, target_game="fh4")
-        parsed = parse_flat_payload(payload)
+        payload, encoding = encode_vinyl_json(json_path, target_game="fh4")
+        _log_offline_encoding(self, encoding)
         decoded_layers, decoded_report = cgroup_to_layers(payload, game="fh4")
-        expected_layers = int(parsed.get("count") or 0)
+        expected_layers = encoding["layers"]
         if len(decoded_layers) != expected_layers:
             raise ValueError(
                 f"FH4 offline import preflight decoded {len(decoded_layers)} layer(s), expected {expected_layers}. "
@@ -1127,6 +1288,12 @@ class CGroupLibraryService(QObject):
         if not thumbnail_data or not thumbnail_data.startswith(b"\x89PNG\r\n\x1a\n"):
             raise ValueError("KFPS could not build a valid FH4 PNG thumbnail. No save files were changed.")
 
+        def verify(cgroup, header, _thumbnail):
+            decoded = decode_forza_source(cgroup, allow_locked=False, game="fh4")
+            if (len(decoded.layers) != expected_layers or decoded.report.get("warnings")
+                    or header.read_bytes() != header_data):
+                raise ValueError("FH4 WGS import failed independent reopen verification.")
+
         result = create_wgs_layer_group(
             template.slot_path,
             template,
@@ -1134,13 +1301,9 @@ class CGroupLibraryService(QObject):
             header_data=header_data,
             thumbnail_data=thumbnail_data,
             backup_root=self.paths.runtime_root / "fh4-offline-import-backups",
+            check_ready=ready,
+            verify=verify,
         )
-        verified = decode_forza_source(result.cgroup_path, allow_locked=False, game="fh4")
-        if len(verified.layers) != expected_layers:
-            raise ValueError(
-                f"FH4 WGS import reopened with {len(verified.layers)} layer(s), expected {expected_layers}. "
-                f"Restore the safety backup at {result.backup_path}."
-            )
         self._save_cached_roots([template.slot_path.parent], "fh4")
         return {
             "ok": True,

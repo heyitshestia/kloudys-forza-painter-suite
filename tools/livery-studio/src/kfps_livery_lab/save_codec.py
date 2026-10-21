@@ -158,7 +158,13 @@ def compile_section_vinyl(project,car_id,sections,section):
     if section not in sections or section not in NAMES:
         raise ValidationError("Choose a valid car section.")
     result=_compile_layout(project,car_id,sections,target_section=section)
-    return {"shapes":result[section]}
+    document={"shapes":result[section]}
+    from tools.cgroup.vinyl_document import encode_vinyl_document
+    try:
+        encode_vinyl_document(document, target_game="fh6")
+    except ValueError as exc:
+        raise ValidationError(f"Section vinyl failed offline transfer validation: {exc}") from exc
+    return document
 
 
 def _compile_layout(project,car_id,sections,*,target_section=None):
@@ -225,6 +231,9 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
             data=[x+m00*px+m01*py,y+m10*px+m11*py,ax,ay,math.degrees(angle)%360,shear,0]
             data[6]=int(shape["mask"])
             transformed={"type":shape["type"],"data":data,"color":[*shape["color"][:3],alpha],"mask":shape["mask"]}
+            if target_section is not None:
+                transformed["editor_group_id"]="studio-"+p["id"]
+                transformed["editor_group_name"]=str(p.get("name") or p["vinylId"])[:1024]
             target.append(transformed)
             cap=3000 if target_section is not None else CAPS[p["section"]]
             if len(target)>cap:

@@ -413,7 +413,8 @@ def _resolve_browser_id(path_id: str, *, paths: ServerPaths | None = None) -> Pa
         if path_id.startswith("@"):
             raise ValueError("JSON path is outside the editable browser roots")
         candidate = (ROOT / path_id).resolve()
-        allowed_roots = [GENERATED_ROOT.resolve(), paths.exports.resolve(), EXPORTED_JSON_ROOT.resolve()]
+        allowed_roots = [GENERATED_ROOT.resolve(), paths.exports.resolve(), EXPORTED_JSON_ROOT.resolve(),
+                         (ROOT / "imgs" / "library").resolve()]
     if not any(candidate.is_relative_to(root) for root in allowed_roots):
         raise ValueError("JSON path is outside the editable browser roots")
     if candidate.suffix.lower() != ".json" or not candidate.is_file():

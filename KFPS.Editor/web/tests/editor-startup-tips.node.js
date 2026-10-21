@@ -14,6 +14,7 @@ assert.ok(startup);
     { name: "acknowledged", handled: true, expected: [] },
     { name: "new", mode: "new", expected: ["blank", "url"] },
     { name: "explicit project", project: "saved.json", expected: [] },
+    { name: "Outputs JSON", json: "imgs/exported/nested.json", expected: [] },
     { name: "JSON browser", browse: "json", expected: ["browser"] },
     { name: "tutorial", mode: "tutorial", expected: [] },
   ]) {
@@ -23,6 +24,7 @@ assert.ok(startup);
       location: { search: scenario.mode ? `?mode=${scenario.mode}` : "", href: `http://127.0.0.1/editor?mode=${scenario.mode || ""}` },
       window: { history: { replaceState: () => calls.push("url") } },
       startupProjectId: () => scenario.project || "",
+      startupJsonId: () => scenario.json || "",
       startupBrowseMode: () => scenario.browse || "",
       startBlankCanvas: async () => calls.push("blank"),
       maybeShowAutosaveRecovery: async () => calls.push("recovery"),

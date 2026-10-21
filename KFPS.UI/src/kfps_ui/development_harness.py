@@ -367,12 +367,12 @@ class DevelopmentHarness:
                 if (item.objectName() or "") == name and item.isVisible() and item.opacity() > 0.01
             ), None)
 
-        def click_item(item, button=Qt.LeftButton) -> bool:
+        def click_item(item, button=Qt.LeftButton, modifiers=Qt.NoModifier) -> bool:
             if item is None or not item.isEnabled():
                 return False
             point = item.mapToScene(QPointF(item.width() / 2, item.height() / 2))
             QTest.mouseClick(
-                self.window, button, Qt.NoModifier,
+                self.window, button, modifiers,
                 QPoint(round(point.x()), round(point.y())),
             )
             QTest.qWait(180)
@@ -427,6 +427,29 @@ class DevelopmentHarness:
             )
             finish()
             return
+
+        # Keep this opt-in UI qualification isolated from any real editor window.
+        from unittest.mock import patch
+        with patch("kfps_ui.editor_service.launch_editor", return_value="Editor open qualified") as launch:
+            open_menu(expected["copy"])
+            clicked = click_menu("Open in Editor")
+            for _ in range(60):
+                if launch.called:
+                    break
+                QTest.qWait(50)
+            record("open-in-editor", clicked and launch.call_count == 1
+                   and launch.call_args.kwargs.get("json_id") == "imgs/exported/Copy Source.json",
+                   f"clicked={clicked}, calls={launch.call_count}")
+        click_item(visible_item("OutputFolderTile:Destination"), Qt.RightButton)
+        record("no-editor-for-folder", visible_item("GhostButton:Open in Editor") is None)
+        QTest.keyClick(self.window, Qt.Key_Escape)
+
+        click_item(visible_item("JsonTile:Copy Source.json"))
+        click_item(visible_item("JsonTile:Move Source.json"), modifiers=Qt.ControlModifier)
+        open_menu(expected["copy"])
+        record("no-editor-for-multiple-files", visible_item("GhostButton:Open in Editor") is None)
+        QTest.keyClick(self.window, Qt.Key_Escape)
+        click_item(visible_item("JsonTile:Copy Source.json"))
 
         open_menu(expected["copy"])
         clicked = click_menu("Copy")

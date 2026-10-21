@@ -33,6 +33,7 @@ Item {
     readonly property real headerBannerRightX: browseOutputsCard.x + browseOutputsCard.width
 
     function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY, contextState) {
+        outputEditorStatusVisible = false
         outputContextMenus.openFor(
                     path, name, isFolder, entryKind, sceneX, sceneY,
                     contextState.selectionCount, contextState.canMove,
@@ -152,7 +153,7 @@ Item {
                         GlassPanel {
                             objectName: "OfflineLibraryControls"
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.px(root.compactHeight ? 184 : 214)
+                            Layout.preferredHeight: Theme.px((root.compactHeight ? 184 : 214) + (offlineDestination.visible ? 40 : 0))
                             soft: true
                             border.color: cgroupLibraryService.running ? Theme.warning : Theme.borderSoft
 
@@ -173,6 +174,23 @@ Item {
                                 dense: root.compactHeight
                                 model: cgroupLibraryService.gameTargets
                                 toolTipText: "Choose the game whose local save files you want to scan or edit."
+                            }
+                        }
+
+                        RowLayout {
+                            id: offlineDestination
+                            visible: offlineGame.currentText === "FH4" || offlineGame.currentText === "FH5"
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+
+                            Label { text: "Import to" }
+                            KfpsComboBox {
+                                id: offlineStore
+                                objectName: "OfflineLibraryStore"
+                                Layout.fillWidth: true
+                                dense: root.compactHeight
+                                model: ["Microsoft Store / Xbox", "Steam (Test)"]
+                                toolTipText: "Choose the save format for importing. Scanning still checks both stores."
                             }
                         }
 
@@ -244,14 +262,14 @@ Item {
                             minimumWidth: 0
                             text: cgroupLibraryService.running
                                   ? "Working..."
-                                  : cgroupLibraryService.offlineImportLabel(offlineGame.currentText)
+                                  : cgroupLibraryService.offlineImportLabel(offlineGame.currentText, offlineDestination.visible && offlineStore.currentIndex === 1 ? "steam" : "wgs")
                             iconName: "transfer"
                             dense: root.compactHeight
-                            toolTipText: cgroupLibraryService.offlineImportHelp(offlineGame.currentText)
+                            toolTipText: cgroupLibraryService.offlineImportHelp(offlineGame.currentText, offlineDestination.visible && offlineStore.currentIndex === 1 ? "steam" : "wgs")
                             enabled: !cgroupLibraryService.running
                                      && cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")
                                      && jsonService.selectedPath.length > 0
-                            onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, offlineGame.currentText)
+                            onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, offlineGame.currentText, offlineDestination.visible && offlineStore.currentIndex === 1 ? "steam" : "wgs")
                         }
                             }
                         }
@@ -524,7 +542,9 @@ Item {
 
                                 Text {
                                     Layout.maximumWidth: Theme.px(420)
-                                    text: jsonService.managementStatus.length > 0
+                                    text: root.outputEditorStatusVisible
+                                          ? (editorService.lastError || editorService.status)
+                                          : jsonService.managementStatus.length > 0
                                           ? jsonService.managementStatus
                                           : (jsonService.thumbnailStatus.length > 0 ? jsonService.thumbnailStatus : (jsonService.indexing ? jsonService.indexStatus : (jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName)))
                                     color: Theme.muted
@@ -1104,11 +1124,17 @@ Item {
         }
     }
 
+    property bool outputEditorStatusVisible: false
+
     OutputExplorerContextMenus {
         id: outputContextMenus
         anchors.fill: parent
         moveFolderModel: jsonService.moveFolderModel
         currentFolderPath: jsonService.currentFolder
+        onOpenEditorRequested: function(path) {
+            root.outputEditorStatusVisible = true
+            editorService.launchJson(path)
+        }
         onOpenFolderRequested: function(path) {
             jsonService.openExplorerFolder(path)
             files.positionViewAtBeginning()
