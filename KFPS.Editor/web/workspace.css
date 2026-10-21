@@ -60,6 +60,10 @@
 .workspaceRedesign .workspaceZoom button { border-color: transparent; background: transparent; }
 .workspaceRedesign .rightDock { position: relative; top: auto; right: auto; bottom: auto; width: auto; box-shadow: none; transform: none; overflow: visible;
   grid-template-rows: minmax(230px, var(--editor-layer-height, 48%)) 7px minmax(190px, 1fr); background: var(--panel); }
+/* Hidden dock siblings must not move the inspector into a collapsed grid row. */
+.workspaceRedesign .rightDock > .layersDock { grid-row: 1; }
+.workspaceRedesign .rightDock > #dockSplitter { grid-row: 2; }
+.workspaceRedesign .rightDock > .inspectorDock { grid-row: 3; }
 .workspaceRedesign .workspace.dockCollapsed .rightDock { display: none; }
 .workspaceRedesign .rightDock.layersCollapsed { grid-template-rows: 43px 7px minmax(0, 1fr); }
 .workspaceRedesign .rightDock.layersCollapsed .workspaceLayerSearch { display: none; }

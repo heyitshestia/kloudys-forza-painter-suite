@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.111
+
+### Detached Layers Panel Fix
+
+- Fixed the right-hand editor panels going blank when you detach Layers, move it to the left, or collapse it. Properties and the other tabs stay usable in both the normal editor and Chrome.
+- Checked dragging, resizing, reattaching, smaller windows, themes, undo/redo and saving/reopening projects. Your saved layouts and artwork stay unchanged; no workspace reset needed.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.110
 
 ### Saved Color Palette Fix
