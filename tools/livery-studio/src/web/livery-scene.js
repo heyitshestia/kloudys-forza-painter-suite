@@ -7,6 +7,7 @@ import { resolveStagedNativeTexture } from './native-texture-binding.mjs';
 import { placeholderWheelSpecs, placeholderFloorY } from './wheel-model.mjs';
 import { uv3SeamSegments } from './inspection-tools.mjs';
 import {t,errorText} from './i18n.mjs';
+import {previewQuality} from './preview-quality.mjs';
 import { componentCatalog, initialComponentSelection, selectComponent, componentMeshVisible,
   inspectUv3, inspectNativeUvChannels, summarizeComponents, fidelityMessages, validateVehicleParts } from './component-model.mjs';
 
@@ -14,15 +15,26 @@ import { componentCatalog, initialComponentSelection, selectComponent, component
 // section masks remain shared with the baseline. Source/game parity is unverified;
 // missing UV3 stays neutral instead of receiving a guessed world projection.
 let editorPaintTexture = null;
-export function updatePaintCanvas(source) {
+let editorCanvasBytes = 0;
+export function updatePaintCanvas(source,quality='balanced',canvasBytes=0) {
   if (viewerDisposed || !modelReady) throw Error('The car preview is unavailable.');
-  if (source.width !== renderContract.paint_size[0] || source.height !== renderContract.paint_size[1]) throw Error('Paint canvas size does not match this car.');
-  if (!editorPaintTexture) {
-    editorPaintTexture = trackTexture(new THREE.CanvasTexture(source));
-    editorPaintTexture.colorSpace = THREE.SRGBColorSpace;
-    editorPaintTexture.flipY = false;
-    editorPaintTexture.anisotropy = graphicsDevice.anisotropy;
-    const old = new Set();
+  if(!Number.isFinite(canvasBytes)||canvasBytes<0)throw Error('Invalid preview allocation.');
+  const scale=previewQuality(quality).scale;
+  if (source.width !== Math.ceil(renderContract.paint_size[0]*scale) || source.height !== Math.ceil(renderContract.paint_size[1]*scale)) throw Error('Paint canvas size does not match this car.');
+  if(Math.max(source.width,source.height)>graphicsDevice.maxTextureSize)throw Error('This preview quality exceeds the graphics device texture limit.');
+  const replacing=!editorPaintTexture || editorPaintTexture.image !== source;
+  if (replacing) {
+    const next = new THREE.CanvasTexture(source);
+    next.colorSpace = THREE.SRGBColorSpace;
+    next.flipY = false;
+    next.anisotropy = graphicsDevice.anisotropy;
+    try {
+      renderer.initTexture(next);
+      if(gl.isContextLost())throw Error('The graphics device lost the 3D preview. Save your layout, then reopen Livery Studio to retry.');
+      if(gl.getError()!==gl.NO_ERROR)throw Error('The graphics device could not allocate this preview quality.');
+    } catch(error) {next.dispose();throw error;}
+    const old = new Set(editorPaintTexture ? [editorPaintTexture] : []);
+    editorPaintTexture = trackTexture(next);
     for (const material of [...paintMaterials, ...glassMaterials]) {
       old.add(material.uniforms.paintMap.value);
       material.uniforms.paintMap.value = editorPaintTexture;
@@ -30,7 +42,13 @@ export function updatePaintCanvas(source) {
     for (const texture of old) {
       trackedTextures.delete(texture); texture.dispose(); texture.image?.close?.();
     }
-  } else if (editorPaintTexture.image !== source) throw Error('Paint canvas identity changed.');
+  }
+  if(replacing||editorCanvasBytes!==canvasBytes){
+    editorCanvasBytes=canvasBytes;
+    const allocation=resourceBytes();
+    modelResourceBytes=allocation.geometry+allocation.textures+editorCanvasBytes;
+    resize();
+  }
   editorPaintTexture.needsUpdate = true;
   requestRender();
 }
@@ -1569,6 +1587,7 @@ function disposeViewer(releaseContext = true) {
     glassMaterials = [];
     surfaceMaskPages = [];
     surfaceConfig = null;
+    editorCanvasBytes=0;
     nativeMaterials.clear();
     window.dispatchEvent(new Event('kfps-inspection-change'));
   }
@@ -1583,7 +1602,7 @@ export function sceneDiagnosticMetrics() {
     frame_max_ms:frameTimePeak,load_ms:timings.firstFrame||0,
     geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,programs:renderer.info.programs?.length||0,
     draw_calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,
-    resource_bytes:Math.ceil(modelResourceBytes+(viewerDisposed?0:renderWidth*renderHeight*renderPixelRatio**2*40))};
+    resource_bytes:resourceBytes().estimatedGpu};
 }
 
 function viewerDiagnostics() {
@@ -1617,7 +1636,7 @@ function viewerDiagnostics() {
       pixelRatio: renderPixelRatio,
     },
     quality: {scale: renderContract?.quality_scale || 1, source: renderContract?.quality_source || '',
-      paintSize: renderContract?.paint_size || []},
+      paintSize: renderContract?.paint_size || [],previewPaintSize:editorPaintTexture?[editorPaintTexture.image.width,editorPaintTexture.image.height]:[]},
     tracked: {
       geometries: trackedGeometries.size,
       materials: trackedMaterials.size,

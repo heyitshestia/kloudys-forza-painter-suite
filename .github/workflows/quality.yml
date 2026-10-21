@@ -71,6 +71,15 @@ jobs:
       - name: Test livery viewer status transport
         run: node --test KFPS.UI/tools/test_livery_viewer_status.mjs
 
+      - name: Test Studio preview quality and resource lifecycle
+        env:
+          KFPS_LAB_TEST_BASELINE: ${{ github.workspace }}
+        run: |
+          python -B -m unittest discover -s KFPS.UI/tests -p "test_studio_preview_quality_*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test KFPS.Editor/web/tests/studio-preview-quality.test.mjs KFPS.Editor/web/tests/studio-preview-quality-lifecycle.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Lint the QML entry point and extracted Outputs menu
         shell: pwsh
         run: |

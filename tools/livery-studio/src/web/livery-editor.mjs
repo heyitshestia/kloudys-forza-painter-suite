@@ -10,12 +10,16 @@ import { initInspection } from './inspection-tools.mjs';
 import { initializeActionConfirmations } from './action-confirmations.mjs';
 import { confirmationSpec } from './confirmation-policy.mjs';
 import {t,sectionLabel,number,stateLabel,errorText} from './i18n.mjs';
+import {previewQuality,previewFootprint,checkPreviewQuality,scaledTransform} from './preview-quality.mjs';
 import { emptyProject, validateProject, serializeProject, sectionVinylJson, sectionShapeCount, placementMatrix, invertMatrix, mapPoint, sectionToPaint, createHistory, makePlacement, scalePlacement, movePlacementToSection, placementStepIndex, transformPlacement, MAX_VINYLS, MAX_PLACEMENTS, MAX_NATIVE_VINYL_SHAPES } from './layout-model.mjs';
 
 const $ = id => document.getElementById(id), stop = new AbortController();
 const sectionCanvas = $('sectionCanvas'), sectionContext = sectionCanvas.getContext('2d');
-const atlas = document.createElement('canvas'), atlasContext = atlas.getContext('2d');
-const images = new Map(), sources = new Map(), sectionCanvases = new Map(), history = createHistory(100,MAX_VINYLS*2);
+let atlas = document.createElement('canvas'), atlasContext = atlas.getContext('2d');
+let images = new Map(), sectionCanvases = new Map();
+const sources = new Map(), history = createHistory(100,MAX_VINYLS*2);
+let activeQuality='balanced';
+let previewAllocationBlocked=false;
 let config, project, selected = null, pickedSource = null, saved = '', busy = false, disposed = false, queued = 0, drag = null;
 let experimentNotice = '', experimentError = false;
 let transform = null, surface = null, surfaceMode = 'orbit', sourceSignature = '', placementSignature = '';
@@ -63,7 +67,7 @@ function artworkBounds(vinylId) {
   const image=images.get(vinylId),bounds=image?.artworkBounds;
   if(!Array.isArray(bounds)||bounds.length!==4||!bounds.every(Number.isFinite))return null;
   const [left,top,right,bottom]=bounds;
-  if(left<0||top<0||right>image.width||bottom>image.height||right<=left||bottom<=top)return null;
+  if(left<0||top<0||right>2048||bottom>1024||right<=left||bottom<=top)return null;
   return [...bounds];
 }
 function getBounds(id) { return artworkBounds(project?.placements.find(item=>item.id===id)?.vinylId); }
@@ -185,14 +189,14 @@ async function applyProjectChange(next,label,ids=selectedIds) {
     for(const vinyl of checked.vinyls){
       const existing=sources.get(vinyl.id);
       if(existing&&JSON.stringify(existing.shapes)!==JSON.stringify(vinyl.shapes))throw Error('A source revision must have a new identity.');
-      if(!images.has(vinyl.id))newImages.set(vinyl.id,await raster(vinyl.shapes));
+      if(!images.has(vinyl.id))newImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,newImages.size+1,{sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(checked))}));
     }
     if(disposed)throw Error('The editor is closed.');
     project=checked;for(const vinyl of checked.vinyls)sources.set(vinyl.id,vinyl);
     for(const [id,image] of newImages)images.set(id,image);
     selectedIds=ids.filter(id=>project.placements.some(p=>p.id===id));selected=selectedIds.includes(selected)?selected:selectedIds.at(-1)||null;
     markAll();commit(before);message(label);
-  }catch(error){for(const image of newImages.values())image.src='';throw error;}
+  }catch(error){for(const image of newImages.values())image.close();throw error;}
 }
 async function confirmOperation(spec) {
   if(!spec||!confirmations)return false;
@@ -336,7 +340,7 @@ function changed() { return numericEdited.size>0||fingerprint() !== saved; }
 function setBusy(value) { busy = value; refresh(); }
 function pruneSources() {
   const retained=history.retainedVinylIds(); project.vinyls.forEach(v=>retained.add(v.id));
-  for(const id of sources.keys())if(!retained.has(id)){sources.delete(id);const image=images.get(id);if(image)image.src='';images.delete(id);}
+  for(const id of sources.keys())if(!retained.has(id)){sources.delete(id);images.get(id)?.close();images.delete(id);}
 }
 function commit(before) { history.push(before, snapshot()); pruneSources(); refresh();recovery?.changed();diagnostics.emit('action',{action:'edit',outcome:'ok',...projectCounts(project,config.sections.length)}); }
 function restore(state) {
@@ -369,53 +373,163 @@ async function responseError(response) {
   try {value=JSON.parse(raw);if(typeof value.error==='string')reason=value.error;} catch {}
   return Object.assign(Error(errorText(reason.slice(0,4096))||t`Request failed (HTTP ${response.status}).`),{status:response.status,code:value?.code,entry:value?.entry});
 }
-async function api(path, value) {
+async function api(path, value, timeout=0) {
+  if(stop.signal.aborted)throw Error('The editor is closed.');
+  const controller=timeout?new AbortController():null;
+  const abort=()=>controller?.abort();
+  if(controller)stop.signal.addEventListener('abort',abort,{once:true});
+  const timer=controller?setTimeout(abort,timeout):null;
   try {
-    const response = await fetch(`./api/${path}`, { signal: stop.signal, ...(value === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(value) }) });
+    const response = await fetch(`./api/${path}`, { signal: controller?.signal||stop.signal, ...(value === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(value) }) });
     if (!response.ok) { diagnostics.emit('error',{error_code:response.status>=500?'http_5xx':'http_4xx',http_status:response.status});throw await responseError(response); }
     return await response.json();
   } catch(error) { if(!error.status)diagnostics.emit('error',{error_code:stop.signal.aborted?'aborted':'network'});throw error; }
+  finally {if(timer)clearTimeout(timer);if(controller)stop.signal.removeEventListener('abort',abort);}
 }
-async function raster(shapes) {
-  const result = await api('render-vinyl', { shapes });
+function qualityStatus(text='',error=false) {
+  $('previewQualityStatus').textContent=error?errorText(text):t(text);
+  $('previewQualityStatus').classList.toggle('error',error);
+}
+function previewSectionCount(document=project) {
+  return new Set(document?.placements.filter(p=>p.visible&&p.opacity>0).map(p=>p.section)||[]).size;
+}
+function previewMemory() {return previewFootprint({quality:activeQuality,paintSize:config.paint_size,sources:images.size,sections:sectionCanvases.size});}
+function qualityCapacity(quality,count,{staging=false,startup=false,sections=previewSectionCount()}={}) {
+  const scene=sceneState(),current=previewMemory();
+  const cpuBudget=Math.min(1024,Math.max(768,(navigator.deviceMemory||4)*128))*1024**2;
+  return checkPreviewQuality({quality,paintSize:config.paint_size,sources:count,sections,
+    maxTextureSize:scene.device.maxTextureSize,sceneBytes:Math.max(0,scene.bytes.estimatedGpu-(staging?0:current.webglGpu)),
+    gpuBudget:scene.bytes.budget,cpuBudget,current:staging&&!startup?current:null});
+}
+function requireQualityCapacity(quality,count,options) {
+  const result=qualityCapacity(quality,count,options);
+  if(!result.allowed)throw Error(result.reason==='texture'?'This preview quality exceeds the graphics device texture limit.':'Not enough preview memory for this quality. Choose a lower quality or use fewer vinyl sources.');
+  return result;
+}
+async function raster(shapes,quality=activeQuality,additional=1,{prechecked=false,sections=Math.min(config.sections.length,previewSectionCount()+1)}={}) {
+  if(!prechecked)requireQualityCapacity(quality,images.size+additional,{sections});
+  const result = await api('render-vinyl', { shapes,preview_quality:quality },60000);
+  if(disposed||stop.signal.aborted)throw Error('The editor is closed.');
   if (typeof result.png !== 'string' || !result.png.startsWith('data:image/png;base64,')) throw Error('The vinyl preview is invalid.');
-  const image = new Image(); image.src = result.png; await image.decode();
-  if (image.width !== 2048 || image.height !== 1024) throw Error('The vinyl preview has unexpected dimensions.');
-  image.artworkBounds = result.bounds;
-  if (disposed) throw Error('The editor is closed.');
-  return image;
+  // Explicitly owned bitmaps avoid retaining decoded DOM-image resources across
+  // repeated quality changes. The scene already uses this decoding API.
+  const bytes=Uint8Array.from(atob(result.png.slice('data:image/png;base64,'.length)),char=>char.charCodeAt(0));
+  const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+  try {
+    const [width,height]=previewQuality(quality).size;
+    if(image.width!==width||image.height!==height)throw Error('The vinyl preview has unexpected dimensions.');
+    image.artworkBounds=result.bounds;
+    if(disposed)throw Error('The editor is closed.');
+    return image;
+  }catch(error){image.close();throw error;}
 }
-function drawSection(name) {
-  let surface = sectionCanvases.get(name);
-  if (!surface) { surface = document.createElement('canvas'); surface.width = 2048; surface.height = 1024; sectionCanvases.set(name, surface); }
-  const ctx = surface.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,2048,1024);
-  for (const p of project.placements) {
-    if (p.section !== name || !p.visible || !images.has(p.vinylId)) continue;
-    ctx.save(); ctx.setTransform(...placementMatrix(p)); ctx.globalAlpha = p.opacity;
-    ctx.drawImage(images.get(p.vinylId), -1024, -512); ctx.restore();
+function releasePreview(rasters,sections,paint) {
+  for(const image of rasters.values())image.close();
+  rasters.clear();
+  for(const canvas of sections.values())canvas.width=canvas.height=1;
+  sections.clear();
+  if(paint)paint.width=paint.height=1;
+}
+async function saveQuality(quality) {
+  const value=await api('preview-quality',{quality},5000);
+  if(value?.version!==1||value.quality!==quality)throw Error('Invalid vinyl preview quality.');
+}
+async function changePreviewQuality() {
+  const requested=$('previewQuality').value;
+  $('previewQuality').value=activeQuality;
+  if(editBlocked()||disposed||!flushNumeric())return;
+  setBusy(true);qualityStatus('Updating vinyl preview...');
+  const nextImages=new Map(),nextSections=new Map(),nextAtlas=document.createElement('canvas');
+  let applied=false;
+  try {
+    previewQuality(requested);
+    if(requested!==activeQuality){
+      const footprint=requireQualityCapacity(requested,sources.size,{staging:true});
+      for(const [id,source] of sources){
+        nextImages.set(id,await raster(source.shapes,requested,0,{prechecked:true}));
+        if(disposed||!canPreview())throw Error('The car preview is unavailable.');
+      }
+      // Recheck after async rendering in case the window/framebuffer was resized.
+      requireQualityCapacity(requested,sources.size,{staging:true});
+      [nextAtlas.width,nextAtlas.height]=footprint.paint;
+      for(const section of config.sections)paintSection(section,requested,nextSections,nextImages,nextAtlas);
+      updatePaintCanvas(nextAtlas,requested,footprint.canvasGpu);
+      const oldImages=images,oldSections=sectionCanvases,oldAtlas=atlas;
+      images=nextImages;sectionCanvases=nextSections;atlas=nextAtlas;atlasContext=atlas.getContext('2d');
+      activeQuality=requested;applied=true;previewAllocationBlocked=false;
+      [sectionCanvas.width,sectionCanvas.height]=previewQuality(activeQuality).size;
+      dirtySections.clear();metrics.paintUpdates++;
+      releasePreview(oldImages,oldSections,oldAtlas);
+      refreshPreviewThumbnails();
+      drawSelection();surface?.refresh();
+    }
+    try{await saveQuality(requested);if(!disposed)qualityStatus('');}
+    catch{if(!disposed)qualityStatus('Preview changed for this session, but the quality preference could not be saved.',true);}
+  }catch(error){if(!disposed)qualityStatus(error.message,true);}
+  finally {
+    if(!applied)releasePreview(nextImages,nextSections,nextAtlas);
+    if(!disposed){$('previewQuality').value=activeQuality;setBusy(false);}
+  }
+}
+async function initializePreviewQuality() {
+  let requested='balanced';
+  try {
+    const value=await api('preview-quality',undefined,5000);
+    if(value?.version!==1)throw Error('Invalid vinyl preview quality.');
+    previewQuality(value.quality);requested=value.quality;
+  }catch(error){if(disposed||stop.signal.aborted)throw error;qualityStatus('Preview quality could not be read. Balanced is used for this session.',true);}
+  if(disposed||stop.signal.aborted)throw Error('The editor is closed.');
+  let footprint;
+  for(const candidate of [...new Set([requested,'balanced','fast'])]){
+    const checked=qualityCapacity(candidate,0,{staging:true,startup:true,sections:0});
+    if(checked.allowed){activeQuality=candidate;footprint=checked;break;}
+  }
+  if(!footprint)throw Error('Not enough preview memory for this quality. Choose a lower quality or use fewer vinyl sources.');
+  if(activeQuality!==requested)qualityStatus('The saved preview quality is unavailable on this device. A lower quality is used for this session.',true);
+  [atlas.width,atlas.height]=footprint.paint;
+  [sectionCanvas.width,sectionCanvas.height]=previewQuality(activeQuality).size;
+  $('previewQuality').value=activeQuality;
+  $('previewQuality').addEventListener('change',()=>void changePreviewQuality(),{signal:stop.signal});
+}
+function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=images) {
+  const {scale,size}=previewQuality(quality);
+  let surface = cache.get(name);
+  const placements=project.placements.filter(p=>p.section===name&&p.visible&&p.opacity>0&&rasters.has(p.vinylId));
+  if(!placements.length){if(surface)surface.width=surface.height=1;cache.delete(name);return null;}
+  if (!surface) { surface = document.createElement('canvas'); [surface.width,surface.height]=size; cache.set(name, surface); }
+  const ctx = surface.getContext('2d');
+  if(!ctx)throw Error('The graphics device could not allocate this preview quality.');
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,...size);
+  for (const p of placements) {
+    ctx.save(); ctx.setTransform(...scaledTransform(placementMatrix(p),scale)); ctx.globalAlpha = p.opacity;
+    ctx.drawImage(rasters.get(p.vinylId), -1024, -512,2048,1024); ctx.restore();
   }
   return surface;
 }
-function paintSection(section) {
-  const surface = drawSection(section.section), region = section.paint_region;
+function paintSection(section,quality=activeQuality,cache=sectionCanvases,rasters=images,target=atlas) {
+  const surface = drawSection(section.section,quality,cache,rasters), region = section.paint_region;
+  const atlas=target,atlasContext=atlas.getContext('2d'),padding=8*previewQuality(quality).scale;
+  if(!atlasContext)throw Error('The graphics device could not allocate this preview quality.');
   const [x,y,w,h] = [region[0]*atlas.width,region[1]*atlas.height,(region[2]-region[0])*atlas.width,(region[3]-region[1])*atlas.height];
-  atlasContext.save(); atlasContext.setTransform(1,0,0,1,0,0); atlasContext.clearRect(x-8,y-8,w+16,h+16);
+  atlasContext.save(); atlasContext.setTransform(1,0,0,1,0,0); atlasContext.clearRect(x-padding,y-padding,w+padding*2,h+padding*2);
+  if(!surface){atlasContext.restore();return;}
   atlasContext.beginPath(); atlasContext.rect(x,y,w,h); atlasContext.clip();
-  atlasContext.setTransform(...sectionToPaint(section, config.paint_size)); atlasContext.drawImage(surface,0,0); atlasContext.restore();
+  atlasContext.setTransform(...sectionToPaint(section, [atlas.width,atlas.height])); atlasContext.drawImage(surface,0,0,2048,1024); atlasContext.restore();
   // Replicate the boundary gutter used by the existing packed-paint contract.
-  for (const [sx,sy,sw,sh,dx,dy,dw,dh] of [[x,y,1,h,x-8,y,8,h],[x+w-1,y,1,h,x+w,y,8,h],[x,y,w,1,x,y-8,w,8],[x,y+h-1,w,1,x,y+h,w,8],
-    [x,y,1,1,x-8,y-8,8,8],[x+w-1,y,1,1,x+w,y-8,8,8],[x,y+h-1,1,1,x-8,y+h,8,8],[x+w-1,y+h-1,1,1,x+w,y+h,8,8]]) atlasContext.drawImage(atlas,sx,sy,sw,sh,dx,dy,dw,dh);
+  for (const [sx,sy,sw,sh,dx,dy,dw,dh] of [[x,y,1,h,x-padding,y,padding,h],[x+w-1,y,1,h,x+w,y,padding,h],[x,y,w,1,x,y-padding,w,padding],[x,y+h-1,w,1,x,y+h,w,padding],
+    [x,y,1,1,x-padding,y-padding,padding,padding],[x+w-1,y,1,1,x+w,y-padding,padding,padding],[x,y+h-1,1,1,x-padding,y+h,padding,padding],[x+w-1,y+h-1,1,1,x+w,y+h,padding,padding]]) atlasContext.drawImage(atlas,sx,sy,sw,sh,dx,dy,dw,dh);
 }
 function drawSelection() {
-  sectionContext.setTransform(1,0,0,1,0,0); sectionContext.clearRect(0,0,2048,1024);
-  const surface = sectionCanvases.get($('section').value); if (surface) sectionContext.drawImage(surface,0,0);
+  const scale=previewQuality(activeQuality).scale;
+  sectionContext.setTransform(scale,0,0,scale,0,0); sectionContext.clearRect(0,0,2048,1024);
+  const surface = sectionCanvases.get($('section').value); if (surface) sectionContext.drawImage(surface,0,0,2048,1024);
   const theme=getComputedStyle(document.documentElement);
   if(snapGuide){sectionContext.save();sectionContext.strokeStyle=theme.getPropertyValue('--accent').trim();sectionContext.lineWidth=3;sectionContext.setLineDash([10,8]);sectionContext.beginPath();
     if(snapGuide.guideX!==null){sectionContext.moveTo(snapGuide.guideX,0);sectionContext.lineTo(snapGuide.guideX,1024);}
     if(snapGuide.guideY!==null){sectionContext.moveTo(0,snapGuide.guideY);sectionContext.lineTo(2048,snapGuide.guideY);}
     sectionContext.stroke();sectionContext.restore();}
   for(const placement of project.placements.filter(p=>selectedIds.includes(p.id)&&p.section===$('section').value)){
-    sectionContext.save(); sectionContext.setTransform(...placementMatrix(placement));
+    sectionContext.save(); sectionContext.setTransform(...scaledTransform(placementMatrix(placement),scale));
     sectionContext.strokeStyle=theme.getPropertyValue('--editor-selection-border').trim();sectionContext.lineWidth=8/Math.max(placement.scaleX,placement.scaleY);sectionContext.setLineDash([22,12]);
     const bounds=images.get(placement.vinylId)?.artworkBounds;
     if(bounds)sectionContext.strokeRect(bounds[0]-1024,bounds[1]-512,bounds[2]-bounds[0],bounds[3]-bounds[1]);
@@ -431,18 +545,45 @@ function schedule() {
   queued = requestAnimationFrame(() => {
     queued = 0; if (disposed || !canPreview()) return;
     const start = performance.now();
+    const needed=new Set(project.placements.filter(p=>p.visible&&p.opacity>0).map(p=>p.section));
+    if([...needed].some(name=>!sectionCanvases.has(name))){
+      try{requireQualityCapacity(activeQuality,images.size,{sections:needed.size});}
+      catch(error){previewAllocationBlocked=true;qualityStatus(error.message,true);return;}
+      // Release unused sections before growing the cache, including section moves.
+      for(const [name,canvas] of sectionCanvases)if(!needed.has(name)){
+        canvas.width=canvas.height=1;sectionCanvases.delete(name);
+      }
+    }
     for (const section of config.sections) if (dirtySections.has(section.section)) paintSection(section);
-    if (dirtySections.size && isSceneReady()) { updatePaintCanvas(atlas); metrics.paintUpdates++; }
+    if (dirtySections.size && isSceneReady()) { updatePaintCanvas(atlas,activeQuality,previewMemory().canvasGpu); metrics.paintUpdates++; }
     dirtySections.clear(); drawSelection();
+    if(previewAllocationBlocked){previewAllocationBlocked=false;qualityStatus('');}
     if(drag||transform)surface?.refresh();
     metrics.lastComposeMs=performance.now()-start; metrics.maxComposeMs=Math.max(metrics.maxComposeMs,metrics.lastComposeMs);
   });
 }
-function drawThumbnail(canvas,image) {
+function drawThumbnail(canvas,image,reset=false) {
+  // Reset the recording/backing store, including references to a prior full-size
+  // source image. clearRect alone can leave those resources in a display list.
+  if(reset)canvas.width=canvas.width;
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
-  const bounds=image?.artworkBounds||[0,0,image?.width||0,image?.height||0];
+  const scale=image?image.width/2048:1;
+  const bounds=image?.artworkBounds?.map(value=>value*scale)||[0,0,image?.width||0,image?.height||0];
   const width=bounds[2]-bounds[0],height=bounds[3]-bounds[1];
   if(image&&width>0&&height>0){const scale=Math.min((canvas.width-8)/width,(canvas.height-8)/height);ctx.drawImage(image,bounds[0],bounds[1],width,height,(canvas.width-width*scale)/2,(canvas.height-height*scale)/2,width*scale,height*scale);}
+}
+function refreshPreviewThumbnails() {
+  for(const [id,button] of sourceButtons)drawThumbnail(button.querySelector('canvas'),images.get(id),true);
+  for(const [id,button] of placementButtons){
+    const placement=project.placements.find(p=>p.id===id);
+    drawThumbnail(button.querySelector('canvas'),images.get(placement?.vinylId),true);
+  }
+  drawThumbnail($('sourcePreview'),images.get(pickedSource),true);
+}
+function releaseArtworkButtons(buttons) {
+  for(const button of buttons.values()){
+    const canvas=button.querySelector('canvas');if(canvas)canvas.width=canvas.height=1;
+  }
 }
 function artworkButton(source,detail) {
   const button=document.createElement('button');button.type='button';
@@ -456,7 +597,7 @@ function refreshSources(blocked) {
   if(!project.vinyls.some(v=>v.id===pickedSource))pickedSource=current()?.vinylId||project.vinyls[0]?.id||null;
   const picker=$('vinylSource'),signature=JSON.stringify(project.vinyls.map(v=>[v.id,v.name]));
   if(signature!==sourceSignature) {
-    sourceSignature=signature;picker.replaceChildren();$('sourceList').replaceChildren();sourceButtons.clear();
+    sourceSignature=signature;picker.replaceChildren();releaseArtworkButtons(sourceButtons);$('sourceList').replaceChildren();sourceButtons.clear();
     if(!project.vinyls.length) {
       const option=document.createElement('option');option.value='';option.textContent=t('No vinyl sources');picker.append(option);
     }
@@ -481,6 +622,7 @@ function refresh() {
   if (!project) return;
   normaliseSelection();
   const blocked=interactionBusy(),editingBlocked=blocked||!canPreview();
+  $('previewQuality').disabled=editingBlocked;
   $('chooseCar').disabled=blocked||config.car_switch!==true;
   $('chooseCar').title=t(config.car_switch===true?'Choose another car from the configured local installation':'Car switching is unavailable in this session');
   if($('carPicker').open||carWorking)refreshCars();
@@ -534,7 +676,7 @@ function refresh() {
   $('vehicle').textContent=t`${config.vehicle.model_code} / Car ${config.vehicle.car_id} / ${project.placements.length} placements`;
   const list=$('placementList'),signature=JSON.stringify([project.placements.map(p=>[p.id,p.vinylId,p.section,p.visible]),project.authoring||null]);
   if(signature!==placementSignature) {
-    placementSignature=signature;list.replaceChildren();placementButtons.clear();
+    placementSignature=signature;releaseArtworkButtons(placementButtons);list.replaceChildren();placementButtons.clear();
     if(!project.placements.length) { const empty=document.createElement('p');empty.className='list-empty';empty.textContent=t('No placements');list.append(empty); }
     for(const placement of [...project.placements].reverse()) {
       const source=project.vinyls.find(v=>v.id===placement.vinylId),group=project.authoring?.groups?.find(g=>g.placements.includes(placement.id));
@@ -567,15 +709,19 @@ async function importFile(file,options={}) {
   if(project.placements.length>=MAX_PLACEMENTS) throw Error('The placement limit is reached.');
   const raw=JSON.parse(await file.text()), shapes=Array.isArray(raw)?raw:raw?.shapes;
   if(!Array.isArray(shapes))throw Error('The vinyl JSON must contain a native shapes array or an object with a shapes array.');
-  const image=await raster(shapes);try{requirePreview();}catch(error){image.src='';throw error;}
-  if(options.isCurrent&&!options.isCurrent()){image.src='';return;}
-  const before=snapshot(), id=crypto.randomUUID();
-  const source={id,name:file.name.replace(/\.json$/i,'').slice(0,160)||'Vinyl',shapes};
-  const placement=createPlacement(id,[...project.vinyls,source]);
-  serializeProject({...project,vinyls:[...project.vinyls,source],placements:[...project.placements,placement]});
-  sources.set(id,source);project.vinyls.push(source); images.set(id,image);project.placements.push(placement);selected=placement.id;pickedSource=id;dirtySections.add(placement.section);schedule();commit(before);
-  message('Vinyl added.');
-  diagnostics.emit('action',{action:'import',outcome:'ok',...projectCounts(project,config.sections.length)});
+  const image=await raster(shapes);let adopted=false;
+  try{
+    requirePreview();
+    if(options.isCurrent&&!options.isCurrent())return;
+    const before=snapshot(), id=crypto.randomUUID();
+    const source={id,name:file.name.replace(/\.json$/i,'').slice(0,160)||'Vinyl',shapes};
+    const placement=createPlacement(id,[...project.vinyls,source]);
+    serializeProject({...project,vinyls:[...project.vinyls,source],placements:[...project.placements,placement]});
+    sources.set(id,source);project.vinyls.push(source);images.set(id,image);adopted=true;
+    project.placements.push(placement);selected=placement.id;pickedSource=id;dirtySections.add(placement.section);schedule();commit(before);
+    message('Vinyl added.');
+    diagnostics.emit('action',{action:'import',outcome:'ok',...projectCounts(project,config.sections.length)});
+  }finally{if(!adopted)image.close();}
 }
 async function confirmReplace() {
   if(!changed()) return true;
@@ -610,11 +756,11 @@ async function openFile(file,options={}) {
   const parts=validatePartConfiguration(next.vehicle_parts);
   serializeProject(next);
   const nextImages=new Map();
-  try {for(const vinyl of next.vinyls) nextImages.set(vinyl.id,await raster(vinyl.shapes));}
-  catch(error) {for(const image of nextImages.values())image.src='';throw error;}
+  try {for(const vinyl of next.vinyls) nextImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,nextImages.size+1,{sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(next))}));}
+  catch(error) {for(const image of nextImages.values())image.close();throw error;}
   try {if(disposed)throw Error('The editor is closed.');if(options.isCurrent&&!options.isCurrent())throw Error(options.recovery?'The current layout changed. Recovery was not applied.':'The current layout changed. Nothing was opened.');requirePreview();setVehicleParts(parts);}
-  catch(error){for(const image of nextImages.values())image.src='';throw error;}
-  project=next; for(const image of images.values())image.src='';images.clear();sources.clear();
+  catch(error){for(const image of nextImages.values())image.close();throw error;}
+  project=next; for(const image of images.values())image.close();images.clear();sources.clear();
   sourceSignature=placementSignature='';
   for(const vinyl of next.vinyls)sources.set(vinyl.id,vinyl);for(const [key,image] of nextImages) images.set(key,image);
   selected=next.placements[0]?.id||null;pickedSource=current()?.vinylId||next.vinyls[0]?.id||null; if(current()) $('section').value=current().section;
@@ -908,9 +1054,11 @@ function finishDrag(cancel=false) {
 }
 async function initialize() {
   config=await api('editor-config'); await sceneReady;
+  if(disposed||stop.signal.aborted)throw Error('The editor is closed.');
   if(!isSceneReady())throw Error('The car renderer could not start.');
   project=emptyProject(config.vehicle); saved=fingerprint();
-  atlas.width=config.paint_size[0];atlas.height=config.paint_size[1];
+  await initializePreviewQuality();
+  if(disposed||stop.signal.aborted)throw Error('The editor is closed.');
   for(const section of config.sections)for(const id of ['section','placementSection']){const option=document.createElement('option');option.value=section.section;option.textContent=sectionLabel(section.section); $(id).append(option);}
   if(config.sections.some(s=>s.section==='Left'))$('section').value='Left';
   surface=createSurfaceEditor({canvas:$('canvas'),viewport:$('viewport'),config,
@@ -1095,7 +1243,9 @@ async function initialize() {
   });
   window.addEventListener('beforeunload',event=>{if(!navigationAuthorized&&(changed()||saveWorking)){event.preventDefault();event.returnValue='';}});
   markAll();refresh();message('Ready.');await importHostVinyl();if(disposed)return;
-  window.__liveryLab={getProject:()=>structuredClone(project),getSelection:()=>[...selectedIds],getMetrics:()=>({...metrics,cachedSources:images.size}),getScene:sceneState,getAtlas:()=>atlas.toDataURL(),ready:true};
+  window.__liveryLab={getProject:()=>structuredClone(project),getSelection:()=>[...selectedIds],getMetrics:()=>({...metrics,cachedSources:images.size,
+    previewQuality:activeQuality,qualityDimensions:[...previewQuality(activeQuality).size],paintDimensions:[atlas.width,atlas.height],
+    sectionCanvases:sectionCanvases.size,previewBytes:previewMemory()}),getScene:sceneState,getAtlas:()=>atlas.toDataURL(),ready:true};
   diagnostics.emit('readiness',{ready:true,...projectCounts(project,config.sections.length)});diagnostics.sample(true);
 }
 function componentSelectionChanged(){
@@ -1120,9 +1270,9 @@ function viewerFailed(event) {
 window.addEventListener('kfps-viewer-error',viewerFailed,{signal:stop.signal});
 window.addEventListener('kfps-component-selection',componentSelectionChanged);
 window.addEventListener('kfps-theme-applied',()=>{if(project&&!disposed&&canPreview())drawSelection();},{signal:stop.signal});
-window.addEventListener('pagehide',()=>{disposed=true;projectStorage?.dispose();confirmations?.dispose();for(const url of nativeDownloads.keys())nativeDownloadFinished(url,{status:'cancelled'});surface?.dispose();surface=null;tools?.dispose();inspection?.dispose();window.removeEventListener('kfps-component-selection',componentSelectionChanged);stop.abort();if(queued)cancelAnimationFrame(queued);queued=0;for(const image of images.values())image.src='';images.clear();sources.clear();sourceButtons.clear();placementButtons.clear();sectionCanvases.clear();atlas.width=atlas.height=1;
+window.addEventListener('pagehide',()=>{disposed=true;projectStorage?.dispose();confirmations?.dispose();for(const url of nativeDownloads.keys())nativeDownloadFinished(url,{status:'cancelled'});surface?.dispose();surface=null;tools?.dispose();inspection?.dispose();window.removeEventListener('kfps-component-selection',componentSelectionChanged);stop.abort();if(queued)cancelAnimationFrame(queued);queued=0;releasePreview(images,sectionCanvases,atlas);sources.clear();releaseArtworkButtons(sourceButtons);releaseArtworkButtons(placementButtons);sourceButtons.clear();placementButtons.clear();sectionCanvas.width=sectionCanvas.height=1;$('sourcePreview').width=$('sourcePreview').height=1;
   // Recovery's own unload handler runs after this listener. Retain the gesture
   // busy state until then so an unfinished transform cannot be auto-saved.
   queueMicrotask(()=>{recovery?.dispose();transform=null;drag=null;});
 });
-initialize().catch(error=>{message(error.message,true);$('importVinyl').disabled=true;});
+initialize().catch(error=>{if(!disposed){message(error.message,true);$('importVinyl').disabled=true;}});

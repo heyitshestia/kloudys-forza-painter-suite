@@ -31,6 +31,7 @@ from .managed_recovery import CarRecoveryStore
 from .storage_paths import StorageError
 from .confirmation_preferences import ConfirmationPreferences, ConfirmationError, MAX_REQUEST_BYTES as MAX_CONFIRMATION_BYTES
 from .language_preferences import LanguagePreferences, LanguageError, MAX_REQUEST_BYTES as MAX_LANGUAGE_BYTES
+from .preview_preferences import PreviewPreferences, PreviewError, MAX_REQUEST_BYTES as MAX_PREVIEW_PREFERENCE_BYTES
 from .save_codec import section_limit_policy
 from .diagnostics import DiagnosticLog, application_version, request_action, MAX_BODY_BYTES as MAX_DIAGNOSTIC_BYTES
 
@@ -43,7 +44,8 @@ VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.j
                 "three/LICENSE")
 OPTIONAL_WEB_FILES = ("authoring-model.mjs", "studio-tools.mjs", "mirror-links.mjs",
                       "recovery-ui.mjs", "inspection-tools.mjs", "action-confirmations.mjs", "confirmation-policy.mjs",
-                      "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs")
+                      "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs",
+                      "preview-quality.mjs")
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 MAX_NATIVE_TEXTURE_BYTES = 80 * 1024 * 1024
 # The qualified Studio client consumes validated #vinyl handoffs on startup/hashchange.
@@ -119,6 +121,7 @@ class LiveryLabServer:
         settings_root = self.session_data_root / "settings" if session_data_root is not None else LAB_ROOT / "settings"
         self.confirmations = ConfirmationPreferences(settings_root)
         self.language = LanguagePreferences(settings_root, kfps_root)
+        self.preview_quality = PreviewPreferences(settings_root)
         self.theme_context = ThemeContext(self.session_workspace, kfps_root)
         self.release_announcement = release_announcement
         if self.release_announcement is None and (Path(kfps_root) / "tools/kfps_release_announcement.py").is_file():
@@ -424,6 +427,40 @@ class LiveryLabServer:
             result = self.language.update(value)
         return self.reply(request, 200, result)
 
+    def _preview_quality_request(self, request, relative, target, token):
+        if target.query or target.fragment or relative != target.path[len(token) + 2:]:
+            raise PreviewError(400, "Invalid preview-quality URL.")
+        if relative != "api/preview-quality":
+            raise PreviewError(404, "Unknown preview-quality API.")
+        if request.command == "GET":
+            with self.state_lock:
+                if token != self.token:
+                    raise PreviewError(404, "Unknown session.")
+                result = self.preview_quality.get()
+            return self.reply(request, 200, result)
+        if request.command != "POST":
+            raise PreviewError(405, "Method not allowed.")
+        if request.headers.get("Transfer-Encoding") or request.headers.get("Content-Encoding"):
+            raise PreviewError(400, "Encoded preview-quality requests are not supported.")
+        lengths = request.headers.get_all("Content-Length", [])
+        if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit():
+            raise PreviewError(411, "One Content-Length is required.")
+        length = int(lengths[0])
+        if length > MAX_PREVIEW_PREFERENCE_BYTES:
+            raise PreviewError(413, "Preview-quality request exceeds 1 KiB.")
+        if request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+            raise PreviewError(415, "Content-Type must be application/json.")
+        body = request.rfile.read(length)
+        request.body_consumed = True
+        if len(body) != length:
+            raise PreviewError(400, "Truncated preview-quality body.")
+        value = decode_json(body)
+        with self.state_lock:
+            if token != self.token:
+                raise PreviewError(404, "Unknown session.")
+            result = self.preview_quality.update(value)
+        return self.reply(request, 200, result)
+
     def _recovery_request(self, request, relative, target, token):
         if target.query or target.fragment or relative != target.path[len(token) + 2:]:
             raise RecoveryError(400, "Invalid recovery URL.")
@@ -658,6 +695,8 @@ class LiveryLabServer:
                 return self._confirmation_request(request, relative, target, token)
             if relative == "api/language" or relative.startswith("api/language/"):
                 return self._language_request(request, relative, target, token)
+            if relative == "api/preview-quality" or relative.startswith("api/preview-quality/"):
+                return self._preview_quality_request(request, relative, target, token)
             if relative in ("api/ui-theme", "api/host-theme") or relative.startswith("api/ui-font/"):
                 if target.query or target.fragment or relative != target.path[len(token) + 2:]:
                     return self.reply(request, 404, {"error": "Theme resource is unavailable."})
@@ -821,7 +860,7 @@ class LiveryLabServer:
             self.reply(request, 404, {"error": "File not available."})
         except StorageError as exc:
             self.reply(request, exc.status, exc.response())
-        except (CarError, SourceEditError, RecoveryError, ConfirmationError, LanguageError) as exc:
+        except (CarError, SourceEditError, RecoveryError, ConfirmationError, LanguageError, PreviewError) as exc:
             self.reply(request, exc.status, {"error": str(exc)})
         except ValidationError as exc:
             self.reply(request, 422, {"error": str(exc)})

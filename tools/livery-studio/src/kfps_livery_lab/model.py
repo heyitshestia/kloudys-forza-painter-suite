@@ -13,10 +13,18 @@ MAX_SHAPES = 3000
 SECTION_SIZE = (2048, 1024)
 WORLD_BOUNDS = (-1024.0, -512.0, 1024.0, 512.0)
 TYPE_BASE = 0x100000
+DEFAULT_PREVIEW_QUALITY = "balanced"
+PREVIEW_SIZES = {"fast": (1024, 512), "balanced": SECTION_SIZE, "sharp": (4096, 2048)}
 
 
 class ValidationError(ValueError):
     pass
+
+
+def validate_preview_quality(value):
+    if not isinstance(value, str) or value not in PREVIEW_SIZES:
+        raise ValidationError("Preview quality must be fast, balanced or sharp.")
+    return value
 
 
 def decode_json(body: bytes):
@@ -108,24 +116,37 @@ class NativeVinylRenderer:
             return None
         return resource
 
-    def __call__(self, payload):
+    def _render_canvas(self, shapes, size):
         from PIL import Image
-        shapes = validate_shapes(payload, self._resource)
         try:
             png = self.baseline.render_typecode_layers_canvas(
-                shapes, width=SECTION_SIZE[0], height=SECTION_SIZE[1],
+                shapes, width=size[0], height=size[1],
                 world_bounds=WORLD_BOUNDS, strict_assets=True,
             )
             if not png:
                 buffer = io.BytesIO()
-                Image.new("RGBA", SECTION_SIZE, (0, 0, 0, 0)).save(buffer, format="PNG")
+                Image.new("RGBA", size, (0, 0, 0, 0)).save(buffer, format="PNG")
                 png = buffer.getvalue()
             with Image.open(io.BytesIO(png)) as image:
-                if image.format != "PNG" or image.size != SECTION_SIZE:
+                if image.format != "PNG" or image.size != size:
                     raise ValidationError("Renderer returned an invalid section texture.")
                 bounds = image.convert("RGBA").getchannel("A").getbbox()
         except (ValueError, OSError) as exc:
             raise ValidationError("Native vinyl could not be rendered exactly.") from exc
+        return png, bounds
+
+    def __call__(self, payload):
+        if (not isinstance(payload, dict) or "shapes" not in payload
+                or set(payload) - {"shapes", "preview_quality"}):
+            raise ValidationError("Expected shapes and optional preview_quality only.")
+        quality = validate_preview_quality(payload.get("preview_quality", DEFAULT_PREVIEW_QUALITY))
+        shapes = validate_shapes({"shapes": payload["shapes"]}, self._resource)
+        size = PREVIEW_SIZES[quality]
+        # Picking uses the original alpha bounds, including masks, clipping and
+        # subpixel coverage. Scaling another resolution's bbox is not equivalent.
+        png, bounds = self._render_canvas(shapes, SECTION_SIZE)
+        if size != SECTION_SIZE:
+            png, _ = self._render_canvas(shapes, size)
         return {"png": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
-                "width": SECTION_SIZE[0], "height": SECTION_SIZE[1],
+                "width": size[0], "height": size[1],
                 "shapes": shapes, "bounds": list(bounds) if bounds else None}

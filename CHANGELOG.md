@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.112
+
+### Studio Vinyl Preview Quality
+
+- Added a vinyl preview quality switch to Studio: Fast, Balanced and Sharp. Use Fast for lighter previews or Sharp for a closer look at the details. Balanced keeps the previous resolution.
+- Your choice is remembered between sessions and shared by the normal Studio window and Chrome. The controls are available in English, Korean and Japanese.
+- This only changes the preview. Vinyl shapes, placement, UV alignment and saved/exported files stay unchanged. Unsupported settings are checked before allocating larger textures, and a failed switch keeps the previous preview usable.
+- Improved preview cleanup when switching quality, removing vinyls and closing Studio. Checked both hosts with up to 3,000 shapes, repeated switches, undo/redo and saving/reopening projects while monitoring GPU use.
+- Available through the normal updater; no new bundled download for this update. Studio's experimental game-save export is unchanged.
+
 ## 3.1.111
 
 ### Detached Layers Panel Fix

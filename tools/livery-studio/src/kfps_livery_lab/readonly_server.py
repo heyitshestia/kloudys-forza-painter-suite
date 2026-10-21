@@ -18,7 +18,7 @@ from .readonly_preview import descriptor_assets, ordinary_path, read_descriptor,
 from .file_io import io_path
 
 WEB_FILES = ('readonly.html', 'readonly.mjs', 'readonly.css', 'viewer.css', 'livery-scene.js',
-             'surface-math.mjs', 'native-material.mjs', 'native-texture-binding.mjs',
+             'surface-math.mjs', 'native-material.mjs', 'native-texture-binding.mjs', 'preview-quality.mjs',
              'wheel-model.mjs', 'inspection-tools.mjs', 'component-model.mjs', 'layout-model.mjs', 'mirror-links.mjs',
              'icons.js', 'LICENSE.lucide', 'theme-adapter.mjs', 'i18n.mjs',
              'locales/en.mjs', 'locales/ko.mjs', 'locales/ja.mjs')

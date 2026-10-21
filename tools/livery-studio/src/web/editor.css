@@ -20,6 +20,8 @@ a{color:var(--accent)}h1,h2{margin:0;font-size:14px;font-weight:600}
 #library,#authoring{min-width:0;background:var(--panel);padding:12px;overflow:auto;scrollbar-gutter:stable}
 #library{display:flex;flex-direction:column;border-right:1px solid var(--line)}
 #authoring{border-left:1px solid var(--line)}
+.preview-quality-controls{padding-bottom:10px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.preview-quality-controls .field{margin-bottom:0}.preview-quality-controls p:not(:empty){margin-top:6px}
 .section-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
 .field{display:flex;flex-direction:column;gap:4px;margin:0 0 10px}
 select,input[type=number]{min-height:31px;min-width:0;width:100%;padding:4px 7px;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:3px}
