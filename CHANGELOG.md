@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.109
+
+### Livery Preview Recovery
+
+- Fixed saved-livery 3D previews failing with a missing-file error when KFPS sits inside a long folder path. Preview caches and temporary filenames now use shorter paths, with long-path handling where needed.
+- Previously affected liveries can be opened again without re-exporting them. If a preview still needs rebuilding, select it and use Clear Cache once; KFPS will reopen the selected preview automatically.
+- Fixed the first High-quality preview failing after a fresh scan or cache clear, and stopped delayed cleanup from reopening a livery after you've switched away from it.
+- Your game saves, exported liveries and rendering quality stay unchanged. No need to move KFPS or change Windows settings for this fix.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.108
 
 ### Editor Tour Fix

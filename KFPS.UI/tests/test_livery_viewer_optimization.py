@@ -232,6 +232,171 @@ class ViewerOptimizationTests(unittest.TestCase):
             self.service.selectPackage(str(package))
             start.assert_called_once()
 
+    def test_failed_source_preview_can_retry_the_same_source(self):
+        source = self.root / "C_livery"
+        source.write_bytes(b"source must not change")
+        self.service._game_folder = str(self.root)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.selectSource(str(source))
+            first = start.call_args
+            self.service._tasks.stateChanged.emit()
+            self.service._tasks.completed.emit({
+                "kind": "preview", "ok": False, **first.kwargs["metadata"],
+                "error": "[Errno 2] Legacy preview temporary path is too long",
+            })
+            self.assertFalse(self.service.running)
+            self.assertEqual("", self.service.viewerUrl)
+            self.service.previewSelectedSource()
+            self.assertEqual(2, start.call_count)
+            self.assertEqual("preview-source", start.call_args.args[0])
+            self.assertEqual(str(source), start.call_args.args[1]["source"])
+            self.assertGreater(start.call_args.kwargs["metadata"]["request_serial"],
+                               first.kwargs["metadata"]["request_serial"])
+        self.assertEqual(b"source must not change", source.read_bytes())
+
+    def test_failed_mesh_can_retry_without_readding_package(self):
+        package = self.root / "old.kfpslivery"
+        package.write_bytes(b"package must not change")
+        self.service._game_folder = str(self.root)
+        manifest = {"package_id": "retry", "livery": {"target_car_id": 42}}
+        with patch.object(self.service, "_refresh_decisions"), \
+             patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service._accept_open_package(str(package), manifest, remember=True)
+            metadata = start.call_args.kwargs["metadata"]
+            self.service._tasks.stateChanged.emit()
+            self.service._tasks.completed.emit({
+                "kind": "mesh", "ok": False, **metadata,
+                "error": "[Errno 2] Legacy preview temporary path is too long",
+            })
+            self.assertFalse(self.service.running)
+            self.assertEqual("Package open; 3D unavailable", self.service.status)
+            self.service.selectPackage(str(package))
+            self.assertEqual("open-package", start.call_args.args[0])
+            self.assertEqual(str(package), start.call_args.args[1]["path"])
+            self.assertEqual(2, start.call_count)
+        paths = self.service.paths
+        self.service.close()
+        with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
+            self.service = FullLiveryService(paths, LogService(), demo=True)
+        self.service._active = True
+        self.assertEqual(str(package), self.service.selectedPackage)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.selectPackage(str(package))
+            self.assertEqual("open-package", start.call_args.args[0])
+        self.assertEqual(b"package must not change", package.read_bytes())
+
+    def test_clear_cache_reopens_source_or_saved_package_without_changing_it(self):
+        for kind in ("source", "package"):
+            with self.subTest(kind=kind):
+                path = self.root / ("C_livery" if kind == "source" else "old.kfpslivery")
+                path.write_bytes(b"original input")
+                self.service._running = False
+                self.service._game_folder = str(self.root)
+                self.service._selected_source = str(path) if kind == "source" else ""
+                self.service._active_source_preview = self.service._selected_source
+                self.service._selected_package = str(path) if kind == "package" else ""
+                with patch.object(self.service._tasks, "start", return_value=True) as start:
+                    self.service.clearFullLiveryCache()
+                    self.assertEqual("clear-cache", start.call_args.args[0])
+                    metadata = start.call_args.kwargs["metadata"]
+                    self.service._tasks.stateChanged.emit()
+                    self.service._tasks.completed.emit({
+                        "kind": "clear-cache", "ok": True, **metadata,
+                        "payload": {"files": 4, "bytes": 1234},
+                    })
+                    self.assertEqual(2, start.call_count)
+                    self.assertEqual("preview-source" if kind == "source" else "open-package",
+                                     start.call_args.args[0])
+                    self.assertEqual(str(path), start.call_args.args[1]["source" if kind == "source" else "path"])
+                self.assertEqual(b"original input", path.read_bytes())
+
+    def test_clear_cache_failure_does_not_launch_or_modify_the_selected_source(self):
+        source = self.root / "C_livery"
+        source.write_bytes(b"original input")
+        self.service._selected_source = str(source)
+        self.service._game_folder = str(self.root)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.clearFullLiveryCache()
+            self.service._tasks.stateChanged.emit()
+            self.service._tasks.completed.emit({
+                "kind": "clear-cache", "ok": False, **start.call_args.kwargs["metadata"],
+                "error": "Unknown or modified viewer cache files were preserved.",
+            })
+            self.assertFalse(self.service.running)
+            self.assertEqual(1, start.call_count)
+            self.assertEqual("", self.service.viewerUrl)
+            self.service.previewSelectedSource()
+            self.assertEqual("preview-source", start.call_args.args[0])
+        self.assertEqual(b"original input", source.read_bytes())
+
+    def test_late_clear_success_cannot_reopen_after_leaving_the_page(self):
+        source = self.root / "C_livery"
+        source.touch()
+        self.service._game_folder = str(self.root)
+        self.service._selected_source = str(source)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.clearFullLiveryCache()
+            metadata = start.call_args.kwargs["metadata"]
+            self.service.deactivate()
+            self.service._tasks.stateChanged.emit()
+            status = self.service.status
+            self.service._tasks.completed.emit({
+                "kind": "clear-cache", "ok": True, **metadata, "payload": {},
+            })
+            self.assertEqual(1, start.call_count)
+            self.assertFalse(self.service.running)
+            self.assertEqual(status, self.service.status)
+
+    def test_late_clear_success_cannot_replace_a_new_package_selection(self):
+        old, new = (self.root / name for name in ("old.kfpslivery", "new.kfpslivery"))
+        old.touch()
+        new.touch()
+        self.service._selected_package = str(old)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.clearFullLiveryCache()
+            metadata = start.call_args.kwargs["metadata"]
+            self.service._tasks.stateChanged.emit()
+            self.service.selectPackage(str(new))
+            self.service._tasks.completed.emit({
+                "kind": "clear-cache", "ok": True, **metadata, "payload": {},
+            })
+            self.assertEqual(2, start.call_count)
+            self.assertEqual(str(new), self.service.selectedPackage)
+            self.assertTrue(self.service.running)
+            self.assertEqual("Verifying full-livery package", self.service.status)
+
+    def test_late_clear_success_cannot_reopen_after_returning_to_grid(self):
+        source = self.root / "C_livery"
+        source.touch()
+        self.service._game_folder = str(self.root)
+        self.service._selected_source = str(source)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.clearFullLiveryCache()
+            metadata = start.call_args.kwargs["metadata"]
+            self.service.showSourceGrid()
+            self.service._tasks.stateChanged.emit()
+            self.service._tasks.completed.emit({
+                "kind": "clear-cache", "ok": True, **metadata, "payload": {},
+            })
+            self.assertEqual(1, start.call_count)
+            self.assertFalse(self.service.running)
+            self.assertEqual("Livery browser", self.service.status)
+
+    def test_duplicate_clear_success_does_not_restart_the_retry(self):
+        source = self.root / "C_livery"
+        source.touch()
+        self.service._game_folder = str(self.root)
+        self.service._selected_source = str(source)
+        with patch.object(self.service._tasks, "start", return_value=True) as start:
+            self.service.clearFullLiveryCache()
+            result = {"kind": "clear-cache", "ok": True,
+                      **start.call_args.kwargs["metadata"], "payload": {}}
+            self.service._tasks.stateChanged.emit()
+            self.service._tasks.completed.emit(result)
+            self.service._tasks.completed.emit(result)
+            self.assertEqual(2, start.call_count)
+            self.assertTrue(self.service.running)
+
     def test_browser_url_is_not_bound_to_broad_service_notifications(self):
         qml = (UI / "qml/pages/LiveryPage.qml").read_text(encoding="utf-8")
         self.assertIn("readonly property string viewerSessionUrl: fullLiveryService.viewerUrl", qml)

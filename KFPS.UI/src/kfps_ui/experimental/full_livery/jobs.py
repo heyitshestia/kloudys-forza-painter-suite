@@ -590,6 +590,9 @@ def _preview_target(paths: JobPaths, source: Path, game_folder: str) -> tuple[Pa
 def preview_source(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[str, Any]:
     source = Path(str(payload.get("source") or "")).resolve()
     game_folder = str(payload.get("game_folder") or "")
+    if game_folder:
+        # Index creation or rebuilding changes the preview key; settle it before lookup.
+        load_or_build_vehicle_asset_index(game_folder, paths.vehicle_index)
     target, cache_key = _preview_target(paths, source, game_folder)
     try:
         manifest = validate_livery_inspection_artifact(target)

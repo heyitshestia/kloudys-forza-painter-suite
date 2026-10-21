@@ -13,27 +13,45 @@ import zipfile
 from contextlib import contextmanager
 
 from .component_coverage import audit_components
+from .file_io import atomic_stream, io_path, resolved_path
 
 LAB_ROOT = Path(__file__).resolve().parents[2]
 PREPARE_FORMAT = "kfps-livery-lab-prepared-v1"
 
 
 def within(path: Path, root: Path) -> Path:
-    resolved = path.resolve()
-    if not resolved.is_relative_to(root.resolve()):
+    resolved = resolved_path(path)
+    if not resolved.is_relative_to(resolved_path(root)):
         raise ValueError("Path is outside its authorized root.")
     return resolved
 
 
-def workspace_environment(workspace: Path) -> Path:
-    root = within(Path(workspace), LAB_ROOT / "runs")
-    if root == (LAB_ROOT / "runs").resolve():
+def viewer_cache_base(lab_root=None):
+    lab = LAB_ROOT if lab_root is None else Path(lab_root)
+    if lab.name == "livery-studio" and lab.parent.name == "tools":
+        return lab.parents[1] / "runtime" / "lv"
+    return lab / "runs" / "viewer-cache"
+
+
+def workspace_path(workspace: Path, *, lab_root=None) -> Path:
+    """One boundary for preparation and its native-material staging."""
+    lab = LAB_ROOT if lab_root is None else Path(lab_root)
+    root = resolved_path(workspace)
+    allowed = [resolved_path(lab / "runs"), resolved_path(viewer_cache_base(lab))]
+    if not any(root.is_relative_to(parent) for parent in allowed):
+        raise ValueError("Path is outside its authorized root.")
+    if root in allowed:
         raise ValueError("Use a named run directory, not the runs root.")
-    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def workspace_environment(workspace: Path) -> Path:
+    root = workspace_path(workspace)
+    io_path(root).mkdir(parents=True, exist_ok=True)
     temporary = within(root / "tmp", root)
     cache = within(root / "cache", root)
-    temporary.mkdir(exist_ok=True)
-    cache.mkdir(exist_ok=True)
+    io_path(temporary).mkdir(exist_ok=True)
+    io_path(cache).mkdir(exist_ok=True)
     for key in ("TEMP", "TMP", "TMPDIR"):
         os.environ[key] = str(temporary)
     for key in ("XDG_CACHE_HOME", "MPLCONFIGDIR", "NUMBA_CACHE_DIR", "DOTNET_BUNDLE_EXTRACT_BASE_DIR", "DOTNET_CLI_HOME"):
@@ -64,8 +82,8 @@ def load_baseline(kfps_root: Path) -> Path:
 def workspace_lock(workspace: Path):
     root = workspace_environment(workspace)
     path = within(root / "backend.lock", root)
-    with path.open("a+b") as handle:
-        if path.stat().st_size == 0:
+    with io_path(path).open("a+b") as handle:
+        if io_path(path).stat().st_size == 0:
             handle.write(b"0")
             handle.flush()
         handle.seek(0)
@@ -90,19 +108,12 @@ def workspace_lock(workspace: Path):
 
 def atomic_json(path: Path, value) -> None:
     body = (json.dumps(value, indent=2, allow_nan=False) + "\n").encode("utf-8")
-    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(name, path)
-    finally:
-        Path(name).unlink(missing_ok=True)
+    with atomic_stream(path) as handle:
+        handle.write(body)
 
 
 def file_hash(path: Path) -> str:
-    with path.open("rb") as handle:
+    with io_path(path).open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 

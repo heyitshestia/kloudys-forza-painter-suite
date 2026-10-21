@@ -18,6 +18,7 @@ import psutil
 
 from .model import decode_json
 from .prepare import LAB_ROOT, PREPARE_FORMAT, atomic_json, file_hash, within
+from .file_io import io_path
 
 ID = re.compile(r"[a-f0-9]{32}")
 ARCHIVE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,150}\.zip", re.IGNORECASE)
@@ -92,13 +93,21 @@ def prepared_assets(prepared, root):
         if (not isinstance(name, str) or not name or Path(name).is_absolute() or ".." in Path(name).parts
                 or any(c in name for c in "\\:\x00")):
             raise ValueError("Invalid prepared asset path.")
-        path = within(root / name, root)
-        if path == root or not path.is_file() or path.stat().st_size == 0:
+        candidate = root / name
+        for part in (candidate, *candidate.parents):
+            native = io_path(part)
+            if native.is_symlink() or native.is_junction():
+                raise ValueError("Redirected prepared assets are not supported.")
+            if part == root:
+                break
+        path = within(candidate, root)
+        native = io_path(path)
+        if path == root or not native.is_file() or native.stat().st_size == 0:
             raise ValueError("A prepared asset is missing.")
         if route.startswith("api/native-texture/"):
-            texture_bytes += path.stat().st_size
+            texture_bytes += native.stat().st_size
             hashes = prepared.get("file_sha256", {})
-            if (path.suffix.lower() != ".png" or path.stat().st_size > 80 * 1024**2
+            if (path.suffix.lower() != ".png" or native.stat().st_size > 80 * 1024**2
                     or texture_bytes > 128 * 1024**2 or not isinstance(hashes, dict)
                     or hashes.get(name) != file_hash(path)):
                 raise ValueError("A native texture failed its integrity or size check.")

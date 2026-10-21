@@ -10,6 +10,7 @@ import stat
 import re
 
 from .prepare import atomic_json, file_hash
+from .file_io import io_path, logical_path, resolved_path
 
 FORMAT = 'kfps-livery-readonly-preview-v1'
 MAX_DESCRIPTOR_BYTES = 16 * 1024**2
@@ -18,22 +19,25 @@ MAX_TOTAL_BYTES = 1024**3
 
 
 def ordinary_path(path, root):
-    root, path = Path(root).absolute(), Path(path).absolute()
-    if path == root or not path.is_relative_to(root) or '..' in path.parts:
+    if '..' in Path(path).parts:
+        raise ValueError('Preview asset is outside its registered root.')
+    root, path = logical_path(root), logical_path(path)
+    if path == root or not path.is_relative_to(root):
         raise ValueError('Preview asset is outside its registered root.')
     for item in (path, *path.parents):
-        if item.is_symlink() or item.is_junction():
+        native = io_path(item)
+        if native.is_symlink() or native.is_junction():
             raise ValueError('Redirected preview assets are not supported.')
         if item == root:
             break
-    if not path.resolve().is_relative_to(root.resolve()):
+    if not resolved_path(path).is_relative_to(resolved_path(root)):
         raise ValueError('Preview asset is outside its registered root.')
     return path
 
 
 def verified_bytes(path, expected_hash, root, maximum=MAX_ASSET_BYTES):
     path = ordinary_path(path, root)
-    with path.open('rb') as stream:
+    with io_path(path).open('rb') as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= maximum:
             raise ValueError('Preview asset is not a bounded regular file.')
@@ -69,7 +73,7 @@ def descriptor_assets(value, root):
     total = 0
     for path, _ in assets.values():
         ordinary_path(path, root)
-        info = path.stat()
+        info = io_path(path).stat()
         total += info.st_size
         if not 0 < info.st_size <= MAX_ASSET_BYTES or info.st_nlink != 1 or total > MAX_TOTAL_BYTES:
             raise ValueError('Preview assets exceed their size budget.')
@@ -80,13 +84,13 @@ def descriptor_assets(value, root):
 
 
 def write_descriptor(root, value):
-    root = Path(root).absolute()
+    root = logical_path(root)
     descriptor_assets(value, root)
     if len(json.dumps(value).encode('utf-8')) > MAX_DESCRIPTOR_BYTES:
         raise ValueError('Preview metadata is too large.')
     body = json.dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False).encode('utf-8')
     path = ordinary_path(root / ('readonly-' + hashlib.sha256(body).hexdigest() + '.json'), root)
-    if path.exists():
+    if io_path(path).exists():
         if read_descriptor(path) != value:
             raise ValueError('An immutable preview descriptor changed.')
     else:
@@ -95,9 +99,9 @@ def write_descriptor(root, value):
 
 
 def read_descriptor(path):
-    path = Path(path).absolute()
+    path = logical_path(path)
     ordinary_path(path, path.parent)
-    with path.open('rb') as stream:
+    with io_path(path).open('rb') as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ValueError('Preview descriptor is not an ordinary file.')

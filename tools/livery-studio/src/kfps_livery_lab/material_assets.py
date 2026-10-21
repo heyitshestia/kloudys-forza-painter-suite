@@ -19,6 +19,7 @@ import threading
 import zipfile
 
 from PIL import Image, __version__ as PILLOW_VERSION
+from .prepare import workspace_path
 
 LAB_ROOT = Path(__file__).resolve().parents[2]
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
@@ -212,10 +213,10 @@ class MaterialAssetStore:
     """Thread-serialized content cache; never deletes existing files to make room."""
 
     def __init__(self, cache_root: Path, *, allowed_roots: list[Path], max_entries: int = 128, max_bytes: int = 256 * 1024**2):
-        self.root = Path(cache_root).resolve()
-        runs = (LAB_ROOT / "runs").resolve()
-        if not self.root.is_relative_to(runs) or self.root == runs:
-            raise MaterialAssetError("Material cache must be a named directory under this livery workspace's runs.")
+        try:
+            self.root = workspace_path(cache_root, lab_root=LAB_ROOT)
+        except ValueError as exc:
+            raise MaterialAssetError("Material cache must be a named directory under the authorized workspace.") from exc
         if not allowed_roots or len(allowed_roots) > 8:
             raise MaterialAssetError("Supply one to eight explicit read-only roots.")
         self.allowed_roots = tuple(Path(path).resolve(strict=True) for path in allowed_roots)

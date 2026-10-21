@@ -647,7 +647,8 @@ class FullLiveryService(QObject):
             "clear-cache",
             self._worker_payload(),
             kind="clear-cache",
-            metadata={"reopen_source": reopen_source, "reopen_package": reopen_package},
+            metadata={"reopen_source": reopen_source, "reopen_package": reopen_package,
+                      "request_serial": self._mesh_serial},
         )
 
     @Slot()
@@ -1099,6 +1100,11 @@ class FullLiveryService(QObject):
                 return
             if str(result.get("source_path") or "") != self._selected_source:
                 return
+        if kind == "clear-cache":
+            # Cleanup can finish after a selection change or after leaving the page.
+            if result.get("request_serial") != self._mesh_serial:
+                return
+            self._mesh_serial += 1
         self._running = False
         if result.get("cancelled"):
             if self._active and not self._tasks.running:

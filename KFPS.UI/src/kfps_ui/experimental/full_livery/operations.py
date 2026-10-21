@@ -123,8 +123,5 @@ def clear_studio_cache(app_root):
     except (FileNotFoundError, ValueError):
         # A missing optional installation must not prevent clearing legacy caches.
         return {'removed_files': 0, 'removed_bytes': 0}
-    root = module.cache_root(app_root)
-    if not root.exists():
-        return {'removed_files': 0, 'removed_bytes': 0}
-    with module.cache_lease(root):
+    with module.installation_cache_lease(app_root, create=True):
         return module.prune_cache(app_root, clear=True)

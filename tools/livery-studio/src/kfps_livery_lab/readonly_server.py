@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from .prepare import LAB_ROOT, file_hash
 from .readonly_preview import descriptor_assets, ordinary_path, read_descriptor, verified_bytes
+from .file_io import io_path
 
 WEB_FILES = ('readonly.html', 'readonly.mjs', 'readonly.css', 'viewer.css', 'livery-scene.js',
              'surface-math.mjs', 'native-material.mjs', 'native-texture-binding.mjs',
@@ -60,7 +61,7 @@ class ReadonlyPreviewServer:
         self.lease = None
         root = Path(descriptor).absolute().parent
         try:
-            if (root / 'viewer.lock').exists():
+            if io_path(root / 'viewer.lock').exists():
                 from .readonly_cache import cache_lease
                 self.lease = cache_lease(root)
                 self.lease.__enter__()
@@ -92,7 +93,7 @@ class ReadonlyPreviewServer:
         for prefix, base, names in (('', web, WEB_FILES), ('vendor/', vendor, VENDOR_FILES)):
             for name in names:
                 path = ordinary_path(base / name, base)
-                body = path.read_bytes()
+                body = io_path(path).read_bytes()
                 self.static[prefix + name] = (path, base, hashlib.sha256(body).hexdigest())
         owner = self
 

@@ -8,7 +8,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 UI = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(UI / 'src'), str(UI.parent)]
@@ -44,6 +44,13 @@ class StudioBridgeTests(unittest.TestCase):
         with patch.object(operations, 'prepare_mesh', return_value=result) as prepare:
             self.assertIs(jobs.prepare_mesh(self.paths, self.payload, cancel), result)
         prepare.assert_called_once_with(self.paths, self.payload, cancel, progress=None)
+
+    def test_clear_establishes_both_installation_locks_even_on_first_use(self):
+        adapter = MagicMock()
+        with patch.object(operations, 'studio_module', return_value=adapter):
+            operations.clear_studio_cache(self.root)
+        adapter.installation_cache_lease.assert_called_once_with(self.root, create=True)
+        adapter.prune_cache.assert_called_once_with(self.root, clear=True)
 
     def test_owned_package_retains_high_quality_provider(self):
         self.assertEqual(self.call()['readonly_descriptor'], 'descriptor')

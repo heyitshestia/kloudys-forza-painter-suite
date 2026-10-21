@@ -16,6 +16,7 @@ import zipfile
 import zlib
 
 from .material_assets import LAB_ROOT, MaterialAssetError, MaterialAssetStore, _archive_guard
+from .prepare import workspace_path
 
 PROFILE = "fts-brake-basecolor-preview-v1"
 UV_PIPELINE = "fts-importer-v-flipped-then-native-scale-offset-v1"
@@ -279,13 +280,11 @@ def prepare_material_preview(glb_path, *, game_root, prepared_root, max_assets=3
     if not _integer(max_assets, 1, 128):
         raise MaterialPreviewError("max_assets must be between 1 and 128.")
     try:
-        runs = (LAB_ROOT / "runs").resolve(strict=True)
-        glb = Path(glb_path).resolve(strict=True)
+        glb = workspace_path(glb_path, lab_root=LAB_ROOT)
         game = Path(game_root).resolve(strict=True)
-        prepared = Path(prepared_root).resolve()
+        prepared = workspace_path(prepared_root, lab_root=LAB_ROOT)
         cache = (prepared / "material-preview/textures").resolve()
-        if (not glb.is_relative_to(runs) or glb.suffix.lower() != ".glb" or not glb.is_file()
-                or not prepared.is_relative_to(runs) or prepared == runs
+        if (glb.suffix.lower() != ".glb" or not glb.is_file()
                 or not game.is_dir() or game.is_relative_to(prepared) or prepared.is_relative_to(game)
                 or not cache.is_relative_to(prepared) or cache == prepared
                 or (prepared.exists() and not prepared.is_dir())):
