@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.110
+
+### Saved Color Palette Fix
+
+- Fixed saved colors looking transparent or checkered unless selected. All saved slots now show their colors in both the normal editor and Chrome.
+- Your saved palette, opacity values, shortcuts and themes stay unchanged. No graphics-setting changes needed.
+- Checked five themes, smaller windows, keyboard shortcuts and saving/reloading the palette.
+- Available through the normal updater; no new bundled download for this fix.
+
 ## 3.1.109
 
 ### Livery Preview Recovery
