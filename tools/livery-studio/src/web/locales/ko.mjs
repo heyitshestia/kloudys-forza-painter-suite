@@ -1,5 +1,6 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Masked vinyls must use 100% opacity for export.": "마스크가 포함된 비닐은 불투명도를 100%로 설정해야 내보낼 수 있습니다.",
   "Vinyl preview quality": "비닐 미리보기 품질",
   "Preview detail only. Saved artwork and exports are unchanged.": "미리보기의 세부 묘사만 변경합니다. 저장된 아트워크와 내보내기에는 영향이 없습니다.",
   "Fast (1024 x 512)": "빠름 (1024 x 512)",

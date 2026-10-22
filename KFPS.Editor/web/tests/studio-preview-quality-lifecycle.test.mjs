@@ -7,6 +7,7 @@ import {placementMatrix,sectionToPaint,createHistory} from '../../../tools/liver
 
 const editorSource=readFileSync(new URL('../../../tools/livery-studio/src/web/livery-editor.mjs',import.meta.url),'utf8');
 const sceneSource=readFileSync(new URL('../../../tools/livery-studio/src/web/livery-scene.js',import.meta.url),'utf8');
+const compositeSource=readFileSync(new URL('../../../tools/livery-studio/src/web/vinyl-compositing.mjs',import.meta.url),'utf8');
 const MiB=1024**2;
 const paintSize=[2048,892];
 
@@ -87,6 +88,7 @@ function editorHarness(scene=sceneHarness()) {
     getBounds(){},hitPlacement(){},selectPlacement(){},previewTransform(){},message(){},
     showPlacementStack(){},componentSelectionChanged(){},
   });
+  vm.runInContext(compositeSource.replace(/^import[^\n]*\n/gm,'').replace(/^export /gm,''),context);
   vm.runInContext(between(editorSource,'async function api(','function drawSection('),context);
   vm.runInContext(between(editorSource,'function drawThumbnail(','function artworkButton('),context);
   return {context,writes,listeners,config,scene};

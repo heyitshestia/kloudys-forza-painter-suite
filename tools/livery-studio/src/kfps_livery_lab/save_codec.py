@@ -150,6 +150,46 @@ def _source_fits(shapes):
                 raise ValidationError("The source vinyl extends outside the preview canvas. Center or resize its shapes in the vinyl editor before exporting.")
 
 
+def _encode_masked_section(placements):
+    """FH6 counted artwork groups inside a markerless section, not C_group closes."""
+    def header(count,bitmap,marker=b""):
+        return marker+struct.pack("<HH",count,len(bitmap))+b"\0\0"+bytes(bitmap)
+
+    def group(shapes,mask=False):
+        bitmap=bytearray((len(shapes)+7)//8)
+        for index,shape in enumerate(shapes):
+            if shape["mask"] and not mask:
+                bitmap[index//8]|=1<<(index%8)
+        output=bytearray(b"\0"+struct.pack("<4f",0,0,1,0))
+        output.extend(header(len(shapes),bitmap,b"\x60" if mask else b"\x20"))
+        previous=False
+        for index,shape in enumerate(shapes):
+            if shape["mask"] and not mask:
+                child=bytearray(group([shape],True))
+                child[0]=int(previous)
+                output.extend(child)
+            else:
+                x,y,sx,sy,angle,skew,_=shape["data"]
+                r,g,b,a=shape["color"]
+                output.extend(struct.pack("<BBH6f4B",int(index==0 or previous or mask),2,
+                                          shape["type_word"],angle%360,x,y,sx,sy,skew,b,g,r,a))
+            previous=shape["mask"]
+        return bytes(output)
+
+    bitmap=bytearray((len(placements)+7)//8)
+    for index in range(len(placements)):
+        bitmap[index//8]|=1<<(index%8)
+    result=bytearray(header(len(placements),bitmap))
+    previous=False
+    for shapes in placements:
+        child=bytearray(group(shapes))
+        child[0]=int(previous)
+        result.extend(child)
+        previous=shapes[-1]["mask"]
+    result.append(int(previous))
+    return bytes(result)
+
+
 def compile_layout(project,car_id,sections):
     return _compile_layout(project,car_id,sections)
 
@@ -181,8 +221,6 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
     if not isinstance(sources,list) or not isinstance(placements,list) or len(sources)>16 or len(placements)>200:
         raise ValidationError("Layout exceeds the authoring limits.")
     lookup={}; ids=set(); checked_sources=set()
-    section_placements=[p for p in placements if isinstance(p,dict) and p.get("section")==target_section and p.get("visible") is True and p.get("opacity",0)!=0]
-    isolated_mask=target_section is not None and len(section_placements)==1
     for source in sources:
         if not isinstance(source,dict) or not isinstance(source.get("id"),str) or not source["id"] or len(source["id"])>100 or source["id"] in lookup:
             raise ValidationError("Invalid or duplicate vinyl ID.")
@@ -201,8 +239,8 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
         opacity=_bounded(p.get("opacity"),0,1,"Opacity")
         if not p["visible"] or opacity==0 or (target_section is not None and p["section"]!=target_section):continue
         native=lookup[p["vinylId"]]
-        if any(shape["mask"] for shape in native) and (not isolated_mask or opacity!=1):
-            raise ValidationError("Export cannot preserve isolated masks across multiple vinyls or group opacity. Export this masked vinyl on its own at full opacity.")
+        if any(shape["mask"] for shape in native) and opacity!=1:
+            raise ValidationError("Masked vinyls must use 100% opacity for export.")
         if opacity!=1 and sum(shape["color"][3]>0 for shape in native)>1:
             raise ValidationError("Multi-shape vinyl opacity must be 1 for experimental export; isolated group opacity cannot be flattened exactly.")
         if p["vinylId"] not in checked_sources:
@@ -231,9 +269,8 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
             data=[x+m00*px+m01*py,y+m10*px+m11*py,ax,ay,math.degrees(angle)%360,shear,0]
             data[6]=int(shape["mask"])
             transformed={"type":shape["type"],"data":data,"color":[*shape["color"][:3],alpha],"mask":shape["mask"]}
-            if target_section is not None:
-                transformed["editor_group_id"]="studio-"+p["id"]
-                transformed["editor_group_name"]=str(p.get("name") or p["vinylId"])[:1024]
+            transformed["editor_group_id"]="studio-"+p["id"]
+            transformed["editor_group_name"]=str(p.get("name") or p["vinylId"])[:1024]
             target.append(transformed)
             cap=3000 if target_section is not None else CAPS[p["section"]]
             if len(target)>cap:
@@ -241,6 +278,10 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
     if not any(output.values()):raise ValidationError("At least one visible shape is required for export.")
     for shapes in output.values():
         if shapes:validate_shapes({"shapes":shapes},_resolve)
+        if target_section is None and not any(shape["mask"] for shape in shapes):
+            for shape in shapes:
+                shape.pop("editor_group_id",None)
+                shape.pop("editor_group_name",None)
     return output
 
 
@@ -253,10 +294,25 @@ def encode_experiment(template,sections):
         shapes=sections.get(name,[])
         if not isinstance(shapes,list) or len(shapes)>CAPS[name]:
             raise ValidationError(f"{name} exceeds the experimental shape cap.")
+        original=shapes
         shapes=validate_shapes({"shapes":shapes},_resolve) if shapes else []
-        if any(shape["mask"] for shape in shapes):
-            raise ValidationError("Experimental mask serialization is not enabled.")
         count=len(shapes);counts.append(count)
+        if any(shape["mask"] for shape in shapes):
+            placements=[];previous=None
+            for source,shape in zip(original,shapes):
+                key=source.get("editor_group_id")
+                if not placements or key!=previous:
+                    placements.append([])
+                placements[-1].append(shape)
+                previous=key
+            expected.extend((name,shape) for shape in shapes)
+            if name=="Spoiler":
+                placements=[[{**shape,"data":[-shape["data"][0],-shape["data"][1],
+                    *shape["data"][2:4],(shape["data"][4]-180)%360,*shape["data"][5:]]}
+                    for shape in group] for group in placements]
+            body.extend(_encode_masked_section(placements))
+            if index<10:body.extend(template.transitions[index])
+            continue
         blocks=(count+7)//8
         body.extend(struct.pack("<HH",count,blocks)+bytes(2+blocks))
         for i,shape in enumerate(shapes):
@@ -279,7 +335,7 @@ def encode_experiment(template,sections):
     if report["warnings"] or len(decoded)!=len(expected):
         raise ValidationError("Edited save failed independent structural decoding.")
     for actual,(section,shape) in zip(decoded,expected):
-        if actual["section"]!=section or actual["shape_id"]!=shape["type_word"] or actual["color_rgba"]!=shape["color"] or actual["mask"]:
+        if actual["section"]!=section or actual["shape_id"]!=shape["type_word"] or actual["color_rgba"]!=shape["color"] or actual["mask"]!=shape["mask"]:
             raise ValidationError("Edited save failed shape/color/order verification.")
         # Compare effective matrices, not a particular mirrored decomposition.
         values=actual["data"]
@@ -298,5 +354,7 @@ def encode_experiment(template,sections):
     if unwrap_bounded(result)!=payload:raise ValidationError("Compressed output failed verification.")
     return result,{"format":"kfps-livery-experiment-v1","experimental":True,"game_acceptance_verified":False,
                    "independent_decode_verified":True,"car_id":template.car_id,"shape_count":len(expected),
+                   "mask_count":sum(shape["mask"] for _,shape in expected),
+                   "mask_scope_policy":"ordered-section-destination-out-v1",
                    "section_limit_policy":section_limit_policy(),
                    "section_counts":dict(zip(NAMES,counts)),"opaque_envelope_and_material_tail_preserved":True}

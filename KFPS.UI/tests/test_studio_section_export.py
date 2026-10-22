@@ -38,9 +38,10 @@ class SectionExportTests(unittest.TestCase):
         self.assertTrue(result["shapes"][1]["mask"])
         self.assertEqual(result["shapes"][1]["data"][6],1)
         self.assertTrue(NativeVinylRenderer()(result)["png"].startswith("data:image/png;base64,"))
-        with self.assertRaises(ValidationError):compile_layout(value,4267,NAMES)
+        self.assertTrue(compile_layout(value,4267,NAMES)["Left"][1]["mask"])
         other=copy.deepcopy(value["placements"][0]);other["id"]="other";value["placements"].append(other)
-        with self.assertRaisesRegex(ValidationError,"isolated masks"):compile_section_vinyl(value,4267,NAMES,"Left")
+        combined=compile_section_vinyl(value,4267,NAMES,"Left")
+        self.assertEqual([False,True,False,True],[s["mask"] for s in combined["shapes"]])
 
     def test_other_sections_are_not_merged_and_input_is_unchanged(self):
         value=project();other=copy.deepcopy(value["placements"][0]);other.update(id="other",section="Top",x=200)

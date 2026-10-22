@@ -11,6 +11,7 @@ import { initializeActionConfirmations } from './action-confirmations.mjs';
 import { confirmationSpec } from './confirmation-policy.mjs';
 import {t,sectionLabel,number,stateLabel,errorText} from './i18n.mjs';
 import {previewQuality,previewFootprint,checkPreviewQuality,scaledTransform} from './preview-quality.mjs';
+import {hasMasks,maskImageCount,closeVinylPreview,decodeVinylPreview,drawVinylPreview} from './vinyl-compositing.mjs';
 import { emptyProject, validateProject, serializeProject, sectionVinylJson, sectionShapeCount, placementMatrix, invertMatrix, mapPoint, sectionToPaint, createHistory, makePlacement, scalePlacement, movePlacementToSection, placementStepIndex, transformPlacement, MAX_VINYLS, MAX_PLACEMENTS, MAX_NATIVE_VINYL_SHAPES } from './layout-model.mjs';
 
 const $ = id => document.getElementById(id), stop = new AbortController();
@@ -189,14 +190,14 @@ async function applyProjectChange(next,label,ids=selectedIds) {
     for(const vinyl of checked.vinyls){
       const existing=sources.get(vinyl.id);
       if(existing&&JSON.stringify(existing.shapes)!==JSON.stringify(vinyl.shapes))throw Error('A source revision must have a new identity.');
-      if(!images.has(vinyl.id))newImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,newImages.size+1,{sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(checked))}));
+      if(!images.has(vinyl.id))newImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,newImages.size+1,{stagedMasks:maskImageCount(newImages),sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(checked))}));
     }
     if(disposed)throw Error('The editor is closed.');
     project=checked;for(const vinyl of checked.vinyls)sources.set(vinyl.id,vinyl);
     for(const [id,image] of newImages)images.set(id,image);
     selectedIds=ids.filter(id=>project.placements.some(p=>p.id===id));selected=selectedIds.includes(selected)?selected:selectedIds.at(-1)||null;
     markAll();commit(before);message(label);
-  }catch(error){for(const image of newImages.values())image.close();throw error;}
+  }catch(error){for(const image of newImages.values())closeVinylPreview(image);throw error;}
 }
 async function confirmOperation(spec) {
   if(!spec||!confirmations)return false;
@@ -340,7 +341,7 @@ function changed() { return numericEdited.size>0||fingerprint() !== saved; }
 function setBusy(value) { busy = value; refresh(); }
 function pruneSources() {
   const retained=history.retainedVinylIds(); project.vinyls.forEach(v=>retained.add(v.id));
-  for(const id of sources.keys())if(!retained.has(id)){sources.delete(id);images.get(id)?.close();images.delete(id);}
+  for(const id of sources.keys())if(!retained.has(id)){sources.delete(id);closeVinylPreview(images.get(id));images.delete(id);}
 }
 function commit(before) { history.push(before, snapshot()); pruneSources(); refresh();recovery?.changed();diagnostics.emit('action',{action:'edit',outcome:'ok',...projectCounts(project,config.sections.length)}); }
 function restore(state) {
@@ -393,11 +394,11 @@ function qualityStatus(text='',error=false) {
 function previewSectionCount(document=project) {
   return new Set(document?.placements.filter(p=>p.visible&&p.opacity>0).map(p=>p.section)||[]).size;
 }
-function previewMemory() {return previewFootprint({quality:activeQuality,paintSize:config.paint_size,sources:images.size,sections:sectionCanvases.size});}
-function qualityCapacity(quality,count,{staging=false,startup=false,sections=previewSectionCount()}={}) {
+function previewMemory() {return previewFootprint({quality:activeQuality,paintSize:config.paint_size,sources:images.size,masks:maskImageCount(images),sections:sectionCanvases.size});}
+function qualityCapacity(quality,count,{staging=false,startup=false,sections=previewSectionCount(),masks=maskImageCount(images)}={}) {
   const scene=sceneState(),current=previewMemory();
   const cpuBudget=Math.min(1024,Math.max(768,(navigator.deviceMemory||4)*128))*1024**2;
-  return checkPreviewQuality({quality,paintSize:config.paint_size,sources:count,sections,
+  return checkPreviewQuality({quality,paintSize:config.paint_size,sources:count,sections,masks,
     maxTextureSize:scene.device.maxTextureSize,sceneBytes:Math.max(0,scene.bytes.estimatedGpu-(staging?0:current.webglGpu)),
     gpuBudget:scene.bytes.budget,cpuBudget,current:staging&&!startup?current:null});
 }
@@ -406,25 +407,19 @@ function requireQualityCapacity(quality,count,options) {
   if(!result.allowed)throw Error(result.reason==='texture'?'This preview quality exceeds the graphics device texture limit.':'Not enough preview memory for this quality. Choose a lower quality or use fewer vinyl sources.');
   return result;
 }
-async function raster(shapes,quality=activeQuality,additional=1,{prechecked=false,sections=Math.min(config.sections.length,previewSectionCount()+1)}={}) {
-  if(!prechecked)requireQualityCapacity(quality,images.size+additional,{sections});
+async function raster(shapes,quality=activeQuality,additional=1,{prechecked=false,stagedMasks=0,sections=Math.min(config.sections.length,previewSectionCount()+1)}={}) {
+  const masked=hasMasks(shapes);
+  if(!prechecked)requireQualityCapacity(quality,images.size+additional,{sections,masks:maskImageCount(images)+stagedMasks+Number(masked)});
   const result = await api('render-vinyl', { shapes,preview_quality:quality },60000);
   if(disposed||stop.signal.aborted)throw Error('The editor is closed.');
-  if (typeof result.png !== 'string' || !result.png.startsWith('data:image/png;base64,')) throw Error('The vinyl preview is invalid.');
-  // Explicitly owned bitmaps avoid retaining decoded DOM-image resources across
-  // repeated quality changes. The scene already uses this decoding API.
-  const bytes=Uint8Array.from(atob(result.png.slice('data:image/png;base64,'.length)),char=>char.charCodeAt(0));
-  const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+  const image=await decodeVinylPreview(result,quality,masked);
   try {
-    const [width,height]=previewQuality(quality).size;
-    if(image.width!==width||image.height!==height)throw Error('The vinyl preview has unexpected dimensions.');
-    image.artworkBounds=result.bounds;
     if(disposed)throw Error('The editor is closed.');
     return image;
-  }catch(error){image.close();throw error;}
+  }catch(error){closeVinylPreview(image);throw error;}
 }
 function releasePreview(rasters,sections,paint) {
-  for(const image of rasters.values())image.close();
+  for(const image of rasters.values())closeVinylPreview(image);
   rasters.clear();
   for(const canvas of sections.values())canvas.width=canvas.height=1;
   sections.clear();
@@ -502,7 +497,7 @@ function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=im
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,...size);
   for (const p of placements) {
     ctx.save(); ctx.setTransform(...scaledTransform(placementMatrix(p),scale)); ctx.globalAlpha = p.opacity;
-    ctx.drawImage(rasters.get(p.vinylId), -1024, -512,2048,1024); ctx.restore();
+    drawVinylPreview(ctx,rasters.get(p.vinylId)); ctx.restore();
   }
   return surface;
 }
@@ -721,7 +716,7 @@ async function importFile(file,options={}) {
     project.placements.push(placement);selected=placement.id;pickedSource=id;dirtySections.add(placement.section);schedule();commit(before);
     message('Vinyl added.');
     diagnostics.emit('action',{action:'import',outcome:'ok',...projectCounts(project,config.sections.length)});
-  }finally{if(!adopted)image.close();}
+  }finally{if(!adopted)closeVinylPreview(image);}
 }
 async function confirmReplace() {
   if(!changed()) return true;
@@ -756,11 +751,11 @@ async function openFile(file,options={}) {
   const parts=validatePartConfiguration(next.vehicle_parts);
   serializeProject(next);
   const nextImages=new Map();
-  try {for(const vinyl of next.vinyls) nextImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,nextImages.size+1,{sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(next))}));}
-  catch(error) {for(const image of nextImages.values())image.close();throw error;}
+  try {for(const vinyl of next.vinyls) nextImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,nextImages.size+1,{stagedMasks:maskImageCount(nextImages),sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(next))}));}
+  catch(error) {for(const image of nextImages.values())closeVinylPreview(image);throw error;}
   try {if(disposed)throw Error('The editor is closed.');if(options.isCurrent&&!options.isCurrent())throw Error(options.recovery?'The current layout changed. Recovery was not applied.':'The current layout changed. Nothing was opened.');requirePreview();setVehicleParts(parts);}
-  catch(error){for(const image of nextImages.values())image.close();throw error;}
-  project=next; for(const image of images.values())image.close();images.clear();sources.clear();
+  catch(error){for(const image of nextImages.values())closeVinylPreview(image);throw error;}
+  project=next; for(const image of images.values())closeVinylPreview(image);images.clear();sources.clear();
   sourceSignature=placementSignature='';
   for(const vinyl of next.vinyls)sources.set(vinyl.id,vinyl);for(const [key,image] of nextImages) images.set(key,image);
   selected=next.placements[0]?.id||null;pickedSource=current()?.vinylId||next.vinyls[0]?.id||null; if(current()) $('section').value=current().section;

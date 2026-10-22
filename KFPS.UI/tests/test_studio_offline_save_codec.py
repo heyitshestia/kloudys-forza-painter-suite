@@ -98,10 +98,15 @@ class SaveCodecTests(unittest.TestCase):
         self.assertAlmostEqual(out["data"][1],-9+math.sin(angle)*1.5*13+math.cos(angle)*.6*-17)
         encode_experiment(self.template(),sections)
 
-    def test_masks_are_not_silently_flattened(self):
+    def test_masks_are_serialized_with_native_mask_groups(self):
         masked=shape();masked["mask"]=True;masked["data"][6]=1
-        with self.assertRaisesRegex(ValidationError,"mask"):
-            compile_layout(project([masked]),4267,NAMES)
+        sections=compile_layout(project([shape(),masked]),4267,NAMES)
+        encoded,report=encode_experiment(self.template(),sections)
+        layers,decoded=decoder.clivery_to_layers(decoder.unwrap_forza_container_bytes(encoded,Path("C_livery")))
+        self.assertEqual([False,True],[s["mask"] for s in layers])
+        self.assertEqual([],decoded["warnings"])
+        self.assertEqual(1,report["mask_count"])
+        self.assertFalse(report["game_acceptance_verified"])
 
     def test_group_opacity_and_clipped_source_fail_explicitly(self):
         with self.assertRaisesRegex(ValidationError,"group opacity"):

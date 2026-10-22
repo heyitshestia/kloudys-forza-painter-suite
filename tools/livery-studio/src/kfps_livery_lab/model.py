@@ -135,6 +135,21 @@ class NativeVinylRenderer:
             raise ValidationError("Native vinyl could not be rendered exactly.") from exc
         return png, bounds
 
+    def _coverage_shapes(self, shapes):
+        coverage=[]
+        for shape in shapes:
+            alpha=shape["color"][3]
+            if shape["mask"]:
+                resource=self.baseline._resolve_vinyl_resource(shape["type"],shape)
+                triangles=self.baseline._resource_alpha_triangles(*resource)
+                # Match the native renderer: solid cutouts ignore paint opacity;
+                # native vertex-alpha shapes use their authored alpha coverage.
+                if not any(value!=255 for _,values in triangles for value in values):
+                    alpha=255
+            coverage.append({**shape,"data":[*shape["data"][:6],0],
+                             "mask":False,"color":[255,255,255,alpha]})
+        return coverage
+
     def __call__(self, payload):
         if (not isinstance(payload, dict) or "shapes" not in payload
                 or set(payload) - {"shapes", "preview_quality"}):
@@ -147,6 +162,18 @@ class NativeVinylRenderer:
         png, bounds = self._render_canvas(shapes, SECTION_SIZE)
         if size != SECTION_SIZE:
             png, _ = self._render_canvas(shapes, size)
-        return {"png": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
+        result={"png": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
                 "width": size[0], "height": size[1],
                 "shapes": shapes, "bounds": list(bounds) if bounds else None}
+        if any(shape["mask"] for shape in shapes):
+            # Any ordered source-over/destination-out stream is C + T*background.
+            # C is the existing transparent render; coverage is 1-T. Keeping both
+            # preserves cutouts across source boundaries, without per-drag vectors.
+            coverage=self._coverage_shapes(shapes)
+            erase,mask_bounds=self._render_canvas(coverage,SECTION_SIZE)
+            if size!=SECTION_SIZE:
+                erase,_=self._render_canvas(coverage,size)
+            result.update(mask_compositing="ordered-section-v1",
+                          mask_coverage_png="data:image/png;base64,"+base64.b64encode(erase).decode("ascii"),
+                          mask_bounds=list(mask_bounds) if mask_bounds else None)
+        return result

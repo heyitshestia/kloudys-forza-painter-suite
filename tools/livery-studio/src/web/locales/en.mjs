@@ -1,5 +1,6 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Masked vinyls must use 100% opacity for export.": "Masked vinyls must use 100% opacity for export.",
   "Vinyl preview quality": "Vinyl preview quality",
   "Preview detail only. Saved artwork and exports are unchanged.": "Preview detail only. Saved artwork and exports are unchanged.",
   "Fast (1024 x 512)": "Fast (1024 x 512)",

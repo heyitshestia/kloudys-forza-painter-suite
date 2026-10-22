@@ -1,5 +1,16 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.114
+
+### Studio Masks
+
+- Masks in Studio now cut through earlier vinyls on the same side and reveal the car paint, just like the in-game editor. Putting a masked vinyl over another vinyl no longer leaves the earlier artwork showing through its hole.
+- Section exports keep masks and placement groups, including overlapping masked vinyls. Masks stay native shapes, with no baked images or reduced resolution.
+- Mask-only vinyls can still be selected and moved. All three preview quality settings remain available, with the extra mask images included in memory limits and cleanup.
+- Added mask support to experimental complete-car export. That exporter stays experimental until its new mask output passes an in-game round trip. Masked vinyls still need 100% placement opacity for export.
+- Checked overlapping cutouts, gradients, later paint, all eleven sections and 3,000-shape cases. No graphics-setting changes are needed, and existing projects remain compatible.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.113
 
 ### Keep Your Groups Together

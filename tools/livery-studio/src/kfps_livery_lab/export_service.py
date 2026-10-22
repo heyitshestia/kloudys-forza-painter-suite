@@ -93,7 +93,8 @@ class ExportService:
             raise ValidationError("Experimental header failed independent verification.")
         report.update({"template_sha256":self.template_hash,"source_sha256":hashlib.sha256(raw).hexdigest(),
                        "header_sha256":hashlib.sha256(header).hexdigest(),"installed":False,
-                       "limits":{"masks":False,"raster_decals":False,"same_car_only":True,
+                       "limits":{"masks":True,"cross_placement_masks":True,
+                                 "raster_decals":False,"same_car_only":True,
                                  "multi_shape_group_opacity":False,"clipped_source_geometry":False},
                        "warning":"Not game-validated. Do not treat this as a released KFPS share package."})
         members={"experiment.json":json.dumps(report,indent=2).encode(),

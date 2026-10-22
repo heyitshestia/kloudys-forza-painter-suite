@@ -45,7 +45,7 @@ VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.j
 OPTIONAL_WEB_FILES = ("authoring-model.mjs", "studio-tools.mjs", "mirror-links.mjs",
                       "recovery-ui.mjs", "inspection-tools.mjs", "action-confirmations.mjs", "confirmation-policy.mjs",
                       "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs",
-                      "preview-quality.mjs")
+                      "preview-quality.mjs", "vinyl-compositing.mjs")
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 MAX_NATIVE_TEXTURE_BYTES = 80 * 1024 * 1024
 # The qualified Studio client consumes validated #vinyl handoffs on startup/hashchange.

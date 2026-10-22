@@ -9,16 +9,17 @@ export function previewQuality(value='balanced') {
   return levels[value];
 }
 export function scaledTransform(matrix,scale) { return matrix.map(value=>value*scale); }
-export function previewFootprint({quality,paintSize,sources,sections}) {
+export function previewFootprint({quality,paintSize,sources,sections,masks=0}) {
   const {scale,size}=previewQuality(quality);
   if(!Array.isArray(paintSize)||paintSize.length!==2||!paintSize.every(value=>Number.isSafeInteger(value)&&value>0&&value<=32768)
-    ||!Number.isSafeInteger(sources)||sources<0||sources>96||!Number.isSafeInteger(sections)||sections<0||sections>11)
+    ||!Number.isSafeInteger(sources)||sources<0||sources>96||!Number.isSafeInteger(sections)||sections<0||sections>11
+    ||!Number.isSafeInteger(masks)||masks<0||masks>sources)
     throw Error('Invalid preview allocation.');
   const paint=paintSize.map(value=>Math.ceil(value*scale)),plane=size[0]*size[1]*4,atlas=paint[0]*paint[1]*4;
   // Include decoded/encoded source images, section display, render/decode scratch,
   // retained undo sources and mipmapped GPU paint. Callers add old live buffers.
-  const webglGpu=Math.ceil(atlas*4/3),canvasGpu=atlas+plane*(sources+sections+1);
-  return {paint,size:[...size],cpu:atlas+plane*(2*sources+sections+4),gpu:webglGpu+canvasGpu,webglGpu,canvasGpu};
+  const webglGpu=Math.ceil(atlas*4/3),canvasGpu=atlas+plane*(sources+masks+sections+1);
+  return {paint,size:[...size],cpu:atlas+plane*(2*(sources+masks)+sections+4),gpu:webglGpu+canvasGpu,webglGpu,canvasGpu};
 }
 export function checkPreviewQuality({maxTextureSize,sceneBytes,gpuBudget,cpuBudget,current,...options}) {
   const footprint=previewFootprint(options),peakCpu=footprint.cpu+(current?.cpu||0);

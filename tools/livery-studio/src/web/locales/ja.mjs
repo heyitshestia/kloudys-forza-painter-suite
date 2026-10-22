@@ -1,5 +1,6 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Masked vinyls must use 100% opacity for export.": "マスクを含むビニールを書き出すには、不透明度を100%に設定してください。",
   "Vinyl preview quality": "ビニールのプレビュー品質",
   "Preview detail only. Saved artwork and exports are unchanged.": "プレビューの精細さのみ変更します。保存したアートワークとエクスポートには影響しません。",
   "Fast (1024 x 512)": "高速 (1024 x 512)",
