@@ -1,5 +1,24 @@
 # Community Integration
 
+## Signed-Out Login Cue
+
+The Community header's sign-in button has a slow, 2.2-second pulsing outline
+while signed out. Its color and corners use the existing theme tokens; the
+label, button opacity, layout, click target and GitHub flow are unchanged.
+The cue is shared with the retained Community page.
+
+The cue disappears while the account dialog is open, during authentication,
+and after sign-in. Hidden pages, hidden/minimized windows and disabled controls
+do not animate. Reduced motion, disabled ambient motion and screenshot mode
+use a steady outline instead. No new settings, theme keys or server changes
+are needed.
+
+Offscreen coverage lives in `KFPS.UI/tests/test_community_verified_native.py`:
+sign-out/reconnect, animation samples, dialog clicks, visibility, motion
+preferences, all nine bundled themes, a synthetic custom palette, English/Korean
+labels, and 960/1100/1760-pixel layouts. It uses isolated local test accounts,
+not saved personal credentials or the live GitHub authorization service.
+
 ## Supporter Discovery and Wide Gallery (3.1.94)
 
 The always-visible Supporters tab uses the existing public gallery query with

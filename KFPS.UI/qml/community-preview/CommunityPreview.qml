@@ -61,7 +61,17 @@ Item {
                 Timer { id: searchTimer; interval: 300; onTriggered: search.submitQuery() }
                 PreviewPrimaryButton { objectName: "OpenUpload"; dense: true; text: root.ui("Upload artwork", "작품 업로드"); iconName: "arrow-up"; enabled: preview.authenticated && preview.policyReady; onClicked: { uploadDialog.revision = false; uploadDialog.open() } }
                 PreviewButton { objectName: "OwnProfile"; Layout.maximumWidth: Theme.px(170); text: preview.username ? "@" + preview.username : root.ui("Profile", "프로필"); enabled: preview.authenticated; onClicked: root.openCreator(preview.username) }
-                PreviewButton { objectName: "CommunityAccount"; visible: root.liveMode; text: communityService.authenticated ? root.ui("Account", "계정") : root.ui("Sign in with GitHub", "GitHub로 로그인"); onClicked: accountDialog.open() }
+                PreviewButton {
+                    objectName: "CommunityAccount"
+                    visible: root.liveMode
+                    text: communityService.authenticated ? root.ui("Account", "계정") : root.ui("Sign in with GitHub", "GitHub로 로그인")
+                    onClicked: accountDialog.open()
+                    C.AttentionPulse {
+                        objectName: "CommunitySignInAttention"
+                        active: root.liveMode && !communityService.authenticated
+                                && !communityService.authenticationInProgress && !accountDialog.visible
+                    }
+                }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.divider }
             RowLayout {

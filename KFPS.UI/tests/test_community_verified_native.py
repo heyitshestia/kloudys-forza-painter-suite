@@ -23,6 +23,7 @@ def source_hashes():
     paths = list((UI / "src/kfps_ui").glob("community*.py"))
     paths += list((UI / "qml/community-preview").glob("*"))
     paths += [UI / "qml/pages/CommunityPage.qml", UI / "qml/components/CommunityArtworkCard.qml",
+              UI / "qml/components/AttentionPulse.qml",
               UI.parent / "tools/community_worker/contracts/verified-access-contract.schema.json"]
     return {str(path.relative_to(UI.parent)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(paths) if path.is_file()}
@@ -299,6 +300,100 @@ def native():
             self.wait()
             self.assertTrue(self.service.claimsEnabled)
             self.screenshot("retained-uploads-en-1400")
+
+        def test_sign_in_attention_lifecycle_and_clicks(self):
+            cue = self.find("CommunitySignInAttention")
+            button = self.find("CommunityAccount")
+            self.assertFalse(cue.property("active"))
+            self.service.signOut()
+            self.wait()
+            self.assertTrue(cue.property("active"))
+            self.view.engine().rootContext().setContextProperty("screenshotMode", False)
+            self.assertTrue(settle(lambda: cue.property("pulsing")))
+            samples = []
+            for _ in range(8):
+                QTest.qWait(160)
+                samples.append(cue.property("opacity"))
+                self.assertEqual(button.property("opacity"), 1)
+            self.assertGreater(max(samples) - min(samples), 0.3)
+
+            self.click("CommunityAccount")
+            dialog = self.find("CommunityAccountDialog")
+            self.assertTrue(dialog.property("visible"))
+            self.assertFalse(cue.property("active"))
+            self.expression("close()", dialog)
+            self.assertTrue(settle(lambda: cue.property("pulsing")))
+
+            self.service._authentication_in_progress = True
+            self.service.changed.emit()
+            self.assertFalse(cue.property("active"))
+            self.service._authentication_in_progress = False
+            self.service.changed.emit()
+            self.assertTrue(cue.property("pulsing"))
+
+            page = self.view.rootObject()
+            page.setProperty("visible", False)
+            self.assertFalse(cue.property("pulsing"))
+            page.setProperty("visible", True)
+            self.assertTrue(cue.property("pulsing"))
+            self.view.hide()
+            self.assertFalse(cue.property("pulsing"))
+            self.view.show()
+            self.assertTrue(settle(lambda: cue.property("pulsing")))
+
+            self.expression("Theme.reducedMotion=true")
+            self.assertFalse(cue.property("pulsing"))
+            self.assertAlmostEqual(cue.property("opacity"), 0.65)
+            QTest.qWait(180)
+            self.assertAlmostEqual(cue.property("opacity"), 0.65)
+            self.expression("Theme.reducedMotion=false; Theme.ambientMotion=false")
+            self.assertFalse(cue.property("pulsing"))
+            self.expression("Theme.ambientMotion=true")
+            self.assertTrue(cue.property("pulsing"))
+
+            self.service._token = self.service._client.token = "account-a"
+            self.fixture.refresh()
+            self.wait()
+            self.assertTrue(self.service.authenticated)
+            self.assertFalse(cue.property("active"))
+            self.assertFalse(cue.property("pulsing"))
+            self.assertEqual(button.property("text"), "Account")
+
+        def test_sign_in_attention_themes_layouts_and_retained_page(self):
+            self.service.signOut()
+            self.wait()
+            cue = self.find("CommunitySignInAttention")
+            self.assertTrue(cue.property("active"))
+            self.assertFalse(cue.property("pulsing"))  # Stable screenshot mode.
+            for theme in THEME_PRESETS:
+                self.expression("Theme.supporterUnlocked=true; Theme.themeName=" + json.dumps(theme.name))
+                QTest.qWait(25)
+                self.assertTrue(self.expression("border.color.toString() === Theme.primaryBright.toString()", cue))
+                self.assertTrue(self.expression("radius === Theme.corner(Theme.framedRadius(Theme.px(Metrics.controlRadius)))", cue))
+                self.screenshot("sign-in-" + theme.name.lower().replace(" ", "-"))
+            self.expression("""var custom = Object.assign({}, Theme.nightBlossom, {
+                name: 'Synthetic sign-in palette', primaryBright: '#21b79c'
+            }); Theme.palettes.push(custom); Theme.themeName = custom.name""")
+            self.assertTrue(self.expression("border.color.toString() === '#21b79c'", cue))
+            for width in (960, 1100, 1760):
+                self.view.resize(width, 900)
+                for language in ("en", "ko"):
+                    self.gallery.settings.communityLanguage = language
+                    self.gallery.changed.emit()
+                    QTest.qWait(40)
+                    self.check_button_fit("CommunityAccount")
+                    button = self.find("CommunityAccount")
+                    point = button.mapToScene(QPointF(button.width(), 0))
+                    self.assertLessEqual(point.x(), self.view.width() + 1)
+                    self.screenshot(f"sign-in-custom-{language}-{width}")
+            self.expression("Theme.themeName='Night Blossom'; Theme.palettes.pop()")
+
+            self.service.gallery_managed = False
+            self.open_view(retained=True)
+            cue = self.find("CommunitySignInAttention")
+            self.assertTrue(cue.property("active"))
+            self.click("CommunityConnect")
+            self.assertFalse(cue.property("active"))
 
     before = source_hashes()
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(VerifiedUiTests))

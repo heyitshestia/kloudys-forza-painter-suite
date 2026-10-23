@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.115
+
+### Community Sign-In Reminder
+
+- The Community sign-in button now gently pulses in your theme's accent color when you're signed out, making it easier to notice when you need to reconnect.
+- The reminder stops while you're signing in and once you're connected. Reduced motion uses a steady highlight instead. Your account, uploads, favorites and settings are unchanged.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.114
 
 ### Studio Masks

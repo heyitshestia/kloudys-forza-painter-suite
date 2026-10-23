@@ -241,6 +241,7 @@ Item {
             }
 
             GhostButton {
+                objectName: "CommunityConnect"
                 visible: !communityService.authenticated
                 dense: true
                 iconName: "external"
@@ -249,6 +250,11 @@ Item {
                              ? "Connect a private local test identity to try account features."
                              : "Connect a GitHub identity. KFPS never receives your GitHub password."
                 onClicked: root.openLogin()
+                AttentionPulse {
+                    objectName: "CommunitySignInAttention"
+                    active: !communityService.authenticated && !communityService.authenticationInProgress
+                            && !loginDialog.visible
+                }
             }
 
             GhostButton {
