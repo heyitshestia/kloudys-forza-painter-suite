@@ -8,6 +8,8 @@ import tempfile
 import unittest
 
 UI = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(UI / 'src'))
+from kfps_ui.theme_catalog import THEME_PRESETS
 
 
 def native(output):
@@ -17,7 +19,6 @@ def native(output):
     from PySide6.QtQml import QQmlComponent, QQmlEngine, QQmlExpression
     from PySide6.QtQuick import QQuickView
     from PySide6.QtTest import QTest
-    from kfps_ui.theme_catalog import THEME_PRESETS
     app = QGuiApplication([])
     # Qt's offscreen Windows platform does not discover installed system fonts.
     fonts = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'Fonts'
@@ -87,7 +88,7 @@ Rectangle {
             assert not root.findChild(QObject, 'TimedBadge:test').isVisible()
     view.close()
     (output / 'timed-badge.json').write_text(json.dumps({'passed': True, 'cases': cases}, indent=2), encoding='utf-8')
-    print('PASS timed badge: 54 rendered cases, 18 non-timed cases, click passthrough')
+    print(f'PASS timed badge: {len(cases)} rendered cases, {len(THEME_PRESETS) * 2} non-timed cases, click passthrough')
 
 
 class TimedBadgeTests(unittest.TestCase):
@@ -100,7 +101,7 @@ class TimedBadgeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             report = json.loads((Path(directory) / 'timed-badge.json').read_text())
             self.assertTrue(report['passed'])
-            self.assertEqual(len(report['cases']), 54)
+            self.assertEqual(len(report['cases']), len(THEME_PRESETS) * 2 * 3)
 
 
 if __name__ == '__main__':

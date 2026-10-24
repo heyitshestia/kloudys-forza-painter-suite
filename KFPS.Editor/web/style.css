@@ -211,6 +211,53 @@
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
+:root[data-editor-theme="builtin:xbox"],
+:root[data-editor-theme-base="builtin:xbox"] {
+  color-scheme: dark;
+  --bg: #111713;
+  --shell: #161d19;
+  --panel: #202923;
+  --panel2: #2b352d;
+  --panel3: #101612;
+  --text: #eef3e8;
+  --muted: #c9d3c4;
+  --soft: #acbba7;
+  --line: #5f7462;
+  --line2: #778a79;
+  --accent: #a1e52c;
+  --accent2: #f1d45c;
+  --good: #a1e52c;
+  --warn: #f1cf64;
+  --danger: #ff9290;
+  --surface-rgb: 22, 29, 25;
+  --panel-rgb: 32, 41, 35;
+  --accent-rgb: 161, 229, 44;
+  --accent2-rgb: 241, 212, 92;
+  --good-rgb: 161, 229, 44;
+  --warn-rgb: 241, 207, 100;
+  --danger-rgb: 255, 146, 144;
+  --checker: rgba(193, 201, 188, 0.035);
+  --canvas-bg: #101310;
+  --fabric-canvas-bg: #252725;
+  --editor-grid-line: rgba(193, 201, 188, 0.28);
+  --editor-grid-axis: rgba(226, 231, 223, 0.6);
+  --editor-guide-line: #f1cf64;
+  --editor-guide-selected: #ffe0a5;
+  --editor-guide-draft: #c1c9bc;
+  --editor-notch-line: #eef3e8;
+  --editor-notch-muted: #acbba7;
+  --editor-notch-active: #a1e52c;
+  --editor-selection-border: #a1e52c;
+  --editor-shape-outline: #eef3e8;
+  --editor-selection-corner: #101612;
+  --editor-selection-corner-stroke: #a1e52c;
+  --editor-skew-corner: #f1cf64;
+  --shape-tile-bg: #161d19;
+  --dialog-bg: #202923;
+  --dialog-header: #2b352d;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
 :root:is([data-editor-theme="blackout"], [data-editor-theme="whiteout"], [data-editor-theme-base="blackout"], [data-editor-theme-base="whiteout"]) :is(body, .appBar, .toolButton.active, button.primary, .guideStatusCard, .layerDragGhost, .layerGroupRow, .shapeTile, .cornerNotice, .editorTourCard, .startupConfirmBox, .jsonBrowserEntry, .jsonBrowserPreview) {
   background-image: none !important;
   box-shadow: none;

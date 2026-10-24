@@ -1,4 +1,99 @@
 /* Layout uses existing theme tokens; theme schema and color ownership are unchanged. */
+/* Original Xbox materials are opt-in, including custom palettes with this base.
+   No geometry, docking, artwork swatches or canvas effects belong to the skin. */
+:root[data-editor-theme-base="builtin:xbox"] body { background: var(--bg); }
+:root[data-editor-theme-base="builtin:xbox"] :is(.appBar, .jsonBrowserHeader, .workspaceFloatingPanel > .dockTabs) {
+  background: linear-gradient(180deg, var(--panel2), var(--shell) 52%, var(--panel3));
+  box-shadow: inset 0 2px var(--accent), inset 0 -1px var(--line);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(.contextBar, .bottomStatus, .dockTabs, .workspaceZoom) {
+  background: var(--shell);
+  box-shadow: inset 0 1px var(--line);
+}
+:root[data-editor-theme-base="builtin:xbox"] .toolRail {
+  background: linear-gradient(90deg, var(--panel3), var(--shell));
+  box-shadow: inset -1px 0 var(--line);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(.panelHeader h2, .propertySection h3, .brandBlock h1) {
+  color: var(--text);
+  font-weight: 700;
+}
+:root[data-editor-theme-base="builtin:xbox"] button:where(:not(.favoriteColorSwatch, .shapeTile, .shapeTile button, .assetPreview, [style*="--swatch"], [style*="background"], #colorSwatchButton, #colorPanelSwatch, #quickColorSwatch, .layerIcon, .workspaceMenuTrigger, .dockTab, .editorUpdateIndicator)) {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border-color: var(--line);
+  box-shadow: inset 0 1px var(--line), inset 0 -1px var(--panel3);
+  color: var(--text);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(input:not([type=color], [type=checkbox], [type=range]), select, textarea) {
+  background: var(--panel3);
+  color: var(--text);
+  border-color: var(--line);
+  box-shadow: inset 0 2px 3px var(--bg);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(button, .fileButton):hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(.toolButton.active, .dockTab.active, button.primary, button[aria-pressed=true]:not(.favoriteColorSwatch, .shapeTile, [style*="--swatch"], [style*="background"], #colorSwatchButton, #colorPanelSwatch, #quickColorSwatch)) {
+  background: var(--panel3);
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent), inset 0 0 0 1px var(--panel3);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(.layerRow.active, .layerGroupRow.active) {
+  background: var(--panel3);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(button, input, select, textarea, summary, .fileButton, [role=separator]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(.workspaceMenu, .workspaceFloatingPanel, .themeAdjustDialog, .workspaceTooltip) {
+  border-color: var(--line2);
+  box-shadow: var(--shadow);
+}
+:root[data-editor-theme-base="builtin:xbox"] input[aria-invalid=true] { border-color: var(--danger); }
+:root[data-editor-theme-base="builtin:xbox"] #themeAdjustStatus[data-warning=true] { color: var(--warn); }
+
+/* A moving wire grid belongs to the header only, behind its existing controls. */
+:root[data-editor-theme-base="builtin:xbox"] {
+  --xbox-enter-duration: 160ms;
+  --xbox-enter-ease: cubic-bezier(.22, 1, .36, 1);
+  --xbox-grid-duration: 18s;
+  --xbox-motion-state: paused;
+}
+:root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] { --xbox-motion-state: running; }
+:root[data-editor-theme-base="builtin:xbox"] .appBar { position: relative; isolation: isolate; overflow: clip; }
+:root[data-editor-theme-base="builtin:xbox"] .appBar::before {
+  content: "";
+  position: absolute;
+  inset: 0 -32px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .09;
+  background-image: linear-gradient(90deg, var(--accent) 1px, transparent 1px), linear-gradient(var(--accent) 1px, transparent 1px);
+  background-size: 32px 16px;
+  animation: xboxHeaderDrift var(--xbox-grid-duration) linear infinite;
+  animation-play-state: var(--xbox-motion-state);
+}
+/* Inactive popups must settle immediately, never pause at transparent opacity. */
+:root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] :is(.workspaceMenu:popover-open, dialog[open]) {
+  animation: xboxChromeEnter var(--xbox-enter-duration) var(--xbox-enter-ease);
+}
+@keyframes xboxHeaderDrift {
+  from { transform: translateX(-32px) skewX(-18deg); }
+  to { transform: translateX(0) skewX(-18deg); }
+}
+@keyframes xboxChromeEnter {
+  from { opacity: 0; transform: translateY(5px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-editor-theme-base="builtin:xbox"] .appBar::before,
+  :root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] :is(.workspaceMenu:popover-open, dialog[open]) { animation: none; }
+}
+
 .workspaceRedesign body, .workspaceRedesign button, .workspaceRedesign input,
 .workspaceRedesign select, .workspaceRedesign textarea { letter-spacing: 0; }
 .workspaceRedesign h1, .workspaceRedesign h2, .workspaceRedesign h3,

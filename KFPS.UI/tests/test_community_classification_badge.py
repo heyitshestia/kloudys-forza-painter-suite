@@ -8,6 +8,8 @@ import tempfile
 import unittest
 
 UI = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(UI / "src"))
+from kfps_ui.theme_catalog import THEME_PRESETS
 
 
 def native(output):
@@ -17,7 +19,6 @@ def native(output):
     from PySide6.QtQml import QQmlComponent, QQmlEngine, QQmlExpression
     from PySide6.QtQuick import QQuickView
     from PySide6.QtTest import QTest
-    from kfps_ui.theme_catalog import THEME_PRESETS
     app = QGuiApplication([])
     for name in ("segoeui.ttf", "segoeuib.ttf", "malgun.ttf", "meiryo.ttc"):
         path = Path(os.environ.get("SystemRoot", "C:/Windows")) / "Fonts" / name
@@ -116,7 +117,7 @@ class ClassificationBadgeTests(unittest.TestCase):
                     capture_output=True, text=True, encoding="utf-8", timeout=90,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(json.loads((Path(directory)/"result.json").read_text())["cases"], 108)
+                self.assertEqual(json.loads((Path(directory)/"result.json").read_text())["cases"], len(THEME_PRESETS) * 2 * 3 * 2)
 
 
 if __name__ == "__main__":

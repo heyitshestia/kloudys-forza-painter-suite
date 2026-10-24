@@ -71,6 +71,12 @@ jobs:
       - name: Test livery viewer status transport
         run: node --test KFPS.UI/tools/test_livery_viewer_status.mjs
 
+      - name: Test Xbox theme navigation and window controls
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: python -B KFPS.UI/tools/test_xbox_theme.py 1360 820
+
       - name: Test Studio preview quality and resource lifecycle
         env:
           KFPS_LAB_TEST_BASELINE: ${{ github.workspace }}

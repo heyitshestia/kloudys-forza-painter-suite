@@ -14,7 +14,8 @@ ApplicationWindow {
     minimumHeight: Metrics.minHeight
     visible: false
     color: Theme.backgroundA
-    title: appController.windowTitle
+    readonly property bool dashboardNavigationVisible: Theme.chromeMetric("dashboardNavigation", 0) > 0 && sidebar.dashboardVisible
+    title: dashboardNavigationVisible ? "KFPS - Main Menu" : appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
 
     FontLoader {
@@ -53,7 +54,7 @@ ApplicationWindow {
     property bool compactSidebar: Theme.logical(width) < 1240
     property bool shortWindow: Theme.logical(height) < 760
     property bool compactHeader: Theme.logical(width) < 1280
-    property real sidebarWidth: Theme.px(compactSidebar ? Metrics.compactSidebar : Metrics.wideSidebar)
+    property real sidebarWidth: Theme.px(Theme.chromeMetric(compactSidebar ? "compactSidebar" : "wideSidebar", compactSidebar ? Metrics.compactSidebar : Metrics.wideSidebar))
     property real headerHeight: Theme.px(communityReviewPage ? 40 : (shortWindow ? Metrics.compactHeaderHeight : Metrics.headerHeight))
     property real consoleExpandedHeight: Theme.px(shortWindow ? Metrics.compactConsoleHeight : Metrics.consoleHeight)
     property real consoleHeight: settings.consoleCollapsed
@@ -142,23 +143,29 @@ ApplicationWindow {
         }
 
         Item {
+            objectName: "ApplicationBody"
             width: parent.width
             height: parent.height - titleBar.height
 
             Sidebar {
                 id: sidebar
-                compact: window.compactSidebar
+                visible: !dashboardVisible
+                enabled: visible
+                compact: window.compactSidebar || Theme.chromeMetric("dashboardNavigation", 0) > 0
                 railWidth: window.sidebarWidth
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
-                onRoute: page => appController.navigate(page)
-                onCreditsRequested: appController.navigate("credits")
+                onRoute: page => { dashboardWorkspaceEntered = true; appController.navigate(page) }
+                onCreditsRequested: { dashboardWorkspaceEntered = true; appController.navigate("credits") }
                 z: 10
             }
 
             Item {
                 id: workspace
+                objectName: "ApplicationWorkspace"
+                visible: !sidebar.dashboardVisible
+                enabled: visible
                 anchors.left: sidebar.right
                 anchors.right: parent.right
                 anchors.top: parent.top

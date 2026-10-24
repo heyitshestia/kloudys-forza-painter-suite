@@ -261,6 +261,7 @@ Rectangle {
     }
 
     DragHandler {
+        objectName: "TitleBarDragHandler"
         target: null
         acceptedButtons: Qt.LeftButton
         grabPermissions: PointerHandler.TakeOverForbidden

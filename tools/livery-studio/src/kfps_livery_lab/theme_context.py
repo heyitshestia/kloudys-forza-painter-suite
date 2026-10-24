@@ -90,7 +90,7 @@ def validate_studio_theme(value):
     fields = {"format", "id", "name", "base", "values", "fontFamily", "colorScheme"}
     if (not isinstance(value, dict) or set(value) != fields
             or value["format"] != "kfps_fabric_editor_theme_v1"
-            or value["base"] not in ("pastel", "dark", "blackout", "whiteout")
+            or value["base"] not in ("pastel", "dark", "blackout", "whiteout", "builtin:xbox")
             or value["colorScheme"] not in ("light", "dark")
             or not isinstance(value["values"], dict) or set(value["values"]) != COLOR_KEYS):
         raise ValueError("Invalid Studio theme format.")

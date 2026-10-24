@@ -1,3 +1,73 @@
+/* Theme materials never change viewports, artwork colors or stored layout. */
+:root[data-editor-theme-base="builtin:xbox"] #commands {
+  background: linear-gradient(180deg,var(--panel2),var(--shell) 52%,var(--panel3));
+  box-shadow: inset 0 2px var(--accent),inset 0 -1px var(--line);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(#editTools,footer,.section-heading) {
+  background: var(--shell);
+  box-shadow: inset 0 -1px var(--line);
+}
+:root[data-editor-theme-base="builtin:xbox"] .section-heading { padding: 6px 8px; }
+:root[data-editor-theme-base="builtin:xbox"] :is(#library,#authoring) { box-shadow: inset 0 1px var(--line); }
+:root[data-editor-theme-base="builtin:xbox"] button:where(:not(.colour-swatch, [style*="--swatch"], [style*="background"])) {
+  background: linear-gradient(180deg,var(--panel2),var(--panel));
+  border-color: var(--line);
+  box-shadow: inset 0 1px var(--line),inset 0 -1px var(--panel3);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(input:not([type=color],[type=checkbox],[type=range]),select,textarea) {
+  background: var(--panel3);
+  box-shadow: inset 0 2px 3px var(--bg);
+}
+:root[data-editor-theme-base="builtin:xbox"] button:hover:not(:disabled) { color: var(--text);border-color: var(--accent); }
+:root[data-editor-theme-base="builtin:xbox"] :is(button[aria-pressed=true],button.active,.placement[data-selected=true]):not(.colour-swatch,[style*="--swatch"],[style*="background"]) {
+  background: var(--panel3);
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+:root[data-editor-theme-base="builtin:xbox"] .colour-swatch[aria-pressed=true] { background: var(--swatch);box-shadow: none; }
+:root[data-editor-theme-base="builtin:xbox"] :is(dialog,#studioTooltip) {
+  border-color: var(--line2);
+  box-shadow: 0 8px 24px var(--backdrop),inset 0 2px var(--accent);
+}
+:root[data-editor-theme-base="builtin:xbox"] :is(input,select)[aria-invalid=true] { border-color: var(--danger); }
+/* Match the editor's bounded chrome motion without involving the 3D viewport. */
+:root[data-editor-theme-base="builtin:xbox"] {
+  --xbox-enter-duration: 160ms;
+  --xbox-enter-ease: cubic-bezier(.22,1,.36,1);
+  --xbox-grid-duration: 18s;
+  --xbox-motion-state: paused;
+}
+:root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] { --xbox-motion-state: running; }
+:root[data-editor-theme-base="builtin:xbox"] #commands { position: relative;isolation: isolate;overflow: clip; }
+:root[data-editor-theme-base="builtin:xbox"] #commands::before {
+  content: "";
+  position: absolute;
+  inset: 0 -32px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .09;
+  background-image: linear-gradient(90deg,var(--accent) 1px,transparent 1px),linear-gradient(var(--accent) 1px,transparent 1px);
+  background-size: 32px 16px;
+  animation: xboxHeaderDrift var(--xbox-grid-duration) linear infinite;
+  animation-play-state: var(--xbox-motion-state);
+}
+/* Inactive dialogs must settle immediately, never pause at transparent opacity. */
+:root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] dialog[open] {
+  animation: xboxChromeEnter var(--xbox-enter-duration) var(--xbox-enter-ease);
+}
+@keyframes xboxHeaderDrift {
+  from { transform: translateX(-32px) skewX(-18deg); }
+  to { transform: translateX(0) skewX(-18deg); }
+}
+@keyframes xboxChromeEnter {
+  from { opacity: 0;transform: translateY(5px) scale(.99); }
+  to { opacity: 1;transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-editor-theme-base="builtin:xbox"] #commands::before,
+  :root[data-editor-theme-base="builtin:xbox"][data-xbox-motion="running"] dialog[open] { animation: none; }
+}
 body{display:flex;flex-direction:column;color:var(--text);font-family:inherit;font-size:13px;line-height:1.4}
 button,input,select{font:inherit;color:var(--text);letter-spacing:0}
 button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:5px 9px;border:1px solid var(--line);background:var(--field);border-radius:4px;cursor:pointer;white-space:nowrap}

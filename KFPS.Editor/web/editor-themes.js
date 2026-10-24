@@ -8,6 +8,16 @@
     fetcher = (...args) => fetch(...args) }) {
     const requests = new Set();
     let disposed = false, choiceRevision = 0, catalogRevision = 0;
+    const motionEvents = new AbortController();
+    function syncChromeMotion() {
+      const root = document.documentElement;
+      if (disposed || root.dataset.editorThemeBase !== "builtin:xbox") delete root.dataset.xboxMotion;
+      else root.dataset.xboxMotion = !document.hidden && document.hasFocus() ? "running" : "paused";
+    }
+    document.addEventListener("visibilitychange", syncChromeMotion, { signal: motionEvents.signal });
+    for (const event of ["focus", "blur", "pageshow"]) {
+      window.addEventListener(event, syncChromeMotion, { signal: motionEvents.signal });
+    }
 
     function present(action) {
       if (disposed) return;
@@ -47,6 +57,8 @@
     function dispose() {
       if (disposed) return;
       disposed = true;
+      motionEvents.abort();
+      syncChromeMotion();
       for (const controller of requests) controller.abort();
     }
     const BUILTIN_EDITOR_THEMES = [
@@ -54,6 +66,7 @@
       { id: "dark", name: "Dark", builtin: true, values: {} },
       { id: "blackout", name: "Blackout", builtin: true, values: {} },
       { id: "whiteout", name: "Whiteout", builtin: true, values: {} },
+      { id: "builtin:xbox", name: "Original Xbox", builtin: true, values: {} },
     ];
 
     const THEME_MAIN_FIELDS = ["--shell", "--panel", "--text", "--accent", "--fabric-canvas-bg", "--line"];
@@ -190,6 +203,7 @@
       const safeTheme = normalizeTheme(theme);
       const entry = themeById(safeTheme);
       document.documentElement.dataset.editorThemeBase = entry.builtin ? safeTheme : (entry.base || "pastel");
+      syncChromeMotion();
       if (entry.builtin) {
         clearCustomThemeProperties();
         document.documentElement.dataset.editorTheme = safeTheme;

@@ -443,29 +443,31 @@ def _clean_filename_base(name: str, fallback: str = "vinyl") -> str:
     return base or fallback
 
 
+BUILTIN_EDITOR_THEME_NAMES = {
+    "pastel": "Signature Pink", "dark": "Dark", "blackout": "Blackout",
+    "whiteout": "Whiteout", "builtin:xbox": "Original Xbox",
+}
+
+
 def _theme_id_from_name(name: str) -> str:
     base = _clean_filename_base(name, "custom-theme").lower()
     base = re.sub(r"[^a-z0-9._-]+", "-", base).strip(".-_")
-    if base in {"pastel", "dark", "blackout", "whiteout"}:
+    if base in BUILTIN_EDITOR_THEME_NAMES:
         base = f"{base}-custom"
     return base or "custom-theme"
 
 
 def _theme_entries(*, paths: ServerPaths | None = None) -> list[dict]:
     paths = paths if paths is not None else ServerPaths.legacy()
-    entries = [
-        {"id": "pastel", "name": "Signature Pink", "builtin": True, "values": {}},
-        {"id": "dark", "name": "Dark", "builtin": True, "values": {}},
-        {"id": "blackout", "name": "Blackout", "builtin": True, "values": {}},
-        {"id": "whiteout", "name": "Whiteout", "builtin": True, "values": {}},
-    ]
+    entries = [{"id": key, "name": name, "builtin": True, "values": {}}
+               for key, name in BUILTIN_EDITOR_THEME_NAMES.items()]
     if not paths.themes.exists():
         return entries
     for path in sorted(paths.themes.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             theme_id = str(payload.get("id") or path.stem)
-            if not theme_id or theme_id in {"pastel", "dark", "blackout", "whiteout"}:
+            if not theme_id or theme_id in BUILTIN_EDITOR_THEME_NAMES:
                 continue
             values = payload.get("values")
             if not isinstance(values, dict):
@@ -474,7 +476,7 @@ def _theme_entries(*, paths: ServerPaths | None = None) -> list[dict]:
                 "id": theme_id,
                 "name": str(payload.get("name") or theme_id),
                 "builtin": False,
-                "base": payload.get("base") if payload.get("base") in {"pastel", "dark", "blackout", "whiteout"} else "pastel",
+                "base": payload.get("base") if payload.get("base") in BUILTIN_EDITOR_THEME_NAMES else "pastel",
                 "values": {str(key): str(value) for key, value in values.items()},
             })
         except Exception:
@@ -484,7 +486,7 @@ def _theme_entries(*, paths: ServerPaths | None = None) -> list[dict]:
 
 def _theme_exists(theme_id: str, *, paths: ServerPaths | None = None) -> bool:
     paths = paths if paths is not None else ServerPaths.legacy()
-    if theme_id in {"pastel", "dark", "blackout", "whiteout"}:
+    if theme_id in BUILTIN_EDITOR_THEME_NAMES:
         return True
     if not theme_id or "\x00" in theme_id:
         return False
@@ -1537,7 +1539,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "format": "kfps_fabric_editor_theme_v1",
                     "id": theme_id,
                     "name": name,
-                    "base": data.get("base") if data.get("base") in {"pastel", "dark", "blackout", "whiteout"} else "pastel",
+                    "base": data.get("base") if data.get("base") in BUILTIN_EDITOR_THEME_NAMES else "pastel",
                     "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "values": {str(key): str(value) for key, value in values.items()},
                 }

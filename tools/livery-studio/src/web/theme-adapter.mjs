@@ -2,9 +2,23 @@
 import {t,errorText} from './i18n.mjs';
 export const FORMAT='kfps_fabric_editor_theme_v1';
 export const PALETTES={"pastel":{"--bg":"#fff7fb","--shell":"#ffffff","--panel":"#fffafd","--panel2":"#ffeaf4","--panel3":"#fff0f7","--text":"#3d2632","--muted":"#8f6478","--soft":"#b78499","--line":"#f3bed4","--line2":"#e78daf","--accent":"#ec6fa4","--accent2":"#ffb8d4","--good":"#42b985","--warn":"#d98c22","--danger":"#e84469","--canvas-bg":"#ead0dc","--fabric-canvas-bg":"#ead0dc","--editor-grid-line":"rgba(91, 52, 70, 0.46)","--editor-grid-axis":"rgba(61, 38, 50, 0.66)","--editor-guide-line":"rgba(94, 52, 72, 0.92)","--editor-guide-selected":"rgba(54, 33, 45, 0.98)","--editor-guide-draft":"rgba(42, 26, 36, 0.96)","--editor-notch-line":"rgba(18, 16, 18, 0.92)","--editor-notch-muted":"rgba(18, 16, 18, 0.48)","--editor-notch-active":"rgba(236, 111, 164, 0.98)","--editor-selection-border":"#2b1622","--editor-shape-outline":"#151015","--editor-selection-corner":"#fffafd","--editor-selection-corner-stroke":"#2b1622","--editor-skew-corner":"#ec6fa4","--shape-tile-bg":"#fff4f9","--dialog-bg":"#fffafd","--dialog-header":"#ffe5f1"},"dark":{"--bg":"#080a10","--shell":"#0e111a","--panel":"#151925","--panel2":"#1b2030","--panel3":"#101521","--text":"#f2f5ff","--muted":"#9aa6c3","--soft":"#66708c","--line":"#30384f","--line2":"#475169","--accent":"#70e8ff","--accent2":"#b89cff","--good":"#72f0aa","--warn":"#ffd36e","--danger":"#ff5d7a","--canvas-bg":"#090b12","--fabric-canvas-bg":"#0b0d12","--editor-grid-line":"rgba(142, 170, 230, 0.34)","--editor-grid-axis":"rgba(220, 235, 255, 0.62)","--editor-guide-line":"rgba(236, 245, 255, 0.88)","--editor-guide-selected":"rgba(255, 255, 255, 0.98)","--editor-guide-draft":"rgba(236, 245, 255, 0.96)","--editor-notch-line":"rgba(255, 255, 255, 0.94)","--editor-notch-muted":"rgba(255, 255, 255, 0.46)","--editor-notch-active":"rgba(255, 255, 255, 1)","--editor-selection-border":"#ffffff","--editor-shape-outline":"#ffffff","--editor-selection-corner":"#111722","--editor-selection-corner-stroke":"#ffffff","--editor-skew-corner":"#70e8ff","--shape-tile-bg":"#111722","--dialog-bg":"#171b25","--dialog-header":"#202638"},"blackout":{"--bg":"#101010","--shell":"#141414","--panel":"#191919","--panel2":"#242424","--panel3":"#121212","--text":"#ededed","--muted":"#b6b6b6","--soft":"#aaaaaa","--line":"#777777","--line2":"#999999","--accent":"#c8ced4","--accent2":"#aeb7bd","--good":"#94c6a6","--warn":"#d8bb83","--danger":"#e1a0a0","--canvas-bg":"#1c1c1c","--fabric-canvas-bg":"#202020","--editor-grid-line":"rgba(210, 210, 210, 0.32)","--editor-grid-axis":"rgba(235, 235, 235, 0.64)","--editor-guide-line":"rgba(220, 220, 220, 0.9)","--editor-guide-selected":"#ffffff","--editor-guide-draft":"#dddddd","--editor-notch-line":"#ededed","--editor-notch-muted":"#999999","--editor-notch-active":"#ffffff","--editor-selection-border":"#f5f5f5","--editor-shape-outline":"#eeeeee","--editor-selection-corner":"#161616","--editor-selection-corner-stroke":"#f5f5f5","--editor-skew-corner":"#c8ced4","--shape-tile-bg":"#202020","--dialog-bg":"#191919","--dialog-header":"#242424"},"whiteout":{"--bg":"#f3f3f3","--shell":"#f7f7f7","--panel":"#fafafa","--panel2":"#e8e8e8","--panel3":"#ededed","--text":"#222222","--muted":"#555555","--soft":"#606060","--line":"#858585","--line2":"#737373","--accent":"#3f454a","--accent2":"#5a6269","--good":"#2e6145","--warn":"#7a5819","--danger":"#943c44","--canvas-bg":"#dedede","--fabric-canvas-bg":"#d4d4d4","--editor-grid-line":"rgba(45, 45, 45, 0.32)","--editor-grid-axis":"rgba(30, 30, 30, 0.68)","--editor-guide-line":"rgba(35, 35, 35, 0.92)","--editor-guide-selected":"#111111","--editor-guide-draft":"#333333","--editor-notch-line":"#222222","--editor-notch-muted":"#626262","--editor-notch-active":"#111111","--editor-selection-border":"#222222","--editor-shape-outline":"#222222","--editor-selection-corner":"#fafafa","--editor-selection-corner-stroke":"#222222","--editor-skew-corner":"#3f454a","--shape-tile-bg":"#f0f0f0","--dialog-bg":"#fafafa","--dialog-header":"#e8e8e8"}};
+PALETTES['builtin:xbox']={
+  '--bg':'#111713','--shell':'#161d19','--panel':'#202923','--panel2':'#2b352d',
+  '--panel3':'#101612','--text':'#eef3e8','--muted':'#c9d3c4','--soft':'#acbba7',
+  '--line':'#5f7462','--line2':'#778a79','--accent':'#a1e52c','--accent2':'#f1d45c',
+  '--good':'#a1e52c','--warn':'#f1cf64','--danger':'#ff9290',
+  '--canvas-bg':'#101310','--fabric-canvas-bg':'#252725',
+  '--editor-grid-line':'rgba(193, 201, 188, 0.28)','--editor-grid-axis':'rgba(226, 231, 223, 0.6)',
+  '--editor-guide-line':'#f1cf64','--editor-guide-selected':'#ffe0a5','--editor-guide-draft':'#c1c9bc',
+  '--editor-notch-line':'#eef3e8','--editor-notch-muted':'#acbba7','--editor-notch-active':'#a1e52c',
+  '--editor-selection-border':'#a1e52c','--editor-shape-outline':'#eef3e8',
+  '--editor-selection-corner':'#101612','--editor-selection-corner-stroke':'#a1e52c',
+  '--editor-skew-corner':'#f1cf64','--shape-tile-bg':'#161d19',
+  '--dialog-bg':'#202923','--dialog-header':'#2b352d',
+};
 export const COLOR_KEYS=Object.freeze(Object.keys(PALETTES.pastel));
 export const STORAGE_KEY='kfps.livery.studio.theme.v1';
-const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout'};
+const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout','builtin:xbox':'Original Xbox'};
 const labels=['App background','Outer shell','Main panels','Raised panels','Inset panels','Main text','Muted text','Soft labels','Thin borders','Strong borders','Primary accent','Secondary accent','Success color','Warning color','Danger color','Canvas surround','Canvas color','Grid lines','Grid axis','Guide lines','Selected guide','Guide draft','Rotation notch','Muted notch','Active notch','Selection border','Shape outline','Transform handles','Handle stroke','Skew handle','Shape tile background','Dialog background','Dialog header'];
 const familyDefault='"Segoe UI", "Trebuchet MS", sans-serif';
 const maxBytes=256*1024;
@@ -106,6 +120,12 @@ export async function initializeTheme({fetcher=globalThis.fetch.bind(globalThis)
   const stop=new AbortController(),loadedFonts=new Map();
   let disposed=false,revision=0,dialogRevision=0,current,committed,draft,restore,host,config={},warning='',persistence=false,saving=false;
   let refreshPending=false,refreshFlight=null,hostFonts=[],draftFonts=[];
+  function syncChromeMotion() {
+    if(disposed||root.dataset.editorThemeBase!=='builtin:xbox')delete root.dataset.xboxMotion;
+    else root.dataset.xboxMotion=!document.hidden&&document.hasFocus()?'running':'paused';
+  }
+  document.addEventListener('visibilitychange',syncChromeMotion,{signal:stop.signal});
+  for(const event of ['focus','blur','pageshow'])window.addEventListener(event,syncChromeMotion,{signal:stop.signal});
   const notice=(text,error=false)=>{
     if(error)text=errorText(text);
     $('themeStatus').textContent=text;$('themeStatus').classList.toggle('error',error);
@@ -148,6 +168,7 @@ export async function initializeTheme({fetcher=globalThis.fetch.bind(globalThis)
     root.style.setProperty('--canvas-background',canvasColor(theme.values['--fabric-canvas-bg']));
     root.style.setProperty('--ui-font-family',theme.fontFamily);root.style.colorScheme=theme.colorScheme;
     root.dataset.editorThemeBase=theme.base;root.dataset.editorTheme=theme.id;root.dataset.themeSource=source;
+    syncChromeMotion();
     current=theme;warning=fontWarning;
     window.dispatchEvent(new CustomEvent('kfps-theme-applied',{detail:{id:theme.id,name:theme.name,source}}));
     notice(fontWarning||theme.name,Boolean(fontWarning));return true;
@@ -276,7 +297,7 @@ export async function initializeTheme({fetcher=globalThis.fetch.bind(globalThis)
     catch(error){notice(t`Theme was not saved: ${errorText(error)}`,true);}finally{saving=false;updateButtons();resumeRefresh();}
   },{signal:stop.signal});
   const disposeTooltips=installTooltips();
-  window.addEventListener('pagehide',()=>{disposed=true;stop.abort();disposeTooltips();for(const face of loadedFonts.values())document.fonts.delete(face);loadedFonts.clear();},{once:true});
+  window.addEventListener('pagehide',()=>{disposed=true;syncChromeMotion();stop.abort();disposeTooltips();for(const face of loadedFonts.values())document.fonts.delete(face);loadedFonts.clear();},{once:true});
   try{config=await request('editor-config');}catch(error){warning=error.message;}
   persistence=config.ui_theme_persistence===true;
   let initial;

@@ -10,6 +10,9 @@ Item {
     property bool compact: false
     property real railWidth: Theme.px(compact ? Metrics.compactSidebar : Metrics.wideSidebar)
     property bool denseNavigation: Theme.logical(height) < 760
+    readonly property bool dashboardNavigation: Theme.chromeMetric("dashboardNavigation", 0) > 0
+    property bool dashboardWorkspaceEntered: false
+    property bool dashboardVisible: false
     readonly property Item reportTarget: reportIssueButton
     readonly property var navItems: {
         var items = [
@@ -326,6 +329,9 @@ Item {
 
         ListView {
             id: navList
+            objectName: "SidebarNavigationList"
+            visible: !root.dashboardNavigation
+            enabled: visible
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -360,6 +366,12 @@ Item {
                 if (currentIndex >= 0)
                     positionViewAtIndex(currentIndex, ListView.Contain)
             })
+        }
+
+        Item {
+            visible: root.dashboardNavigation
+            Layout.fillWidth: true
+            Layout.fillHeight: true
         }
 
         GlassPanel {
@@ -410,6 +422,7 @@ Item {
 
                 GhostButton {
                     objectName: "SidebarCreditsButton"
+                    visible: !root.dashboardNavigation
                     anchors.horizontalCenter: parent.horizontalCenter
                     dense: true
                     text: "Credits"

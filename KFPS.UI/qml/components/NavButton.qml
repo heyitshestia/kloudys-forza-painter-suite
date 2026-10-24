@@ -43,7 +43,7 @@ Button {
         }
     }
 
-    implicitHeight: Theme.px(compact ? Metrics.compactNavButtonHeight : (dense ? 42 : Metrics.navButtonHeight))
+    implicitHeight: Theme.px(compact ? Metrics.compactNavButtonHeight : (dense ? 42 : Theme.chromeMetric("navButtonHeight", Metrics.navButtonHeight)))
     implicitWidth: Theme.px(compact ? Metrics.compactSidebar - 18 : Metrics.wideSidebar - 20)
     Layout.minimumHeight: root.implicitHeight
 

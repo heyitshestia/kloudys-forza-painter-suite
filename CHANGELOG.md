@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.117
+
+### Original Xbox Theme
+
+- Added Original Xbox as a free theme in KFPS, the Vinyl Editor and Livery Studio. Green glass, an animated core, moving wireframe backgrounds and matching controls bring a little of the old dashboard back.
+- In KFPS, the main menu becomes your home screen. Pick a section, then use MENU to return. Back or Escape takes you to the section you were using. Window dragging, minimize, maximize and close remain available from the menu.
+- The editors keep their usual working layouts, shortcuts and tools, with matching colours and quieter interface animations. Existing projects, custom themes and graphics settings are unchanged.
+- Ambient motion pauses while the window is inactive, hidden or minimized. The existing motion settings and browser reduced-motion preference still apply.
+- Choose another theme whenever you want the normal navigation back. Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.116
 
 ### Community Labels And Studio Imports
