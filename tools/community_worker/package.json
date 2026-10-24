@@ -15,7 +15,10 @@
   "overrides": {
     "miniflare": {
       "sharp": "0.35.5",
-      "undici": "7.29.1"
+      "undici": "7.30.1"
+    },
+    "@cloudflare/vitest-pool-workers": {
+      "zod": "4.6.6"
     }
   },
   "devDependencies": {
