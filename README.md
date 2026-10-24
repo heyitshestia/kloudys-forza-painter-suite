@@ -1,215 +1,167 @@
-# KFPS
+<p align="center">
+  <img src="docs/screenshots/repo-page/banner.png" alt="KFPS. Kloudy's Forza Painter Suite. Create. Edit. Paint. Share." width="100%">
+</p>
 
-> **Support KFPS**
->
-> Hi! Enjoying KFPS? Supporting me on Ko-fi helps me keep improving it and bringing new ideas to life. Thank you for being part of the community!
->
-> <a href="https://ko-fi.com/O7O020EQNQ"><img src="docs/screenshots/showcase/ko-fi-support.avif" alt="Optional donations on Ko-fi" width="240"></a>
+<p align="center">
+  <a href="https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/latest"><img src="docs/screenshots/repo-page/download.png" alt="Download KFPS" height="42"></a>
+  <a href="https://discord.gg/hRu8AtzD9j"><img src="docs/screenshots/repo-page/discord.png" alt="Join the Discord" height="42"></a>
+  <a href="https://ko-fi.com/O7O020EQNQ"><img src="docs/screenshots/repo-page/support.png" alt="Support me on Ko-fi" height="42"></a>
+</p>
 
-**Kloudy's Forza Painter Suite**
+<p align="center"><b>Windows</b> &nbsp; / &nbsp; <b>Free creative tools</b> &nbsp; / &nbsp; <b>Native or Chrome editors</b></p>
 
-Turn an image into Forza vinyl shapes, build artwork by hand, and keep your designs together in one Windows app. KFPS combines GPU-assisted generation, a standalone vinyl editor, file management, community sharing, and game-specific import and export tools.
+Turn images into Forza vinyls, draw your own artwork, build a livery, and share what you make. **KFPS brings generation, the Vinyl Editor, Livery Studio, game transfers, and Community into one suite.**
 
-**[Download KFPS](https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/latest)** · **[Community Discord](https://discord.gg/hRu8AtzD9j)**
+The tools are free, including bulk import and export. Ko-fi support is optional. Existing supporter keys still unlock their exclusive themes.
 
-![KFPS Create page showing a freshly generated Mini Kloudy vinyl and completed generation results](docs/screenshots/showcase/create.png)
+![The current KFPS Vinyl Editor in Blackout, editing Mini Kloudy as 983 native shapes](docs/screenshots/repo-page/vinyl-editor.png)
 
-*Mini Kloudy, generated with the Shaded Character Art preset at 3,000 shapes. Screenshots throughout this page are fresh captures of KFPS 3.1.75, not mockups. Artwork shown with Kloudy's permission.*
-
-## Contents
-
-- [Get Started](#get-started)
-- [Create a Vinyl](#create-a-vinyl)
-- [The Standalone Editor](#the-standalone-editor)
-- [Outputs and Game Transfer](#outputs-and-game-transfer)
-- [Full-Car Liveries](#full-car-liveries)
-- [Community](#community)
-- [Image Tools](#image-tools)
-- [Themes](#themes)
-- [Support KFPS](#support-kfps)
-- [Help and Updates](#help-and-updates)
-- [Credits and Licenses](#credits-and-licenses)
+<p align="center"><a href="#get-started">Get started</a> &nbsp; / &nbsp; <a href="#create">Create</a> &nbsp; / &nbsp; <a href="#vinyl-editor">Vinyl Editor</a> &nbsp; / &nbsp; <a href="#livery-studio">Livery Studio</a> &nbsp; / &nbsp; <a href="#game-transfers">Game transfers</a> &nbsp; / &nbsp; <a href="#community">Community</a> &nbsp; / &nbsp; <a href="#make-it-yours">Themes</a></p>
 
 ## Get Started
 
-1. **Download the official bundled ZIP** from [Releases](https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/latest). Extract the whole archive into a writable folder. GitHub's **Source code** ZIP is not the ready-to-run app.
-2. **Start `KFPS.exe` and check Update.** The public updater can be newer than the downloadable bundle; not every patch gets a new bundle. Keep the executables and application folder together.
-3. **Choose your starting point.** Use **Create** to turn an image into shapes, or **Editor** to draw by hand or edit an existing JSON.
-4. **Inspect your output.** Wait for generation to finish finalizing, then choose a finished JSON in **Outputs**. Save an editor **project** as well if you want to keep editing later.
-5. **Move it into the game.** For live import, open your saved 3,000-circle template in the game's **Vinyl Group Editor**, leave KFPS's import count at **3000**, and import the selected JSON. Save and reopen the vinyl in-game before judging the result.
+1. **[Download the bundled ZIP](https://github.com/heyitshestia/kloudys-forza-painter-suite/releases/latest)** and extract it into a writable folder. Choose the bundled app, not GitHub's Source code ZIP.
+2. **Run `KFPS.exe`, then check Update.** The updater carries the newest patches between bundled releases.
+3. **Pick your starting point.** Generate a vinyl in Create, open a JSON in the Vinyl Editor, or start a car layout in Studio.
 
-**You need:** Windows, enough free disk space for the bundle and your artwork, and a working OpenCL-capable GPU driver for image generation. The manual editor does not need a generation job. Live transfers need a supported game running on the same PC; local-save tools have different requirements [below](#supported-transfer-paths).
+Windows is required. Image generation needs a working OpenCL-capable GPU driver. The editors also offer an optional **Google Chrome** mode; Chrome is installed separately.
 
-> **Template setup:** Save and reopen a newly created template once. Ungrouping it is still recommended for easy inspection and troubleshooting, but is no longer mandatory for supported group layouts. An empty canvas is not a 3,000-layer template.
+## Create
 
-## Create a Vinyl
+**Start with an image. Finish with editable Forza shapes.**
 
-KFPS approximates your image using shapes the game understands. Choose a source, let the source check suggest suitable settings, and select how many shapes to spend on the result.
+- GPU-assisted generation with presets for shaded artwork, flat colours, and gradients.
+- Source checks, a live preview, progress, and a generation log.
+- Multiple shape-count checkpoints from one run.
+- Image queues and optional 2x search for a more thorough pass.
+- Local background removal and upscaling to prepare your source.
 
-- **Presets for different artwork:** shaded characters, flat-color designs, and smooth gradients.
-- **Live preview and progress:** see the result develop and keep the generation log close by.
-- **Several finished versions from one run:** save checkpoints at different shape counts and choose the version that balances detail and complexity.
-- **Image queues and optional extra search:** process multiple sources or try 2x Mode when more search time is worthwhile. It does not double the final layer count.
+![KFPS Create in Night Blossom, with source controls and a saved Mini Kloudy vinyl preview](docs/screenshots/repo-page/create.png)
 
-Transparent PNGs are a useful starting point for cutout artwork. More layers can help, but cannot recover details missing from a blurry source. Leave advanced preparation options at their defaults until there is a specific problem to solve.
+Finished artwork goes into **Outputs**, alongside editor exports, game exports, and your library. Preview and organise files there, or right-click a JSON to **Open in Editor**.
 
-**Wait for finalization.** Use **Generated finals** in Outputs, not the raw recovery checkpoints. Finishing the shape search and finishing the import-ready files are separate steps.
+## Vinyl Editor
 
-## The Standalone Editor
+**A proper workspace for the details.** Open it from KFPS or launch `KFPS Editor.exe` on its own.
 
-![The standalone KFPS editor with the generated Mini Kloudy design, layer controls, and native shape library](docs/screenshots/showcase/editor-workspace.png)
+| Work on | Tools you get |
+| :--- | :--- |
+| Shapes | Native shape library, search, favourites, text, and pixel-art tools. |
+| Layers | Nested groups, multi-selection, drag reordering, visibility, locks, and overlap selection. |
+| Transforms | Move, resize, rotate, skew, align, distribute, snap, and enter exact values. |
+| Colour | Palettes, saved swatches, an eyedropper, recolouring, and opacity controls. |
+| References | Guide images, visibility and opacity controls, size locking, and guides. |
+| Workspace | Dock, detach, drag, resize, and reattach panels inside the editor. Save your layout or reset it. |
+| Shortcuts | Customisable bindings, tooltips, and a searchable shortcut reference. |
+| Reuse | Save selections as assets and bring them into other projects. |
+| History | Undo/redo, named projects, Save As, and recent recovery checkpoints. |
+| Export | Export checks and JSON that preserves nested groups for supported offline transfers. |
 
-Open it from KFPS's **Editor** page or run **`KFPS Editor.exe` beside `KFPS.exe`**. Both entry points use the same workspace. The editor has its own window and can keep running after KFPS closes; you do not need to work in a browser tab.
+Double-click a shape in the layer list to centre and highlight it on the canvas. Canvas-to-layer navigation makes the trip back just as easy.
 
-| Work on | What the editor provides |
-| --- | --- |
-| Shapes and layers | Native shape library, search, favorites, grouping, locks, visibility, and layer ordering. |
-| Precise placement | Position, size, rotation, alignment, snapping, guides, and reference-image tracing. |
-| Text and pixels | Native Forza lettering and pixel-art conversion within the shape budget. |
-| Color | Recoloring, saved favorites, an eyedropper, and reference-color sampling. |
-| Reusable pieces | Save selections or groups to an independent **Assets** library and insert them into other projects. |
-| Working history | Undo/redo, visible history, named projects, Save As, and automatic recovery checkpoints. |
-| Finishing | Export Check highlights problems before producing the flat JSON used by KFPS's transfer tools. |
+The native window and Chrome use the same editing workspace. **English, Korean, and Japanese** are available. Projects, custom themes, shortcuts, palettes, and favourites carry over.
 
-### Projects, Assets, and Export JSON
+## Livery Studio
 
-**Share the project if you want to preserve editor groups.** A project keeps your editable organization, reference image, and other working information. An exported JSON is a flat shape list for game transfer; it cannot carry editor groups. Adding grouped structures to an export makes it incompatible with KFPS's flat import mechanism.
+**Put the vinyl on the car.** <sub>Experimental</sub>
 
-Assets are stored separately from projects, generated outputs, and exported JSONs. Removing an exported file does not remove a saved asset. Shape and color favorites also survive editor restarts.
+Open Studio from **Liveries**, from the Vinyl Editor, or with the standalone `KFPSLiverySudio.exe` launcher.
 
-![Mini Kloudy saved in the editor's reusable Assets library](docs/screenshots/showcase/editor-assets.png)
+![Livery Studio with an original pink-and-white layout on a Toyota GR86, placement controls, and section preview](docs/screenshots/repo-page/livery-studio.png)
 
-### Saving and Recovery
+- Browse cars from your local FH6 installation and configure available body parts.
+- Add generated or native vinyls, then move, scale, rotate, and skew them **on the car**.
+- Grab the whole vinyl, including the spaces between its shapes.
+- Group, lock, hide, reorder, duplicate, align, and distribute placements.
+- Mirror opposite-side artwork, with a separate option for readable lettering.
+- Use native masks across overlapping vinyls.
+- Recolour a selection or the whole layout. Send a source vinyl to the 2D editor and bring the edits back.
+- Switch between **Fast, Balanced, and Sharp** preview quality without changing your artwork or exports.
+- Save named projects, variants, and checkpoints in per-car folders, with undo/redo and recovery.
+- Export individual vinyls and grouped sections. Full-car native export <sub>Experimental</sub>.
 
-The editor makes frequent background recovery checkpoints and can resume the last successfully stored session after closing or a crash. Previous completed recovery data provides a fallback if a newer write fails.
+Studio has its own native/Chrome setting and supports English, Korean, and Japanese. Both editors can keep working with the main KFPS window closed.
 
-**Recovery is a safety net, not a replacement for Save or backups.** The newest edits can still be lost if the editor crashes before their checkpoint finishes, storage is unavailable, or you replace the session. Save a named project before sharing, updating, or moving your work.
+### Saved Liveries
 
-Reference images no longer have a 16-megapixel cap. The project allows **100 MiB of encoded embedded-reference data** and **150 MiB total**. Because embedding adds size, a normal PNG or JPEG reference can be **just under 75 MiB, about 79 MB as a source file**, not 100 MB. Large images can still use substantial memory and take longer to load or save.
+Browse saved FH6 designs with their game thumbnails, inspect them in the shared 3D viewer, and transfer eligible owned designs as `.kfpslivery` packages for the same car. <sub>Experimental</sub>
 
-**English and Korean** are available through the editor's lower-left language menu. This switch localizes the editor, not every page of the main app.
+## Game Transfers
 
-## Outputs and Game Transfer
+**Live** works with a game running on your PC. **Offline** reads or writes supported local save files. Neither term means publishing your design online.
 
-![KFPS Outputs showing the generated Mini Kloudy checkpoint files and live transfer controls](docs/screenshots/showcase/outputs.png)
+| Game | Live vinyl import/export | Offline vinyl export | Offline vinyl import |
+| :--- | :--- | :--- | :--- |
+| **Forza Horizon 4** | Supported Microsoft Store/Xbox build | Yes | Microsoft Store/Xbox WGS; Steam <sub>Experimental</sub> |
+| **Forza Horizon 5** | Yes | Yes | Microsoft Store/Xbox WGS and Steam <sub>Experimental</sub> |
+| **Forza Horizon 6** | Yes | Yes | Yes |
+| **Forza Motorsport (FM8)** | Yes | Yes | Yes <sub>Experimental</sub> |
 
-Outputs brings **Generated finals**, **Editor exports**, **Game exports**, and the **Library** into one file browser. Search, preview, organize, and choose a JSON before transferring it. Local game-save vinyl libraries and full library transfers are free; community downloads have their own access rules.
+**Keep your groups together.** Editor JSON exports and supported offline transfers preserve nested vinyl groups. Owned vinyls extracted from game saves can come back into the editor with their groups intact. Live-memory transfers remain flat.
 
-**Online/live** means reading or editing the memory of a game running on your PC. It does **not** mean uploading your design to the internet. **Offline** means processing supported local save files.
+Bulk transfers are free. Ownership checks, save validation, backups, and recovery safeguards still apply. Use your own artwork or work you have permission to use, and keep backups of your saves.
 
-### Supported Transfer Paths
-
-| Game | Live import | Live export | Offline vinyl import | Offline vinyl export |
-| --- | --- | --- | --- | --- |
-| Forza Horizon 4 | Yes | Yes | Microsoft Store/Xbox WGS | Yes |
-| Forza Horizon 5 | Yes | Yes | **Not available** | **Yes** |
-| Forza Horizon 6 | Yes | Yes | Yes | Yes |
-| Forza Motorsport (FM8) | Yes | Yes | Yes | Yes |
-
-Live transfers and offline **vinyl-group** library tools do not require a supporter key. Support depends on the game's build and save format; this table is not a promise for every store version or future game update. FH4's live support is build-specific, and its offline import requires the game to be closed and uses the Microsoft Store/Xbox WGS save path.
-
-### Enter the Right Layer Count
-
-The **Template layers** field serves both live actions, but the number you enter depends on what is open in-game:
-
-| Action | Count to enter | Example |
-| --- | --- | --- |
-| **Live import** | Actual layers in the open placeholder template | Import a 1,842-shape JSON into the standard 3,000-circle template: enter **3000**. |
-| **Live export** | Actual shape layers in the open artwork | Export a vinyl containing 1,842 layers: enter **1842**, not 3000. |
-
-Count the shapes inside groups, not the group headers. Keep **only one supported game** running, open the intended vinyl group, and do not change game screens during a transfer. Leave **Clear Extra Template Layers** enabled for normal imports. A design cannot fit into fewer template slots than it needs.
-
-Offline tools avoid the live template workflow. Follow the selected game's save checks and keep backups. FH4 offline import requires the game closed; adding a new FH6 vinyl can work with the game open, while replacing an existing FH6 vinyl requires it closed. A save folder is not the game's installed `media` or `Content` folder.
-
-## Full-Car Liveries
-
-![KFPS Liveries showing the approved KFPS car design using its actual game thumbnail](docs/screenshots/showcase/liveries.png)
-
-The public **Liveries** page is a separate, **experimental FH6 full-car workflow**, not the individual vinyl-group library.
-
-- **Recognize the design before opening it:** browse actual game thumbnails in the livery grid.
-- **Export without rendering first:** **Export Selected** creates the package without launching the 3D preview.
-- **Inspect when useful:** **Open 3D Preview** uses the matching car from your own FH6 installation. Previewing is optional.
-- **Share a complete package:** `.kfpslivery` retains the original FH6 livery record for installation onto the **same exact FH6 car**.
-
-**A missing preview detail is not automatically missing export data.** This path preserves the original game livery record rather than rebuilding it from what the renderer happens to show. Details omitted or misdisplayed by the 3D preview are not discarded from that preserved record.
-
-![The approved KFPS livery on its matching FH6 car in the optional experimental 3D preview](docs/screenshots/showcase/livery-preview.png)
-
-*The KFPS livery in the optional 3D viewer. This particular saved example is marked preview-only by the app's ownership checks; showing a preview does not make a livery eligible for export.*
-
-Ownership checks still apply: another player's livery cannot be exported, and an owned livery containing someone else's vinyls is preview-only until those are removed in-game. Different-car and cross-game full-livery installation are not supported. The FH6 livery installer creates a new entry with save-change checks and recovery data; unlike FH4 offline vinyl import, it can allow FH6 to remain open, with a save reload needed afterward.
+For live import, open the intended placeholder vinyl in-game and enter its actual template layer count. For live export, enter the actual artwork layer count. The in-app **Help** page covers the steps for each game and transfer route.
 
 ## Community
 
-Browse artwork, search by tags or creator, inspect previews, and find handmade or toolmade vinyls from other users. Public browsing does not need an account.
+**Make something worth showing off.**
 
-Connect a GitHub identity to download, favorite, follow creators, report listings, or publish your own work. Publishing renders a preview from the selected JSON and lets you provide a title, description, tags, and revisions. Your Community username is permanent, so check it before confirming.
+- Browse without an account, with visible **Handmade** and **Toolmade** labels.
+- Search by title, tag, or creator; filter by game and category.
+- Connect GitHub to publish, download, favourite artwork, and follow creators.
+- Share revisions, browse creator profiles, and explore featured and timed releases.
 
-On servers using the **Verified** policy, new access requires **both 14 days since your first GitHub connection to Community and 10 eligible Handmade vinyl uploads of your own**. The server records the first connection date; signing out or reconnecting does not reset it. You can upload during the waiting period. Toolmade vinyls, liveries, duplicate designs and revisions do not add credit. Scheduled work counts once published. Earned credit survives normal deletion or expiry, but moderation can revoke invalid credit or suspend access. Sharing permission and authorship are separate: older Handmade uploads may need an authorship claim or review.
+**Verified access:** connect GitHub to Community for **14 days** and publish **10 distinct Handmade vinyls of your own**. Both requirements apply; Toolmade uploads do not count. Existing qualifying key holders receive permanent Verified access after their key is recognised once. Donations do not buy Verified access.
 
-**Existing valid key holders receive permanent Verified access after one successful verification**, without the waiting period or upload requirement. The grant remains when the local key is removed or a temporary proof expires. It belongs to the connected Community account; normal account moderation and separate supporter-theme key checks still apply. Donations do not buy Verified access.
+**[Join the KFPS Discord](https://discord.gg/hRu8AtzD9j)** for artwork, updates, feedback, and help.
 
-The client follows the connected server's policy. A server still using the legacy supporter policy retains its current key checks until the server is upgraded. This local development branch does not deploy that upgrade. Existing GitHub sessions and private artwork storage are retained; compact thumbnails are public, while full media and downloads follow server access checks. Share only work you created or have permission to distribute. A listing in KFPS is not a guarantee that the artwork complies with a game's rules.
+## Make It Yours
 
-## Image Tools
+The main app includes **five public themes**: Night Blossom, Command Prompt, Apex Vector, Night City 2077, and RX-93 Psycho-Frame.
 
-![KFPS Image Tools with local background-removal and upscaling options](docs/screenshots/showcase/tools.png)
+Existing supporter keys also unlock **Windows 94, Patron's Atelier, Carbon Dark, and Overdrive 200X**.
 
-Prepare the source before spending time generating it. KFPS includes **local background removal and upscaling**, plus source checks to help identify unsuitable images. Models may need downloading on first use; these local operations do not upload your artwork.
+### KFPS Themes
 
-The separate resize/compress shortcut opens **Squoosh** in a browser. Keep your original image and inspect fine edges after preparation: removal can erase pale details, and upscaling cannot recreate information that was never present.
+![KFPS cycling through all nine bundled themes, with supporter themes labelled](docs/screenshots/repo-page/themes-kfps.gif)
 
-## Themes
+The editors have their own themes and custom colour controls, with no key required. Make a workspace that fits you, save it, and bring it back next time.
 
-The main app has **eight themes: four public and four supporter themes**. They change more than an accent color, from the default Night Blossom workspace to retro desktop and console-inspired layouts. Choose them in Settings; motion and visual-effect preferences are also available.
+### Vinyl Editor Themes
 
-### Public Themes
+![The Vinyl Editor cycling through Signature Pink, Dark, Blackout, and Whiteout](docs/screenshots/repo-page/themes-editor.gif)
 
-| Night Blossom | Command Prompt |
-| --- | --- |
-| ![Night Blossom theme](docs/screenshots/showcase/create.png) | ![Command Prompt theme](docs/screenshots/showcase/theme-command-prompt.png) |
-| **Apex Vector** | **Night City 2077** |
-| ![Apex Vector theme](docs/screenshots/showcase/theme-apex-vector.png) | ![Night City 2077 theme](docs/screenshots/showcase/theme-night-city.png) |
+### Livery Studio Themes
 
-### Supporter Themes
+![Livery Studio cycling through Signature Pink, Dark, Blackout, and Whiteout](docs/screenshots/repo-page/themes-studio.gif)
 
-| Windows 94 | Patron's Atelier |
-| --- | --- |
-| ![Windows 94 theme](docs/screenshots/showcase/theme-windows94.png) | ![Patron's Atelier theme](docs/screenshots/showcase/theme-atelier.png) |
-| **Carbon Dark** | **Overdrive 200X** |
-| ![Carbon Dark theme](docs/screenshots/showcase/theme-carbon.png) | ![Overdrive 200X theme](docs/screenshots/showcase/theme-overdrive.png) |
+<sub>Theme previews cycle slowly. For still images: [KFPS](docs/screenshots/repo-page/create.png), [Vinyl Editor](docs/screenshots/repo-page/vinyl-editor.png), [Livery Studio](docs/screenshots/repo-page/livery-studio.png).</sub>
 
-### Editor Themes
+## Support My Work
 
-The editor has its own **Signature Pink, Dark, Blackout, and Whiteout** themes, plus adjustable colors for a custom look. These editor themes do not require a supporter key.
+I'm keeping KFPS's creative tools free. If you enjoy using them, **[supporting me on Ko-fi](https://ko-fi.com/O7O020EQNQ)** genuinely helps me keep improving the suite, fixing the rough edges, and building what comes next. It is optional, and very much appreciated.
 
-| Whiteout | Blackout |
-| --- | --- |
-| ![Editor Whiteout theme](docs/screenshots/showcase/editor-whiteout.png) | ![Editor Blackout theme](docs/screenshots/showcase/editor-blackout.png) |
+Existing keys remain valid for supporter themes. New donations do not issue keys or unlock Verified status.
 
-## Support KFPS
+Now go make something worth showing off. **Crash out.**
 
-**[Optional donations on Ko-fi](https://ko-fi.com/O7O020EQNQ)** help support development. Generation, both editors, output management and supported local/live import/export, including full library transfers, do not require payment or a key. Game, ownership and save-format checks still apply; **FH5 offline import remains unavailable**.
+## Help And Updates
 
-**Existing supporter keys** still unlock four extra main-app themes: Windows 94, Patron's Atelier, Carbon Dark and Overdrive 200X. Add or remove an existing key in Settings. Theme access is checked locally from its signature: no PC binding, duplicate-use checks, online activation or recurring registration. Old activation records do not restrict these themes. Public themes and editor custom themes remain free. Donations do not issue new keys.
+- **How do I...?** Start with the searchable Help page inside KFPS.
+- **Something broke?** Use **Report a Problem**. Review what is included before sending it. Never post keys, credentials, or private saves publicly.
+- **What's new?** Read the [changelog](https://github.com/heyitshestia/kloudys-forza-painter-suite/blob/main/CHANGELOG.md).
+- **Updating?** Save your work and close KFPS, both editors, and active jobs before running the standalone updater. Keep the application folder together.
+- **Need a hand?** Visit [Support Discord](https://discord.gg/XT8dG8bDKy) or the [issue tracker](https://github.com/heyitshestia/kloudys-forza-painter-suite/issues).
 
-## Help and Updates
+KFPS is an unofficial Forza tool and is not affiliated with Microsoft, Xbox, or the Forza studios. Keep backups and use it responsibly.
 
-Use the app's **Help** page for searchable steps covering templates, exact counts, projects, recovery, transfers, and troubleshooting. This README is the overview; Help is where the task-specific instructions live.
+## Credits
 
-**Report a Problem** opens a KFPS review window with troubleshooting information and retained logs loaded automatically. Discord sign-in opens in your Windows default browser so an existing login can be reused. Nothing is sent until you press **Send report**. The issue description, Discord display name, version, report ID, and screenshots you explicitly attach are public in the [KFPS Support Discord](https://discord.gg/XT8dG8bDKy); additional technical details and logs you choose to include are private to Kloudy and authorized support staff. Any logs excluded by size or access limits are clearly identified.
+Built on the work of [Forza Painter](https://github.com/forza-painter/forza-painter), [BVZRays](https://github.com/bvzrays/forza-painter-fh6), [GPU Geometrize](https://github.com/zjl88858/forza-painter-geometrize-gpu), [Sam Twidale](https://samcodes.co.uk/), [Michael Fogleman's primitive](https://github.com/fogleman/primitive), and [Fabric.js](https://fabricjs.com/).
 
-For a useful report, include the version, exact steps, expected result, actual result, and relevant hardware. For transfer issues, include the game, live/offline route, actual layer count, and the JSON with its report/manifest when available. Never share keys, credentials, or private saves publicly.
+Thanks to [Arstz / ForzaLiveryStudio](https://github.com/Arstz/ForzaLiveryStudio), [D3FEKT / ForzaTechStudio](https://github.com/D3FEKT/ForzaTechStudio), their contributors, and everyone helping with translations, testing, artwork, and feedback. Full acknowledgements are in the app's Credits.
 
-**Updating:** save projects and close the editor and active generation first, then use KFPS's **Update** page. If the main app cannot start, use the updater beside it. Keep the bundle together and back up personal work before repairing an installation. See [updater recovery and diagnostics](docs/BOOTSTRAP_UPDATER.md) for technical details.
+[KFPS / Forza Painter license](https://github.com/heyitshestia/kloudys-forza-painter-suite/blob/main/LICENSE) · [GPU generator license](https://github.com/heyitshestia/kloudys-forza-painter-suite/blob/main/LICENSE.geometrize-gpu) · [Importer license](https://github.com/heyitshestia/kloudys-forza-painter-suite/blob/main/LICENSE.custom-importer) · [Fabric.js license](https://github.com/heyitshestia/kloudys-forza-painter-suite/blob/main/LICENSE.fabricjs)
 
-KFPS is an unofficial Forza tool. Game updates can change memory layouts and save formats, rendering remains an approximation, and no recovery system can guarantee against every crash or disk failure. Keep backups and use the tools responsibly.
-
-## Credits and Licenses
-
-KFPS builds on the work of [Forza Painter](https://github.com/forza-painter/forza-painter), [BVZRays' FH6 work](https://github.com/bvzrays/forza-painter-fh6), [GPU Geometrize](https://github.com/zjl88858/forza-painter-geometrize-gpu), [Sam Twidale](https://samcodes.co.uk/), [Michael Fogleman's primitive](https://github.com/fogleman/primitive), and [Fabric.js](https://fabricjs.com/).
-
-Special thanks to [Arstz / ForzaLiveryStudio](https://github.com/Arstz/ForzaLiveryStudio) and its contributors for public save-format research and documentation that helped clarify the offline workflow. Thanks also to the source-tool authors, localization contributors, testers, artists, and community members credited in the app's **Credits** page.
-
-License notices: [KFPS / Forza Painter](LICENSE), [GPU generator](LICENSE.geometrize-gpu), [custom import tools](LICENSE.custom-importer), and [Fabric.js](LICENSE.fabricjs). Image-tool dependencies retain their notices in their respective tool folders. Mini Kloudy and the KFPS livery are shown with their creator's permission; code licenses do not grant separate rights to that artwork.
+<sub>Product captures use a staged local workspace on 3.1.116. Mini Kloudy is shown with permission; Studio artwork was created for this page. Code licences do not grant rights to the pictured artwork or game assets.</sub>
