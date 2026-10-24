@@ -107,6 +107,7 @@ PreviewDialog {
                             cache: false
                         }
                         PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 7; artwork: tile.artwork; ui: dialog.ui }
+                        PreviewClassificationBadge { anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: Theme.px(8); artwork: tile.artwork; ui: dialog.ui }
                     }
                     PreviewText {
                         anchors.top: picture.bottom

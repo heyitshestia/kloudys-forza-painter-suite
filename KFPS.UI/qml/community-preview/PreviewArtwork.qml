@@ -36,7 +36,14 @@ Item {
             PreviewText { id: badge; anchors.centerIn: parent; textSize: 12; color: tile.artwork.supporter ? Theme.warning : Theme.text; text: tile.artwork.state !== "available" ? tile.artwork.state : [tile.artwork.supporter ? (tile.artwork.audience === "verified" ? tile.ui("Verified", "Verified 전용") : tile.ui("Supporter", "서포터")) : "", tile.artwork.kind === "livery" ? tile.ui("Livery", "리버리") : ""].filter(Boolean).join(" / ") }
         }
         PreviewTimedBadge { anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; artwork: tile.artwork; ui: tile.ui }
+        PreviewClassificationBadge {
+            anchors.left: parent.left; anchors.bottom: parent.bottom
+            anchors.leftMargin: Theme.px(8)
+            anchors.bottomMargin: Theme.px(8) + (claimChoice.visible ? claimChoice.height + Theme.px(4) : 0)
+            artwork: tile.artwork; ui: tile.ui
+        }
         C.KfpsCheckBox {
+            id: claimChoice
             objectName: "SelectClaim:" + tile.artwork.id
             visible: tile.claimMode && !!tile.artwork.canClaim
             anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 8

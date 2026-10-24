@@ -77,7 +77,7 @@ jobs:
         run: |
           python -B -m unittest discover -s KFPS.UI/tests -p "test_studio_preview_quality_*.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test KFPS.Editor/web/tests/studio-preview-quality.test.mjs KFPS.Editor/web/tests/studio-preview-quality-lifecycle.test.mjs
+          node --test KFPS.Editor/web/tests/studio-preview-quality.test.mjs KFPS.Editor/web/tests/studio-preview-quality-lifecycle.test.mjs KFPS.Editor/web/tests/studio-generated-import.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Lint the QML entry point and extracted Outputs menu

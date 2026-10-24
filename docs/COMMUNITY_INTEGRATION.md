@@ -1,5 +1,19 @@
 # Community Integration
 
+## Thumbnail Classification
+
+Gallery and creator-profile thumbnails display the existing Handmade/Toolmade
+classification at the lower left. The shared badge uses the established theme
+classification colors and surface background, leaves the timed-release indicator
+at the upper right, and moves above the claim checkbox when present. It does not
+intercept thumbnail clicks or change access/download permissions. Missing or
+unknown classification data is not guessed. No server deployment is needed.
+
+`KFPS.UI/tests/test_community_classification_badge.py` exercises actual QML
+painting and click passthrough across nine bundled themes, two tile widths,
+English/Korean/Japanese label inputs, and 100%/150% display scaling. This tests
+badge localization inputs, not new language support for the Community page.
+
 ## Signed-Out Login Cue
 
 The Community header's sign-in button has a slow, 2.2-second pulsing outline

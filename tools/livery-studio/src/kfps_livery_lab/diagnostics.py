@@ -160,7 +160,7 @@ def request_action(method, relative):
             return "cancel" if path.endswith("/cancel") else "car_switch"
         if path.startswith("api/recovery"):
             return "recovery"
-        return {"api/render-vinyl": "render", "api/export-experiment": "export", "api/export-section": "export",
+        return {"api/import-vinyl": "import", "api/render-vinyl": "render", "api/export-experiment": "export", "api/export-section": "export",
                 "api/ui-theme": "theme", "api/host-theme": "theme", "api/language": "language"}.get(path)
     if method == "GET":
         if path.startswith("api/projects/"):

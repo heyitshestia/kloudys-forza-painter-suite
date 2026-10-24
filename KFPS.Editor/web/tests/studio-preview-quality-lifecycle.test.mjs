@@ -174,7 +174,7 @@ test('import closes an unadopted bitmap when placement or project validation rej
   for(const failure of ['placement','project']){
     const {context}=editorHarness();let closes=0;
     Object.assign(context,{MAX_VINYLS:96,MAX_PLACEMENTS:500,crypto:{randomUUID:()=> 'v1'},
-      requirePreview(){},snapshot:()=>({}),raster:async()=>({close(){closes++;}}),
+      requirePreview(){},snapshot:()=>({}),api:async()=>({shapes:[{}]}),raster:async()=>({close(){closes++;}}),
       createPlacement(){if(failure==='placement')throw Error('placement rejected');return {id:'p1'};},
       serializeProject(){throw Error('project rejected');}});
     vm.runInContext(between(editorSource,'async function importFile(','async function confirmReplace('),context);

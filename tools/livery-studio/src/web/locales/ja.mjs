@@ -1,5 +1,7 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Generated shape has conflicting native identity.": "生成された図形のネイティブ識別情報が一致していません。",
+  "Generated shape needs [x,y,width,height,rotation?,skew?,mask?].": "生成された図形には [x,y,幅,高さ,回転?,傾斜?,マスク?] データが必要です。",
   "Masked vinyls must use 100% opacity for export.": "マスクを含むビニールを書き出すには、不透明度を100%に設定してください。",
   "Vinyl preview quality": "ビニールのプレビュー品質",
   "Preview detail only. Saved artwork and exports are unchanged.": "プレビューの精細さのみ変更します。保存したアートワークとエクスポートには影響しません。",
@@ -63,7 +65,7 @@ export default Object.freeze({
   "Artwork and placements": "アートワークと配置",
   "Artwork": "アートワーク",
   "Add vinyl": "ビニールを追加",
-  "Import a native vinyl JSON and place it on the current section": "ネイティブビニールJSONを読み込み、現在のセクションに配置",
+  "Import a generated or native vinyl JSON and place it on the current section": "生成されたビニールまたはネイティブビニールのJSONを読み込み、現在のセクションに配置",
   "Vinyl sources": "ビニールソース",
   "Vinyl source": "ビニールソース",
   "No vinyl source selected": "ビニールソース未選択",

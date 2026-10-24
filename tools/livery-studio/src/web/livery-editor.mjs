@@ -702,8 +702,11 @@ async function importFile(file,options={}) {
   if(!file) return; if(file.size>8*1024*1024) throw Error('The vinyl JSON exceeds 8 MiB.');
   if(project.vinyls.length>=MAX_VINYLS) throw Error(t`The ${MAX_VINYLS}-source limit is reached. Existing vinyl sources can still be reused.`);
   if(project.placements.length>=MAX_PLACEMENTS) throw Error('The placement limit is reached.');
-  const raw=JSON.parse(await file.text()), shapes=Array.isArray(raw)?raw:raw?.shapes;
-  if(!Array.isArray(shapes))throw Error('The vinyl JSON must contain a native shapes array or an object with a shapes array.');
+  const raw=JSON.parse(await file.text()), input=Array.isArray(raw)?raw:raw?.shapes;
+  if(!Array.isArray(input))throw Error('The vinyl JSON must contain a native shapes array or an object with a shapes array.');
+  const {shapes}=await api('import-vinyl',{shapes:input},60000);
+  requirePreview();
+  if(options.isCurrent&&!options.isCurrent())return;
   const image=await raster(shapes);let adopted=false;
   try{
     requirePreview();

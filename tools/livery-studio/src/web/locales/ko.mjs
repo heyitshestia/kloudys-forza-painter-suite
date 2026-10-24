@@ -1,5 +1,7 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Generated shape has conflicting native identity.": "생성된 도형의 네이티브 식별 정보가 서로 일치하지 않습니다.",
+  "Generated shape needs [x,y,width,height,rotation?,skew?,mask?].": "생성된 도형에는 [x,y,너비,높이,회전?,기울기?,마스크?] 데이터가 필요합니다.",
   "Masked vinyls must use 100% opacity for export.": "마스크가 포함된 비닐은 불투명도를 100%로 설정해야 내보낼 수 있습니다.",
   "Vinyl preview quality": "비닐 미리보기 품질",
   "Preview detail only. Saved artwork and exports are unchanged.": "미리보기의 세부 묘사만 변경합니다. 저장된 아트워크와 내보내기에는 영향이 없습니다.",
@@ -63,7 +65,7 @@ export default Object.freeze({
   "Artwork and placements": "도안 및 배치",
   "Artwork": "도안",
   "Add vinyl": "비닐 추가",
-  "Import a native vinyl JSON and place it on the current section": "네이티브 비닐 JSON을 가져와 현재 구역에 배치",
+  "Import a generated or native vinyl JSON and place it on the current section": "생성된 비닐 또는 네이티브 비닐 JSON을 가져와 현재 구역에 배치",
   "Vinyl sources": "비닐 소스",
   "Vinyl source": "비닐 소스",
   "No vinyl source selected": "선택한 비닐 소스 없음",

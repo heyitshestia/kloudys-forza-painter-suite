@@ -786,7 +786,7 @@ class LiveryLabServer:
                     self.render_lock.release()
                 return self.reply(request, status, result)
             if request.command == "POST":
-                if relative not in ("api/render-vinyl", "api/export-experiment", "api/export-section"):
+                if relative not in ("api/render-vinyl", "api/import-vinyl", "api/export-experiment", "api/export-section"):
                     return self.reply(request, 404, {"error": "Unknown API."})
                 if request.headers.get("Transfer-Encoding") or request.headers.get("Content-Encoding"):
                     return self.reply(request, 400, {"error": "Encoded request bodies are not supported."})
@@ -807,6 +807,10 @@ class LiveryLabServer:
                     if len(body) != length:
                         return self.reply(request, 400, {"error": "Truncated request body."})
                     value = decode_json(body)
+                    if relative == "api/import-vinyl":
+                        from .vinyl_import import import_shapes
+                        result = import_shapes(value, self.renderer._resource)
+                        return self.reply(request, 200, result)
                     if relative == "api/export-section":
                         if not isinstance(value, dict) or set(value) != {"project", "section"}:
                             raise ValidationError("Expected a project and one section.")

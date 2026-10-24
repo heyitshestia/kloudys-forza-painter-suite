@@ -1,5 +1,7 @@
 // Generated from messages.json by scripts/build-locales.mjs.
 export default Object.freeze({
+  "Generated shape has conflicting native identity.": "Generated shape has conflicting native identity.",
+  "Generated shape needs [x,y,width,height,rotation?,skew?,mask?].": "Generated shape needs [x,y,width,height,rotation?,skew?,mask?].",
   "Masked vinyls must use 100% opacity for export.": "Masked vinyls must use 100% opacity for export.",
   "Vinyl preview quality": "Vinyl preview quality",
   "Preview detail only. Saved artwork and exports are unchanged.": "Preview detail only. Saved artwork and exports are unchanged.",
@@ -63,7 +65,7 @@ export default Object.freeze({
   "Artwork and placements": "Artwork and placements",
   "Artwork": "Artwork",
   "Add vinyl": "Add vinyl",
-  "Import a native vinyl JSON and place it on the current section": "Import a native vinyl JSON and place it on the current section",
+  "Import a generated or native vinyl JSON and place it on the current section": "Import a generated or native vinyl JSON and place it on the current section",
   "Vinyl sources": "Vinyl sources",
   "Vinyl source": "Vinyl source",
   "No vinyl source selected": "No vinyl source selected",

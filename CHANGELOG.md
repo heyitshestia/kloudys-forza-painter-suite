@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.116
+
+### Community Labels And Studio Imports
+
+- Handmade and Toolmade labels are back on Community thumbnails, including creator profiles. They follow your theme and stay clear of timed-release badges and claim checkboxes.
+- Fixed generated vinyls failing to open in 3D Livery Studio. Generated rectangles and ellipses now import as native shapes, keeping their colours, masks, layer order and groups. Existing native vinyls and your original files are unchanged.
+- Added checks for larger generated files, undo/redo, saving and reopening projects, and section exports. No graphics-setting changes are needed.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.115
 
 ### Community Sign-In Reminder
