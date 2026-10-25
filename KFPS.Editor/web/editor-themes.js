@@ -13,6 +13,8 @@
       const root = document.documentElement;
       if (disposed || root.dataset.editorThemeBase !== "builtin:xbox") delete root.dataset.xboxMotion;
       else root.dataset.xboxMotion = !document.hidden && document.hasFocus() ? "running" : "paused";
+      if (disposed || root.dataset.editorThemeBase !== "builtin:ps2") delete root.dataset.ps2Motion;
+      else root.dataset.ps2Motion = !document.hidden && document.hasFocus() ? "running" : "paused";
     }
     document.addEventListener("visibilitychange", syncChromeMotion, { signal: motionEvents.signal });
     for (const event of ["focus", "blur", "pageshow"]) {
@@ -67,6 +69,7 @@
       { id: "blackout", name: "Blackout", builtin: true, values: {} },
       { id: "whiteout", name: "Whiteout", builtin: true, values: {} },
       { id: "builtin:xbox", name: "Original Xbox", builtin: true, values: {} },
+      { id: "builtin:ps2", name: "Original PS2", builtin: true, values: {} },
     ];
 
     const THEME_MAIN_FIELDS = ["--shell", "--panel", "--text", "--accent", "--fabric-canvas-bg", "--line"];

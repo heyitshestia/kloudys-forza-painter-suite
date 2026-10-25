@@ -50,6 +50,7 @@ from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
 from kfps_ui.startup_splash import StartupSplash
+from kfps_ui.startup_sequence_service import StartupSequenceService
 from kfps_ui.supporter_service import SupporterService
 from kfps_ui.theme_catalog import (
     DEFAULT_THEME,
@@ -99,6 +100,7 @@ def parse_args():
     parser.add_argument("--allow-source-download", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--skip-startup-index", action="store_true")
     parser.add_argument("--skip-startup-thumbnails", action="store_true")
+    parser.add_argument("--startup-preview", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-app-root", help=argparse.SUPPRESS)
     parser.add_argument("--thumbnail-worker-ui-root", help=argparse.SUPPRESS)
@@ -396,7 +398,8 @@ def main():
         and not args.skip_startup_thumbnails
         and os.environ.get("KFPS_SKIP_STARTUP_THUMBNAILS", "").strip() != "1"
     )
-    if should_preindex:
+    ps2_startup = settings.theme == "Original PS2"
+    if should_preindex and not ps2_startup:
         run_startup_output_index(
             app,
             paths,
@@ -423,6 +426,16 @@ def main():
     upscaler = UpscaleService(paths, desktop, source, logs)
     background_remover = BackgroundRemoveService(paths, desktop, source, logs)
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
+    startup_sequence = StartupSequenceService(
+        paths, jsons, runtime, logs,
+        enabled=ps2_startup and not settings.reducedMotion and (
+            args.startup_preview or (not args.demo and not args.screenshot and not args.screenshot_dir
+                                    and os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen")),
+        refresh_registry=ps2_startup and should_preindex,
+        muted=os.environ.get("KFPS_STARTUP_MUTED", "") == "1",
+    )
+    startup_sequence.setMuted(settings.ps2StartupMuted)
+    settings.changed.connect(lambda: startup_sequence.setMuted(settings.ps2StartupMuted))
     community = CommunityService(
         replace(paths, app_root=state / "sandbox") if gallery_test else paths,
         desktop, logs, jsons=jsons, app_version=version.localVersion,
@@ -470,6 +483,7 @@ def main():
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md", auto_refresh=not args.demo)
 
     engine = QQmlApplicationEngine()
+    engine.addImageProvider("ps2-startup", startup_sequence.frame_provider)
     ctx = engine.rootContext()
     objects = {
         "appController": controller,
@@ -480,6 +494,7 @@ def main():
         "releaseAnnouncementService": release_announcement,
         "activityService": activity,
         "runtimeService": runtime,
+        "startupSequenceService": startup_sequence,
         "desktop": desktop,
         "backupService": backup,
         "sourceService": source,
@@ -607,6 +622,8 @@ def main():
         window.showMaximized()
     else:
         window.show()
+    if ps2_startup:
+        QTimer.singleShot(0, startup_sequence.beginLoading)
     development_harness = install_development_harness(
         app, window, controller, community, settings, jsons, args,
     )
@@ -620,6 +637,7 @@ def main():
             check = run_theme_checks if args.community_preview_test == "themes" else run_checks
             QTimer.singleShot(1500, lambda: check(app, window, community_preview, state, QML_ERRORS))
     shutdown_order = [
+        startup_sequence,
         community_preview,
         community_gallery,
         upscaler,

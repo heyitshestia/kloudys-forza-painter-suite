@@ -91,7 +91,7 @@ class Rx93ThemeTests(unittest.TestCase):
             "PaletteNightCity2077.qml": "({workspaceLeftInset: 34, workspaceRightInset: 30, workspaceBottomInset: 24})",
         }
         for path in PALETTE.parent.glob("Palette*.qml"):
-            if path == PALETTE or path.name == "PaletteOriginalXbox.qml":
+            if path == PALETTE or path.name in {"PaletteOriginalXbox.qml", "PaletteOriginalPs2.qml"}:
                 continue
             source = path.read_text(encoding="utf-8")
             for hook in ("controlSurfaceComponentFile", "panelSurfaceComponentFile", "sidebarSurfaceComponentFile", "sidebarHeaderComponentFile", "titleBarContentComponentFile"):

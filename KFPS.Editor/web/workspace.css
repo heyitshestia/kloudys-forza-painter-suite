@@ -1,4 +1,29 @@
 /* Layout uses existing theme tokens; theme schema and color ownership are unchanged. */
+/* PS2 workspaces keep the artwork and docking geometry unchanged. */
+:root[data-editor-theme-base="builtin:ps2"] :is(.appBar,.contextBar,.bottomStatus,.dockTabs,.toolRail,.workspaceZoom) {
+  background: var(--shell);
+  box-shadow: inset 0 -1px var(--line);
+}
+:root[data-editor-theme-base="builtin:ps2"] :is(.brandBlock h1,.panelHeader h2,.propertySection h3) { color: var(--text); }
+:root[data-editor-theme-base="builtin:ps2"] button:where(:not(.favoriteColorSwatch,.shapeTile,.shapeTile button,.assetPreview,[style*="--swatch"],[style*="background"],#colorSwatchButton,#colorPanelSwatch,#quickColorSwatch,.layerIcon,.editorUpdateIndicator)) {
+  background: var(--panel); color: var(--text); border-color: var(--line); box-shadow: none; border-radius: 3px;
+}
+:root[data-editor-theme-base="builtin:ps2"] :is(input:not([type=color],[type=checkbox],[type=range]),select,textarea) {
+  background: var(--panel3); color: var(--text); border-color: var(--line); box-shadow: none;
+}
+:root[data-editor-theme-base="builtin:ps2"] :is(button,.fileButton):hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+:root[data-editor-theme-base="builtin:ps2"] :is(.toolButton.active,.dockTab.active,button.primary,button[aria-pressed=true]:not(.favoriteColorSwatch,.shapeTile,[style*="--swatch"],[style*="background"],#colorSwatchButton,#colorPanelSwatch,#quickColorSwatch)) {
+  background: var(--panel3); color: var(--accent); border-color: var(--accent); box-shadow: inset 0 -2px var(--accent);
+}
+:root[data-editor-theme-base="builtin:ps2"] :is(.layerRow.active,.layerGroupRow.active) { background: var(--panel3); border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+:root[data-editor-theme-base="builtin:ps2"] :is(button,input,select,textarea,summary,.fileButton,[role=separator]):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-editor-theme-base="builtin:ps2"] :is(.workspaceMenu,.workspaceFloatingPanel,.themeAdjustDialog,.workspaceTooltip) { background: var(--dialog-bg); border-color: var(--line2); box-shadow: var(--shadow); }
+:root[data-editor-theme-base="builtin:ps2"] input[aria-invalid=true] { border-color: var(--danger); }
+:root[data-editor-theme-base="builtin:ps2"][data-ps2-motion="running"] :is(.workspaceMenu:popover-open,dialog[open]) { animation: ps2ChromeEnter 180ms ease-out; }
+@keyframes ps2ChromeEnter { from { opacity: 0.4; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-editor-theme-base="builtin:ps2"][data-ps2-motion="running"] :is(.workspaceMenu:popover-open,dialog[open]) { animation: none; }
+}
 /* Original Xbox materials are opt-in, including custom palettes with this base.
    No geometry, docking, artwork swatches or canvas effects belong to the skin. */
 :root[data-editor-theme-base="builtin:xbox"] body { background: var(--bg); }

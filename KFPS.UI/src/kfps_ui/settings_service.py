@@ -27,6 +27,7 @@ class SettingsService(QObject):
         "manualOverrides": False,
         "reducedMotion": False,
         "ambientMotion": True,
+        "ps2StartupMuted": False,
         "glassEffects": True,
         "liveStatusVisible": True,
         "terminalGreenText": False,
@@ -61,6 +62,7 @@ class SettingsService(QObject):
             self._data["editorGraphics"] = "auto"
         self._data["editorUseChrome"] = self._data.get("editorUseChrome") is True
         self._data["liveryUseChrome"] = self._data.get("liveryUseChrome") is True
+        self._data["ps2StartupMuted"] = self._data.get("ps2StartupMuted") is True
         if not isinstance(self._data.get("windowGeometry"), dict):
             self._data["windowGeometry"] = {}
 
@@ -149,6 +151,10 @@ class SettingsService(QObject):
     def ambientMotion(self): return bool(self._get("ambientMotion"))
     @ambientMotion.setter
     def ambientMotion(self, value): self._set("ambientMotion", bool(value))
+    @Property(bool, notify=changed)
+    def ps2StartupMuted(self): return self._get("ps2StartupMuted") is True
+    @ps2StartupMuted.setter
+    def ps2StartupMuted(self, value): self._set("ps2StartupMuted", bool(value))
     @Property(bool, notify=changed)
     def glassEffects(self): return bool(self._get("glassEffects"))
     @glassEffects.setter

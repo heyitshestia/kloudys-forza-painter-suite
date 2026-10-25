@@ -65,6 +65,14 @@ async (page, testOptions = {}) => {
     `${label}: persisted favorites differ from the UI`);
   }
   async function capture(label, states) {
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#colorDialog')).opacity === '1');
+    // Include delayed hover/focus hints in the occlusion map before sampling pixels.
+    const hint = Object.entries(states).find(([, state]) => state.hover || state.focus);
+    if (hint) await page.waitForFunction(index => {
+      const slot = document.querySelectorAll('#favoriteColorGrid .favoriteColorSwatch')[index];
+      return slot.getAttribute('aria-describedby')?.includes('workspaceTooltip')
+        && document.querySelector('#workspaceTooltip').matches(':popover-open');
+    }, Number(hint[0]));
     await settle();
     const geometry = await page.evaluate(() => {
       const rect = node => {
@@ -184,7 +192,7 @@ async (page, testOptions = {}) => {
     await capture('dark-1760-reopened', { 0: { active: false, selected: false }, 2: { active: true, selected: true } });
     await closePalette();
 
-    for (const theme of ['dark', 'whiteout', 'blackout', 'pastel', 'custom']) {
+    for (const theme of ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'custom']) {
       if (theme === 'custom') {
         await openView();
         await page.locator('#adjustTheme').click();
@@ -240,7 +248,7 @@ async (page, testOptions = {}) => {
     report.reload = true;
     report.passed = true;
     return { passed: true, host: report.host, captures: report.captures.length, reload: true,
-      themes: ['dark', 'whiteout', 'blackout', 'pastel', 'custom'], sizes: ['1760x1040', '1280x800'],
+      themes: ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'custom'], sizes: ['1760x1040', '1280x800'],
       evidence: path.join(output, 'favorite-color-swatches.json') };
   } catch (error) {
     report.passed = false;

@@ -77,6 +77,17 @@ jobs:
           PYTHONUTF8: "1"
         run: python -B KFPS.UI/tools/test_xbox_theme.py 1360 820
 
+      - name: Test PS2 theme and packaged startup
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+          KFPS_STARTUP_MUTED: "1"
+        run: |
+          python -B KFPS.UI/tools/test_ps2_theme.py 1360 820
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B KFPS.UI/tools/test_ps2_startup.py packaged 1280 760
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Studio preview quality and resource lifecycle
         env:
           KFPS_LAB_TEST_BASELINE: ${{ github.workspace }}

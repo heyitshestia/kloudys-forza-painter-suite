@@ -1,5 +1,16 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.118
+
+### Original PS2 Theme
+
+- Added Original PS2 as a free theme in KFPS, the Vinyl Editor and Livery Studio. Blue clock lights, a simple home menu and a memory-card-style Browser bring back the feel of the original dashboard.
+- KFPS opens with a custom startup animation and the original startup sound while your output library loads in the background. It goes straight to the menu when ready. Escape, Enter or Space skips the intro, and Settings has a saved mute option while the PS2 theme is active.
+- Choose Browser to open a section or System Configuration for Settings. MENU returns home, and Escape goes back. The intro and menu stay free of extra footer buttons; normal window controls still work.
+- The editors keep their working layouts, shortcuts and tools. Existing custom themes, projects, graphics settings and import/export behavior are unchanged.
+- Reduced Motion skips the intro and disables decorative animation. Minimizing pauses the intro and its sound together; restoring resumes them. Missing or unplayable media will not block startup.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.117
 
 ### Original Xbox Theme

@@ -110,6 +110,16 @@ Item {
                     onToggled: settings.terminalGreenText = checked
                 }
 
+                KfpsSwitch {
+                    objectName: "Ps2IntroMuteSetting"
+                    Layout.fillWidth: true
+                    visible: Theme.activeThemeName === "Original PS2"
+                    text: qsTr("Mute intro sound")
+                    checked: settings.ps2StartupMuted
+                    toolTipText: qsTr("Mute the PS2 startup animation. Saved for future launches.")
+                    onToggled: settings.ps2StartupMuted = checked
+                }
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.max(1, Theme.px(1))

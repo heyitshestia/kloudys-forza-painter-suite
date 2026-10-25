@@ -211,6 +211,53 @@
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
+:root[data-editor-theme="builtin:ps2"],
+:root[data-editor-theme-base="builtin:ps2"] {
+  color-scheme: dark;
+  --bg: #050506;
+  --shell: #101013;
+  --panel: #1a1a20;
+  --panel2: #2a2a30;
+  --panel3: #101014;
+  --text: #f2f2f7;
+  --muted: #d1d1dc;
+  --soft: #bdbdcd;
+  --line: #5b5b68;
+  --line2: #737383;
+  --accent: #7ba9ff;
+  --accent2: #e6a9cc;
+  --good: #9bd6bf;
+  --warn: #edd498;
+  --danger: #ff9daf;
+  --surface-rgb: 16, 16, 19;
+  --panel-rgb: 26, 26, 32;
+  --accent-rgb: 123, 169, 255;
+  --accent2-rgb: 230, 169, 204;
+  --good-rgb: 155, 214, 191;
+  --warn-rgb: 237, 212, 152;
+  --danger-rgb: 255, 157, 175;
+  --checker: rgba(206, 206, 220, 0.035);
+  --canvas-bg: #111113;
+  --fabric-canvas-bg: #262628;
+  --editor-grid-line: rgba(206, 206, 220, 0.28);
+  --editor-grid-axis: rgba(232, 232, 241, 0.6);
+  --editor-guide-line: #edd498;
+  --editor-guide-selected: #ffe6ba;
+  --editor-guide-draft: #bdbdcd;
+  --editor-notch-line: #f2f2f7;
+  --editor-notch-muted: #bdbdcd;
+  --editor-notch-active: #7ba9ff;
+  --editor-selection-border: #7ba9ff;
+  --editor-shape-outline: #f2f2f7;
+  --editor-selection-corner: #101014;
+  --editor-selection-corner-stroke: #7ba9ff;
+  --editor-skew-corner: #e6a9cc;
+  --shape-tile-bg: #16161b;
+  --dialog-bg: #1a1a20;
+  --dialog-header: #2a2a30;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
 :root[data-editor-theme="builtin:xbox"],
 :root[data-editor-theme-base="builtin:xbox"] {
   color-scheme: dark;

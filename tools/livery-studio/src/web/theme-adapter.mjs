@@ -16,9 +16,23 @@ PALETTES['builtin:xbox']={
   '--editor-skew-corner':'#f1cf64','--shape-tile-bg':'#161d19',
   '--dialog-bg':'#202923','--dialog-header':'#2b352d',
 };
+PALETTES['builtin:ps2']={
+  '--bg':'#050506','--shell':'#101013','--panel':'#1a1a20','--panel2':'#2a2a30',
+  '--panel3':'#101014','--text':'#f2f2f7','--muted':'#d1d1dc','--soft':'#bdbdcd',
+  '--line':'#5b5b68','--line2':'#737383','--accent':'#7ba9ff','--accent2':'#e6a9cc',
+  '--good':'#9bd6bf','--warn':'#edd498','--danger':'#ff9daf',
+  '--canvas-bg':'#111113','--fabric-canvas-bg':'#262628',
+  '--editor-grid-line':'rgba(206, 206, 220, 0.28)','--editor-grid-axis':'rgba(232, 232, 241, 0.6)',
+  '--editor-guide-line':'#edd498','--editor-guide-selected':'#ffe6ba','--editor-guide-draft':'#bdbdcd',
+  '--editor-notch-line':'#f2f2f7','--editor-notch-muted':'#bdbdcd','--editor-notch-active':'#7ba9ff',
+  '--editor-selection-border':'#7ba9ff','--editor-shape-outline':'#f2f2f7',
+  '--editor-selection-corner':'#101014','--editor-selection-corner-stroke':'#7ba9ff',
+  '--editor-skew-corner':'#e6a9cc','--shape-tile-bg':'#16161b',
+  '--dialog-bg':'#1a1a20','--dialog-header':'#2a2a30',
+};
 export const COLOR_KEYS=Object.freeze(Object.keys(PALETTES.pastel));
 export const STORAGE_KEY='kfps.livery.studio.theme.v1';
-const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout','builtin:xbox':'Original Xbox'};
+const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout','builtin:xbox':'Original Xbox','builtin:ps2':'Original PS2'};
 const labels=['App background','Outer shell','Main panels','Raised panels','Inset panels','Main text','Muted text','Soft labels','Thin borders','Strong borders','Primary accent','Secondary accent','Success color','Warning color','Danger color','Canvas surround','Canvas color','Grid lines','Grid axis','Guide lines','Selected guide','Guide draft','Rotation notch','Muted notch','Active notch','Selection border','Shape outline','Transform handles','Handle stroke','Skew handle','Shape tile background','Dialog background','Dialog header'];
 const familyDefault='"Segoe UI", "Trebuchet MS", sans-serif';
 const maxBytes=256*1024;
@@ -123,6 +137,8 @@ export async function initializeTheme({fetcher=globalThis.fetch.bind(globalThis)
   function syncChromeMotion() {
     if(disposed||root.dataset.editorThemeBase!=='builtin:xbox')delete root.dataset.xboxMotion;
     else root.dataset.xboxMotion=!document.hidden&&document.hasFocus()?'running':'paused';
+    if(disposed||root.dataset.editorThemeBase!=='builtin:ps2')delete root.dataset.ps2Motion;
+    else root.dataset.ps2Motion=!document.hidden&&document.hasFocus()?'running':'paused';
   }
   document.addEventListener('visibilitychange',syncChromeMotion,{signal:stop.signal});
   for(const event of ['focus','blur','pageshow'])window.addEventListener(event,syncChromeMotion,{signal:stop.signal});

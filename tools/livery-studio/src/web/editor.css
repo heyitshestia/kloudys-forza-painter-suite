@@ -1,4 +1,15 @@
 /* Theme materials never change viewports, artwork colors or stored layout. */
+:root[data-editor-theme-base="builtin:ps2"] :is(#commands,#editTools,footer,.section-heading) { background: var(--shell); box-shadow: inset 0 -1px var(--line); }
+:root[data-editor-theme-base="builtin:ps2"] button:where(:not(.colour-swatch,[style*="--swatch"],[style*="background"])) { background: var(--panel); color: var(--text); border-color: var(--line); box-shadow: none; border-radius: 3px; }
+:root[data-editor-theme-base="builtin:ps2"] :is(input:not([type=color],[type=checkbox],[type=range]),select,textarea) { background: var(--panel3); color: var(--text); border-color: var(--line); }
+:root[data-editor-theme-base="builtin:ps2"] button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+:root[data-editor-theme-base="builtin:ps2"] :is(button[aria-pressed=true],button.active,.placement[data-selected=true]):not(.colour-swatch,[style*="--swatch"],[style*="background"]) { background: var(--panel3); color: var(--accent); border-color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+:root[data-editor-theme-base="builtin:ps2"] .colour-swatch[aria-pressed=true] { background: var(--swatch); box-shadow: none; }
+:root[data-editor-theme-base="builtin:ps2"] :is(dialog,#studioTooltip) { background: var(--dialog-bg); border-color: var(--line2); box-shadow: 0 8px 24px var(--bg); }
+:root[data-editor-theme-base="builtin:ps2"] :is(input,select)[aria-invalid=true] { border-color: var(--danger); }
+:root[data-editor-theme-base="builtin:ps2"][data-ps2-motion="running"] dialog[open] { animation: ps2ChromeEnter 180ms ease-out; }
+@keyframes ps2ChromeEnter { from { opacity: .4; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { :root[data-editor-theme-base="builtin:ps2"][data-ps2-motion="running"] dialog[open] { animation: none; } }
 :root[data-editor-theme-base="builtin:xbox"] #commands {
   background: linear-gradient(180deg,var(--panel2),var(--shell) 52%,var(--panel3));
   box-shadow: inset 0 2px var(--accent),inset 0 -1px var(--line);

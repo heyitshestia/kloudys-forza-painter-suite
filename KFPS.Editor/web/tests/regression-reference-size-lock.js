@@ -68,6 +68,7 @@ async (page, options = {}) => {
   check(await page.evaluate(() => editorReference.sourceOverlayProjectState().controls.scale_percent === 160), 'Unlocked resizing failed');
   await page.locator('#overlaySizeLock').click();
   const saved = await page.evaluate(() => editorReference.sourceOverlayProjectState());
+  await page.locator('#workspaceFileMenu').click();
   await page.locator('#saveProjectAs').click();
   await page.locator('#textPromptInput').fill('Reference size lock regression'); await page.locator('#textPromptInput').press('Enter');
   await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);
@@ -89,7 +90,7 @@ async (page, options = {}) => {
   await page.evaluate(async () => { await flushPendingAutosave(); });
   check(await page.evaluate(async () => (await readAutosavePayload()).editor_source_overlay.controls.size_locked === true), 'Recovery lost enabled lock');
   const layouts = [];
-  for (const theme of ['pastel', 'dark', 'blackout', 'whiteout']) {
+  for (const theme of ['pastel', 'dark', 'blackout', 'whiteout', 'builtin:ps2']) {
     await page.evaluate(theme => editorTheme.applyEditorTheme(theme, { persist: false }), theme);
     for (const width of [1760, 1280, 900]) {
       await page.setViewportSize({ width, height: 1000 });

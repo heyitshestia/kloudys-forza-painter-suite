@@ -118,13 +118,15 @@ For live import, open the intended placeholder vinyl in-game and enter its actua
 
 ## Make It Yours
 
-The main app includes **five public themes**: Night Blossom, Command Prompt, Apex Vector, Night City 2077, and RX-93 Psycho-Frame.
+The main app includes **seven public themes**: Night Blossom, Command Prompt, Apex Vector, Night City 2077, RX-93 Psycho-Frame, Original Xbox, and Original PS2.
+
+Original Xbox and Original PS2 bring their own dashboard-style navigation. [Original PS2](docs/ORIGINAL_PS2_THEME.md) also includes a sound-timed startup animation with a saved mute option. Both themes carry into the Vinyl Editor and Livery Studio.
 
 Existing supporter keys also unlock **Windows 94, Patron's Atelier, Carbon Dark, and Overdrive 200X**.
 
 ### KFPS Themes
 
-![KFPS cycling through all nine bundled themes, with supporter themes labelled](docs/screenshots/repo-page/themes-kfps.gif)
+![KFPS cycling through nine bundled themes, with supporter themes labelled](docs/screenshots/repo-page/themes-kfps.gif)
 
 The editors have their own themes and custom colour controls, with no key required. Make a workspace that fits you, save it, and bring it back next time.
 
