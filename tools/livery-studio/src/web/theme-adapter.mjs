@@ -30,9 +30,10 @@ PALETTES['builtin:ps2']={
   '--editor-skew-corner':'#e6a9cc','--shape-tile-bg':'#16161b',
   '--dialog-bg':'#1a1a20','--dialog-header':'#2a2a30',
 };
+PALETTES['builtin:nier']={"--bg":"#d6d3c2","--shell":"#d6d3c2","--panel":"#e5e2d3","--panel2":"#c4c1af","--panel3":"#dedbca","--text":"#47473e","--muted":"#4d4d42","--soft":"#4d4d42","--line":"#8f8e7d","--line2":"#5c5c50","--accent":"#47473e","--accent2":"#4d4d42","--good":"#304e3f","--warn":"#604418","--danger":"#7c3630","--canvas-bg":"#bdbdbd","--fabric-canvas-bg":"#d4d4d4","--editor-grid-line":"rgba(45, 45, 45, 0.32)","--editor-grid-axis":"rgba(30, 30, 30, 0.68)","--editor-guide-line":"#456c58","--editor-guide-selected":"#244a39","--editor-guide-draft":"#606053","--editor-notch-line":"#222222","--editor-notch-muted":"#626262","--editor-notch-active":"#111111","--editor-selection-border":"#222222","--editor-shape-outline":"#222222","--editor-selection-corner":"#fafafa","--editor-selection-corner-stroke":"#222222","--editor-skew-corner":"#456c58","--shape-tile-bg":"#e5e2d3","--dialog-bg":"#e5e2d3","--dialog-header":"#c4c1af"};
 export const COLOR_KEYS=Object.freeze(Object.keys(PALETTES.pastel));
 export const STORAGE_KEY='kfps.livery.studio.theme.v1';
-const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout','builtin:xbox':'Original Xbox','builtin:ps2':'Original PS2'};
+const names={pastel:'Signature Pink',dark:'Dark',blackout:'Blackout',whiteout:'Whiteout','builtin:xbox':'Original Xbox','builtin:ps2':'Original PS2','builtin:nier':'NieR Automata'};
 const labels=['App background','Outer shell','Main panels','Raised panels','Inset panels','Main text','Muted text','Soft labels','Thin borders','Strong borders','Primary accent','Secondary accent','Success color','Warning color','Danger color','Canvas surround','Canvas color','Grid lines','Grid axis','Guide lines','Selected guide','Guide draft','Rotation notch','Muted notch','Active notch','Selection border','Shape outline','Transform handles','Handle stroke','Skew handle','Shape tile background','Dialog background','Dialog header'];
 const familyDefault='"Segoe UI", "Trebuchet MS", sans-serif';
 const maxBytes=256*1024;
@@ -139,6 +140,8 @@ export async function initializeTheme({fetcher=globalThis.fetch.bind(globalThis)
     else root.dataset.xboxMotion=!document.hidden&&document.hasFocus()?'running':'paused';
     if(disposed||root.dataset.editorThemeBase!=='builtin:ps2')delete root.dataset.ps2Motion;
     else root.dataset.ps2Motion=!document.hidden&&document.hasFocus()?'running':'paused';
+    if(disposed||root.dataset.editorThemeBase!=='builtin:nier')delete root.dataset.nierMotion;
+    else root.dataset.nierMotion=!document.hidden&&document.hasFocus()?'running':'paused';
   }
   document.addEventListener('visibilitychange',syncChromeMotion,{signal:stop.signal});
   for(const event of ['focus','blur','pageshow'])window.addEventListener(event,syncChromeMotion,{signal:stop.signal});

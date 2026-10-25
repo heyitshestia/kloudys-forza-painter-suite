@@ -15,6 +15,8 @@
       else root.dataset.xboxMotion = !document.hidden && document.hasFocus() ? "running" : "paused";
       if (disposed || root.dataset.editorThemeBase !== "builtin:ps2") delete root.dataset.ps2Motion;
       else root.dataset.ps2Motion = !document.hidden && document.hasFocus() ? "running" : "paused";
+      if (disposed || root.dataset.editorThemeBase !== "builtin:nier") delete root.dataset.nierMotion;
+      else root.dataset.nierMotion = !document.hidden && document.hasFocus() ? "running" : "paused";
     }
     document.addEventListener("visibilitychange", syncChromeMotion, { signal: motionEvents.signal });
     for (const event of ["focus", "blur", "pageshow"]) {
@@ -70,6 +72,7 @@
       { id: "whiteout", name: "Whiteout", builtin: true, values: {} },
       { id: "builtin:xbox", name: "Original Xbox", builtin: true, values: {} },
       { id: "builtin:ps2", name: "Original PS2", builtin: true, values: {} },
+      { id: "builtin:nier", name: "NieR Automata", builtin: true, values: {} },
     ];
 
     const THEME_MAIN_FIELDS = ["--shell", "--panel", "--text", "--accent", "--fabric-canvas-bg", "--line"];

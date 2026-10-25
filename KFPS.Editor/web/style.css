@@ -211,6 +211,53 @@
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
+:root[data-editor-theme="builtin:nier"],
+:root[data-editor-theme-base="builtin:nier"] {
+  color-scheme: light;
+  --bg: #d6d3c2;
+  --shell: #d6d3c2;
+  --panel: #e5e2d3;
+  --panel2: #c4c1af;
+  --panel3: #dedbca;
+  --text: #47473e;
+  --muted: #4d4d42;
+  --soft: #4d4d42;
+  --line: #8f8e7d;
+  --line2: #5c5c50;
+  --accent: #47473e;
+  --accent2: #4d4d42;
+  --good: #304e3f;
+  --warn: #604418;
+  --danger: #7c3630;
+  --canvas-bg: #bdbdbd;
+  --fabric-canvas-bg: #d4d4d4;
+  --editor-grid-line: rgba(45, 45, 45, 0.32);
+  --editor-grid-axis: rgba(30, 30, 30, 0.68);
+  --editor-guide-line: #456c58;
+  --editor-guide-selected: #244a39;
+  --editor-guide-draft: #606053;
+  --editor-notch-line: #222222;
+  --editor-notch-muted: #626262;
+  --editor-notch-active: #111111;
+  --editor-selection-border: #222222;
+  --editor-shape-outline: #222222;
+  --editor-selection-corner: #fafafa;
+  --editor-selection-corner-stroke: #222222;
+  --editor-skew-corner: #456c58;
+  --shape-tile-bg: #e5e2d3;
+  --dialog-bg: #e5e2d3;
+  --dialog-header: #c4c1af;
+  --surface-rgb: 214, 211, 194;
+  --panel-rgb: 229, 226, 211;
+  --accent-rgb: 71, 71, 62;
+  --accent2-rgb: 77, 77, 66;
+  --good-rgb: 48, 78, 63;
+  --warn-rgb: 96, 68, 24;
+  --danger-rgb: 124, 54, 48;
+  --checker: rgba(30, 30, 30, 0.05);
+  --shadow: 4px 4px 0 rgba(71, 71, 62, 0.15);
+}
+
 :root[data-editor-theme="builtin:ps2"],
 :root[data-editor-theme-base="builtin:ps2"] {
   color-scheme: dark;

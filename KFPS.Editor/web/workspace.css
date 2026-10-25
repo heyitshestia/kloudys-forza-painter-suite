@@ -1,5 +1,39 @@
 /* Layout uses existing theme tokens; theme schema and color ownership are unchanged. */
 /* PS2 workspaces keep the artwork and docking geometry unchanged. */
+/* Automata chrome is opt-in; artwork, swatches and canvas pixels are untouched. */
+:root[data-editor-theme-base="builtin:nier"] :is(.appBar,.contextBar,.bottomStatus,.dockTabs,.toolRail,.workspaceZoom) {
+  background: var(--shell); box-shadow: inset 0 -1px var(--line); border-radius: 0;
+}
+:root[data-editor-theme-base="builtin:nier"] .appBar {
+  border-bottom: 1px solid var(--line2); box-shadow: inset 0 -3px var(--shell),inset 0 -4px var(--line);
+  background-image: repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--line) 12%,transparent) 5px 6px);
+}
+:root[data-editor-theme-base="builtin:nier"] :is(.panelHeader,.propertySection h3,.workspaceFloatingPanel>.dockTabs) {
+  box-shadow: inset 0 -3px var(--shell),inset 0 -4px var(--line); border-radius: 0;
+}
+:root[data-editor-theme-base="builtin:nier"] button:where(:not(.favoriteColorSwatch,.shapeTile,.shapeTile button,.assetPreview,[style*="--swatch"],[style*="background"],#colorSwatchButton,#colorPanelSwatch,#quickColorSwatch,.layerIcon,.editorUpdateIndicator)) {
+  background: var(--panel); color: var(--text); border-color: var(--line); border-radius: 0; box-shadow: none;
+}
+:root[data-editor-theme-base="builtin:nier"] :is(input:not([type=color],[type=checkbox],[type=range]),select,textarea) {
+  background: var(--panel3); color: var(--text); border-color: var(--line); border-radius: 0; box-shadow: none;
+}
+:root[data-editor-theme-base="builtin:nier"] :is(button,.fileButton):hover:not(:disabled) { border-color: var(--accent); }
+:root[data-editor-theme-base="builtin:nier"] :is(.toolButton.active,.dockTab.active,button.primary,button[aria-pressed=true]:not(.favoriteColorSwatch,.shapeTile,[style*="--swatch"],[style*="background"],#colorSwatchButton,#colorPanelSwatch,#quickColorSwatch)) {
+  background: var(--text); color: var(--panel); border-color: var(--text); box-shadow: none;
+}
+:root[data-editor-theme-base="builtin:nier"] :is(.layerRow.active,.layerGroupRow.active) { background: var(--panel2); border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+:root[data-editor-theme-base="builtin:nier"] :is(button,input,select,textarea,summary,.fileButton,[role=separator]):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+:root[data-editor-theme-base="builtin:nier"] :is(.workspaceMenu,.workspaceFloatingPanel,.themeAdjustDialog,.workspaceTooltip,dialog) { background: var(--dialog-bg); border-color: var(--line2); border-radius: 0; box-shadow: var(--shadow); }
+:root[data-editor-theme-base="builtin:nier"] input[aria-invalid=true] { border-color: var(--danger); }
+:root[data-editor-theme-base="builtin:nier"][data-nier-motion="running"] :is(.workspaceMenu:popover-open,dialog[open]) { animation: nierChromeEnter 220ms cubic-bezier(.2,.8,.2,1); }
+@keyframes nierChromeEnter {
+  from { opacity: .2; clip-path: polygon(0 0,25% 0,0 100%,0 100%); transform: translateY(4px); }
+  to { opacity: 1; clip-path: polygon(0 0,100% 0,100% 100%,0 100%); transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-editor-theme-base="builtin:nier"][data-nier-motion="running"] :is(.workspaceMenu:popover-open,dialog[open]) { animation: none; }
+}
+
 :root[data-editor-theme-base="builtin:ps2"] :is(.appBar,.contextBar,.bottomStatus,.dockTabs,.toolRail,.workspaceZoom) {
   background: var(--shell);
   box-shadow: inset 0 -1px var(--line);

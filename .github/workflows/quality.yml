@@ -88,6 +88,18 @@ jobs:
           python -B KFPS.UI/tools/test_ps2_startup.py packaged 1280 760
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test NieR theme navigation and persistence
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: |
+          python -B KFPS.UI/tools/test_nier_theme.py 1360 820
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node KFPS.Editor/web/tests/nier-theme.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B KFPS.Editor/web/tests/nier-theme.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Studio preview quality and resource lifecycle
         env:
           KFPS_LAB_TEST_BASELINE: ${{ github.workspace }}

@@ -446,6 +446,7 @@ def _clean_filename_base(name: str, fallback: str = "vinyl") -> str:
 BUILTIN_EDITOR_THEME_NAMES = {
     "pastel": "Signature Pink", "dark": "Dark", "blackout": "Blackout",
     "whiteout": "Whiteout", "builtin:xbox": "Original Xbox", "builtin:ps2": "Original PS2",
+    "builtin:nier": "NieR Automata",
 }
 
 

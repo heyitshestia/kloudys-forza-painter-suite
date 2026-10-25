@@ -192,7 +192,7 @@ async (page, testOptions = {}) => {
     await capture('dark-1760-reopened', { 0: { active: false, selected: false }, 2: { active: true, selected: true } });
     await closePalette();
 
-    for (const theme of ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'custom']) {
+    for (const theme of ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'builtin:nier', 'custom']) {
       if (theme === 'custom') {
         await openView();
         await page.locator('#adjustTheme').click();
@@ -248,7 +248,7 @@ async (page, testOptions = {}) => {
     report.reload = true;
     report.passed = true;
     return { passed: true, host: report.host, captures: report.captures.length, reload: true,
-      themes: ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'custom'], sizes: ['1760x1040', '1280x800'],
+      themes: ['dark', 'whiteout', 'blackout', 'pastel', 'builtin:ps2', 'builtin:nier', 'custom'], sizes: ['1760x1040', '1280x800'],
       evidence: path.join(output, 'favorite-color-swatches.json') };
   } catch (error) {
     report.passed = false;

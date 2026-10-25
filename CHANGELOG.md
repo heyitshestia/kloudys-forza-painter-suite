@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.119
+
+### NieR Automata Theme
+
+- Added NieR Automata as a free theme in KFPS, the Vinyl Editor and Livery Studio. Warm neutral panels, charcoal controls, fine grid lines and sharp geometric details bring a little Automata into the workspace.
+- KFPS now has a matching main menu with Workspace, Library and System sections. Diagonal lines and triangular panels reveal the window, with short transitions as you move between pages. Normal dragging and window controls remain available.
+- The editors keep their familiar layouts and tools, with matching menus, dialogs and selections. Artwork, saved colour swatches and the car preview are not tinted by the theme.
+- Existing custom themes, shortcuts, projects, graphics settings and import/export behaviour are unchanged. Reduced Motion disables the decorative transitions, and changing themes restores the usual navigation.
+- Checked native and Chrome editor workflows, large layer lists, theme saving and reopening, scaled layouts and Studio rendering. Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.118
 
 ### Original PS2 Theme
