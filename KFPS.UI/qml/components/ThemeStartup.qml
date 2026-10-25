@@ -86,10 +86,10 @@ FocusScope {
     }
     Column {
         anchors.centerIn: parent
-        spacing: 18
+        spacing: Theme.px(18)
         visible: root.waiting
-        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "KFPS"; color: Theme.text; font.family: Theme.displayFamily; font.pixelSize: 46 }
-        Text { text: qsTr("Finishing loading..."); color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: 15 }
+        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "KFPS"; color: Theme.text; font.family: Theme.displayFamily; font.pixelSize: Theme.px(46) }
+        Text { text: qsTr("Finishing loading..."); color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.px(15) }
     }
     Timer {
         interval: 250; repeat: true
