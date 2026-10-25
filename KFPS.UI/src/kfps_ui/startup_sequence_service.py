@@ -48,7 +48,7 @@ class StartupSequenceService(QObject):
     _registryResult = Signal(object)
 
     def __init__(self, paths, jsons, runtime, logs, *, enabled=False,
-                 refresh_registry=False, muted=False, parent=None):
+                 refresh_registry=False, muted=False, theme="ps2", parent=None):
         super().__init__(parent)
         self._paths, self._jsons, self._runtime, self._logs = paths, jsons, runtime, logs
         self._closed = self._claimed = self._started = self._ready = False
@@ -60,8 +60,13 @@ class StartupSequenceService(QObject):
         self._playing = False
         self.frame_provider = StartupFrameProvider()
         self._executor = self._future = None
-        candidates = (paths.runtime_root / "theme-assets/ps2/startup.mp4",
-                      paths.asset_root / "themes/ps2/startup.mp4")
+        themes = {"ps2": ("ps2", "PS2"), "xbox": ("original-xbox", "Xbox")}
+        if theme not in themes:
+            raise ValueError("Unsupported startup theme")
+        self._theme = theme
+        asset_folder, self._label = themes[theme]
+        candidates = (paths.runtime_root / f"theme-assets/{asset_folder}/startup.mp4",
+                      paths.asset_root / f"themes/{asset_folder}/startup.mp4")
         media = None
         for candidate in candidates:
             try:
@@ -73,7 +78,7 @@ class StartupSequenceService(QObject):
         self._source = QUrl.fromLocalFile(str(media)).toString() if media else ""
         self._enabled = bool(enabled and media)
         if enabled and not media:
-            logs.append("PS2 startup media unavailable; opening the menu directly.", "warning")
+            logs.append(f"{self._label} startup media unavailable; opening the menu directly.", "warning")
         self._timer = QTimer(self)
         self._timer.setInterval(100)
         self._timer.timeout.connect(self._check_ready)
@@ -81,6 +86,9 @@ class StartupSequenceService(QObject):
 
     @Property(str, constant=True)
     def source(self): return self._source
+
+    @Property(str, constant=True)
+    def theme(self): return self._theme
 
     @Property(bool, constant=True)
     def enabled(self): return self._enabled
@@ -92,7 +100,7 @@ class StartupSequenceService(QObject):
     def ready(self): return self._ready
 
     @Property(str, notify=frameChanged)
-    def frameSource(self): return f"image://ps2-startup/frame-{self._frame_revision}"
+    def frameSource(self): return f"image://theme-startup/frame-{self._frame_revision}"
 
     @Property(int, notify=playbackChanged)
     def position(self): return self._player.position() if self._player else 0
@@ -114,7 +122,7 @@ class StartupSequenceService(QObject):
             self._sink = QVideoSink(self)
             self._sink.videoFrameChanged.connect(self._receive_frame)
             self._player = QMediaPlayer(self)
-            self._player.setObjectName("Ps2StartupPlayer")
+            self._player.setObjectName(f"{self._label}StartupPlayer")
             self._player.setAudioOutput(self._audio)
             self._player.setVideoSink(self._sink)
             self._player.positionChanged.connect(self.playbackChanged)
@@ -170,9 +178,9 @@ class StartupSequenceService(QObject):
             self._audio.setMuted(muted)
         self.playbackChanged.emit()
 
-    @Slot(result=bool)
-    def claim(self):
-        if self._closed or self._claimed:
+    @Slot(str, result=bool)
+    def claim(self, theme="ps2"):
+        if self._closed or self._claimed or theme != self._theme:
             return False
         self._claimed = True
         return self._enabled
@@ -220,7 +228,7 @@ class StartupSequenceService(QObject):
         self._ready = True
         self._ready_elapsed = elapsed
         self._timer.stop()
-        message = f"PS2 startup ready after {elapsed:.2f}s"
+        message = f"{self._label} startup ready after {elapsed:.2f}s"
         if busy:
             message += "; output indexing continues in the background"
         self._logs.append(message + ".")
@@ -229,7 +237,7 @@ class StartupSequenceService(QObject):
     @Slot(str)
     def recordPlaybackError(self, message):
         if not self._closed:
-            self._logs.append("PS2 startup playback unavailable: " + str(message)[:300], "warning")
+            self._logs.append(f"{self._label} startup playback unavailable: " + str(message)[:300], "warning")
 
     @Slot()
     def close(self):

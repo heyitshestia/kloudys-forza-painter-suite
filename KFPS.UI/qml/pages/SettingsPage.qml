@@ -120,6 +120,16 @@ Item {
                     onToggled: settings.ps2StartupMuted = checked
                 }
 
+                KfpsSwitch {
+                    objectName: "XboxIntroMuteSetting"
+                    Layout.fillWidth: true
+                    visible: Theme.activeThemeName === "Original Xbox"
+                    text: qsTr("Mute intro sound")
+                    checked: settings.xboxStartupMuted
+                    toolTipText: qsTr("Mute the Xbox startup animation. Saved for future launches.")
+                    onToggled: settings.xboxStartupMuted = checked
+                }
+
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.max(1, Theme.px(1))

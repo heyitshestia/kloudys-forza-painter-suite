@@ -48,7 +48,8 @@ class OriginalPs2Tests(unittest.TestCase):
             self.assertNotIn(name, startup)
         for name in ('Ps2DashboardEnter', 'Ps2DashboardBack', 'Ps2DashboardCredits'):
             self.assertNotIn(name, dashboard)
-        self.assertIn('Keys.onEscapePressed', startup)
+        shared = (UI / 'qml/components/ThemeStartup.qml').read_text()
+        self.assertIn('Keys.onEscapePressed', shared)
         self.assertIn('Keys.onEscapePressed', dashboard)
         settings_page = (UI / 'qml/pages/SettingsPage.qml').read_text()
         self.assertNotIn('Ps2TestIntro', settings_page)
@@ -88,11 +89,13 @@ class OriginalPs2Tests(unittest.TestCase):
             if path.name not in ('Ps2MotionClock.qml', 'Ps2Startup.qml'):
                 self.assertNotIn('Timer {', source)
             if path.name == 'Ps2Startup.qml':
-                self.assertEqual(source.count('Timer {'), 1)
-                self.assertIn('interval: 250', source)
-                self.assertIn('running: root.visible && !root.waiting && !root.suspended', source)
-                self.assertIn('root.stalledTicks >= 20', source)
-                self.assertIn('if (Theme.reducedMotion) return false', source)
+                shared = (UI / 'qml/components/ThemeStartup.qml').read_text()
+                self.assertIn('ThemeStartup {', source)
+                self.assertEqual(shared.count('Timer {'), 1)
+                self.assertIn('interval: 250', shared)
+                self.assertIn('running: root.visible && !root.waiting && !root.suspended', shared)
+                self.assertIn('root.stalledTicks >= 20', shared)
+                self.assertIn('if (Theme.reducedMotion) return false', shared)
                 self.assertNotIn('Overlay.overlay', source)
                 self.assertNotIn('Popup {', source)
         clock = (COMPONENTS / 'Ps2MotionClock.qml').read_text()

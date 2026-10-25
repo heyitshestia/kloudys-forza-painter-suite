@@ -28,6 +28,7 @@ class SettingsService(QObject):
         "reducedMotion": False,
         "ambientMotion": True,
         "ps2StartupMuted": False,
+        "xboxStartupMuted": False,
         "glassEffects": True,
         "liveStatusVisible": True,
         "terminalGreenText": False,
@@ -63,6 +64,7 @@ class SettingsService(QObject):
         self._data["editorUseChrome"] = self._data.get("editorUseChrome") is True
         self._data["liveryUseChrome"] = self._data.get("liveryUseChrome") is True
         self._data["ps2StartupMuted"] = self._data.get("ps2StartupMuted") is True
+        self._data["xboxStartupMuted"] = self._data.get("xboxStartupMuted") is True
         if not isinstance(self._data.get("windowGeometry"), dict):
             self._data["windowGeometry"] = {}
 
@@ -155,6 +157,10 @@ class SettingsService(QObject):
     def ps2StartupMuted(self): return self._get("ps2StartupMuted") is True
     @ps2StartupMuted.setter
     def ps2StartupMuted(self, value): self._set("ps2StartupMuted", bool(value))
+    @Property(bool, notify=changed)
+    def xboxStartupMuted(self): return self._get("xboxStartupMuted") is True
+    @xboxStartupMuted.setter
+    def xboxStartupMuted(self, value): self._set("xboxStartupMuted", bool(value))
     @Property(bool, notify=changed)
     def glassEffects(self): return bool(self._get("glassEffects"))
     @glassEffects.setter

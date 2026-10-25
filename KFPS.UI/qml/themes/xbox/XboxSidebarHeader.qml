@@ -12,10 +12,16 @@ Item {
     function openInitialDashboard() {
         if (!initialDashboardShown && Window.window && Window.window.visible) {
             initialDashboardShown = true
-            dashboard.open()
+            if (!startup.begin()) dashboard.open()
         }
     }
-    Component.onCompleted: Qt.callLater(openInitialDashboard)
+    function syncNavigation() {
+        if (sidebar) sidebar.dashboardVisible = dashboard.visible || startup.visible
+    }
+    Component.onCompleted: {
+        if (sidebar) sidebar.dashboardVisible = true
+        Qt.callLater(openInitialDashboard)
+    }
     Component.onDestruction: { if (sidebar) sidebar.dashboardVisible = false }
     Connections {
         target: root.Window.window
@@ -29,7 +35,7 @@ Item {
         width: Math.min(parent.width, parent.height - 24)
         height: width
         compact: root.compact
-        animated: !dashboard.visible
+        animated: !dashboard.visible && !startup.visible
     }
     Text {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -62,6 +68,13 @@ Item {
     XboxDashboard {
         id: dashboard
         navigation: root.sidebar
-        onVisibleChanged: { if (root.sidebar) root.sidebar.dashboardVisible = visible }
+        onVisibleChanged: root.syncNavigation()
+    }
+    XboxStartup {
+        id: startup
+        navigation: root.sidebar
+        service: typeof startupSequenceService !== "undefined" ? startupSequenceService : null
+        onVisibleChanged: root.syncNavigation()
+        onFinished: dashboard.open()
     }
 }

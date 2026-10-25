@@ -88,6 +88,17 @@ jobs:
           python -B KFPS.UI/tools/test_ps2_startup.py packaged 1280 760
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Xbox intro and background loading
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+          KFPS_STARTUP_MUTED: "1"
+        run: |
+          python -B KFPS.UI/tools/test_xbox_startup.py production 1280 760
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B KFPS.UI/tools/test_xbox_startup.py production-warm 1280 760
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test NieR theme navigation and persistence
         env:
           QT_QPA_PLATFORM: offscreen

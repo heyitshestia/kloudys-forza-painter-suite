@@ -2,7 +2,13 @@
 
 `medallion.png` is an original generated bitmap made on 2026-10-24 with the
 built-in OpenAI image-generation tool for this KFPS interface. It is not extracted
-from Microsoft software. No Microsoft logo, sound or font is bundled.
+from Microsoft software. Those dashboard bitmaps contain no Microsoft logo,
+sound or font. The separate startup movie is described below.
+
+The separate startup movie has its own [notice](STARTUP-NOTICE.md).
+Its visuals are rendered from original geometry and shaders, like the PS2 intro.
+Only the supplied soundtrack is reused. The maintainer confirmed redistribution
+permission on 26 October 2026; see the notice for scope and provenance.
 
 The theme reuses KFPS's existing icons and licensed Barlow fonts from the RX-93
 asset directory; their licence files remain there unchanged.

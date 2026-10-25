@@ -398,8 +398,8 @@ def main():
         and not args.skip_startup_thumbnails
         and os.environ.get("KFPS_SKIP_STARTUP_THUMBNAILS", "").strip() != "1"
     )
-    ps2_startup = settings.theme == "Original PS2"
-    if should_preindex and not ps2_startup:
+    startup_theme = {"Original PS2": "ps2", "Original Xbox": "xbox"}.get(settings.theme)
+    if should_preindex and not startup_theme:
         run_startup_output_index(
             app,
             paths,
@@ -428,14 +428,17 @@ def main():
     jsons = JsonService(paths, preview, desktop, logs, demo=args.demo)
     startup_sequence = StartupSequenceService(
         paths, jsons, runtime, logs,
-        enabled=ps2_startup and not settings.reducedMotion and (
+        enabled=bool(startup_theme) and not settings.reducedMotion and (
             args.startup_preview or (not args.demo and not args.screenshot and not args.screenshot_dir
                                     and os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen")),
-        refresh_registry=ps2_startup and should_preindex,
+        refresh_registry=bool(startup_theme) and should_preindex,
         muted=os.environ.get("KFPS_STARTUP_MUTED", "") == "1",
+        theme=startup_theme or "ps2",
     )
-    startup_sequence.setMuted(settings.ps2StartupMuted)
-    settings.changed.connect(lambda: startup_sequence.setMuted(settings.ps2StartupMuted))
+    def sync_startup_mute():
+        startup_sequence.setMuted(settings.xboxStartupMuted if startup_theme == "xbox" else settings.ps2StartupMuted)
+    sync_startup_mute()
+    settings.changed.connect(sync_startup_mute)
     community = CommunityService(
         replace(paths, app_root=state / "sandbox") if gallery_test else paths,
         desktop, logs, jsons=jsons, app_version=version.localVersion,
@@ -483,7 +486,7 @@ def main():
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md", auto_refresh=not args.demo)
 
     engine = QQmlApplicationEngine()
-    engine.addImageProvider("ps2-startup", startup_sequence.frame_provider)
+    engine.addImageProvider("theme-startup", startup_sequence.frame_provider)
     ctx = engine.rootContext()
     objects = {
         "appController": controller,
@@ -622,7 +625,7 @@ def main():
         window.showMaximized()
     else:
         window.show()
-    if ps2_startup:
+    if startup_theme:
         QTimer.singleShot(0, startup_sequence.beginLoading)
     development_harness = install_development_harness(
         app, window, controller, community, settings, jsons, args,

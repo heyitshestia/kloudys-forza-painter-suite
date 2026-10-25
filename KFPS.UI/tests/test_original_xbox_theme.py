@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,34 @@ COMPONENTS = UI / "qml/themes/xbox"
 
 
 class OriginalXboxTests(unittest.TestCase):
+    def test_intro_mute_is_independent_and_persists(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "settings.json"
+            path.write_text(json.dumps({"theme":"Original Xbox", "ps2StartupMuted":True, "editorGraphics":"d3d11"}))
+            settings = SettingsService(path)
+            self.assertFalse(settings.xboxStartupMuted)
+            settings.xboxStartupMuted = True
+            saved = SettingsService(path)
+            self.assertTrue(saved.xboxStartupMuted)
+            self.assertTrue(saved.ps2StartupMuted)
+            self.assertEqual(saved.editorGraphics, "d3d11")
+            for value in ("true", "false", 1, [], None):
+                path.write_text(json.dumps({"xboxStartupMuted":value}))
+                self.assertFalse(SettingsService(path).xboxStartupMuted)
+
+    def test_startup_uses_shared_player_without_recording_controls(self):
+        startup = (COMPONENTS / "XboxStartup.qml").read_text()
+        self.assertIn('themeId: "xbox"', startup)
+        self.assertIn('ThemeStartup {', startup)
+        shared = (UI / "qml/components/ThemeStartup.qml").read_text()
+        self.assertIn('service.claim(themeId)', shared)
+        self.assertIn('parent: navigation ? navigation.parent : null', shared)
+        self.assertIn('Keys.onEscapePressed', shared)
+        self.assertNotIn('Popup {', shared)
+        settings = (UI / "qml/pages/SettingsPage.qml").read_text()
+        self.assertIn('settings.xboxStartupMuted', settings)
+        self.assertNotIn('XboxTestIntro', settings)
+
     def test_public_theme_and_settings_restart(self):
         self.assertIn(ORIGINAL_XBOX_THEME, PUBLIC_THEME_NAMES)
         with tempfile.TemporaryDirectory() as temp:

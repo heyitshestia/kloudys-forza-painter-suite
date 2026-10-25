@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.121
+
+### Original Xbox Startup
+
+- The Original Xbox theme now opens with a custom reactor intro and the original startup sound, ending on a KFPS wordmark. Your output library loads while it plays, then you're straight into the menu. No extra splash screen.
+- Added a saved Mute intro sound option in Settings while the Xbox theme is active. Escape, Enter or Space skips the intro; Reduced Motion skips it automatically.
+- Minimizing pauses the picture and sound together. Restoring resumes them, and the normal window controls stay available. Missing or unplayable video won't block you from opening KFPS.
+- The PS2 intro, other themes, editors and project files are unchanged. Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.120
 
 ### Vinyl Editor

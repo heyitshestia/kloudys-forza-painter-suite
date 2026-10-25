@@ -5,12 +5,19 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import threading
 import time
 from dataclasses import replace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+IS_XBOX = os.environ.get("KFPS_STARTUP_TEST_THEME") == "xbox"
+THEME = "Original Xbox" if IS_XBOX else "Original PS2"
+PREFIX = "Xbox" if IS_XBOX else "Ps2"
+FOLDER = "original-xbox" if IS_XBOX else "ps2"
+MUTE = "xboxStartupMuted" if IS_XBOX else "ps2StartupMuted"
 scenario = sys.argv[1] if len(sys.argv) > 1 else "normal"
+production = scenario in ("production", "production-warm")
 width = int(sys.argv[2]) if len(sys.argv) > 2 else 1280
 height = int(sys.argv[3]) if len(sys.argv) > 3 else 760
 run_root = Path(os.environ.get("KFPS_STARTUP_TEST_RUN_ROOT", str(ROOT / "runtime/test-runs/ps2-startup")))
@@ -18,6 +25,8 @@ RUN = run_root / (f"{scenario}-{width}x{height}" + ("-v2" if scenario == "librar
 profile = RUN / "profile"
 if scenario == "library-warm":
     profile = run_root / "library-1280x760-v2/profile"
+elif scenario == "production-warm":
+    profile = run_root / f"production-{width}x{height}/profile"
 RUN.mkdir(parents=True, exist_ok=True)
 profile.mkdir(parents=True, exist_ok=True)
 (RUN / "tmp").mkdir(exist_ok=True)
@@ -43,7 +52,7 @@ original = module.AppPaths.discover()
 sample = profile / "app"
 sample.mkdir(exist_ok=True)
 shutil.copy2(ROOT / "VERSION", sample / "VERSION")
-if scenario == "library":
+if scenario in ("library", "production"):
     payload = json.dumps({"shapes":[{"type":1048677,"data":[i%30*12,i//30*12,1,1,0,0,0],
                                      "color":[90,140,210,255]} for i in range(300)]})
     for source in ("generated","editor","exported","library"):
@@ -53,22 +62,48 @@ if scenario == "library":
                 folder = folder / f"collection-{i//25}"
             folder.mkdir(parents=True,exist_ok=True)
             (folder/f"vinyl-{i}.json").write_text(payload,encoding="utf-8")
-if scenario in ("library", "library-warm"):
+if scenario in ("library", "library-warm") or production:
     original_scan = module.JsonService._request_source_scan
     def threaded_scan(self, source, force=False):
         # Keep Qt's offscreen platform, but exercise production's executor branch.
         with patch.dict(os.environ, {"QT_QPA_PLATFORM":"test-threaded-scan"}):
             return original_scan(self,source,force)
     module.JsonService._request_source_scan = threaded_scan
+scan_release = threading.Event()
+if scenario == "production":
+    original_build_index = module.JsonService._build_source_index
+    def controlled_index(self, *args, **kwargs):
+        # Fast disks can finish before decoder startup. Hold only the test worker
+        # until two decoded-frame samples prove the UI remains responsive.
+        if not scan_release.wait(15):
+            raise AssertionError("Playback did not advance while the scan worker waited")
+        return original_build_index(self, *args, **kwargs)
+    module.JsonService._build_source_index = controlled_index
+if production:
+    # Keep production loading but avoid contacting public services in a local test.
+    version_service = module.VersionService
+    announcement_service = module.AnnouncementService
+    community_service = module.CommunityService
+    changelog_service = module.ChangelogService
+    module.VersionService = lambda path, **kwargs: version_service(path, demo=True)
+    module.AnnouncementService = lambda **kwargs: announcement_service(demo=True)
+    def offline_community(*args, **kwargs):
+        kwargs["demo"] = True
+        return community_service(*args, **kwargs)
+    module.CommunityService = offline_community
+    module.ChangelogService = lambda path, **kwargs: changelog_service(path, auto_refresh=False)
+    def reject_legacy_splash(*args, **kwargs):
+        raise AssertionError("Cinematic startup must not run the legacy splash/index preflight")
+    module.run_startup_output_index = reject_legacy_splash
 runtime = profile / "runtime"
 runtime.mkdir(exist_ok=True)
 module.AppPaths.discover = classmethod(lambda cls: replace(original, app_root=sample, runtime_root=runtime))
-(runtime / "qml-shell-settings.json").write_text(json.dumps({"theme": "Night Blossom" if scenario == "legacy" else "Original PS2",
+(runtime / "qml-shell-settings.json").write_text(json.dumps({"theme": "Night Blossom" if scenario == "legacy" else THEME,
     "reducedMotion": scenario == "reduced", "ambientMotion": True,
-    "ps2StartupMuted": scenario == "muted-start",
+    MUTE: scenario == "muted-start",
     "supportUpscalerNoticeAcknowledged": True, "communityJoinNoticeAcknowledged": True,
     "backgroundRemoverNoticeAcknowledged": True, "dcinsideKoreanNotice202609Acknowledged": True}), encoding="utf-8")
-media = runtime / "theme-assets/ps2/startup.mp4"
+media = runtime / f"theme-assets/{FOLDER}/startup.mp4"
 media.parent.mkdir(parents=True, exist_ok=True)
 if scenario == "corrupt":
     media.write_bytes(b"not a valid movie")
@@ -79,8 +114,8 @@ elif scenario == "audio-only":
         audio_fixture.setsampwidth(2)
         audio_fixture.setframerate(8000)
         audio_fixture.writeframes(b"\x00\x00" * 1600)
-elif scenario not in ("missing", "packaged"):
-    shutil.copy2(ROOT / "KFPS.UI/assets/themes/ps2/startup.mp4", media)
+elif scenario not in ("missing", "packaged") and not production:
+    shutil.copy2(ROOT / f"KFPS.UI/assets/themes/{FOLDER}/startup.mp4", media)
 if scenario == "missing":
     original_service = module.StartupSequenceService
     class MissingAssetService(original_service):
@@ -97,16 +132,38 @@ def check(value, name):
 def install(app, window, controller, community, settings, jsons, args):
     start = time.monotonic()
     cpu_start = time.process_time()
+    loading_samples = []
     def items():
         stack = [window.contentItem()]
         while stack:
             item = stack.pop(); yield item; stack.extend(item.childItems())
     def find(name):
+        if IS_XBOX and name.startswith("Ps2"):
+            name = "Xbox" + name[3:]
+            if name == "XboxHomeConfiguration":
+                name = "XboxDashboardRoute:settings"
         return next((item for item in items() if item.objectName() == name), None)
+    sampler = QTimer(window)
+    if production:
+        def sample_loading():
+            intro = find("Ps2Startup")
+            service = intro.property("service") if intro else None
+            if service:
+                loading_samples.append({"seconds":time.monotonic()-start,
+                    "indexing":jsons.indexing, "position":service.position,
+                    "frames":service._frame_revision, "ready":service.ready})
+                busy = [s for s in loading_samples if s["indexing"] and s["frames"] > 0]
+                if len(busy) >= 2 and busy[-1]["frames"] > busy[0]["frames"]:
+                    scan_release.set()
+        sampler.timeout.connect(sample_loading)
+        sampler.start(50)
     def wait(predicate, timeout=22000):
         until = time.monotonic() + timeout / 1000
         while not predicate() and time.monotonic() < until:
             QTest.qWait(50)
+            # PySide's qWait holds the GIL; unlike app.exec(), it can starve
+            # Python workers during this nested test loop.
+            time.sleep(0.01)
         return bool(predicate())
     def click(name):
         target = find(name)
@@ -143,7 +200,8 @@ def install(app, window, controller, community, settings, jsons, args):
                 return
             intro, menu = find("Ps2Startup"), find("Ps2Dashboard")
             check(intro is not None, "startup component loaded")
-            for name in ("Ps2StartupMute", "Ps2StartupSkip", "Ps2DashboardEnter", "Ps2DashboardBack", "Ps2DashboardCredits"):
+            removed = ("Ps2StartupMute", "Ps2StartupSkip") if IS_XBOX else ("Ps2StartupMute", "Ps2StartupSkip", "Ps2DashboardEnter", "Ps2DashboardBack", "Ps2DashboardCredits")
+            for name in removed:
                 check(find(name) is None, "removed control: " + name)
             if scenario in ("missing", "reduced", "corrupt", "audio-only"):
                 check(wait(lambda:menu.isVisible(),6000), scenario + " opens menu without trapping user")
@@ -155,16 +213,28 @@ def install(app, window, controller, community, settings, jsons, args):
             check(not menu.isVisible(), "menu waits behind intro")
             check(not find("ApplicationWorkspace").isVisible(), "workspace not exposed during startup")
             service = intro.property("service")
-            if scenario == "packaged":
-                check("/KFPS.UI/assets/themes/ps2/startup.mp4" in service.source, "uses the packaged movie without a runtime override")
+            if scenario == "packaged" or production:
+                check(f"/KFPS.UI/assets/themes/{FOLDER}/startup.mp4" in service.source, "uses the packaged movie without a runtime override")
+            if production:
+                check(not args.demo, "normal startup is not demo mode")
+                check(service._refresh_registry, "production registry refresh is scheduled")
+                check(service._future is not None, "registry refresh runs on its background executor")
             initial_ready = service.ready
             player = service._player
             audio = service._audio
             check(player is not None, "native MediaPlayer loaded")
             check(audio.property("muted"), "tests are silent")
             if scenario == "muted-start":
-                check(settings.ps2StartupMuted and service.muted, "saved mute applied before initial playback")
+                check(getattr(settings, MUTE) and service.muted, "saved mute applied before initial playback")
             check(wait(lambda:int(player.property("position"))>700,5000), "decoder advances")
+            media_seconds = player.duration() / 1000
+            if scenario == "stalled":
+                service.pause()
+                check(wait(lambda:menu.isVisible(),6500), "stalled decoder watchdog opens the menu")
+                check(not intro.isVisible(), "stalled decoder releases the intro")
+                check(int(player.property("position")) == 0, "stalled decoder stops sound")
+                capture("menu")
+                return
             if scenario == "slow":
                 service._ready = False
                 jsons._indexing_sources.add(999)
@@ -173,15 +243,21 @@ def install(app, window, controller, community, settings, jsons, args):
                 check(not window.isVisible(), "close button closes during playback")
                 return
             if scenario == "theme":
+                settings.theme = "Original PS2" if IS_XBOX else "Original Xbox"
+                QTest.qWait(200)
+                other_prefix = "Ps2" if IS_XBOX else "Xbox"
+                other_intro = next((item for item in items() if item.objectName() == other_prefix + "Startup"), None)
+                check(other_intro is not None and not other_intro.isVisible(), "switching cinematic themes never plays the wrong movie")
                 settings.theme = "Night Blossom"
                 QTest.qWait(200)
                 check(find("Ps2Startup") is None, "theme switch destroys playback")
-                settings.theme = "Original PS2"
+                settings.theme = THEME
                 QTest.qWait(200)
                 check(find("Ps2Dashboard").isVisible(), "returning to theme opens menu without replay")
                 return
-            if scenario == "skip":
-                QTest.keyClick(window, Qt.Key_Escape)
+            if scenario in ("skip", "skip-enter", "skip-space"):
+                key = {"skip":Qt.Key_Escape, "skip-enter":Qt.Key_Return, "skip-space":Qt.Key_Space}[scenario]
+                QTest.keyClick(window, key)
                 QTest.qWait(100)
                 check(menu.isVisible() and not intro.isVisible(), "skip opens menu directly")
                 check(int(player.property("position")) == 0, "skip stops soundtrack")
@@ -216,9 +292,9 @@ def install(app, window, controller, community, settings, jsons, args):
                 QTest.mouseMove(window,QPoint(15,window.height()//2))
             check(wait(lambda:int(player.property("position"))>2800), "opening sequence reaches cue")
             capture("opening")
-            check(wait(lambda:int(player.property("position"))>8300), "camera flight reaches cue")
+            check(wait(lambda:int(player.property("position"))>(4200 if IS_XBOX else 8300)), "camera flight reaches cue")
             capture("flight")
-            check(wait(lambda:int(player.property("position"))>14950), "final logo follows sound cue")
+            check(wait(lambda:int(player.property("position"))>(8500 if IS_XBOX else 14950)), "final logo follows sound cue")
             capture("logo")
             if scenario == "slow":
                 check(wait(lambda:intro.property("waiting"),4000), "slow load holds silent end state")
@@ -230,24 +306,32 @@ def install(app, window, controller, community, settings, jsons, args):
             check(int(player.property("position")) == 0, "media stopped after handoff")
             capture("menu")
             check(not jsons.indexing, "output index ready before menu")
-            if scenario in ("library", "library-warm"):
+            if scenario in ("library", "library-warm") or production:
                 total = sum(len(index.get("rows",[])) for index in jsons._source_index_cache.values())
                 check(total == 1500, "all 1500 synthetic outputs indexed during intro")
+            if production:
+                check(service._runtime.ready and not service._runtime.checking, "real runtime dependency check completes")
+                check(media_seconds > 0 and service._ready_elapsed < media_seconds,
+                      "normal loading finishes before the intro ends")
+                if scenario == "production":
+                    busy_samples = [s for s in loading_samples if s["indexing"] and s["frames"] > 0]
+                    check(len(busy_samples) >= 2 and busy_samples[-1]["frames"] > busy_samples[0]["frames"],
+                          "decoded frames advance while production output scanning is busy")
             click("Ps2HomeConfiguration")
             QTest.qWait(300)
             check(controller.currentPage == "settings", "menu opens real KFPS settings")
             check(find("Ps2IntroMuteSetting").isVisible(), "persistent mute setting remains available")
             check(find("Ps2TestIntro") is None, "recording button removed from application")
             from kfps_ui.settings_service import SettingsService
-            before = settings.ps2StartupMuted
+            before = getattr(settings, MUTE)
             click("Ps2IntroMuteSetting")
-            check(settings.ps2StartupMuted != before, "mute setting toggles")
-            check(SettingsService(runtime / "qml-shell-settings.json").ps2StartupMuted == (not before), "mute survives settings reload")
+            check(getattr(settings, MUTE) != before, "mute setting toggles")
+            check(getattr(SettingsService(runtime / "qml-shell-settings.json"), MUTE) == (not before), "mute survives settings reload")
             capture("settings")
             settings.theme = "Night Blossom"
             QTest.qWait(250)
-            check(not find("Ps2IntroMuteSetting").isVisible(), "mute setting hidden outside PS2")
-            settings.theme = "Original PS2"
+            check(not find("Ps2IntroMuteSetting").isVisible(), "mute setting hidden outside its theme")
+            settings.theme = THEME
             QTest.qWait(250)
             check(find("Ps2Dashboard").isVisible() and not find("Ps2Startup").isVisible(), "theme return does not replay startup")
             click("Ps2HomeConfiguration")
@@ -259,12 +343,16 @@ def install(app, window, controller, community, settings, jsons, args):
             capture("failure")
             results.append({"error":repr(exc)})
         finally:
+            sampler.stop()
+            scan_release.set()
             failures=[m for m in messages if any(s in m for s in ("ReferenceError", "TypeError", "is not a type", "failed to load component", "Binding loop", "Unable to assign", "Failed to get image", "Invalid image provider"))]
             results.append({"test":"no QML failures", "passed":not failures,"errors":failures})
             payload={"scenario":scenario,"elapsed":time.monotonic()-start,"cpuSeconds":time.process_time()-cpu_start,
                      "framesDecoded": service._frame_revision if 'service' in locals() else 0,
                      "loadingReadySeconds": service._ready_elapsed if 'service' in locals() else None,
                      "readyAtFirstCheck": initial_ready if 'initial_ready' in locals() else None,
+                     "productionStartup":production, "loadingSamples":loading_samples,
+                     "controlledScanHold":scenario == "production",
                      "checks":results,"messages":messages}
             (RUN / "results.json").write_text(json.dumps(payload,indent=2),encoding="utf-8")
             print(json.dumps(payload,indent=2))
@@ -272,4 +360,6 @@ def install(app, window, controller, community, settings, jsons, args):
     QTimer.singleShot(300,checks)
 module.install_development_harness = install
 sys.argv=[str(ROOT / "KFPS.UI/app.py"),"--demo","--startup-preview","--allow-source-download","--width",str(width),"--height",str(height)]
+if production:
+    sys.argv.remove("--demo")
 raise SystemExit(module.main())

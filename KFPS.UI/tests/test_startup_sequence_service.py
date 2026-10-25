@@ -63,6 +63,23 @@ class StartupSequenceTests(unittest.TestCase):
         self.media(packaged=True)
         self.assertTrue(self.create(enabled=True).enabled)
 
+    def test_xbox_uses_its_own_media_and_claim(self):
+        self.media(packaged=True)
+        self.assertFalse(self.create(enabled=True, theme="xbox").enabled)
+        path = self.paths.asset_root / "themes/original-xbox/startup.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"fixture")
+        service = self.create(enabled=True, theme="xbox")
+        self.assertEqual(service.theme, "xbox")
+        self.assertIn("themes/original-xbox/startup.mp4", service.source)
+        self.assertFalse(service.claim("ps2"))
+        self.assertTrue(service.claim("xbox"))
+        self.assertFalse(service.claim("xbox"))
+
+    def test_unknown_theme_cannot_choose_arbitrary_media_paths(self):
+        with self.assertRaises(ValueError):
+            self.create(theme="../../other")
+
     def test_empty_media_is_ignored(self):
         self.media().write_bytes(b"")
         self.assertFalse(self.create(enabled=True).enabled)
