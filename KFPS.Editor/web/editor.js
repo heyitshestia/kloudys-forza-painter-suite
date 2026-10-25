@@ -7992,9 +7992,10 @@ function renderVirtualLayerWindow(force = false) {
   const list = $("layers");
   const viewport = layerScrollPane();
   if (!list || !viewport) return;
+  const scrollTop = viewport.scrollTop;
   const range = KfpsEditorCore.virtualRange(
     layerVirtualLayout,
-    viewport.scrollTop,
+    scrollTop,
     viewport.clientHeight || 720,
     496,
   );
@@ -8009,6 +8010,8 @@ function renderVirtualLayerWindow(force = false) {
   list.style.paddingTop = `${range.padTop}px`;
   list.style.paddingBottom = `${range.padBottom}px`;
   list.replaceChildren(fragment);
+  // Removing a focused row can clamp scrolling against the temporarily empty list.
+  viewport.scrollTop = scrollTop;
 }
 
 function updateLayerSelectionStyles() {
@@ -8233,7 +8236,7 @@ function refreshLayers() {
   });
   layerStatsCache = { objects, count: objects.length, visible: visibleCount };
   $("layerInfo").textContent = activeSet.size > 1
-    ? KfpsI18n.t("{0} selected / {1} editable layer(s). Drag selection to move together.", activeSet.size, objects.length)
+    ? KfpsI18n.t("{0} layer(s) selected. Drag the selection box to move them together. Color edits apply to unlocked selected layers.", activeSet.size)
     : KfpsI18n.t("{0} editable layer(s). Export writes bottom-to-top order.", objects.length);
 
   const entries = [];

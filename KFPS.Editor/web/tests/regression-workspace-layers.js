@@ -213,7 +213,7 @@ async (page) => {
   const assert = require("node:assert/strict");
   // Compare the JSON contract, including its standard normalization of negative zero.
   const expectedPortable = await page.evaluate(() => JSON.parse(JSON.stringify(
-    vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false })))));
+    vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false, includeGroups: true })))));
   const nativeProcess = JSON.parse(fs.readFileSync(path.join(output, "process.json"), "utf8"));
   const projects = path.join(nativeProcess.profile, "projects");
   const projectFiles = fs.readdirSync(projects).filter(name => name.endsWith(".fabric-project.json"));
@@ -242,26 +242,28 @@ async (page) => {
   assert.deepStrictEqual(diskExport, exported.data.payload, "Backend JSON read did not match the saved disk file");
   assert.deepStrictEqual(diskExport.shapes, expectedPortable, "Header export changed layer count, order, names or geometry");
   check(Object.keys(diskExport).length === 1 && Array.isArray(diskExport.shapes), "Export leaked project-level metadata");
-  const editorKeys = diskExport.shapes.flatMap(shape => Object.keys(shape).filter(key => key.startsWith("editor_")));
-  check(editorKeys.length === 0, "Export leaked editor-only layer metadata");
+  const portableGroupKeys = new Set(["editor_group_id", "editor_group_name", "editor_group_path"]);
+  const editorKeys = [...new Set(diskExport.shapes.flatMap(shape => Object.keys(shape).filter(key => key.startsWith("editor_"))))];
+  check(editorKeys.every(key => portableGroupKeys.has(key)), "Export leaked editor-only layer metadata");
+  check(diskExport.shapes.filter(shape => shape.editor_group_id === "workspace-layer-group").length === 3,
+    "Export did not preserve the fixture's three grouped layers");
   const beforeReopen = await page.evaluate(() => documentIdentity);
   await fixture.fileInput(page, "#jsonInput", exportFile);
   await page.waitForFunction(({ previous, count }) => documentIdentity > previous && vinylObjects().length === count
     && document.getElementById("busyBanner").hidden && !recoveryRestoreDepth,
   { previous: beforeReopen, count: layerCount });
   const reopened = await page.evaluate(() => ({
-    shapes: JSON.parse(JSON.stringify(vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false })))),
-    cleanEditorState: vinylObjects().every(object => object.visible !== false && !object.kloudy.locked
-      && !object.kloudy.group_id),
+    shapes: JSON.parse(JSON.stringify(vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false, includeGroups: true })))),
+    cleanEditorState: vinylObjects().every(object => object.visible !== false && !object.kloudy.locked),
     source: loadedName,
   }));
   assert.deepStrictEqual(reopened.shapes, expectedPortable, "Actual file-input reopen changed exported layer content");
-  check(reopened.cleanEditorState, "Portable import retained hidden, locked or grouped project-only state");
+  check(reopened.cleanEditorState, "Portable import retained hidden or locked project-only state");
   await nativeSaveAs("Workspace layer portable reopen");
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(projects, projectFiles[0]), "utf8")), savedProject,
     "Export/reopen modified the original native project");
   const exportRoundtrip = { layers: reopened.shapes.length, nativeProject: projectFiles[0], exportedFile: exportFile,
-    backendDiskExact: true, portableContentExact: true, editorKeys, cleanEditorState: reopened.cleanEditorState,
+    backendDiskExact: true, portableContentExact: true, groupsPreserved: true, editorKeys, cleanEditorState: reopened.cleanEditorState,
     originalProjectUnchanged: true, importPath: "actual #jsonInput via CDP file selection" };
   fs.writeFileSync(path.join(output, "export-roundtrip.json"), JSON.stringify(exportRoundtrip, null, 2));
   console.log("workspace-layers: native Save As, header export, backend/disk read and actual file-input reopen passed");

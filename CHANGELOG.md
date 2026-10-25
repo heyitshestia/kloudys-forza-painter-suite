@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.120
+
+### Vinyl Editor
+
+- The Layers list now stays put when you lock, unlock, hide or show a group, including collapsed and nested groups.
+- Fixed a small jump at the bottom of the list when selection details refresh. Both fixes apply to the native and Chrome editors, including floating Layers panels.
+
 ## 3.1.119
 
 ### NieR Automata Theme
