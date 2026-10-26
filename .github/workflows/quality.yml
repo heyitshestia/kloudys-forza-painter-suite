@@ -99,6 +99,17 @@ jobs:
           python -B KFPS.UI/tools/test_xbox_startup.py production-warm 1280 760
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Preserve Xbox startup failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xbox-startup-evidence
+          path: |
+            runtime/test-runs/xbox-startup/*/results.json
+            runtime/test-runs/xbox-startup/*/failure.png
+            runtime/test-runs/xbox-startup/*/settings-before-toggle.png
+          if-no-files-found: ignore
+
       - name: Test NieR theme navigation and persistence
         env:
           QT_QPA_PLATFORM: offscreen

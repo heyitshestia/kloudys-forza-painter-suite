@@ -41,6 +41,7 @@ os.environ.update(QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software", KFPS
 sys.path[:0] = [str(ROOT), str(ROOT / "KFPS.UI"), str(ROOT / "KFPS.UI/src")]
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QMetaObject, qInstallMessageHandler
 from PySide6.QtGui import QWindow
+from PySide6.QtQml import QQmlEngine, QQmlExpression
 from PySide6.QtTest import QTest
 
 messages = []
@@ -133,6 +134,7 @@ def install(app, window, controller, community, settings, jsons, args):
     start = time.monotonic()
     cpu_start = time.process_time()
     loading_samples = []
+    interactions = []
     def items():
         stack = [window.contentItem()]
         while stack:
@@ -160,24 +162,67 @@ def install(app, window, controller, community, settings, jsons, args):
     def wait(predicate, timeout=22000):
         until = time.monotonic() + timeout / 1000
         while not predicate() and time.monotonic() < until:
+            window.requestUpdate()
             QTest.qWait(50)
             # PySide's qWait holds the GIL; unlike app.exec(), it can starve
             # Python workers during this nested test loop.
             time.sleep(0.01)
         return bool(predicate())
+    def page_ready():
+        host = find("CachedPageHost")
+        if host is None:
+            return False
+        expression = QQmlExpression(QQmlEngine.contextForObject(host), host,
+                                    "currentLoader ? Number(currentLoader.status) : -1")
+        status, _ = expression.evaluate()
+        return not expression.hasError() and status == 1
     def click(name):
+        # Async Loaders expose partially-created child items before completion.
+        # Visibility/opacity and stable provisional coordinates are not readiness.
+        check(wait(page_ready,6000), "active page loader ready before clicking " + name)
         target = find(name)
         check(target is not None and target.isVisible(), "reachable " + name)
+        check(target.isEnabled(), "enabled " + name)
+        def fully_shown():
+            item = target
+            while item is not None:
+                if not item.isVisible() or item.opacity() < .99:
+                    return False
+                item = item.parentItem()
+            return True
+        check(wait(fully_shown,4000), "page fade completed before clicking " + name)
+        # Switch rows fill their layout. Hit the actual indicator, not empty
+        # trailing space whose location varies with fonts and display scaling.
+        indicator = target.property("indicator")
+        hit = indicator if indicator is not None and indicator.isVisible() else target
         # Theme changes can reflow the cached Settings page after its first paint.
         previous = None
         for _ in range(20):
-            point = target.mapToScene(target.boundingRect().center()).toPoint()
+            # Offscreen Quick windows can defer layout polish until a frame is
+            # rendered. Measure the painted control, not its provisional size.
+            window.grabWindow()
+            point = hit.mapToScene(hit.boundingRect().center()).toPoint()
             QTest.qWait(100)
             if point == previous:
                 break
             previous = point
-        QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, target.mapToScene(target.boundingRect().center()).toPoint())
+        point = hit.mapToScene(hit.boundingRect().center()).toPoint()
+        check(0 <= point.x() < window.width() and 0 <= point.y() < window.height(), "on-screen hit target " + name)
+        trace = {"name":name,"point":[point.x(),point.y()],"targetSize":[target.width(),target.height()],
+                 "hitSize":[hit.width(),hit.height()],"before":target.property("checked"),"events":[]}
+        handlers = []
+        for signal_name in ("pressed", "released", "clicked", "toggled"):
+            signal = getattr(target, signal_name, None)
+            if signal is not None and hasattr(signal, "connect"):
+                handler = lambda *args, event=signal_name: trace["events"].append(event)
+                signal.connect(handler)
+                handlers.append((signal,handler))
+        QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, point)
         QTest.qWait(70)
+        trace["after"] = target.property("checked")
+        interactions.append(trace)
+        for signal,handler in handlers:
+            signal.disconnect(handler)
     def capture(name):
         if name == "menu":
             dashboard = find("Ps2Dashboard")
@@ -320,12 +365,14 @@ def install(app, window, controller, community, settings, jsons, args):
             click("Ps2HomeConfiguration")
             QTest.qWait(300)
             check(controller.currentPage == "settings", "menu opens real KFPS settings")
+            check(wait(page_ready,6000), "Settings page finishes asynchronous creation")
             check(find("Ps2IntroMuteSetting").isVisible(), "persistent mute setting remains available")
             check(find("Ps2TestIntro") is None, "recording button removed from application")
             from kfps_ui.settings_service import SettingsService
             before = getattr(settings, MUTE)
+            capture("settings-before-toggle")
             click("Ps2IntroMuteSetting")
-            check(getattr(settings, MUTE) != before, "mute setting toggles")
+            check(wait(lambda:getattr(settings, MUTE) != before,1500), "mute setting toggles")
             check(getattr(SettingsService(runtime / "qml-shell-settings.json"), MUTE) == (not before), "mute survives settings reload")
             capture("settings")
             settings.theme = "Night Blossom"
@@ -352,6 +399,7 @@ def install(app, window, controller, community, settings, jsons, args):
                      "loadingReadySeconds": service._ready_elapsed if 'service' in locals() else None,
                      "readyAtFirstCheck": initial_ready if 'initial_ready' in locals() else None,
                      "productionStartup":production, "loadingSamples":loading_samples,
+                     "interactions":interactions,
                      "controlledScanHold":scenario == "production",
                      "checks":results,"messages":messages}
             (RUN / "results.json").write_text(json.dumps(payload,indent=2),encoding="utf-8")
