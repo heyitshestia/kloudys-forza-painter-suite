@@ -1,5 +1,19 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.122
+
+### Livery Preview Detail
+
+- Added Standard and High vinyl resolution choices to the 3D previews in both Liveries and Community. Standard is the old High; the new High doubles the width and height for sharper artwork up close.
+- Existing settings start at Standard, keeping the previous High detail without suddenly quadrupling the pixel count. Memory safeguards stay in place, and the preview tells you when it uses a lower resolution.
+- Fixed cars with square paint masks ignoring the higher-resolution setting. Placement, UV mapping, saved liveries and Studio's separate preview modes are unchanged.
+
+### Community Livery Uploads
+
+- Large existing livery files now get their oversized layer JSON compacted automatically for upload. This removes formatting only: every layer, group, image and native data file is kept, and your original file is never changed. No re-export needed.
+- Files that still exceed Community's limits now explain which unpacked member is too large. Server limits have not been raised.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.121
 
 ### Original Xbox Startup

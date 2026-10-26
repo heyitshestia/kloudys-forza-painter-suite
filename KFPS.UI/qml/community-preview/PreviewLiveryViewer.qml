@@ -20,6 +20,16 @@ PreviewDialog {
         RowLayout {
             Layout.fillWidth: true
             PreviewText { Layout.fillWidth: true; text: preview.selected.title || ""; textSize: 18 }
+            PreviewComboBox {
+                objectName: "CommunityVinylResolution"
+                Layout.preferredWidth: Theme.px(130)
+                model: [dialog.ui("Standard", "표준"), dialog.ui("High", "높음")]
+                currentIndex: dialog.viewer ? dialog.viewer.viewerQuality - 1 : 0
+                enabled: !!dialog.viewer && dialog.viewer.featureEnabled
+                onActivated: if (dialog.viewer) dialog.viewer.setViewerQuality(currentIndex + 1)
+                toolTipText: dialog.ui("Vinyl resolution: Standard uses the previous High detail. High doubles width and height and uses more memory.", "비닐 해상도: 표준은 기존 높음 화질입니다. 높음은 가로와 세로 해상도가 두 배이며 메모리를 더 사용합니다.")
+                Accessible.name: dialog.ui("Vinyl resolution", "비닐 해상도")
+            }
             PreviewButton { objectName: "CloseLiveryRender"; text: "X"; minimumWidth: 36; hint: dialog.ui("Close 3D preview", "3D 미리보기 닫기"); onClicked: dialog.close() }
         }
         Item {

@@ -103,10 +103,14 @@ def prepare_mesh(paths, payload, cancel_event, progress=None):
 
     owned = (manifest.get('sharing') or {}).get('local_unowned_preview') is not True
     can_rerender = owned and (package.suffix.casefold() == '.kfpslivery' or bool(payload.get('source_path')))
-    quality = 2 if payload.get('quality_scale') == 2 else 1
-    if quality == 2 and psutil.virtual_memory().available < 2 * 1024**3:
+    quality = payload.get('quality_scale') if payload.get('quality_scale') in (2, 4) else 1
+    available = psutil.virtual_memory().available
+    if quality == 4 and available < 8 * 1024**3:
+        quality = 2
+        warnings.append('Standard vinyl resolution used because less than 8 GB of RAM was available.')
+    if quality == 2 and available < 2 * 1024**3:
         quality = 1
-        warnings.append('Standard preview quality used because less than 2 GB of RAM was available.')
+        warnings.append('Saved original vinyl resolution used because less than 2 GB of RAM was available.')
     adapter = studio_module(paths.app_root, 'readonly_prepare')
     result = adapter.prepare_readonly(paths.app_root, Path(game), asset, package,
         quality_scale=quality, layer_provider=local_layers if can_rerender else None,

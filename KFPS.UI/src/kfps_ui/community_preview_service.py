@@ -67,10 +67,8 @@ def _inspect_snapshot(source, root):
                 "warning": result.schema_warning, "payload": payload,
                 "preview": image_bytes(result.preview_bytes), "extension": ".json"}
     if source.suffix.lower() == ".kfpslivery":
-        from tools.livery.package import validate_full_livery_package
-        if source.stat().st_size > 256 * 1024 * 1024:
-            raise PreviewError("The livery package exceeds 256 MB.")
-        manifest = validate_full_livery_package(source)
+        from .community_livery_upload import prepare_livery_upload
+        manifest, payload = prepare_livery_upload(source)
         with zipfile.ZipFile(source) as bundle:
             names = bundle.namelist()
             thumb = next((n for n in names if n == "source/fh6/bigThumb.webp"), "")
@@ -80,7 +78,7 @@ def _inspect_snapshot(source, root):
                 "shapes": manifest.get("livery", {}).get("decoded_layer_count", 0),
                 "game": str(manifest.get("source", {}).get("game", "FH6")).upper(),
                 "car": str(manifest.get("vehicle", {}).get("model_code") or manifest.get("livery", {}).get("target_car_id", "")),
-                "warning": "", "payload": source.read_bytes(), "preview": preview, "extension": ".kfpslivery"}
+                "warning": "", "payload": payload, "preview": preview, "extension": ".kfpslivery"}
     raise PreviewError("Choose a vinyl JSON or a .kfpslivery package.")
 
 

@@ -137,6 +137,22 @@ mock tests certify layout only, not real GitHub/R2 integration.
 
 ## State
 
+### Livery Upload Preparation
+
+Included in 3.1.122 after local validation and scoped promotion from DIRTY.
+This is a desktop upload-preparation change; no Worker deployment is required.
+
+Community upload preparation validates the original package first, then compacts
+oversized `livery/layers.json` formatting in its temporary upload copy. It updates
+only that member's manifest size/hash; native source, all layer values, groups,
+section images and other package members are retained. Already-compatible
+packages stay byte-identical, and the original selected file is never rewritten.
+Compressed (16 MiB), per-member (8 MiB), manifest (2 MiB) and expanded-total
+(32 MiB) limits remain unchanged and are checked before reporting upload-ready.
+If lossless compaction is insufficient, preparation names the oversized member
+and explains that the limit applies to its unpacked size. No server change is
+needed. Regression coverage: `test_community_livery_upload.py`.
+
 Current state, 2026-09-20: implemented in DIRTY, selectively transferred to CLEAN,
 and deployed to the existing production Community Worker. No GitHub push, version
 bump, release or bundle. Personal Native Updated Local was not changed.

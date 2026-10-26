@@ -94,7 +94,8 @@ class FullLiveryService(QObject):
         self._source_privacy: dict[str, dict[str, Any]] = {}
         self._selected_package = str(self._settings.get("last_package") or "")
         self._viewer_url = ""
-        self._viewer_quality = 2 if self._settings.get("viewer_quality", 2) == 2 else 1
+        # Legacy High was 2x, now Standard. Never upgrade an old preference to 4x.
+        self._viewer_quality = 2 if self._settings.get("viewer_vinyl_quality") == "high" else 1
         self._viewer_wheels_visible = self._settings.get("viewer_wheels_visible") is not False
         self._current_manifest: dict[str, Any] = {}
         self._sources = DictListModel(self.SOURCE_ROLES, self)
@@ -238,10 +239,14 @@ class FullLiveryService(QObject):
         if value == self._viewer_quality:
             return
         self._viewer_quality = value
-        self._settings["viewer_quality"] = value
-        self._save_settings()
+        self._settings["viewer_vinyl_quality"] = "high" if value == 2 else "standard"
+        try:
+            self._save_settings()
+        except OSError as exc:
+            self.log.append(f"Vinyl resolution changed for this session, but could not be saved: {exc}", "error")
         if self._active and self._selected_package and self._current_manifest:
             self._viewer_url = ""
+            self._viewer_ready = False
             self._stop_viewer_memory_guard()
             self._inspector.stop()
             self._prepare_local_mesh(self._current_manifest, self._selected_package)
@@ -491,7 +496,9 @@ class FullLiveryService(QObject):
             self._summary = "Car and livery textures rendered successfully."
             diagnostics = event.get("diagnostics")
             quality = diagnostics.get("quality") if isinstance(diagnostics, dict) else None
-            if self._viewer_quality == 2 and isinstance(quality, dict) and quality.get("scale") == 1:
+            if isinstance(quality, dict) and quality.get("scale") == 1:
+                self._summary += " Saved original resolution is in use for this preview."
+            elif self._viewer_quality == 2 and isinstance(quality, dict) and quality.get("scale") == 2:
                 self._summary += " Standard resolution is in use for this preview."
             elif isinstance(quality, dict) and quality.get("source") == "mixed-original-and-vector":
                 self._summary += " Some sections retain their original resolution; see Diagnostics for details."
@@ -1073,7 +1080,7 @@ class FullLiveryService(QObject):
                 expected_model_code=str(vehicle.get("model_code") or ""),
                 expected_archive_sha256=str(vehicle.get("archive_sha256") or ""),
                 package_path=package_path,
-                quality_scale=self._viewer_quality,
+                quality_scale=4 if self._viewer_quality == 2 else 2,
                 source_path=self._active_source_preview,
             ),
             kind="mesh",

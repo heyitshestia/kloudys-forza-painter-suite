@@ -26,7 +26,7 @@ TXCH_TAG = 0x54584348
 UNSIGNED_BC4 = 3
 ATLAS_SIZE = (2048, 1024)
 RENDER_CONTRACT_FORMAT = "kfps_fh6_section_render_contract_v3"
-RENDER_CONTRACT_REVISION = 11
+RENDER_CONTRACT_REVISION = 12
 MASK_PAGE_COUNT = 3
 MASK_CHANNELS = 4
 PAINT_ATLAS_WIDTH = 2048
@@ -364,6 +364,7 @@ def _save_png(image: Image.Image, path: Path) -> None:
 def _pack_paint_tiles(
     tiles: list[dict[str, Any]],
     *, width: int = PAINT_ATLAS_WIDTH,
+    quality_scale: int = 1,
 ) -> tuple[Image.Image, dict[str, tuple[int, int, int, int]]]:
     """Pack cropped section paint into deterministic padded shelves."""
 
@@ -396,7 +397,9 @@ def _pack_paint_tiles(
         max_bottom = max(max_bottom, y + image.height + PAINT_PADDING)
 
     height = max(1, max_bottom)
-    if height > 8192 or width * height > 24 * 1024 * 1024:
+    max_dimension = 16384 if quality_scale == 4 else 8192
+    max_pixels = (96 if quality_scale == 4 else 24) * 1024 * 1024
+    if max(width, height) > max_dimension or width * height > max_pixels:
         raise LiveryRenderContractError(
             f"The local section paint atlas would be {width} x {height} pixels; use Standard preview quality."
         )
@@ -417,10 +420,16 @@ def _pack_paint_tiles(
 
 
 def _vector_paint_tile(layers, section, slot, projection, bounds, scale, game_folder, cancel_event):
-    left, top, right, bottom = bounds
-    a, b, c, d, e, f = _atlas_to_local_affine(
+    affine = _atlas_to_local_affine(
         slot, *ATLAS_SIZE, float(projection.get("xorigin", 0)), float(projection.get("yorigin", 0))
     )
+    return _vector_paint_affine(layers, section, bounds, affine, scale, game_folder, cancel_event)
+
+
+def _vector_paint_affine(layers, section, bounds, affine, scale, game_folder, cancel_event):
+    """Render source vectors through the car's native-mask-to-section affine."""
+    left, top, right, bottom = bounds
+    a, b, c, d, e, f = affine
     corners = [(a*x+b*y+c, d*x+e*y+f) for x in (left, right) for y in (top, bottom)]
     min_x, max_x = min(p[0] for p in corners), max(p[0] for p in corners)
     min_y, max_y = min(p[1] for p in corners), max(p[1] for p in corners)
@@ -469,7 +478,7 @@ def build_local_livery_atlases(
     package = Path(package_path).resolve()
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    scale = 2 if quality_scale == 2 and layer_provider is not None else 1
+    scale = quality_scale if quality_scale in (2, 4) and layer_provider is not None else 1
     signature = {
         "contract_revision": RENDER_CONTRACT_REVISION,
         "package_sha256": file_sha256(package),
@@ -603,7 +612,7 @@ def build_local_livery_atlases(
         else {}
     )
     atlas_width = max(PAINT_ATLAS_WIDTH * scale, max(item["image"].width + PAINT_PADDING * 2 for item in paint_tiles))
-    paint_atlas, placements = _pack_paint_tiles(paint_tiles, width=atlas_width)
+    paint_atlas, placements = _pack_paint_tiles(paint_tiles, width=atlas_width, quality_scale=scale)
     paint_filename = "section-paint.png"
     _save_png(paint_atlas, output / paint_filename)
     mask_filenames: list[str] = []

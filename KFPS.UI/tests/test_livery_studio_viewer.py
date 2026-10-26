@@ -31,11 +31,11 @@ class StudioBridgeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def call(self):
+    def call(self, available_gib=8):
         with patch('tools.livery.package.validate_livery_inspection_artifact', return_value=self.manifest), \
              patch('tools.livery.vehicle_assets.load_or_build_vehicle_asset_index', return_value={42: self.asset}), \
              patch.object(operations, 'studio_module', return_value=self.adapter), \
-             patch.object(operations.psutil, 'virtual_memory', return_value=SimpleNamespace(available=8 * 1024**3)):
+             patch.object(operations.psutil, 'virtual_memory', return_value=SimpleNamespace(available=available_gib * 1024**3)):
             return operations.prepare_mesh(self.paths, self.payload, threading.Event())
 
     def test_dispatch_uses_shared_studio_preparation(self):
@@ -64,6 +64,23 @@ class StudioBridgeTests(unittest.TestCase):
         self.payload['source_path'] = str(self.root / 'C_livery')
         self.call()
         self.assertIsNone(self.adapter.prepare_readonly.call_args.kwargs['layer_provider'])
+
+    def test_new_high_requests_four_times_native_detail(self):
+        self.payload['quality_scale'] = 4
+        self.call()
+        self.assertEqual(4, self.adapter.prepare_readonly.call_args.kwargs['quality_scale'])
+
+    def test_new_high_falls_back_under_memory_pressure(self):
+        self.payload['quality_scale'] = 4
+        result = self.call(available_gib=4)
+        self.assertEqual(2, self.adapter.prepare_readonly.call_args.kwargs['quality_scale'])
+        self.assertIn('Standard vinyl resolution', result['revision_warning'])
+
+    def test_low_memory_uses_saved_images_and_reports_the_actual_level(self):
+        self.payload['quality_scale'] = 4
+        result = self.call(available_gib=1)
+        self.assertEqual(1, self.adapter.prepare_readonly.call_args.kwargs['quality_scale'])
+        self.assertIn('Saved original', result['revision_warning'])
 
     def test_private_preview_without_source_does_not_get_layer_provider(self):
         self.payload['package_path'] = str(self.root / 'test.kfpspreview')

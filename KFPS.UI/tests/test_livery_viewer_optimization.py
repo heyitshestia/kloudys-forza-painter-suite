@@ -492,13 +492,14 @@ class ViewerOptimizationTests(unittest.TestCase):
                 buffer = io.BytesIO()
                 gradient(*kwargs["canvas_size"], kwargs["world_bounds"]).save(buffer, format="PNG")
                 return {section: buffer.getvalue()}, True, []
-            with self.subTest(section=section), patch("tools.livery.render_contract._render_livery_sections", side_effect=render):
-                tile = _vector_paint_tile([], section, slot, projection, bounds, 2, None, threading.Event())
-                expected = _warped_uv_layer(native, slot, projection).crop(bounds)
-                self.assertEqual((200, 220), tile.size)
-                reduced = tile.resize(expected.size, Image.Resampling.BOX)
-                error = np.abs(np.asarray(reduced).astype(float) - np.asarray(expected).astype(float)).mean()
-                self.assertLess(error, 1.0)
+            for scale in (2, 4):
+                with self.subTest(section=section, scale=scale), patch("tools.livery.render_contract._render_livery_sections", side_effect=render):
+                    tile = _vector_paint_tile([], section, slot, projection, bounds, scale, None, threading.Event())
+                    expected = _warped_uv_layer(native, slot, projection).crop(bounds)
+                    self.assertEqual((100 * scale, 110 * scale), tile.size)
+                    reduced = tile.resize(expected.size, Image.Resampling.BOX)
+                    error = np.abs(np.asarray(reduced).astype(float) - np.asarray(expected).astype(float)).mean()
+                    self.assertLess(error, 1.0)
 
     def test_unavailable_referenced_artwork_requires_original_section_image(self):
         with patch("tools.livery.render_contract._render_livery_sections", return_value=({}, False, [123])):
@@ -509,8 +510,79 @@ class ViewerOptimizationTests(unittest.TestCase):
         self.open_viewer()
         self.service._viewer_quality = 2
         self.service.viewerEvent(self.service.viewerUrl,
-                                 '{"event":"ready","diagnostics":{"quality":{"scale":1}}}')
+                                 '{"event":"ready","diagnostics":{"quality":{"scale":2}}}')
         self.assertIn("Standard resolution", self.service.summary)
+
+    def restart_service(self):
+        paths = self.service.paths
+        self.service.close()
+        with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
+            self.service = FullLiveryService(paths, LogService(), demo=True)
+        self.service._active = True
+
+    def test_quality_migrates_legacy_high_without_automatically_requesting_4x(self):
+        for old in (None, 1, 2):
+            self.service._settings.pop('viewer_vinyl_quality', None)
+            self.service._settings['viewer_quality'] = old
+            self.service._save_settings()
+            self.restart_service()
+            self.assertEqual(1, self.service.viewerQuality)
+
+    def test_quality_round_trip_preserves_legacy_preference_and_wheels(self):
+        self.service._settings.update(viewer_quality=2, viewer_wheels_visible=False)
+        self.service.setViewerQuality(2)
+        self.restart_service()
+        self.assertEqual(2, self.service.viewerQuality)
+        self.assertEqual(2, self.service._settings['viewer_quality'])
+        self.assertFalse(self.service.viewerWheelsVisible)
+        self.service.setViewerQuality(1)
+        self.restart_service()
+        self.assertEqual(1, self.service.viewerQuality)
+
+    def test_quality_uses_physical_scale_and_supersedes_pending_mesh(self):
+        self.service._game_folder = str(self.root)
+        manifest = {'package_id': 'test', 'livery': {'target_car_id': 42}}
+        with patch.object(self.service._tasks, 'start') as start:
+            for mode, scale in ((1, 2), (2, 4)):
+                self.service.setViewerQuality(mode)
+                self.service._prepare_local_mesh(manifest, 'test.kfpslivery')
+                self.assertEqual(scale, start.call_args.args[1]['quality_scale'])
+                self.assertTrue(start.call_args.kwargs['supersede'])
+
+    def test_quality_change_resets_ready_and_ignores_old_session(self):
+        self.open_viewer()
+        old = self.service.viewerUrl
+        self.service.viewerEvent(old, '{"event":"ready"}')
+        self.service._selected_package = 'test.kfpslivery'
+        self.service._current_manifest = {'package_id': 'test'}
+        with patch.object(self.service, '_prepare_local_mesh') as prepare, patch.object(self.service._inspector, 'stop') as stop:
+            self.service.setViewerQuality(2)
+        prepare.assert_called_once()
+        stop.assert_called_once()
+        self.assertFalse(self.service.viewerReady)
+        self.assertFalse(self.service.viewerUrl)
+        self.service.viewerEvent(old, '{"event":"ready"}')
+        self.assertFalse(self.service.viewerReady)
+
+    def test_quality_save_failure_is_nonfatal_and_does_not_rewrite_old_file(self):
+        self.service._save_settings()
+        saved = self.service._settings_file.read_bytes()
+        with patch.object(self.service, '_save_settings', side_effect=PermissionError('locked')):
+            self.service.setViewerQuality(2)
+        self.assertEqual(2, self.service.viewerQuality)
+        self.assertEqual(saved, self.service._settings_file.read_bytes())
+
+    def test_quality_same_value_does_not_write_or_reload(self):
+        with patch.object(self.service, '_save_settings') as save, patch.object(self.service, '_prepare_local_mesh') as prepare:
+            self.service.setViewerQuality(1)
+        save.assert_not_called()
+        prepare.assert_not_called()
+
+    def test_original_resolution_fallback_is_not_mislabeled_standard(self):
+        self.open_viewer()
+        self.service.viewerEvent(self.service.viewerUrl,
+            '{"event":"ready","diagnostics":{"quality":{"scale":1}}}')
+        self.assertIn('Saved original resolution', self.service.summary)
 
 
 if __name__ == "__main__":

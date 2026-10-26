@@ -44,7 +44,8 @@ def build_saved_atlas(package, prepared, asset, output, root, *, quality, layer_
                 mesh_validation=prepared['validation'], quality_scale=quality,
                 layer_provider=layer_provider, game_folder=game_root, cancel_event=cancel_event, progress=progress)
         else:
-            contract = square_mask_atlas(package, prepared, staging)
+            contract = square_mask_atlas(package, prepared, staging, quality_scale=quality,
+                layer_provider=layer_provider, game_folder=game_root, cancel_event=cancel_event, progress=progress)
         files = file_inventory(staging)
         if sum(row[0] for row in files.values()) > 192 * 1024**2:
             raise ValueError('Saved livery atlas exceeds the reserved cache allowance.')
@@ -57,16 +58,24 @@ def build_saved_atlas(package, prepared, asset, output, root, *, quality, layer_
         return contract
 
 
-def square_mask_atlas(package, prepared, output):
+def square_mask_atlas(package, prepared, output, *, quality_scale=1, layer_provider=None,
+                      game_folder=None, cancel_event=None, progress=None):
     """Match Studio sectionToPaint, including non-2048 native mask dimensions."""
     from tools.livery import render_contract as native
     config = prepared['editor_config']
     contract = copy.deepcopy(prepared['manifest']['inspection_runtime']['render_contract'])
     size = contract['mask_size']
     tiles, records = [], []
+    scale = quality_scale if quality_scale in (2, 4) and layer_provider is not None else 1
+    section_layers, notes = {}, []
+    if scale > 1:
+        for layer in layer_provider():
+            section_layers.setdefault(str(layer.get('source_section') or ''), []).append(layer)
     with zipfile.ZipFile(package) as bundle:
         names = {name.casefold(): name for name in bundle.namelist()}
         for section in config['sections']:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError('Livery texture preparation was cancelled.')
             name = names.get(f'projection/rendered/{section["section"]}.png'.casefold())
             if not name:
                 continue
@@ -74,27 +83,39 @@ def square_mask_atlas(package, prepared, output):
             # Studio's affine consumes normalized virtual 2048x1024 atlas pixels.
             a, b, c, d, e, f = section['atlasToLocal']
             sx, sy = 2048 / size[0], 1024 / size[1]
-            with bundle.open(name) as stream, Image.open(stream) as image:
-                if image.size != (2048, 1024):
-                    raise ValueError('Saved section artwork must be 2048 x 1024.')
-                warped = image.convert('RGBA').transform(tuple(size), Image.Transform.AFFINE,
-                    (a * sx, b * sy, c, d * sx, e * sy, f), Image.Resampling.BILINEAR,
-                    fillcolor=(0, 0, 0, 0))
-            tile = warped.crop(tuple(bounds))
+            affine = (a * sx, b * sy, c, d * sx, e * sy, f)
+            tile = None
+            if progress:
+                progress(f'Preparing {section["section"].lower()} livery texture')
+            if scale > 1:
+                tile = native._vector_paint_affine(section_layers.get(section['section'], []),
+                    section['section'], bounds, affine, scale, game_folder, cancel_event)
+                if tile is None:
+                    notes.append(f'{section["section"]}: retained original resolution because referenced artwork is unavailable locally')
+            if tile is None:
+                with bundle.open(name) as stream, Image.open(stream) as image:
+                    if image.size != (2048, 1024):
+                        raise ValueError('Saved section artwork must be 2048 x 1024.')
+                    warped = image.convert('RGBA').transform(tuple(size), Image.Transform.AFFINE,
+                        affine, Image.Resampling.BILINEAR, fillcolor=(0, 0, 0, 0))
+                tile = warped.crop(tuple(bounds))
             tiles.append({'section': section['section'], 'slot_index': section['slot_index'], 'image': tile})
             records.append(copy.deepcopy(section))
     if not tiles:
         raise ValueError('The package and local car have no shared livery sections.')
-    atlas, placements = native._pack_paint_tiles(tiles)
+    width = max(native.PAINT_ATLAS_WIDTH * scale,
+                max(item['image'].width + native.PAINT_PADDING * 2 for item in tiles))
+    atlas, placements = native._pack_paint_tiles(tiles, width=width, quality_scale=scale)
     output.mkdir(parents=True, exist_ok=True)
     save_png_exclusive(atlas, output / 'section-paint.png')
     for row in records:
         left, top, width, height = placements[row['section']]
         row['paint_region'] = [left / atlas.width, top / atlas.height,
                                (left + width) / atlas.width, (top + height) / atlas.height]
-    contract.update(sections=records, paint_size=list(atlas.size), quality_scale=1,
-                    quality_source='package-section-images', files={'paint': 'section-paint.png'},
-                    quality_notes=['Native square masks retain the saved original resolution.'])
+    contract.update(sections=records, paint_size=list(atlas.size), quality_scale=scale,
+                    quality_source=('mixed-original-and-vector' if notes else
+                                    'native-vector-crops' if scale > 1 else 'package-section-images'),
+                    files={'paint': 'section-paint.png'}, quality_notes=notes)
     return contract
 
 
@@ -131,7 +152,7 @@ def prepare_readonly(kfps_root, game_root, asset, package, *, quality_scale=1,
                 if prepared['manifest']['vehicle']['car_id'] != asset.car_id:
                     raise ValueError('Prepared car identity changed.')
                 phase('Preparing saved livery paint')
-                quality = 2 if quality_scale == 2 and layer_provider else 1
+                quality = quality_scale if quality_scale in (2, 4) and layer_provider is not None else 1
                 signature = hashlib.sha256(json.dumps({'source': prepared['signature'],
                     'adapter': file_hash(Path(__file__))}, sort_keys=True).encode()).hexdigest()[:16]
                 output = ordinary_path(root / 'saved-atlases' / f'{package_hash[:24]}-{signature}-q{quality}', root)

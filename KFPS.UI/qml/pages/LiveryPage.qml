@@ -133,8 +133,9 @@ Item {
                     currentIndex: fullLiveryService.viewerQuality - 1
                     enabled: fullLiveryService.featureEnabled
                     onActivated: fullLiveryService.setViewerQuality(currentIndex + 1)
-                    toolTipText: "3D texture quality"
-                    Accessible.name: "3D texture quality"
+                    objectName: "LiveryVinylResolution"
+                    toolTipText: "Vinyl resolution: Standard uses the previous High detail. High doubles width and height and uses more memory."
+                    Accessible.name: "Vinyl resolution"
                 }
 
                 GhostButton {

@@ -28,7 +28,7 @@ class PreviewLiverySession:
                 settings = json.loads(ordinary.settings_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 settings = {}
-            scoped.save_settings({k: settings[k] for k in ("fh6_game_folder", "viewer_quality", "viewer_wheels_visible") if k in settings})
+            scoped.save_settings({k: settings[k] for k in ("fh6_game_folder", "viewer_quality", "viewer_vinyl_quality", "viewer_wheels_visible") if k in settings})
             package = folder / "artwork.kfpslivery"
             package.write_bytes(payload)
             self.log = LogService(runtime_root=root / "logs")
