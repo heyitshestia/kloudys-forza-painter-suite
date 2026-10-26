@@ -27,7 +27,7 @@ from kfps_ui.cgroup_library_service import CGroupLibraryService  # noqa: E402
 
 class GameAdapterDeclarationTests(unittest.TestCase):
     def test_registry_has_one_canonical_adapter_per_supported_game(self):
-        self.assertEqual(["fh6", "fh5", "fh4", "fm8"], list(ADAPTERS))
+        self.assertEqual(["fh6", "fh5", "fh4", "fm8", "fh3"], list(ADAPTERS))
         for adapter in iter_adapters():
             self.assertTrue(adapter.label)
             self.assertTrue(adapter.short_label)
@@ -37,7 +37,7 @@ class GameAdapterDeclarationTests(unittest.TestCase):
             self.assertTrue(adapter.save_discovery.key)
             self.assertTrue(adapter.locator.key)
             self.assertTrue(adapter.shape_schema.canonical_game)
-            self.assertTrue(adapter.process_names)
+            self.assertEqual(adapter.supports("live_import"), bool(adapter.process_names))
 
     def test_capabilities_match_the_current_product_surface(self):
         for key in ("fh4", "fh5", "fh6", "fm8"):
@@ -48,6 +48,10 @@ class GameAdapterDeclarationTests(unittest.TestCase):
         for key in ("fh4", "fh5", "fh6", "fm8"):
             self.assertTrue(get_adapter(key).supports("offline_import"))
             self.assertTrue(get_adapter(key).offline_import_handler)
+        for key in ("fh3",):
+            self.assertTrue(get_adapter(key).supports("offline_export"))
+            self.assertFalse(get_adapter(key).supports("offline_import"))
+            self.assertFalse(get_adapter(key).offline_import_handler)
 
     def test_aliases_and_legacy_memory_profile_keys_remain_compatible(self):
         self.assertIs(get_adapter("Forza Horizon 4"), ADAPTERS["fh4"])
@@ -58,7 +62,8 @@ class GameAdapterDeclarationTests(unittest.TestCase):
 
     def test_store_and_locator_variants_are_explicit(self):
         for adapter in iter_adapters():
-            self.assertEqual({"microsoft", "steam"}, {store.key for store in adapter.stores})
+            expected = ({"microsoft", "files"} if adapter.key == "fh3" else {"microsoft", "steam"})
+            self.assertEqual(expected, {store.key for store in adapter.stores})
         self.assertEqual("cloudflare_then_local", ADAPTERS["fh6"].locator.profile_source)
         self.assertEqual("packaged_fixed_descriptors", ADAPTERS["fh5"].locator.profile_source)
         self.assertEqual("packaged_final_build", ADAPTERS["fh4"].locator.profile_source)

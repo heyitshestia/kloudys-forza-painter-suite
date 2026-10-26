@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.123
+
+### Bring Your FH3 Vinyls Along
+
+- FH3 now has a batch save scan in Outputs. Choose FH3 and click Scan FH3 Saves to bring your supported owned vinyl groups into Library, with nested groups, loose shapes, colours and transforms intact.
+- The scan finds FH3's AppData save folder automatically, regardless of where the game is installed. Save folder also handles copied saves in one go; Extract file is an optional fallback, not something you need to repeat for every vinyl.
+- Rescanning reuses unchanged entries and leaves your edited Library copies alone. Damaged or protected entries are reported without stopping the rest of the scan.
+- FH3 is export-only: no import back, live-memory access or changes to game saves. Full-car liveries and masks are not included in this route. FH4, FH5, FH6 and FM8 keep their existing workflows.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.122
 
 ### Livery Preview Detail

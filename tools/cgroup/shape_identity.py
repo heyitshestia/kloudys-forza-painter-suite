@@ -93,6 +93,8 @@ def normalize_game_key(game: str | None) -> str:
         return "fh4"
     if text in {"fh5", "forza horizon 5"}:
         return "fh5"
+    if text in {"fh3", "forza horizon 3"}:
+        return "fh3"
     return "fh6"
 
 

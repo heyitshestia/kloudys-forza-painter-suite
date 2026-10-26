@@ -92,12 +92,15 @@ Browse saved FH6 designs with their game thumbnails, inspect them in the shared 
 
 | Game | Live vinyl import/export | Offline vinyl export | Offline vinyl import |
 | :--- | :--- | :--- | :--- |
+| **Forza Horizon 3** | No | Yes, Microsoft Store/Xbox WGS | No |
 | **Forza Horizon 4** | Supported Microsoft Store/Xbox build | Yes | Microsoft Store/Xbox WGS; Steam <sub>Experimental</sub> |
 | **Forza Horizon 5** | Yes | Yes | Microsoft Store/Xbox WGS and Steam <sub>Experimental</sub> |
 | **Forza Horizon 6** | Yes | Yes | Yes |
 | **Forza Motorsport (FM8)** | Yes | Yes | Yes <sub>Experimental</sub> |
 
 **Keep your groups together.** Editor JSON exports and supported offline transfers preserve nested vinyl groups. Owned vinyls extracted from game saves can come back into the editor with their groups intact. Live-memory transfers remain flat.
+
+**Bringing artwork from FH3?** In Outputs, choose FH3 and click **Scan FH3 Saves** to batch-export supported vinyl groups into Library. **Save folder** handles copied saves; **Extract file** is only a single-file fallback. [FH3 steps and supported files](docs/FH3-OFFLINE.md).
 
 Bulk transfers are free. Ownership checks, save validation, backups, and recovery safeguards still apply. Use your own artwork or work you have permission to use, and keep backups of your saves.
 

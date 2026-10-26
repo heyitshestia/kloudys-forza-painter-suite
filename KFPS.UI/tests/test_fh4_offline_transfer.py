@@ -45,8 +45,10 @@ def png_bytes(color=(255, 0, 255, 255)) -> bytes:
     return output.getvalue()
 
 
-def build_wgs_fixture(root: Path, *, layer_count: int = 1) -> tuple[Path, Path, bytes]:
-    wgs = root / "Microsoft.SunriseBaseGame_8wekyb3d8bbwe" / "SystemAppData" / "wgs"
+def build_wgs_fixture(root: Path, *, layer_count: int = 1,
+                      package_name: str = "Microsoft.SunriseBaseGame_8wekyb3d8bbwe",
+                      app_name: str = "SunriseReleaseFinal") -> tuple[Path, Path, bytes]:
+    wgs = root / package_name / "SystemAppData" / "wgs"
     slot = wgs / "000901F000000001_000000000000000000000000765B6743"
     slot.mkdir(parents=True)
     folder_guid = uuid.UUID("11111111-2222-4333-8444-555555555555")
@@ -102,7 +104,7 @@ def build_wgs_fixture(root: Path, *, layer_count: int = 1) -> tuple[Path, Path, 
     index = WgsIndex(
         version=0x0E,
         flag1=0,
-        package_name="Microsoft.SunriseBaseGame_8wekyb3d8bbwe!SunriseReleaseFinal",
+        package_name=f"{package_name}!{app_name}",
         modified_filetime=datetime_to_filetime(now),
         flag2=0,
         index_guid="00000000-1111-4222-8333-444444444444",

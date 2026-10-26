@@ -46,7 +46,8 @@ def parse_args():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--game",
-        choices=sorted(adapter.bridge_key for adapter in iter_adapters()),
+        choices=sorted(adapter.bridge_key for adapter in iter_adapters()
+                       if adapter.supports("live_import") or adapter.supports("live_export")),
     )
     common.add_argument("--layer-count", type=int, required=True)
     common.add_argument("--pid", type=int)

@@ -19,7 +19,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from game_adapters import get_adapter_or_default, iter_adapters
+from game_adapters import get_adapter, get_adapter_or_default, iter_adapters
 from game_adapters import discovery as game_discovery
 from game_adapters.policies import assess_offline_source
 
@@ -141,12 +141,14 @@ class CGroupLibraryService(QObject):
             adapter.short_label for adapter in iter_adapters() if adapter.supports("offline_import")
         )
         offline_exports = ", ".join(
-            adapter.short_label for adapter in iter_adapters() if adapter.supports("offline_export")
+            adapter.short_label for adapter in iter_adapters()
+            if adapter.supports("offline_export")
         )
         return (
             f"Online import/export auto-detects {live_games} when exactly one supported game is running. "
             f"{offline_imports} also support offline import; {offline_exports} support offline save-library scanning. "
-            "FH4/FH5 offer Microsoft Store/Xbox WGS and Steam destinations. Steam and FH5 WGS imports are test paths."
+            "FH4/FH5 offer Microsoft Store/Xbox WGS and Steam destinations. Steam and FH5 WGS imports are test paths. "
+            "FH3 reads local WGS saves and extracted vinyl files into KFPS; it does not support import back into the game."
         )
 
     @Slot(str, str, result=bool)
@@ -180,23 +182,58 @@ class CGroupLibraryService(QObject):
     @Slot()
     @Slot(str)
     def scanSaves(self, game: str = "fh6"):
+        self._start_save_scan(game)
+
+    @Slot()
+    def extractFh3File(self):
+        self._start_save_scan("fh3", choose_file=True)
+
+    @Slot()
+    def browseFh3Saves(self):
+        if self._closed or self._running:
+            return
+        cached = self._load_cached_roots("fh3")
+        folder = QFileDialog.getExistingDirectory(
+            None, "Choose FH3 wgs, profile, or extracted vinyl folder",
+            str(cached[0] if cached else Path(os.environ.get("LOCALAPPDATA", str(self.paths.app_root))) / "Packages"),
+        )
+        if folder and not self._closed:
+            self._start_save_scan("fh3", selected_root=Path(folder))
+
+    def _start_save_scan(self, game: str, *, choose_file: bool = False, selected_root: Path | None = None):
         if self._closed or self._running:
             self.log.append("C_group library scan is already running.")
             return
-        adapter = get_adapter_or_default(game)
+        try:
+            adapter = get_adapter(game)
+        except ValueError:
+            self.log.append("Choose a supported game before scanning saves.", "error")
+            return
         game_key = adapter.key
+        selected_file = None
+        if choose_file:
+            selected, _ = QFileDialog.getOpenFileName(
+                None, f"Extract a {adapter.short_label} vinyl to KFPS",
+                str(self.paths.app_root), "Extracted vinyl (C_group);;All files (*)",
+            )
+            if not selected or self._closed:
+                return
+            selected_file = Path(selected)
         self._active_game_key = game_key
         self._running = True
         game_label = self._game_label(game_key)
-        self._status = f"Scanning {game_label}"
-        self._summary = f"Scanning common {game_label} save folders for individual vinyl group files..."
+        self._status = f"Reading {game_label} file" if selected_file else f"Scanning {game_label}"
+        self._summary = (f"Reading the selected {game_label} vinyl file..." if selected_file else
+                         f"Scanning common {game_label} save folders for individual vinyl group files...")
         self.changed.emit()
-        self.log.append(f"Scanning {game_label} save folders for individual vinyl group files...")
+        self.log.append(self._summary)
         if adapter.scan_notice:
             self.log.append(adapter.scan_notice)
 
         self._cancel_event.clear()
-        future = self._executor.submit(self._scan_work, game_key)
+        future = (self._executor.submit(self._read_legacy_vinyl_work, selected_file, game_key)
+                  if selected_file else self._executor.submit(self._scan_fh3_work, selected_root)
+                  if game_key == "fh3" else self._executor.submit(self._scan_work, game_key))
         self._future = future
         future.add_done_callback(self._emit_future_result)
 
@@ -259,7 +296,11 @@ class CGroupLibraryService(QObject):
         if not source.is_file():
             self.log.append("Choose a JSON before creating a save-folder vinyl.", "error")
             return
-        adapter = get_adapter_or_default(game)
+        try:
+            adapter = get_adapter(game)
+        except ValueError:
+            self.log.append("Choose a supported offline import destination.", "error")
+            return
         game_key = adapter.key
         game_label = adapter.short_label
         if store not in ("wgs", "steam") or (store == "steam" and game_key not in ("fh4", "fh5")):
@@ -332,6 +373,86 @@ class CGroupLibraryService(QObject):
         self._future = future
         future.add_done_callback(self._emit_future_result)
 
+    def _scan_fh3_work(self, selected_root: Path | None = None) -> dict:
+        from tools.cgroup.fh3_save_reader import discover_sources
+        from tools.cgroup.forza_source_decoder import DecodeError
+
+        roots = ([selected_root] if selected_root is not None else
+                 game_discovery.unique_existing_paths(self._default_save_roots("fh3") + self._load_cached_roots("fh3")))
+        sources, errors = discover_sources(roots, self._cancel_event.is_set)
+        outputs, reused = [], 0
+
+        def check_cancel():
+            if self._cancel_event.is_set():
+                raise ValueError(f"FH3 scan cancelled. {len(outputs)} completed Library entry(s) retained; "
+                                 "game saves unchanged.")
+
+        for source in sources:
+            check_cancel()
+            try:
+                source.verify()
+                result = self._read_legacy_vinyl_work(
+                    source.payload, "fh3", header_path=source.header,
+                    validate_source=source.verify, cache_key=source.cache_key,
+                )
+                outputs.extend(result["outputs"])
+                reused += int(result.get("reused", 0))
+            except (OSError, ValueError, DecodeError) as exc:
+                check_cancel()
+                errors.append(f"{source.payload}: {exc}")
+        if outputs:
+            self._save_cached_roots(roots, "fh3")
+        message = (f"FH3 scan: {len(outputs)} vinyl(s) in Library ({reused} unchanged), "
+                   f"{len(errors)} issue(s). Game saves unchanged.")
+        if not outputs:
+            message = ("No readable FH3 vinyls found. Save an owned vinyl in FH3 and finish cloud sync, "
+                       "then scan again, or choose Save folder / Extract file.")
+        if errors:
+            message += " First issue: " + errors[0]
+        return {"ok": True, "game": "fh3", "roots": [str(p) for p in roots],
+                "candidates": len(sources), "exported": len(outputs), "skipped": len(errors),
+                "outputs": outputs, "issues": errors, "reused": reused, "message": message}
+
+    def _read_legacy_vinyl_work(self, source: Path, game: str, *, header_path: Path | None = None,
+                              validate_source=None, cache_key: str = "") -> dict:
+        from tools.cgroup.fh3_files import read_vinyl, _check_cancel
+
+        document, report, _ = read_vinyl(source, game, header_path=header_path)
+        _check_cancel(self._cancel_event.is_set)
+        library = self._library_root(game)
+        library.mkdir(parents=True, exist_ok=True)
+        name = f"{game}-vinyl-{cache_key or uuid.uuid4().hex[:16]}"
+        destination = library / name
+        if cache_key and destination.exists():
+            target = destination / f"{name}.json"
+            if json.loads(target.read_text(encoding="utf-8")) != document:
+                raise ValueError("Existing Library entry differs; it was preserved, not overwritten.")
+            if validate_source:
+                validate_source()
+            self._write_preview(target)
+            return {"ok": True, "outputs": [str(target)], "reused": 1}
+        staging = Path(tempfile.mkdtemp(prefix=".kfps-legacy-", dir=library))
+        try:
+            raw = json.dumps(document, indent=2)
+            (staging / f"{name}.json").write_text(raw, encoding="utf-8")
+            if json.loads((staging / f"{name}.json").read_text(encoding="utf-8")) != document:
+                raise ValueError("Legacy JSON read-back failed.")
+            (staging / f"{name}.report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            _check_cancel(self._cancel_event.is_set)
+            if validate_source:
+                validate_source()
+            if destination.exists():
+                raise FileExistsError("The new Library entry already exists.")
+            os.rename(staging, destination)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+        target = destination / f"{name}.json"
+        self._write_preview(target)
+        return {"ok": True, "game": game, "candidates": 1, "exported": 1, "skipped": 0,
+                "outputs": [str(target)], "message": f"Extracted {len(document['shapes'])} {game.upper()} layers "
+                "into Library with nested groups. The source file is unchanged."}
+
     @Slot(str, str)
     def installJsonToFH6LayerGroup(self, json_path: str, target_folder: str):
         if self._closed or self._running:
@@ -391,7 +512,9 @@ class CGroupLibraryService(QObject):
         self._exported_count = int(result.get("exported") or 0)
         self._skipped_count = int(result.get("skipped") or 0)
         outputs = [str(item) for item in result.get("outputs") or []]
-        self._last_output = outputs[0] if outputs else ""
+        for issue in (result.get("issues") or [])[:50]:
+            self.log.append(str(issue), "warning")
+        self._last_output = outputs[0] if outputs else str(result.get("last_output") or "")
 
         if ok:
             self._status = "Complete"
@@ -627,6 +750,8 @@ class CGroupLibraryService(QObject):
         if self._cancel_event.is_set():
             raise concurrent.futures.CancelledError()
         adapter = get_adapter_or_default(game_key)
+        if adapter.key == "fh3":
+            return self._scan_fh3_work()
         game_key = adapter.key
         game_label = adapter.short_label
         roots = self._default_save_roots(game_key)

@@ -20,6 +20,8 @@ PROFILES: Dict[str, GameProfile] = legacy_profiles()
 
 def get_profile(key: str) -> GameProfile:
     adapter = get_adapter(key)
+    if adapter.bridge_key not in PROFILES:
+        raise ValueError(f"{adapter.short_label} supports experimental offline files only, not live memory.")
     return PROFILES[adapter.bridge_key]
 
 

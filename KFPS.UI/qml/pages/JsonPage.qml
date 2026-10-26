@@ -113,6 +113,7 @@ Item {
 
                 ScrollView {
                     id: importSetupScroll
+                    objectName: "OfflineImportSetupScroll"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -173,7 +174,7 @@ Item {
                                 Layout.fillWidth: true
                                 dense: root.compactHeight
                                 model: cgroupLibraryService.gameTargets
-                                toolTipText: "Choose the game whose local save files you want to scan or edit."
+                                toolTipText: "Choose the game whose local saves you want to scan. FH3 supports export to KFPS only."
                             }
                         }
 
@@ -237,10 +238,10 @@ Item {
                                 objectName: "ScanOfflineLibrary"
                                 Layout.fillWidth: true
                                 minimumWidth: 0
-                                text: cgroupLibraryService.running ? "Scanning " + offlineGame.currentText + "..." : "Scan " + offlineGame.currentText + " Saves"
+                                text: cgroupLibraryService.running ? "Working..." : "Scan " + offlineGame.currentText + " Saves"
                                 iconName: "folder"
                                 dense: root.compactHeight
-                                toolTipText: "Find vinyl groups in the selected game's local save files and add them to the Library view."
+                                toolTipText: "Find all supported vinyl groups in the selected game's local saves and add them to Library in one scan."
                                 enabled: !cgroupLibraryService.running
                                 onClicked: cgroupLibraryService.scanSaves(offlineGame.currentText)
                             }
@@ -258,6 +259,7 @@ Item {
 
                         GhostButton {
                             objectName: "ImportOfflineLibrary"
+                            visible: cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")
                             Layout.fillWidth: true
                             minimumWidth: 0
                             text: cgroupLibraryService.running
@@ -270,6 +272,34 @@ Item {
                                      && cgroupLibraryService.supportsOperation(offlineGame.currentText, "offline_import")
                                      && jsonService.selectedPath.length > 0
                             onClicked: cgroupLibraryService.createLayerGroupFromSelectedJson(jsonService.selectedPath, offlineGame.currentText, offlineDestination.visible && offlineStore.currentIndex === 1 ? "steam" : "wgs")
+                        }
+
+                        RowLayout {
+                            visible: offlineGame.currentText === "FH3"
+                            Layout.fillWidth: true
+                            spacing: Theme.px(8)
+                            GhostButton {
+                                objectName: "BrowseFh3Saves"
+                                Layout.fillWidth: true
+                                minimumWidth: 0
+                                text: "Save folder"
+                                iconName: "folder"
+                                dense: root.compactHeight
+                                enabled: !cgroupLibraryService.running
+                                toolTipText: "Read FH3 vinyls from a WGS save folder or an extracted copy. The folder is remembered after a successful scan; saves are never changed."
+                                onClicked: cgroupLibraryService.browseFh3Saves()
+                            }
+                            GhostButton {
+                                objectName: "ExtractFh3File"
+                                Layout.fillWidth: true
+                                minimumWidth: 0
+                                text: "Extract file"
+                                iconName: "folder"
+                                dense: root.compactHeight
+                                enabled: !cgroupLibraryService.running
+                                toolTipText: "Choose an already extracted FH3 C_group file. Keep its matching header alongside it."
+                                onClicked: cgroupLibraryService.extractFh3File()
+                            }
                         }
                             }
                         }

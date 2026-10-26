@@ -221,6 +221,29 @@ ADAPTERS: Dict[str, GameAdapter] = {
 }
 
 
+ADAPTERS["fh3"] = GameAdapter(
+    key="fh3", bridge_key="fh3", label="Forza Horizon 3", short_label="FH3",
+    aliases=("forza horizon 3",),
+    capabilities=GameCapabilities(False, False, False, True),
+    stores=(MICROSOFT_STORE, StoreVariant("files", "Extracted files", "files")),
+    ownership=OwnershipRules("unavailable", "unavailable", "decoder_rejects_non_owned", "unavailable"),
+    save_discovery=SaveDiscoveryStrategy(
+        "fh3_local_saves", "fh3_wgs_readonly", "cgroup",
+        package_tokens=("microsoft.opuspg_", "forzahorizon3"), package_markers=("wgs",),
+    ),
+    locator=LocatorStrategy("offline_only", "none", False, False),
+    shape_schema=ShapeSchemaCompatibility("fh3", "kfps_forza_json_v1", ("cgroup",), 1),
+    memory_profile=GameProfile("fh3", "Forza Horizon 3", (), (), ()),
+    offline_import_handler="",
+    scan_notice="FH3 local WGS scan: reads owned vinyls into KFPS without changing saves.",
+    offline_import_summary="FH3 is extraction-only. Importing back into FH3 is not supported.",
+    offline_import_help=(
+        "Extract existing FH3 vinyls to the KFPS Library for editing or transfer to newer games. "
+        "FH3 is not an import destination. No game-save or cloud writes."
+    ),
+)
+
+
 def get_adapter(value: str | None = None) -> GameAdapter:
     text = str(value or "fh6").strip().casefold()
     for adapter in ADAPTERS.values():
@@ -242,4 +265,5 @@ def iter_adapters() -> Iterable[GameAdapter]:
 
 
 def legacy_profiles() -> Dict[str, GameProfile]:
-    return {adapter.bridge_key: adapter.memory_profile for adapter in ADAPTERS.values()}
+    return {adapter.bridge_key: adapter.memory_profile for adapter in ADAPTERS.values()
+            if adapter.supports("live_import") or adapter.supports("live_export")}

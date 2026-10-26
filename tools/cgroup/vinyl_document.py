@@ -21,7 +21,7 @@ MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_LAYERS = 3000
 MAX_GROUP_DEPTH = 64
 MAX_GROUPS = 8192
-GAMES = {"fh4", "fh5", "fh6", "fm8"}
+GAMES = {"fh3", "fh4", "fh5", "fh6", "fm8"}
 
 
 @dataclass
@@ -170,9 +170,30 @@ def _encode_group(group: _Group, inherited_mask: bool = False) -> bytes:
     return bytes(result)
 
 
+def _encode_early_group(group: _Group, generation: int, *, root: bool = False) -> bytes:
+    """Older standalone traversal: gen 1 has no closes, gen 2 closes each block."""
+    count = len(group.children)
+    bitmap = bytearray((count + 7) // 8)
+    for index, item in enumerate(group.children):
+        if isinstance(item, _Group):
+            bitmap[index // 8] |= 1 << (index % 8)
+    marker = 0 if generation == 1 and (root or count > 1) else 0x20
+    result = bytearray(bytes((generation,)) + struct.pack("<ffff", 0, 0, 1, 0))
+    result.extend(bytes((marker,)) + struct.pack("<HH", count, len(bitmap)) + bytes(2) + bitmap)
+    for item in group.children:
+        if isinstance(item, _Group):
+            result.extend(_encode_early_group(item, generation))
+        else:
+            result.extend(b"\x01" + pack_shape(item)[2:])
+    if generation == 2:
+        result.append(1)
+    return bytes(result)
+
+
 def encode_vinyl_document(document: dict, target_game: str = "fh6") -> tuple[bytes, dict[str, Any]]:
     if target_game not in GAMES:
-        raise ValueError("Offline vinyl encoding requires FH4, FH5, FH6 or FM8.")
+        raise ValueError("Offline vinyl encoding requires FH3, FH4, FH5, FH6 or FM8.")
+    early = target_game == "fh3"
     shapes = document.get("shapes") if isinstance(document, dict) else None
     if not isinstance(shapes, list) or not shapes or len(shapes) > MAX_LAYERS:
         raise ValueError(f"A vinyl must contain between 1 and {MAX_LAYERS} shapes.")
@@ -203,6 +224,13 @@ def encode_vinyl_document(document: dict, target_game: str = "fh6") -> tuple[byt
         try:
             layer = layer_from_shape(shape, index, target_game)
             if layer:
+                if early:
+                    from .forza_source_decoder import is_known_shape_id
+                    if layer.mask:
+                        raise ValueError(f"{target_game.upper()} experimental export does not support masks. "
+                                         f"Shape {index + 1} is a mask; no artwork was discarded.")
+                    if shape.get("is_raster_logo") or not is_known_shape_id(layer.shape_id):
+                        raise ValueError(f"Shape {index + 1} is not a supported native vector shape.")
                 # Packing once rejects values outside the native float32 range.
                 pack_shape(layer)
                 records.append((layer, path))
@@ -213,7 +241,7 @@ def encode_vinyl_document(document: dict, target_game: str = "fh6") -> tuple[byt
     expected = [item[0] for item in records]
     warnings = []
     root = None
-    if not any(path for _, path in records):
+    if not early and not any(path for _, path in records):
         payload = build_flat_payload(expected)
     else:
         root = _Group()
@@ -244,10 +272,16 @@ def encode_vinyl_document(document: dict, target_game: str = "fh6") -> tuple[byt
             previous = path
         if split:
             warnings.append(f"Split {len(split)} interleaved editor group(s) to preserve drawing order.")
-        _materialize_masks(root)
+        if not early:
+            _materialize_masks(root)
         if len(root.children) > 2040:
             root = _Group([root])
-        payload = default_payload_prefix() + _encode_group(root)
+        if early:
+            payload = default_payload_prefix()[:12] + _encode_early_group(
+                root, 2, root=True,
+            )
+        else:
+            payload = default_payload_prefix() + _encode_group(root)
     verified = _verify(payload, expected, target_game, root)
     return payload, {"format": "kfps_offline_vinyl_v1", "game": target_game,
                      "layers": len(expected), "groups": verified["group_nodes"],
