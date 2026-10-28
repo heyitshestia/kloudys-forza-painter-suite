@@ -4,7 +4,7 @@
   "kind": "converter",
   "provenance": {
     "reference_commit": "33de8f5589519c6e9320617eb3c148fb602ab5ff",
-    "observed_git_head": "33de8f5589519c6e9320617eb3c148fb602ab5ff",
+    "observed_git_head": "78edc58076b7d61c6d8b1e92f806d7061a4b9c71",
     "prerequisite_inventory_sha256": "192fe644c685c90bf7a1e49eb4a15fc125fe02a85ad37cfb78f0be8851290a97"
   },
   "sources": [
@@ -71,8 +71,8 @@
     {
       "root": "lab",
       "path": "src/chassis-converter/Program.cs",
-      "bytes": 62215,
-      "sha256": "b52491257fbc80beb4195f922f4bfe5bdeb5871df97c539d32315764b4e5c005"
+      "bytes": 62557,
+      "sha256": "ef5bdc49e7994b2d8247f3d3f5c9ce4efb9426db44e892f982282b001d43a70e"
     },
     {
       "root": "lab",
@@ -421,8 +421,8 @@
     {
       "root": "build",
       "path": "publish/Kfps.LiveryLab.Converter.exe",
-      "bytes": 36725056,
-      "sha256": "072f89ff49a36552f7d1c977df051309a41fdec7c9578b9240e8054e32f24f81"
+      "bytes": 36725174,
+      "sha256": "59c27897b609a1a7aeb0a47525e32d274f6295a766ce51c2fe63f60021c481bf"
     }
   ],
   "assurance": "Exact source/build byte integrity, not a game-render parity claim."

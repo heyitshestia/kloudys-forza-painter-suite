@@ -1,5 +1,13 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.124
+
+### Studio Paintable Surfaces
+
+- Fixed missing paintable side panels and rear fins on cars such as the Porsche 917 LH FE. Studio now follows the car's native paint masks instead of restricting panels based on names like "trunk" or "wing".
+- Geometry, UV mapping and saved projects are unchanged. Existing car caches refresh automatically when the car is reopened after restarting Studio.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.123
 
 ### Bring Your FH3 Vinyls Along

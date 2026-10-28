@@ -1104,8 +1104,15 @@ internal static class Program
         return AllBodySides;
     }
 
-    private static int NativeAllowedSides(string role, string meshName, CCarParts partType, bool uv3, int validSides) =>
-        uv3 ? RenderedLiverySides(role, meshName, partType) & validSides : 0;
+    private static int NativeAllowedSides(string role, string meshName, CCarParts partType, bool uv3, int validSides)
+    {
+        if (!uv3) return 0;
+        // Assembly names do not own sections: a "trunk" can include side panels
+        // and wing endplates. Native UV3 masks, not projection heuristics, decide
+        // which pixels accept artwork. Keep body and glass domains separate.
+        var domain = role == "paint" ? AllBodySides | SideSpoiler : role == "glass" ? AllGlassSides : 0;
+        return domain & validSides;
+    }
 
     private static string LiveryRoleAfterMaskPolicy(string role, int allowedSides) =>
         allowedSides == 0 && role is "paint" or "glass" ? "trim" : role;
