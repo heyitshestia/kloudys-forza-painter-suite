@@ -34,7 +34,7 @@ real service contract can be validated together.
 - D1-backed abuse throttles and strict request, field, JSON, shape, and PNG limits
 - R2 asset hashes, generated object keys, MIME hardening, and atomic database publication
 - Browser-based moderation, Featured-slot tracking, and VERSION-policy console at `/admin`
-- Owner tag editing plus administrator-only Handmade/Toolmade reclassification
+- Owner tag editing and reclassification on re-upload after owner deletion; admin correction for active artwork
 
 ## Disposable End-to-End Test
 
@@ -84,9 +84,12 @@ tampering/expiry/account binding, and supporter-only catalog and asset isolation
 
 Updated clients explicitly declare `handmade` or `toolmade` and include a current
 KFPS client version. During rollout, the exact older request shape that lacks both
-fields remains accepted as Toolmade. Creators may change search tags later from **My uploads**, but
-cannot change classification. The operator can correct classification from `/admin`;
-the action is written to moderation history.
+fields remains accepted as Toolmade. Creators may change search tags later from
+**My uploads**. After deleting their vinyl, they may re-upload the identical design
+with either classification. This restores the existing artwork and records the
+old and new labels without creating extra contribution credit. Admin removals
+cannot be bypassed this way. Active artwork and revisions still require an
+operator correction from `/admin`; the action is written to moderation history.
 
 Featured supporter artwork exposes only its compact catalog thumbnail to visitors so
 the curated gallery can be previewed. Its full preview, artwork detail route, and JSON

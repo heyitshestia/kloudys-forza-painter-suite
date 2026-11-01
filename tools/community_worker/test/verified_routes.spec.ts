@@ -177,6 +177,255 @@ it('credits persist on owner deletion/revision/restore, without another grant',a
   expect(await count(token)).toMatchObject({eligible_vinyl_count:1});
 });
 
+it.each([
+  ['handmade','toolmade','1'],['toolmade','handmade','1'],
+  ['handmade','toolmade','0'],['toolmade','handmade','0'],
+])('owner reupload reclassifies deleted %s to %s (auto-publish %s)',async(original,classification,publish)=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(41,{classification:original}),token);
+  expect(created.status,await created.clone().text()).toBe(201);
+  const id=(await created.json() as any).artwork.id;
+  const oldRevision=await env.DB.prepare('SELECT design_key FROM artwork_revisions WHERE artwork_id=?1').bind(id).first<any>();
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  const restored=await call('/v1/artworks','POST',upload(41,{classification}),token,
+    {...runtime,AUTO_PUBLISH_VALIDATED_UPLOADS:publish,AUTO_APPROVE_TEST_UPLOADS:'0'});
+  expect(restored.status,await restored.clone().text()).toBe(201);
+  expect(await restored.json()).toMatchObject({restored:true,moderation_required:publish==='0',
+    artwork:{id,classification,status:publish==='1'?'published':'pending'}});
+  const revisions=await env.DB.prepare('SELECT design_key,manifest_json FROM artwork_revisions WHERE artwork_id=?1').bind(id).all<any>();
+  expect(revisions.results).toHaveLength(1);
+  expect(revisions.results[0].design_key).toBe(oldRevision.design_key);
+  expect(JSON.parse(revisions.results[0].manifest_json).classification).toBe(classification);
+  expect((await env.ASSETS.list()).objects).toHaveLength(3);
+  const audit=await env.DB.prepare("SELECT note FROM moderation_events WHERE artwork_id=?1 AND action='owner_restored'").bind(id).first<any>();
+  expect(audit.note).toContain(`${original} -> ${classification}`);
+  // Prior committed publication still supplies lifetime evidence, even if the restore is pending.
+  expect(await count(token)).toMatchObject({eligible_vinyl_count:classification==='handmade'?1:0});
+});
+
+it('owner reupload cycles retain one contribution and cannot undo credit revocation',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(42),token);
+  const id=(await created.json() as any).artwork.id;
+  for(const classification of ['toolmade','handmade','toolmade','handmade']) {
+    expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+    const response=await call('/v1/artworks','POST',upload(42,{classification}),token);
+    expect(response.status,await response.clone().text()).toBe(201);
+    expect(await count(token)).toMatchObject({eligible_vinyl_count:classification==='handmade'?1:0});
+  }
+  expect(await env.DB.prepare('SELECT COUNT(*) n FROM vinyl_contributions').first()).toEqual({n:1});
+  expect(await env.DB.prepare("SELECT COUNT(*) n FROM moderation_events WHERE action='credit_issued'").first()).toEqual({n:1});
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  const row=await env.DB.prepare('SELECT current_revision,content_hash FROM artworks WHERE id=?1').bind(id).first<any>();
+  const revoked=await call('/v1/admin/moderate','POST',{artwork_id:id,revision:row.current_revision,
+    content_sha256:row.content_hash,action:'credit_revoke',note:'Synthetic review'},'',runtime,true);
+  expect(revoked.status,await revoked.clone().text()).toBe(200);
+  const response=await call('/v1/artworks','POST',upload(42),token);
+  expect(response.status,await response.clone().text()).toBe(201);
+  expect((await response.json() as any).artwork.contribution.state).toBe('revoked');
+  expect(await count(token)).toMatchObject({eligible_vinyl_count:0});
+});
+
+it.each(['owner','admin'])('owner reupload uses the removal decision, not a later classification event (%s removal)',async(remover)=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(43),token);
+  const id=(await created.json() as any).artwork.id;
+  const removed=remover==='owner'?await call(`/v1/artworks/${id}`,'DELETE',undefined,token)
+    :await call('/v1/admin/moderate','POST',{artwork_id:id,action:'remove'},'',runtime,true);
+  expect(removed.status).toBe(200);
+  expect((await call('/v1/admin/moderate','POST',{artwork_id:id,action:'classify_toolmade'},'',runtime,true)).status).toBe(200);
+  const restored=await call('/v1/artworks','POST',upload(43),token);
+  expect(restored.status,await restored.clone().text()).toBe(remover==='owner'?201:409);
+  if(remover==='owner') expect(await restored.json()).toMatchObject({restored:true,artwork:{id,classification:'handmade'}});
+  else expect(await restored.json()).toMatchObject({error:'duplicate_artwork'});
+});
+
+it.each(['classify_toolmade','classify_handmade','remove'])('owner reupload does not overwrite inflight admin action %s',async(action)=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(44),token);
+  const id=(await created.json() as any).artwork.id;
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  const before=(await env.ASSETS.list()).objects.map(x=>x.key).sort();
+  let moderated=false;
+  const bucket=new Proxy(env.ASSETS,{get(target,key){
+    if(key==='put') return async(...args:Parameters<R2Bucket['put']>)=>{
+      if(!moderated) {
+        moderated=true;
+        expect((await call('/v1/admin/moderate','POST',{artwork_id:id,action},'',runtime,true)).status).toBe(200);
+      }
+      return (target.put as any)(...args);
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  const restored=await call('/v1/artworks','POST',upload(44,{classification:'toolmade'}),token,{...runtime,ASSETS:bucket});
+  expect(moderated).toBe(true);
+  expect(restored.status,await restored.clone().text()).toBe(409);
+  expect(await restored.json()).toMatchObject({error:'restore_conflict'});
+  expect(await env.DB.prepare('SELECT status,classification FROM artworks WHERE id=?1').bind(id).first())
+    .toEqual({status:'removed',classification:action==='classify_toolmade'?'toolmade':'handmade'});
+  expect((await env.ASSETS.list()).objects.map(x=>x.key).sort()).toEqual(before);
+  expect(await env.DB.prepare("SELECT COUNT(*) n FROM moderation_events WHERE action='owner_restored'").first()).toEqual({n:0});
+});
+
+it('owner reupload race commits only one classification and no duplicate credit or orphaned assets',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(45),token);
+  const id=(await created.json() as any).artwork.id;
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  let entered=0,release!:()=>void;
+  const bothRestoring=new Promise<void>(resolve=>{release=resolve;});
+  const bucket=new Proxy(env.ASSETS,{get(target,key){
+    if(key==='put') return async(...args:Parameters<R2Bucket['put']>)=>{
+      if(++entered<=2) {
+        if(entered===2) release();
+        await bothRestoring;
+      }
+      return (target.put as any)(...args);
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  const responses=await Promise.all(['handmade','toolmade'].map(classification=>
+    call('/v1/artworks','POST',upload(45,{classification}),token,{...runtime,ASSETS:bucket})));
+  expect(responses.map(r=>r.status).sort()).toEqual([201,409]);
+  const winner=await responses.find(r=>r.status===201)!.json() as any;
+  const revision=await env.DB.prepare('SELECT manifest_json,design_key,preview_key,thumbnail_key FROM artwork_revisions WHERE artwork_id=?1').bind(id).first<any>();
+  expect(JSON.parse(revision.manifest_json).classification).toBe(winner.artwork.classification);
+  expect((await env.ASSETS.list()).objects.map(x=>x.key).sort()).toEqual([revision.design_key,revision.preview_key,revision.thumbnail_key].sort());
+  expect(await count(token)).toMatchObject({eligible_vinyl_count:winner.artwork.classification==='handmade'?1:0});
+  expect(await env.DB.prepare('SELECT COUNT(*) n FROM vinyl_contributions').first()).toEqual({n:1});
+  expect(await env.DB.prepare("SELECT COUNT(*) n FROM moderation_events WHERE action='owner_restored'").first()).toEqual({n:1});
+});
+
+it('owner reupload failure preserves the removed record and allows a clean retry',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(46),token);
+  const id=(await created.json() as any).artwork.id;
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  const before=await env.DB.prepare('SELECT * FROM artwork_revisions WHERE artwork_id=?1').bind(id).first();
+  const beforeAssets=(await env.ASSETS.list()).objects.map(x=>x.key).sort();
+  const bucket=new Proxy(env.ASSETS,{get(target,key){
+    if(key==='put') return async(...args:Parameters<R2Bucket['put']>)=>{
+      if(String(args[0]).endsWith('/thumbnail.png')) throw new Error('Synthetic thumbnail write failure');
+      return (target.put as any)(...args);
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  const failed=await call('/v1/artworks','POST',upload(46,{classification:'toolmade'}),token,{...runtime,ASSETS:bucket});
+  expect(failed.status).toBe(500);
+  expect(await env.DB.prepare('SELECT * FROM artwork_revisions WHERE artwork_id=?1').bind(id).first()).toEqual(before);
+  expect(await env.DB.prepare('SELECT status,classification FROM artworks WHERE id=?1').bind(id).first()).toEqual({status:'removed',classification:'handmade'});
+  expect((await env.ASSETS.list()).objects.map(x=>x.key).sort()).toEqual(beforeAssets);
+  const retry=await call('/v1/artworks','POST',upload(46,{classification:'toolmade'}),token);
+  expect(retry.status,await retry.clone().text()).toBe(201);
+  expect(await retry.json()).toMatchObject({restored:true,artwork:{id,classification:'toolmade'}});
+});
+
+it('owner reupload detects a committed admin removal even with an earlier event timestamp',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(48),token);
+  const id=(await created.json() as any).artwork.id;
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  let removed=false;
+  const bucket=new Proxy(env.ASSETS,{get(target,key){
+    if(key==='put') return async(...args:Parameters<R2Bucket['put']>)=>{
+      if(!removed) {
+        removed=true;
+        expect((await call('/v1/admin/moderate','POST',{artwork_id:id,action:'remove'},'',runtime,true)).status).toBe(200);
+        await env.DB.prepare("UPDATE moderation_events SET created_at='2020-01-01' WHERE artwork_id=?1 AND action='remove'").bind(id).run();
+      }
+      return (target.put as any)(...args);
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  const response=await call('/v1/artworks','POST',upload(48,{classification:'toolmade'}),token,{...runtime,ASSETS:bucket});
+  expect(response.status,await response.clone().text()).toBe(409);
+  expect(await response.json()).toMatchObject({error:'restore_conflict'});
+  expect((await call('/v1/artworks','POST',upload(48),token)).status).toBe(409);
+});
+
+it('owner reupload cannot enter between an admin removal and its audit record',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(49),token);
+  const id=(await created.json() as any).artwork.id;
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  let attempted=false;
+  const db=new Proxy(env.DB,{get(target,key){
+    if(key==='batch') return async(...args:Parameters<D1Database['batch']>)=>{
+      const result=await target.batch(...args);
+      attempted=true;
+      const response=await call('/v1/artworks','POST',upload(49,{classification:'toolmade'}),token);
+      expect(response.status,await response.clone().text()).toBe(409);
+      return result;
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  expect((await call('/v1/admin/moderate','POST',{artwork_id:id,action:'remove'},'',{...runtime,DB:db},true)).status).toBe(200);
+  expect(attempted).toBe(true);
+  expect(await env.DB.prepare('SELECT status FROM artworks WHERE id=?1').bind(id).first()).toEqual({status:'removed'});
+});
+
+it('owner reupload cannot bypass an admin removal racing an owner deletion',async()=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(50),token);
+  const id=(await created.json() as any).artwork.id;
+  const db=new Proxy(env.DB,{get(target,key){
+    if(key==='batch') return async(...args:Parameters<D1Database['batch']>)=>{
+      expect((await call('/v1/admin/moderate','POST',{artwork_id:id,action:'remove'},'',runtime,true)).status).toBe(200);
+      return target.batch(...args);
+    };
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token,{...runtime,DB:db})).status).toBe(404);
+  expect((await call('/v1/artworks','POST',upload(50,{classification:'toolmade'}),token)).status).toBe(409);
+});
+
+it.each(['handmade','toolmade'])('owner reupload supports legacy clients reclassifying to %s, not active or other-owner copies',async(classification)=>{
+  const token=await account(),other=await account('other');
+  const legacy={...runtime,COMMUNITY_ACCESS_POLICY:'legacy'};
+  const body=upload(47,{classification:classification==='handmade'?'toolmade':'handmade'});
+  const created=await call('/v1/artworks','POST',body,token,legacy);
+  expect(created.status,await created.clone().text()).toBe(201);
+  const id=(await created.json() as any).artwork.id;
+  const reclassified={...body,classification};
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,other,legacy)).status).toBe(404);
+  expect((await call(`/v1/artworks/${id}/favorite`,'POST',{favorite:true},other,legacy)).status).toBe(200);
+  expect((await call('/v1/artworks','POST',reclassified,token,legacy)).status).toBe(409);
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token,legacy)).status).toBe(200);
+  expect((await call('/v1/artworks','POST',reclassified,other,legacy)).status).toBe(409);
+  const restored=await call('/v1/artworks','POST',reclassified,token,legacy);
+  expect(restored.status,await restored.clone().text()).toBe(201);
+  expect(await restored.json()).toMatchObject({restored:true,artwork:{id,classification}});
+  const viewed=await call(`/v1/artworks/${id}`,'GET',undefined,other,legacy);
+  expect(viewed.status,await viewed.clone().text()).toBe(200);
+  expect(await viewed.json()).toMatchObject({artwork:{id,classification,favorited:true,creator:{username:'owner'}}});
+});
+
+it.each(['owner_remove','remove','classify_toolmade'])('owner reupload cannot observe a partially failed %s transaction',async(action)=>{
+  const token=await account();
+  const created=await call('/v1/artworks','POST',upload(51),token);
+  const id=(await created.json() as any).artwork.id;
+  const beforeArtwork=await env.DB.prepare('SELECT * FROM artworks WHERE id=?1').bind(id).first();
+  const beforeRevision=await env.DB.prepare('SELECT * FROM artwork_revisions WHERE artwork_id=?1').bind(id).first();
+  const beforeAudit=await env.DB.prepare('SELECT * FROM moderation_events WHERE artwork_id=?1 ORDER BY rowid').bind(id).all();
+  const db=new Proxy(env.DB,{get(target,key){
+    if(key==='batch') return async(statements:D1PreparedStatement[])=>target.batch([
+      ...statements,
+      env.DB.prepare("INSERT INTO service_settings(key,value,updated_at) VALUES('verified_fingerprints_v1','duplicate','2020-01-01')"),
+    ]);
+    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+  }});
+  const failed=action==='owner_remove'?await call(`/v1/artworks/${id}`,'DELETE',undefined,token,{...runtime,DB:db})
+    :await call('/v1/admin/moderate','POST',{artwork_id:id,action},'',{...runtime,DB:db},true);
+  expect(failed.status).toBe(500);
+  expect(await env.DB.prepare('SELECT * FROM artworks WHERE id=?1').bind(id).first()).toEqual(beforeArtwork);
+  expect(await env.DB.prepare('SELECT * FROM artwork_revisions WHERE artwork_id=?1').bind(id).first()).toEqual(beforeRevision);
+  expect((await env.DB.prepare('SELECT * FROM moderation_events WHERE artwork_id=?1 ORDER BY rowid').bind(id).all()).results).toEqual(beforeAudit.results);
+  expect(await env.DB.prepare('SELECT COUNT(*) n FROM artwork_search WHERE artwork_id=?1').bind(id).first()).toEqual({n:1});
+  expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
+  const retry=await call('/v1/artworks','POST',upload(51,{classification:'toolmade'}),token);
+  expect(retry.status,await retry.clone().text()).toBe(201);
+});
+
 it('historical index resumes, detects collisions, preserves files and permission, and cannot finalize incomplete evidence',async()=>{
   const token=await account();
   for(let i=0;i<3;i++) {

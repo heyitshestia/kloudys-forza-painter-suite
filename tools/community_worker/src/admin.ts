@@ -390,6 +390,10 @@ export async function handleAdminModerate(request: Request, env: Env): Promise<R
   }>();
   if (!artwork) throw new HttpError(404, "artwork_not_found");
   const now = new Date().toISOString();
+  const auditStatement = env.DB.prepare(
+    "INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at) VALUES (?1, ?2, 'admin', ?3, ?4, ?5)",
+  ).bind(crypto.randomUUID(), artworkId, action, note, now);
+  let auditCommitted = false;
 
   if (action === "feature" || action === "unfeature") {
     if (artwork.status !== "published") throw new HttpError(409, "artwork_not_published");
@@ -420,13 +424,17 @@ export async function handleAdminModerate(request: Request, env: Env): Promise<R
       env.DB.prepare(
         "UPDATE artwork_revisions SET manifest_json = json_set(manifest_json, '$.classification', ?2) WHERE artwork_id = ?1",
       ).bind(artworkId, classification),
+      auditStatement,
     ]);
+    auditCommitted = true;
   } else if (action === "remove") {
     await env.DB.batch([
       env.DB.prepare("UPDATE artworks SET status = 'removed', featured = 0, updated_at = ?2 WHERE id = ?1").bind(artworkId, now),
       env.DB.prepare("UPDATE artwork_revisions SET status = 'removed' WHERE artwork_id = ?1").bind(artworkId),
       env.DB.prepare("DELETE FROM artwork_search WHERE artwork_id = ?1").bind(artworkId),
+      auditStatement,
     ]);
+    auditCommitted = true;
   } else {
     const revision = Number.isInteger(requestedRevision) && requestedRevision > 0
       ? requestedRevision
@@ -498,9 +506,7 @@ export async function handleAdminModerate(request: Request, env: Env): Promise<R
     }
   }
 
-  await env.DB.prepare(
-    "INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at) VALUES (?1, ?2, 'admin', ?3, ?4, ?5)",
-  ).bind(crypto.randomUUID(), artworkId, action, note, now).run();
+  if (!auditCommitted) await auditStatement.run();
   const featuredCount = Number((await env.DB.prepare(
     "SELECT COUNT(*) AS total FROM artworks WHERE status = 'published' AND featured = 1",
   ).first<{ total: number }>())?.total || 0);

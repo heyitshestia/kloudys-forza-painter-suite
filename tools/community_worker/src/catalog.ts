@@ -425,6 +425,7 @@ interface OwnerRemovedArtwork {
   supporter_only: number;
   preview_key: string;
   thumbnail_key: string;
+  moderation_event_id: string;
 }
 
 async function ownerRemovedArtwork(
@@ -432,8 +433,11 @@ async function ownerRemovedArtwork(
   creatorId: string,
   contentHash: string,
 ): Promise<OwnerRemovedArtwork | null> {
+  // Audit insertion order reflects committed changes; request timestamps can arrive late.
   return env.DB.prepare(
-    `SELECT a.id, a.current_revision, a.classification, a.supporter_only, r.preview_key, r.thumbnail_key
+    `SELECT a.id, a.current_revision, a.classification, a.supporter_only, r.preview_key, r.thumbnail_key,
+            (SELECT me.id FROM moderation_events me WHERE me.artwork_id = a.id
+              ORDER BY me.rowid DESC LIMIT 1) AS moderation_event_id
        FROM artworks a
        JOIN artwork_revisions r
          ON r.artwork_id = a.id AND r.revision = a.current_revision
@@ -444,8 +448,8 @@ async function ownerRemovedArtwork(
         AND a.content_hash = ?2
         AND r.content_hash = ?2
         AND (SELECT me.action FROM moderation_events me
-              WHERE me.artwork_id = a.id
-              ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed'
+              WHERE me.artwork_id = a.id AND me.action IN ('owner_removed', 'remove')
+              ORDER BY me.rowid DESC LIMIT 1) = 'owner_removed'
       ORDER BY a.updated_at DESC LIMIT 1`,
   ).bind(creatorId, contentHash).first<OwnerRemovedArtwork>();
 }
@@ -553,14 +557,12 @@ async function restoreOwnerRemovedArtwork(
   const revision = integerValue(removed.current_revision);
   const now = new Date().toISOString();
   const status = autoPublish ? "published" : "pending";
-  if (upload.classification !== removed.classification) {
-    throw new HttpError(409, "classification_immutable", "This upload was already classified and can only be reclassified by an administrator.");
-  }
   const supporterOnly = upload.supporterOnly;
   if (supporterOnly) requireRestrictedAccess(await getViewerAccess(env,request,user));
-  const classification = removed.classification;
+  const classification = upload.classification;
   const assets = await writeRestoredPreviewAssets(env, id, revision, upload);
   try {
+    // Accept a new owner declaration, but do not overwrite changes made during upload.
     const statements = [
       env.DB.prepare(
         `UPDATE artwork_revisions
@@ -574,16 +576,16 @@ async function restoreOwnerRemovedArtwork(
             AND EXISTS(
               SELECT 1 FROM artworks a
                WHERE a.id = ?1 AND a.creator_id = ?13 AND a.status = 'removed'
-                 AND a.classification=json_extract(?9,'$.classification')
-                 AND (SELECT me.action FROM moderation_events me
+                 AND a.classification = ?15 AND a.current_revision = ?2
+                 AND (SELECT me.id FROM moderation_events me
                        WHERE me.artwork_id = a.id
-                       ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed'
+                       ORDER BY me.rowid DESC LIMIT 1) = ?16
             ) RETURNING artwork_id`,
       ).bind(
         id, revision, upload.previewHash, upload.thumbnailHash,
         assets.previewKey, assets.thumbnailKey, upload.previewBytes.length, upload.thumbnailBytes.length,
         revisionManifest(upload, classification, supporterOnly), status, removed.preview_key, upload.contentHash, user.id,
-        upload.usesMasks ? 1 : 0,
+        upload.usesMasks ? 1 : 0, removed.classification, removed.moderation_event_id,
       ),
       env.DB.prepare(
         `UPDATE artworks
@@ -600,9 +602,9 @@ async function restoreOwnerRemovedArtwork(
               SELECT 1 FROM artwork_revisions r
                WHERE r.artwork_id = ?1 AND r.revision = ?4 AND r.preview_key = ?5 AND r.status = ?6
             )
-            AND (SELECT me.action FROM moderation_events me
+            AND (SELECT me.id FROM moderation_events me
                   WHERE me.artwork_id = ?1
-                  ORDER BY me.created_at DESC, me.rowid DESC LIMIT 1) = 'owner_removed' RETURNING id`,
+                  ORDER BY me.rowid DESC LIMIT 1) = ?25 RETURNING id`,
       ).bind(
         id, user.id, upload.contentHash, revision, assets.previewKey, status,
         upload.title, upload.description, upload.category, JSON.stringify(upload.tags),
@@ -610,7 +612,7 @@ async function restoreOwnerRemovedArtwork(
         upload.license, upload.shapeCount, upload.groupCount,
          upload.previewHash, upload.thumbnailHash, now,
         classification, upload.usesMasks ? 1 : 0, supporterOnly ? 1 : 0,
-        upload.startsAt, upload.endsAt,
+        upload.startsAt, upload.endsAt, removed.moderation_event_id,
        ),
     ];
     if (autoPublish) {
@@ -632,14 +634,15 @@ async function restoreOwnerRemovedArtwork(
     }
     statements.push(env.DB.prepare(
       `INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at)
-       SELECT ?1, ?2, ?3, 'owner_restored', 'Revalidated with regenerated preview assets and owner-selected audience.', ?4
+       SELECT ?1, ?2, ?3, 'owner_restored', ?7, ?4
         WHERE EXISTS(SELECT 1 FROM artwork_revisions r
                       WHERE r.artwork_id = ?2 AND r.revision = ?5 AND r.preview_key = ?6)`,
-    ).bind(crypto.randomUUID(), id, user.username, now, revision, assets.previewKey));
+    ).bind(crypto.randomUUID(), id, user.username, now, revision, assets.previewKey,
+      `Revalidated with regenerated preview assets and owner-selected audience. Classification: ${removed.classification} -> ${classification}.`));
     statements.push(...uploadCreditStatements(env,user,upload,id,revision,assets.previewKey));
     const results = await env.DB.batch(statements);
     if (results[0]?.results.length !== 1 || results[1]?.results.length !== 1) {
-      throw new HttpError(409, "restore_conflict", "This artwork was already restored. Refresh the library and try again.");
+      throw new HttpError(409, "restore_conflict", "This artwork changed while it was being restored. Refresh the library and try again.");
     }
   } catch (error) {
     await Promise.all([env.ASSETS.delete(assets.previewKey), env.ASSETS.delete(assets.thumbnailKey)]);
@@ -1061,18 +1064,30 @@ export async function handleReport(request: Request, env: Env, id: string): Prom
 
 export async function handleRemoveArtwork(request: Request, env: Env, id: string): Promise<Response> {
   const user = await requireUser(request, env);
-  const result = await env.DB.prepare(
-    `UPDATE artworks SET status = 'removed', featured = 0, updated_at = ?3
-      WHERE id = ?1 AND creator_id = ?2 AND status <> 'removed' RETURNING id`,
-  ).bind(id, user.id, new Date().toISOString()).first();
-  if (!result) throw new HttpError(404, "artwork_not_found");
   const now = new Date().toISOString();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE artwork_revisions SET status = 'removed' WHERE artwork_id = ?1").bind(id),
-    env.DB.prepare("DELETE FROM artwork_search WHERE artwork_id = ?1").bind(id),
+  const eventId = crypto.randomUUID();
+  // Commit the removal decision and status together, so an admin removal cannot be relabeled.
+  const results = await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at) VALUES (?1, ?2, ?3, 'owner_removed', '', ?4)",
-    ).bind(crypto.randomUUID(), id, user.username, now),
+      `INSERT INTO moderation_events(id, artwork_id, actor, action, note, created_at)
+       SELECT ?1, ?2, ?3, 'owner_removed', '', ?4
+        WHERE EXISTS(SELECT 1 FROM artworks WHERE id = ?2 AND creator_id = ?5 AND status <> 'removed')
+       RETURNING id`,
+    ).bind(eventId, id, user.username, now, user.id),
+    env.DB.prepare(
+      `UPDATE artworks SET status = 'removed', featured = 0, updated_at = ?3
+        WHERE id = ?1 AND creator_id = ?2
+          AND EXISTS(SELECT 1 FROM moderation_events WHERE id = ?4)`,
+    ).bind(id, user.id, now, eventId),
+    env.DB.prepare(
+      `UPDATE artwork_revisions SET status = 'removed' WHERE artwork_id = ?1
+        AND EXISTS(SELECT 1 FROM moderation_events WHERE id = ?2)`,
+    ).bind(id, eventId),
+    env.DB.prepare(
+      `DELETE FROM artwork_search WHERE artwork_id = ?1
+        AND EXISTS(SELECT 1 FROM moderation_events WHERE id = ?2)`,
+    ).bind(id, eventId),
   ]);
+  if (results[0]?.results.length !== 1) throw new HttpError(404, "artwork_not_found");
   return jsonResponse({ removed: true });
 }

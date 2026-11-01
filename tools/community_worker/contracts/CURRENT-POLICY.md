@@ -1,6 +1,6 @@
 # Current Policy Overrides
 
-2026-10-19. Current source policy, superseding the earlier preflight contract.
+2026-11-01. Current source policy, superseding the earlier preflight contract.
 This document does not assert that the live service has enabled Verified:
 
 1. Ordinary Verified requires 14 * 24 hours from first validated GitHub Community
@@ -49,10 +49,32 @@ This document does not assert that the live service has enabled Verified:
 
 Classification is an existing creator declaration with admin correction. It is
 not proof of original authorship. Qualification and counts require Handmade;
-an admin correction to Toolmade removes that contribution from the effective count
+a correction to Toolmade removes that contribution from the effective count
 without deleting the ledger/audit. Reclassification back to Handmade reevaluates
 the same original contribution, never creates a second one. Explicit revocation
 remains sticky. Removal/expiry retains credit for honestly qualified Handmade work.
+
+### Owner Re-upload After Deletion
+
+When the same owner re-uploads an identical, owner-deleted vinyl, restoration
+accepts either Handmade or Toolmade regardless of the previous classification.
+It reuses the artwork and current revision, retaining history and the original
+contribution identity. The restoration audit records the old and new labels.
+Active uploads and revisions still cannot be reclassified by their creator.
+
+Restoration uses the latest removal decision, not later classification or credit
+audit events. Admin-removed, expired or purged artwork remains ineligible for
+owner restoration; other users cannot claim the deleted design. If moderation or
+another restoration changes the record during upload, the stale request fails
+without overwriting it. Owner/admin removal and admin classification commit their
+audit records atomically with the change; restoration checks committed audit
+insertion order rather than request timestamps.
+
+Credit revocation stays sticky and repeated restoration does not create extra
+contribution credit. A prior valid publication remains lifetime evidence when
+the corrected restoration is pending; classification changes reevaluate that
+same historical contribution, not a new one. Existing publication/moderation and
+audience checks still apply. No schema or client protocol change is required.
 
 Legacy remains the default. No schema update is a deployment or a live policy
 change. No raw key, personal data or live customer record is used in local tests.
