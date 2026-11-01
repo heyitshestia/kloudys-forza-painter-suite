@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _test_evidence import evidence_directory, evidence_root
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 # Children inherit redirected TEMP, so freeze the evidence boundary first.
 os.environ.setdefault("KFPS_TEST_EVIDENCE_ROOT", str(evidence_root()))
 RUN = evidence_directory("studio-host-20261026", "KFPS_STUDIO_HOST_TEST_RUN")
@@ -41,7 +42,16 @@ if "--standalone-child" in sys.argv:
     sys.argv = [str(Path(native_host.__file__)), "--root", str(ROOT), "--url", url,
                 "--run", str(native_host.LAB / "runs/session"), "--offscreen", "--auto-close", ".2",
                 "--test-control"]
-    raise SystemExit(native_host.main())
+    # This protocol fixture may run under setup-python in a source-only CI tree.
+    # Still verify every dependency origin against that selected test runtime.
+    # Immutable bundled-runtime admission is exercised by the packaged probes.
+    from kfps_editor import baseline
+    verify_origins = baseline.verify_import_origins
+    def verify_test_origins(requested):
+        assert Path(requested).resolve() == ROOT / "python"
+        return verify_origins(Path(sys.executable).resolve().parent)
+    with patch.object(baseline, "verify_import_origins", verify_test_origins):
+        raise SystemExit(native_host.main())
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtQuick import QQuickWindow
