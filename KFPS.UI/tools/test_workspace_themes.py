@@ -73,6 +73,8 @@ def install(app, window, controller, community, settings, jsons, app_args):
     routes = ('create', 'outputs', 'liveries', 'community', 'editor', 'tools', 'settings', 'help', 'support', 'update')
     cases = [(preset.name, page) for preset in THEME_PRESETS for page in routes]
     captured = set()
+    loaded_routes = set()
+    slow_cold_loads = []
 
     def all_items():
         pending = [window.contentItem()]
@@ -87,7 +89,9 @@ def install(app, window, controller, community, settings, jsons, app_args):
     def finish(error=None):
         report = {'passed':error is None, 'error':repr(error) if error else None, 'checks':results,
                   'messages':sorted(set(messages)), 'dimensions':[args.width,args.height],
-                  'scale':args.scale, 'graphics':str(window.rendererInterface().graphicsApi())}
+                  'scale':args.scale, 'graphics':str(window.rendererInterface().graphicsApi()),
+                  'slow_cold_loads':slow_cold_loads,
+                  'load_budgets_seconds':{'cold':30, 'cached':12}}
         (run/'results.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         print(json.dumps({'passed':report['passed'], 'error':report['error'], 'checks':len(results)}), flush=True)
         shell.close()
@@ -100,6 +104,7 @@ def install(app, window, controller, community, settings, jsons, app_args):
         theme, route = cases[index]
         settings.theme = theme
         started = time.monotonic()
+        cold_load = route not in loaded_routes
 
         def navigate():
             try:
@@ -121,7 +126,16 @@ def install(app, window, controller, community, settings, jsons, app_args):
                 host = find('CachedPageHost')
                 page = host.property('item') if host else None
                 if page is None or host.property('currentPage') != route:
-                    assert time.monotonic()-started < 12, (theme,route,'load timeout')
+                    # Cold QML compilation on an inactive software-rendered
+                    # Windows runner is not a cached-navigation latency check.
+                    # Keep slow cold loads visible rather than hiding the cost.
+                    elapsed = time.monotonic()-started
+                    budget = 30 if cold_load else 12
+                    assert elapsed < budget, (theme,route,'load timeout',{
+                        'seconds':round(elapsed,3), 'cold':cold_load,
+                        'host_page':host.property('currentPage') if host else None,
+                        'controller_page':controller.currentPage,
+                        'item_present':page is not None})
                     QTimer.singleShot(100, inspect)
                     return
                 assert controller.currentPage == route and settings.theme == theme
@@ -155,8 +169,14 @@ def install(app, window, controller, community, settings, jsons, app_args):
                         content = bitmap.convert('RGB').crop((20, 60, bitmap.width-20, bitmap.height-20))
                         assert content.entropy() > 1.8, (theme,route,'Blank native capture')
                     captured.add(str(target))
+                elapsed = round(time.monotonic()-started,3)
+                if cold_load and elapsed >= 12:
+                    warning = {'theme':theme, 'route':route, 'seconds':elapsed}
+                    slow_cold_loads.append(warning)
+                    print(json.dumps({'slow_cold_load':warning}), flush=True)
+                loaded_routes.add(route)
                 results.append({'theme':theme,'route':route,'page_size':[page.width(),page.height()],
-                                'seconds':round(time.monotonic()-started,3),
+                                'seconds':elapsed, 'cold_load':cold_load,
                                 'qt_active':shell.isActiveWindow(), 'native_foreground_owned':False})
                 (run/'progress.json').write_text(json.dumps(results[-1]),encoding='utf-8')
                 QTimer.singleShot(20,lambda:check_case(index+1))

@@ -77,7 +77,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: workspace-theme-evidence
+          name: workspace-theme-evidence-${{ github.run_attempt }}
           path: |
             runtime/ci-workspace-themes/*.json
             runtime/ci-workspace-themes/*.png
