@@ -14,6 +14,7 @@ ApplicationWindow {
     minimumHeight: Metrics.minHeight
     visible: false
     color: Theme.backgroundA
+    readonly property bool instrumentInterface: Theme.chromeMetric("instrumentInterface", 0) > 0
     readonly property bool dashboardNavigationVisible: Theme.chromeMetric("dashboardNavigation", 0) > 0 && sidebar.dashboardVisible
     title: dashboardNavigationVisible ? "KFPS - Main Menu" : appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -149,7 +150,7 @@ ApplicationWindow {
 
             Sidebar {
                 id: sidebar
-                visible: !dashboardVisible
+                visible: !dashboardVisible && !window.instrumentInterface
                 enabled: visible
                 compact: window.compactSidebar || Theme.chromeMetric("dashboardNavigation", 0) > 0
                 railWidth: window.sidebarWidth
@@ -166,7 +167,7 @@ ApplicationWindow {
                 objectName: "ApplicationWorkspace"
                 visible: !sidebar.dashboardVisible
                 enabled: visible
-                anchors.left: sidebar.right
+                anchors.left: window.instrumentInterface ? parent.left : sidebar.right
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
@@ -277,6 +278,7 @@ ApplicationWindow {
 
                 GhostButton {
                     id: joinServerButton
+                    visible: !window.instrumentInterface
                     objectName: "JoinSupportServer"
                     text: "Join the server"
                     iconName: "heart"
@@ -294,7 +296,7 @@ ApplicationWindow {
                 AnnouncementTicker {
                     id: announcementTicker
                     compact: window.communityReviewPage || window.compactHeader
-                    visible: settings.liveStatusVisible
+                    visible: settings.liveStatusVisible && !window.instrumentInterface
                     anchors.top: parent.top
                     anchors.topMargin: Theme.px(window.shortWindow ? 7 : 9)
                     x: joinServerButton.x + joinServerButton.width + Theme.px(8)
@@ -306,7 +308,7 @@ ApplicationWindow {
 
                 HeaderControls {
                     id: headerControls
-                    visible: !window.communityReviewPage
+                    visible: !window.communityReviewPage && !window.instrumentInterface
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.right: parent.right
@@ -317,7 +319,7 @@ ApplicationWindow {
 
                 VersionPill {
                     id: versionPill
-                    visible: !window.communityReviewPage
+                    visible: !window.communityReviewPage && !window.instrumentInterface
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin
@@ -328,7 +330,7 @@ ApplicationWindow {
                 }
 
                 SupporterPill {
-                    visible: supporterService.unlocked && !window.communityReviewPage
+                    visible: supporterService.unlocked && !window.communityReviewPage && !window.instrumentInterface
                     compact: window.compactHeader
                     anchors.top: parent.top
                     anchors.topMargin: workspace.controlsTopMargin + Theme.px(2)
@@ -352,7 +354,7 @@ ApplicationWindow {
                     anchors.bottom: parent.bottom
                     anchors.leftMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceLeftInset", 12))
                     anchors.rightMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceRightInset", 14))
-                    anchors.topMargin: window.headerHeight
+                    anchors.topMargin: window.instrumentInterface ? Theme.px(window.shortWindow ? 70 : 86) : window.headerHeight
                     anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceBottomInset", 11))
                     spacing: Theme.terminalMode ? 0 : Theme.px(10)
 
@@ -364,10 +366,16 @@ ApplicationWindow {
                         clip: true
                         currentPage: appController.currentPage
                         opacity: 1
+                        transform: Translate {
+                            x: pageTransition.contentOffsetX
+                            y: pageTransition.contentOffsetY
+                        }
 
                         onPageLoaded: function(page, item) {
                             if (page === "liveries" && item)
                                 item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged
+                            if (page === currentPage && pageTransition.replayOnContentReady)
+                                pageTransition.play()
                         }
 
                         onCurrentPageChanged: {
@@ -419,6 +427,14 @@ ApplicationWindow {
                     z: 140
                 }
             }
+
+            Loader {
+                id: instrumentConsole
+                anchors.fill: parent
+                active: window.instrumentInterface
+                source: "themes/2049/ArchiveConsole.qml"
+                z: 30
+            }
         }
     }
 
@@ -430,13 +446,13 @@ ApplicationWindow {
 
     FeatureWelcomeOverlay {
         id: featureWelcome
-        targetItem: sidebar.reportTarget
+        targetItem: instrumentConsole.item ? instrumentConsole.item.reportTarget : sidebar.reportTarget
         onUpscalerRequested: appController.navigate("upscaler")
     }
 
     CommunityWelcomeOverlay {
         id: communityWelcome
-        targetItem: joinServerButton
+        targetItem: instrumentConsole.item ? instrumentConsole.item.joinTarget : joinServerButton
         onJoinRequested: reportService.openDiscord()
     }
 

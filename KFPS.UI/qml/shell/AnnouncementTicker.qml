@@ -2,6 +2,7 @@ import QtQuick 6.7
 import QtQuick.Controls 6.7
 import QtQuick.Effects 6.7
 import QtQuick.Layouts 6.7
+import QtQuick.Window 6.7
 import Kfps.Theme 1.0
 import "../components"
 
@@ -12,6 +13,7 @@ GlassPanel {
 
     property bool compact: false
     property bool paused: false
+    readonly property bool motionAllowed: visible && Window.window && Window.window.active && Window.window.visibility !== Window.Minimized && !Theme.reducedMotion && !paused && !screenshotMode
     readonly property bool hovered: tickerMouse.containsMouse
     readonly property bool pressed: tickerMouse.pressed
     readonly property string severity: announcementService.severity
@@ -51,22 +53,15 @@ GlassPanel {
     }
 
     function restartScroll() {
-        if (!visible || Theme.reducedMotion || paused)
-            return
+        restartTimer.stop()
         scrollAnimation.stop()
-        restartTimer.restart()
+        if (motionAllowed)
+            restartTimer.restart()
     }
 
-    onVisibleChanged: restartScroll()
+    onMotionAllowedChanged: restartScroll()
     onWidthChanged: restartScroll()
     onEffectiveTextChanged: restartScroll()
-    onPausedChanged: {
-        if (paused) {
-            scrollAnimation.stop()
-        } else {
-            restartScroll()
-        }
-    }
 
     Connections {
         target: announcementService
@@ -77,9 +72,12 @@ GlassPanel {
 
     Timer {
         id: restartTimer
+        objectName: "TickerRestartTimer"
         interval: 80
         repeat: false
         onTriggered: {
+            if (!root.motionAllowed)
+                return
             tickerTrack.x = 0
             scrollAnimation.restart()
         }
@@ -100,7 +98,7 @@ GlassPanel {
             opacity: announcementService.checking ? 0.55 : 1.0
 
             SequentialAnimation on opacity {
-                running: announcementService.checking && !Theme.reducedMotion
+                running: announcementService.checking && root.motionAllowed
                 loops: Animation.Infinite
                 NumberAnimation { to: 0.35; duration: 360 }
                 NumberAnimation { to: 1.0; duration: 360 }
@@ -139,7 +137,7 @@ GlassPanel {
 
             Item {
                 id: tickerTrack
-                visible: !Theme.reducedMotion && !root.paused
+                visible: root.motionAllowed
                 x: 0
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
@@ -164,8 +162,8 @@ GlassPanel {
 
             NumberAnimation {
                 id: scrollAnimation
+                objectName: "TickerScrollAnimation"
                 loops: Animation.Infinite
-                running: root.visible && !Theme.reducedMotion && !root.paused
                 target: tickerTrack
                 property: "x"
                 from: 0
@@ -176,7 +174,7 @@ GlassPanel {
 
             Text {
                 anchors.fill: parent
-                visible: Theme.reducedMotion || root.paused
+                visible: !root.motionAllowed
                 text: root.terminalText
                 color: Theme.text
                 font.family: Theme.fontFamily

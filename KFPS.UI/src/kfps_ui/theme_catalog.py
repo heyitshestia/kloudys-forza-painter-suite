@@ -15,6 +15,7 @@ RX93_PSYCHO_FRAME_THEME = "RX-93 Psycho-Frame"
 ORIGINAL_XBOX_THEME = "Original Xbox"
 ORIGINAL_PS2_THEME = "Original PS2"
 NIER_AUTOMATA_THEME = "NieR Automata"
+ARCHIVE_2049_THEME = "2049"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(ORIGINAL_XBOX_THEME, "PaletteOriginalXbox"),
     ThemePreset(ORIGINAL_PS2_THEME, "PaletteOriginalPs2"),
     ThemePreset(NIER_AUTOMATA_THEME, "PaletteNierAutomata"),
+    ThemePreset(ARCHIVE_2049_THEME, "Palette2049"),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

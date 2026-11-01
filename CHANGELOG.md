@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.126
+
+### 2049
+
+- Added 2049, a new free theme built around an analog instrument display: worn glass, phosphor lines, pale green selections and a moving scan band.
+- Gave it its own full-width layout, bottom navigation and a Create workspace with separate source and output views. The existing generator options, queue, checkpoints and stop controls are all still there.
+- Background motion pauses when KFPS is inactive or minimized, and respects Reduced Motion and Ambient background motion. Artwork stays unfiltered so you can judge its actual colours.
+- Fixed the live status ticker continuing to animate in an inactive window, and improved selected Help labels' contrast.
+- Existing themes, settings, projects and editor workflows stay intact. Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.125
 
 ### Apex Vector Reworked

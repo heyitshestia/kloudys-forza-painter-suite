@@ -14,6 +14,23 @@ Item {
     property bool threeColumns: Theme.logical(width) >= 1180
     property bool compactHeight: Theme.logical(height) < 720
     property bool checkpointsManual: false
+    // The instrument presentation shares these controls' state and action path.
+    property alias templateLayers: layers.text
+    property alias checkpointValues: checkpoints.text
+    property alias detailEnabled: heat.checked
+    property alias lumaEnabled: luma.checked
+    property alias repairEnabled: repair.checked
+    property alias boostEnabled: boost.checked
+    property alias maxResolution: maxRes.text
+    property alias randomCount: randomSamples.text
+    property alias mutatedCount: mutatedSamples.text
+    property alias seedValue: seed.text
+    readonly property bool instrumentInterface: Theme.chromeMetric("instrumentInterface", 0) > 0
+
+    function beginGeneration() {
+        generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.text, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
+    }
+    function requestForceStop() { forceDialog.open() }
     readonly property string generatedPreviewUrl: generationService.previewUrl
                                                    ? generationService.previewUrl
                                                      + (generationService.previewUrl.indexOf("?") >= 0 ? "&" : "?")
@@ -92,6 +109,7 @@ Item {
 
     FastScrollView {
         id: pageScroll
+        visible: !root.instrumentInterface
         anchors.fill: parent
         contentWidth: availableWidth
         clip: true
@@ -341,7 +359,7 @@ Item {
                     iconName: "generate"
                     toolTipText: "Start generating every queued image with the selected layer budget, checkpoints, and options."
                     enabled: !generationService.running
-                    onClicked: generationService.startQueue(sourceService.queuedPaths, preset.currentIndex, layers.text, checkpoints.text, luma.checked, heat.checked, repair.checked, boost.checked, settings.manualOverrides, settings.manualOverrides ? maxRes.text : "", settings.manualOverrides ? randomSamples.text : "", settings.manualOverrides ? mutatedSamples.text : "", settings.manualOverrides ? (parseInt(seed.text) || 0) : 0)
+                    onClicked: root.beginGeneration()
                 }
 
                 GridLayout {
@@ -445,7 +463,7 @@ Item {
                     Image {
                         anchors.fill: parent
                         anchors.margins: Theme.px(18)
-                        source: root.generatedPreviewUrl || sourceService.url
+                        source: root.instrumentInterface ? "" : root.generatedPreviewUrl || sourceService.url
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: false
@@ -642,7 +660,7 @@ Item {
                                 id: sideLiveLogText
                                 width: sideLiveLogScroll.width
                                 height: Math.max(contentHeight + Theme.px(10), sideLiveLogScroll.height)
-                                text: generationService.liveLog
+                                text: root.instrumentInterface ? "" : generationService.liveLog
                                 readOnly: true
                                 selectByMouse: true
                                 persistentSelection: true
@@ -673,6 +691,13 @@ Item {
             }
         }
     }
+    }
+
+    Loader {
+        anchors.fill: parent
+        active: root.instrumentInterface
+        source: "../themes/2049/ArchiveWorkbench.qml"
+        onLoaded: item.session = root
     }
 
     MessageDialog {

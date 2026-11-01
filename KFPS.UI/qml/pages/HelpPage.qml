@@ -349,7 +349,8 @@ Item {
                         Text {
                             width: parent.width
                             text: topicButton.match
-                            color: Theme.subtle
+                            color: topicButton.index === topicList.currentIndex && !Theme.floatingPanelsEnabled
+                                   ? Theme.primaryText : Theme.subtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.px(10.4)
                             font.capitalization: Font.AllUppercase

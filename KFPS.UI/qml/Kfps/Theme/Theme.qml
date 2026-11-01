@@ -31,7 +31,8 @@ QtObject {
     readonly property QtObject originalXbox: PaletteOriginalXbox {}
     readonly property QtObject originalPs2: PaletteOriginalPs2 {}
     readonly property QtObject nierAutomata: PaletteNierAutomata {}
-    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077, rx93PsychoFrame, originalXbox, originalPs2, nierAutomata]
+    readonly property QtObject archive2049: Palette2049 {}
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077, rx93PsychoFrame, originalXbox, originalPs2, nierAutomata, archive2049]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
