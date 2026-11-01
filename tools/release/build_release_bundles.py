@@ -335,6 +335,14 @@ def validate_python_runtime(source: Path, requirements_lock: Path) -> None:
 
 def synchronize_python_runtime(source: Path, requirements_lock: Path) -> None:
     source = source.resolve()
+    # Reinstalling valid wheels rewrites launcher paths and their RECORD hashes.
+    # Preserve the verified runtime so bundles and signed updates stay identical.
+    try:
+        validate_python_runtime(source, requirements_lock)
+    except (RuntimeError, subprocess.CalledProcessError):
+        pass
+    else:
+        return
     python = source / "python.exe"
     locked = locked_python_distributions(requirements_lock)
     installed = installed_python_distributions(source)

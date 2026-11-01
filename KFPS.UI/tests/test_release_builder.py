@@ -257,6 +257,7 @@ class ReleaseBuilderTests(unittest.TestCase):
             requirements = Path(temporary) / "requirements.lock.txt"
             requirements.write_text("numpy==1.26.4\n", encoding="ascii")
             installed.return_value = {"numpy": "1.26.4", "opencv-python": "4.9.0.80"}
+            validate.side_effect = [RuntimeError("unexpected package"), None]
 
             synchronize_python_runtime(runtime, requirements)
 
@@ -271,7 +272,35 @@ class ReleaseBuilderTests(unittest.TestCase):
             self.assertIn("--no-compile", install_command)
             self.assertEqual(install_command[1], "-B")
             self.assertEqual(uninstall_command[1], "-B")
+            self.assertEqual(validate.call_count, 2)
+            validate.assert_called_with(runtime.resolve(), requirements)
+
+    def test_valid_runtime_is_preserved_without_reinstall(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            sentinel = runtime / "launcher.exe"
+            sentinel.write_bytes(b"verified runtime bytes")
+            requirements = runtime / "requirements.lock.txt"
+            with patch("build_release_bundles.validate_python_runtime") as validate, patch(
+                "build_release_bundles.subprocess.run"
+            ) as runner:
+                synchronize_python_runtime(runtime, requirements)
             validate.assert_called_once_with(runtime.resolve(), requirements)
+            runner.assert_not_called()
+            self.assertEqual(sentinel.read_bytes(), b"verified runtime bytes")
+
+    def test_failed_runtime_repair_is_fatal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            requirements = runtime / "requirements.lock.txt"
+            requirements.write_text("numpy==1.26.4\n", encoding="ascii")
+            with patch("build_release_bundles.validate_python_runtime", side_effect=[
+                subprocess.CalledProcessError(1, "pip check"), RuntimeError("still damaged")
+            ]), patch("build_release_bundles.installed_python_distributions", return_value={}), patch(
+                "build_release_bundles.subprocess.run"
+            ):
+                with self.assertRaisesRegex(RuntimeError, "still damaged"):
+                    synchronize_python_runtime(runtime, requirements)
 
 
 if __name__ == "__main__":
