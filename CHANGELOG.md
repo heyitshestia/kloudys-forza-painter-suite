@@ -1,6 +1,6 @@
 # Kloudy's FH6 Painter Changelog
 
-## 3.2
+## 3.2.0
 
 ### One Workspace
 
@@ -42,7 +42,7 @@
 
 ### Download And Compatibility
 
-- A new KFPS-3.2-bundled.zip is available, alongside the normal signed updater. All three application launchers are included.
+- A new KFPS-3.2.0-bundled.zip is available, alongside the normal signed updater. All three application launchers are included.
 - Save your work and close KFPS, Editor and Studio before updating, including separate Chrome windows connected to Studio.
 - Studio's full-design export remains experimental. This update does not change the supported games, native mask behavior or existing game-write checks.
 

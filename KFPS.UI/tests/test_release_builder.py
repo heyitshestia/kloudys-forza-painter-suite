@@ -32,6 +32,11 @@ def run(*command: str, cwd: Path) -> None:
 
 
 class ReleaseBuilderTests(unittest.TestCase):
+    def test_public_version_matches_community_wire_contract(self):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertLessEqual(len(version), 32)
+
     def make_repo(self, root: Path) -> tuple[Path, str]:
         repo = root / "repo"
         repo.mkdir()
