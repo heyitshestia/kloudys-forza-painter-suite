@@ -87,11 +87,10 @@ class Rx93ThemeTests(unittest.TestCase):
 
     def test_old_palettes_leave_custom_surfaces_empty_and_reserve_frame_space(self):
         frame_metrics = {
-            "PaletteApexVector.qml": "({workspaceLeftInset: 34, workspaceRightInset: 24})",
             "PaletteNightCity2077.qml": "({workspaceLeftInset: 34, workspaceRightInset: 30, workspaceBottomInset: 24})",
         }
         for path in PALETTE.parent.glob("Palette*.qml"):
-            if path == PALETTE or path.name in {"PaletteOriginalXbox.qml", "PaletteOriginalPs2.qml", "PaletteNierAutomata.qml"}:
+            if path == PALETTE or path.name in {"PaletteOriginalXbox.qml", "PaletteOriginalPs2.qml", "PaletteNierAutomata.qml", "PaletteApexVector.qml"}:
                 continue
             source = path.read_text(encoding="utf-8")
             for hook in ("controlSurfaceComponentFile", "panelSurfaceComponentFile", "sidebarSurfaceComponentFile", "sidebarHeaderComponentFile", "titleBarContentComponentFile"):

@@ -1,12 +1,12 @@
 import QtQuick 6.7
 
 QtObject {
-    readonly property var chromeMetrics: ({workspaceLeftInset: 34, workspaceRightInset: 24})
-    readonly property string titleBarContentComponentFile: ""
-    readonly property string controlSurfaceComponentFile: ""
-    readonly property string panelSurfaceComponentFile: ""
-    readonly property string sidebarSurfaceComponentFile: ""
-    readonly property string sidebarHeaderComponentFile: ""
+    readonly property var chromeMetrics: ({dashboardNavigation: 1, wideSidebar: 104, compactSidebar: 104, titleHeight: 36, compactTitleHeight: 32, windowButtonsHeight: 32, sidebarHeaderHeight: 84, compactSidebarHeaderHeight: 84, workspaceLeftInset: 20, workspaceRightInset: 20})
+    readonly property string titleBarContentComponentFile: "../themes/apex/ApexTitleContent.qml"
+    readonly property string controlSurfaceComponentFile: "../themes/apex/ApexControlSurface.qml"
+    readonly property string panelSurfaceComponentFile: "../themes/apex/ApexPanelSurface.qml"
+    readonly property string sidebarSurfaceComponentFile: "../themes/apex/ApexSidebarSurface.qml"
+    readonly property string sidebarHeaderComponentFile: "../themes/apex/ApexSidebarHeader.qml"
     readonly property string name: "Apex Vector"
     readonly property bool supporterOnly: false
     readonly property bool terminalMode: false
@@ -23,12 +23,12 @@ QtObject {
     readonly property string backdropComponentFile: "../themes/apex/ApexVectorBackdrop.qml"
     readonly property string foregroundComponentFile: "../themes/apex/ApexVectorForeground.qml"
     readonly property string pageTransitionComponentFile: "../themes/apex/ApexVectorPageTransition.qml"
-    readonly property bool equipmentAccentsEnabled: true
-    readonly property bool ambientScanEnabled: true
-    readonly property bool controlSignalEnabled: true
-    readonly property bool navSignalEnabled: true
-    readonly property bool panelLocatorEnabled: true
-    readonly property bool headerSignalEnabled: true
+    readonly property bool equipmentAccentsEnabled: false
+    readonly property bool ambientScanEnabled: false
+    readonly property bool controlSignalEnabled: false
+    readonly property bool navSignalEnabled: false
+    readonly property bool panelLocatorEnabled: false
+    readonly property bool headerSignalEnabled: false
     readonly property bool angularControlsEnabled: false
     readonly property real angularCutSize: 0.0
     readonly property real angularNotchSize: 0.0
@@ -44,33 +44,33 @@ QtObject {
     readonly property real logoDialOpacity: 0.96
     readonly property bool logoColorize: true
     readonly property color logoTint: "#080b0c"
-    readonly property color signalPrimary: "#ff1744"
+    readonly property color signalPrimary: "#d80c26"
     readonly property color signalSecondary: "#00c8e5"
     readonly property color signalDanger: "#e00038"
     readonly property color signalSuccess: "#00a878"
     readonly property color signalOff: "#46080b0c"
     readonly property color transitionSweep: "#080b0c"
-    readonly property color transitionTrail: "#ff1744"
+    readonly property color transitionTrail: "#d80c26"
     readonly property real interactionSweepDuration: 170
     readonly property real interactionSweepWidth: 0.18
     readonly property real pageTransitionDuration: 320
     readonly property real locatorOpacity: 0.90
 
-    readonly property color backgroundA: "#fafbfa"
-    readonly property color backgroundB: "#f3f5f4"
-    readonly property color backgroundC: "#e9edeb"
+    readonly property color backgroundA: "#f4f6f8"
+    readonly property color backgroundB: "#eff2f4"
+    readonly property color backgroundC: "#e4e9ed"
 
-    readonly property color surface: "#f8faf9"
-    readonly property color surfaceSoft: "#f1f4f2"
+    readonly property color surface: "#f9fafb"
+    readonly property color surfaceSoft: "#edf0f2"
     readonly property color surfaceStrong: "#ffffff"
     readonly property color surfaceRaised: "#ffffff"
-    readonly property color surfaceTop: "#f8faf9"
-    readonly property color surfaceBottom: "#f8faf9"
+    readonly property color surfaceTop: "#f9fafb"
+    readonly property color surfaceBottom: "#f9fafb"
     readonly property color surfaceStrongTop: "#ffffff"
     readonly property color surfaceStrongBottom: "#ffffff"
 
-    readonly property color border: "#76636c70"
-    readonly property color borderSoft: "#42687276"
+    readonly property color border: "#c1c8ce"
+    readonly property color borderSoft: "#d7dce0"
     readonly property color borderStrong: "#e6080b0c"
     readonly property color divider: "#5c697377"
     readonly property color text: "#080b0c"
@@ -78,9 +78,9 @@ QtObject {
     readonly property color subtle: "#596468"
     readonly property color faint: "#7c878b"
 
-    readonly property color primary: "#ff1744"
-    readonly property color primaryBright: "#ff1744"
-    readonly property color primaryHot: "#ff3b5f"
+    readonly property color primary: "#d80c26"
+    readonly property color primaryBright: "#d80c26"
+    readonly property color primaryHot: "#bd0920"
     readonly property color primaryDeep: "#bd0031"
     readonly property color primarySoft: "#2bff1744"
     readonly property color hover: "#20ff1744"
@@ -103,12 +103,12 @@ QtObject {
     readonly property color titleBarCloseHover: "#e6ff1744"
     readonly property color logoCapsuleSurface: "#ffffff"
 
-    readonly property color panelTop: "#f8faf9"
-    readonly property color panelMiddle: "#f8faf9"
-    readonly property color panelBottom: "#f8faf9"
-    readonly property color panelSoftTop: "#f1f4f2"
-    readonly property color panelSoftMiddle: "#f1f4f2"
-    readonly property color panelSoftBottom: "#f1f4f2"
+    readonly property color panelTop: "#f9fafb"
+    readonly property color panelMiddle: "#f9fafb"
+    readonly property color panelBottom: "#f9fafb"
+    readonly property color panelSoftTop: "#edf0f2"
+    readonly property color panelSoftMiddle: "#edf0f2"
+    readonly property color panelSoftBottom: "#edf0f2"
     readonly property color panelStrongTop: "#ffffff"
     readonly property color panelStrongMiddle: "#ffffff"
     readonly property color panelStrongBottom: "#ffffff"
@@ -133,17 +133,17 @@ QtObject {
 
     readonly property color primaryButtonBorder: "#e6080b0c"
     readonly property color primaryButtonHoverBorder: "#080b0c"
-    readonly property color primaryButtonTop: "#ff1744"
-    readonly property color primaryButtonMiddle: "#ff1744"
-    readonly property color primaryButtonBottom: "#ff1744"
-    readonly property color primaryButtonHoverTop: "#ff3b5f"
-    readonly property color primaryButtonHoverMiddle: "#ff3b5f"
-    readonly property color primaryButtonHoverBottom: "#ff3b5f"
+    readonly property color primaryButtonTop: "#d80c26"
+    readonly property color primaryButtonMiddle: "#d80c26"
+    readonly property color primaryButtonBottom: "#d80c26"
+    readonly property color primaryButtonHoverTop: "#bd0920"
+    readonly property color primaryButtonHoverMiddle: "#bd0920"
+    readonly property color primaryButtonHoverBottom: "#bd0920"
     readonly property color primaryButtonShadow: "#00000000"
     readonly property color primaryButtonHoverShadow: "#00000000"
     readonly property color primaryButtonSheenTransparent: "#00ffffff"
     readonly property color primaryButtonSheen: "#00ffffff"
-    readonly property color primaryButtonLip: "#ff1744"
+    readonly property color primaryButtonLip: "#d80c26"
     readonly property color primaryButtonLipPressed: "#d60039"
     readonly property color primaryButtonGlassTop: "#00ffffff"
     readonly property color primaryButtonGlassMiddle: "#00ffffff"
@@ -151,7 +151,7 @@ QtObject {
     readonly property string primaryButtonTextureFile: ""
     readonly property real primaryButtonTextureOpacity: 0.0
     readonly property string primaryButtonLensOverlayFile: "themes/apex-vector/apex-vector-button-lens.svg"
-    readonly property real primaryButtonLensOverlayOpacity: 1.0
+    readonly property real primaryButtonLensOverlayOpacity: 0.0
     readonly property color primaryButtonText: "#ffffff"
     readonly property real buttonGlassBackdropOpacity: 0.0
     readonly property real buttonGlassBackdropBlur: 0.0
@@ -174,15 +174,15 @@ QtObject {
     readonly property color buttonGlassLensRightShadow: "#00000000"
 
     readonly property color ghostSurface: "#ffffff"
-    readonly property color ghostHoverSurface: "#edf1ef"
-    readonly property color ghostPressedSurface: "#dfe5e2"
+    readonly property color ghostHoverSurface: "#e3e8ec"
+    readonly property color ghostPressedSurface: "#cdd5dc"
     readonly property color ghostShadow: "#00000000"
 
     readonly property color fieldSurface: "#ffffff"
     readonly property color fieldHoverSurface: "#f7f9f8"
     readonly property color fieldFocusSurface: "#ffffff"
     readonly property color comboSurfaceOpen: "#ffffff"
-    readonly property color comboHoverSurface: "#edf1ef"
+    readonly property color comboHoverSurface: "#e3e8ec"
     readonly property color comboPopupSurface: "#ffffff"
     readonly property color comboHighlight: "#2bff1744"
 
@@ -192,7 +192,7 @@ QtObject {
     readonly property color switchTrackOff: "#a9b3b6"
     readonly property color sliderTrack: "#98a4a8"
 
-    readonly property color navHoverSurface: "#2200c8e5"
+    readonly property color navHoverSurface: "#dfe4e8"
     readonly property color navActiveGlow: "#00ff1744"
     readonly property color navActiveTop: "#080b0c"
     readonly property color navActiveMiddle: "#080b0c"
@@ -203,7 +203,7 @@ QtObject {
     readonly property color previewSurface: "#d8dddb"
     readonly property color previewSurfaceSoft: "#eef1ef"
 
-    readonly property color helpCategorySelected: "#ff1744"
+    readonly property color helpCategorySelected: "#d80c26"
     readonly property color helpCategoryHover: "#ffe9ee"
     readonly property color helpCategorySurface: "#ffffff"
     readonly property color helpBadgeSelected: "#35ffffff"
@@ -228,7 +228,7 @@ QtObject {
     readonly property string panelRefractionFile: ""
     readonly property real panelRefractionOpacity: 0.0
     readonly property string panelEdgeFile: "themes/apex-vector/apex-vector-panel-frame.svg"
-    readonly property real panelEdgeOpacity: 0.90
+    readonly property real panelEdgeOpacity: 0.0
     readonly property bool customFrameExclusive: true
     readonly property real customFrameRadius: 0.0
     readonly property string goldTrimFile: ""

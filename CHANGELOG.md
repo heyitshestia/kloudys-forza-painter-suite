@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.1.125
+
+### Apex Vector Reworked
+
+- Gave Apex Vector a proper racing-menu makeover: clean white surfaces, bold red selections, sharper symbols and quieter controls.
+- Added a main menu with Create, Library and System sections. Pick a destination, then use the home button to return. Mouse and keyboard navigation both work, and the normal window controls stay available.
+- Added drifting geometric scenery and short menu transitions. Background motion stops outside the menu and while the window is inactive or minimized; Reduced Motion keeps everything still.
+- Kept the existing workspace tools, settings and project files intact. Night Blossom and the other themes are unchanged.
+- Available through the normal updater; no new bundled download for this update.
+
 ## 3.1.124
 
 ### Studio Paintable Surfaces
