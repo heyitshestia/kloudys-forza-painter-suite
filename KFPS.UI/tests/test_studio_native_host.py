@@ -16,9 +16,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _test_evidence import evidence_directory
+from _test_evidence import evidence_directory, evidence_root
 
 ROOT = Path(__file__).resolve().parents[2]
+# Children inherit redirected TEMP, so freeze the evidence boundary first.
+os.environ.setdefault("KFPS_TEST_EVIDENCE_ROOT", str(evidence_root()))
 RUN = evidence_directory("studio-host-20261026", "KFPS_STUDIO_HOST_TEST_RUN")
 RUN.mkdir(parents=True, exist_ok=True)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -282,7 +284,7 @@ class StudioHostTests(unittest.TestCase):
             before = self.js("[dirty,edits,hideCount,__kfpsStudioNativeDocument,location.href]")
             environment = dict(os.environ, KFPS_STUDIO_HOST_TEST_RUN=str(self.output),
                                KFPS_STUDIO_OWNER_TEST_ROOT=str(RUN))
-            child = subprocess.run([str(ROOT / "python/python.exe"), "-I", "-B", str(Path(__file__)),
+            child = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__)),
                     "--standalone-child", self.url], env=environment, cwd=self.output,
                     capture_output=True, text=True, timeout=25,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -747,7 +749,7 @@ class StudioHostTests(unittest.TestCase):
     def test_standalone_wrapper_real_process_closes_cleanly(self):
         self.host.shutdown()
         environment = dict(os.environ, KFPS_STUDIO_HOST_TEST_RUN=str(self.output))
-        command = [str(ROOT / "python/python.exe"), "-I", "-B", str(Path(__file__)),
+        command = [sys.executable, "-I", "-B", str(Path(__file__)),
                    "--standalone-child", self.url]
         with (self.output / "standalone.stdout.log").open("wb") as out, (self.output / "standalone.stderr.log").open("wb") as err:
             child = subprocess.Popen(command, env=environment, cwd=self.output, stdin=subprocess.DEVNULL,
