@@ -230,6 +230,7 @@ let rendererContextReleased = false;
 let renderWidth = 0;
 let renderHeight = 0;
 let renderPixelRatio = 0;
+let inactiveFramebufferTimer = null, framebufferTrimmed = false;
 let renderRequests = 0;
 let renderedFrames = 0;
 let modelBounds = null;
@@ -283,7 +284,7 @@ function resourceBytes() {
     const image = texture.image;
     textureBytes += (image?.width || 0) * (image?.height || 0) * 4 * (texture.generateMipmaps ? 4 / 3 : 1);
   });
-  const framebuffers = viewerDisposed ? 0 : Math.ceil(renderWidth * renderHeight * renderPixelRatio ** 2 * 40);
+  const framebuffers = viewerDisposed ? 0 : framebufferTrimmed ? 40 : Math.ceil(renderWidth * renderHeight * renderPixelRatio ** 2 * 40);
   return {geometry: geometryBytes, textures: Math.ceil(textureBytes), framebuffers,
     estimatedGpu: Math.ceil(geometryBytes + textureBytes + framebuffers), budget: gpuBudgetBytes};
 }
@@ -705,6 +706,52 @@ async function loadTexture(url, color = false) {
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.anisotropy = color ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+async function loadSurfaceMask(index) {
+  if (viewerDisposed) throw new Error('Viewer closed.');
+  const size = renderContract.mask_size;
+  if (!Array.isArray(size) || size.length !== 2
+    || !size.every(value => Number.isInteger(value) && value > 0)) {
+    throw new Error('Native mask dimensions do not match the car.');
+  }
+  const [width, height] = size;
+  if (Math.max(width, height) > renderer.capabilities.maxTextureSize) {
+    throw new Error('This graphics device cannot load the selected texture resolution.');
+  }
+  const expected = 8 + width * height * 4;
+  const response = await fetch(`./api/local-render/mask-raw/${index}`, {signal: loadAbort.signal});
+  if (!response.ok) throw new Error('Native mask pixels are unavailable. Restart Livery Studio to use the updated backend.');
+  if (Number(response.headers.get('Content-Length')) !== expected) {
+    throw new Error('Native mask pixel length does not match the car.');
+  }
+  const buffer = await response.arrayBuffer();
+  if (viewerDisposed) throw new Error('Viewer closed.');
+  if (buffer.byteLength !== expected) throw new Error('Native mask pixel length does not match the car.');
+  const header = new DataView(buffer);
+  if (header.getUint32(0, true) !== width || header.getUint32(4, true) !== height) {
+    throw new Error('Native mask dimensions do not match the car.');
+  }
+  return {width, height, data: new Uint8Array(buffer, 8)};
+}
+
+function surfaceMaskTexture(page) {
+  if (viewerDisposed) throw new Error('Viewer closed.');
+  // Each RGBA channel is an independent mask, including RGB where alpha is zero.
+  // Share these unpremultiplied bytes with picking instead of decoding a second PNG.
+  const texture = trackTexture(new THREE.DataTexture(page.data, page.width, page.height,
+    THREE.RGBAFormat, THREE.UnsignedByteType));
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.flipY = false;
+  texture.premultiplyAlpha = false;
+  texture.generateMipmaps = true;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 1;
   texture.needsUpdate = true;
   return texture;
 }
@@ -1206,9 +1253,7 @@ async function loadPackage() {
     phase('assets', 'Loading car and livery textures');
     const loadResults = await Promise.all([
       loadTexture('./api/local-render/paint', true),
-      loadTexture('./api/local-render/mask/0'),
-      loadTexture('./api/local-render/mask/1'),
-      loadTexture('./api/local-render/mask/2'),
+      Promise.all([0, 1, 2].map(loadSurfaceMask)),
       fetch('./api/local-mesh', {signal: loadAbort.signal}).then(response => {
         if (!response.ok) throw new Error(`Car mesh load failed (${response.status}).`);
         return response.arrayBuffer();
@@ -1221,24 +1266,14 @@ async function loadPackage() {
       }),
     ]);
     if (viewerDisposed) return;
+    const [paintTexture, maskPages, gltf] = loadResults;
+    const [mask0, mask1, mask2] = maskPages.map(surfaceMaskTexture);
+    surfaceMaskPages = maskPages;
     const assetBytes = resourceBytes();
     modelResourceBytes = assetBytes.geometry + assetBytes.textures;
     resize();
     if (resourceBytes().estimatedGpu > gpuBudgetBytes) throw new Error('The car exceeds the preview graphics memory budget.');
     phase('materials', 'Preparing car surfaces');
-    const [paintTexture, mask0, mask1, mask2, gltf] = loadResults;
-    // RGBA stores four independent masks. A 2D canvas would premultiply the RGB
-    // masks by the fourth mask and destroy valid RGB samples where alpha is zero.
-    surfaceMaskPages = await Promise.all([0, 1, 2].map(async index => {
-      const response = await fetch(`./api/local-render/mask-raw/${index}`, { signal: loadAbort.signal });
-      if (!response.ok) throw Error('Native mask pixels are unavailable. Restart Livery Studio to use the updated backend.');
-      const [width, height] = renderContract.mask_size, expected = 8 + width * height * 4;
-      if (Number(response.headers.get('Content-Length')) !== expected) throw Error('Native mask pixel length does not match the car.');
-      const buffer = await response.arrayBuffer(), header = new DataView(buffer);
-      if (buffer.byteLength !== expected || header.getUint32(0, true) !== width || header.getUint32(4, true) !== height) throw Error('Native mask dimensions do not match the car.');
-      return { width, height, data: new Uint8Array(buffer, 8) };
-    }));
-    if (viewerDisposed) return;
     model = gltf.scene;
     preparePartControls(model.userData?.kfps_part_options);
     const uvCache = new Map(), nativeUvCache = new Map();
@@ -1383,6 +1418,8 @@ async function loadPackage() {
     setSectionFilter('all');
     phase('scene', 'Rendering first frame');
     modelReady = true;
+    // Loading can finish in an inactive tab; its first paint waits for visibility.
+    window.clearTimeout(loadTimeout);
     refreshComponentCoverage();
     console.info(
       `KFPS section-aware inspector: ${paintCount} paint, ${glassCount} glass, `
@@ -1443,6 +1480,7 @@ sectionButtons.forEach(button => button.addEventListener('click', selectSection)
 controls.addEventListener('change', requestRender);
 
 function resize() {
+  if (document.hidden || viewerDisposed) return;
   const width = Math.max(1, viewport.clientWidth);
   const height = Math.max(1, viewport.clientHeight);
   const pixelBudget = Math.min(
@@ -1450,7 +1488,7 @@ function resize() {
     Math.max(1, (gpuBudgetBytes - modelResourceBytes) * .9 / 40),
   );
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(pixelBudget / (width * height)));
-  if (width === renderWidth && height === renderHeight && pixelRatio === renderPixelRatio) return;
+  if (!framebufferTrimmed && width === renderWidth && height === renderHeight && pixelRatio === renderPixelRatio) return;
   const cameraWasHome = modelBounds !== null
     && camera.position.distanceToSquared(homeCamera) < 1e-8
     && controls.target.distanceToSquared(homeTarget) < 1e-8;
@@ -1460,6 +1498,7 @@ function resize() {
   renderPixelRatio = pixelRatio;
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(width, height, false);
+  framebufferTrimmed = false;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   if (cameraWasHome) frameModel(modelBounds, homeDirection);
@@ -1521,9 +1560,19 @@ function handleThemeChange() {
 
 function handleVisibilityChange() {
   lastFrameAt = 0;
-  if (document.hidden && animationFrameId) {
-    cancelAnimationFrame(animationFrameId);
+  clearTimeout(inactiveFramebufferTimer); inactiveFramebufferTimer = null;
+  if (viewerDisposed) return;
+  if (document.hidden) {
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
     animationFrameId = 0;
+    inactiveFramebufferTimer = setTimeout(() => {
+      inactiveFramebufferTimer = null;
+      if (viewerDisposed || !document.hidden) return;
+      // Keep model, textures and context warm; only retire the unused drawing buffer.
+      renderer.setPixelRatio(1);
+      renderer.setSize(1, 1, false);
+      framebufferTrimmed = true;
+    }, 5000);
   } else {
     resize();
     requestRender();
@@ -1539,6 +1588,7 @@ function releaseRendererContext() {
 }
 
 function disposeViewer(releaseContext = true) {
+  clearTimeout(inactiveFramebufferTimer); inactiveFramebufferTimer = null;
   if (!viewerDisposed) {
     viewerDisposed = true;
     clearInspectionLines();
@@ -1691,6 +1741,7 @@ canvas.addEventListener('dblclick', resetFromDoubleClick);
 window.addEventListener('resize', handleResize);
 window.addEventListener('kfps-theme-applied', handleThemeChange);
 document.addEventListener('visibilitychange', handleVisibilityChange);
+if (document.hidden) handleVisibilityChange();
 window.addEventListener('pagehide', disposeViewer);
 window.__kfpsDisposeViewer = disposeViewer;
 window.__kfpsViewerDiagnostics = viewerDiagnostics;

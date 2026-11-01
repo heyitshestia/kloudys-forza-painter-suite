@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import importlib.util
 import re
+import stat
 import threading
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from .app_paths import AppPaths
-from .desktop_service import DesktopService
+from .desktop_service import DesktopService, validated_output_file
 from .log_service import LogService
 from .lifecycle import discard_queued_events
 from .models import DictListModel
@@ -18,6 +19,28 @@ from .preview_service import PreviewService
 from .editor_launch import launch_editor
 
 PROJECT_SCAN_MAX_BYTES = 150 * 1024 * 1024
+
+
+def _validated_livery_package(paths: AppPaths, value: str) -> Path:
+    from .experimental.full_livery.paths import FullLiveryPaths
+
+    message = "Choose an existing package from the Liveries package library."
+    if not isinstance(value, str) or not value or len(value) > 32768:
+        raise ValueError(message)
+    root = FullLiveryPaths.for_app(paths).package_root.absolute()
+    candidate = Path(value).absolute()
+    if candidate.suffix.casefold() != ".kfpslivery" or not candidate.is_relative_to(root):
+        raise ValueError(message)
+    for item in (candidate, *candidate.parents):
+        if item.is_symlink() or item.is_junction():
+            raise ValueError("Redirected livery package paths are not supported.")
+    candidate = candidate.resolve(strict=True)
+    if not candidate.is_relative_to(root.resolve()) or not root.resolve().is_relative_to(paths.app_root.resolve()):
+        raise ValueError(message)
+    metadata = candidate.stat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ValueError("Choose an ordinary livery package file.")
+    return candidate
 
 
 def _studio_module_path(app_root: Path, module_name: str) -> Path:
@@ -82,6 +105,8 @@ class EditorService(QObject):
         self.desktop = desktop
         self.log = log
         self._closed = False
+        self.workspace_editor = None
+        self.workspace_studio = None
         self._cancel_event = threading.Event()
         self._threads: set[threading.Thread] = set()
         self._threads_lock = threading.Lock()
@@ -99,6 +124,7 @@ class EditorService(QObject):
         self._launching = False
         self._studio_launching = False
         self._studio_status = ""
+        self._studio_package_path = ""
         self._running = False
         self._last_error = ""
         self._preview_lock = threading.Lock()
@@ -134,11 +160,16 @@ class EditorService(QObject):
     def studioStatus(self):
         return self._studio_status
 
+    @Property(str, notify=changed)
+    def studioPackagePath(self):
+        return self._studio_package_path
+
     @Slot()
     @Slot("QVariantMap")
     def launchLiveryStudio(self, theme=None):
         if self._closed or self._studio_launching:
             return
+        self._studio_package_path = ""
         self._studio_launching = True
         self._studio_status = "Preparing Livery Studio..."
         self.changed.emit()
@@ -149,8 +180,98 @@ class EditorService(QObject):
         except Exception as exc:
             self._finish_studio_launch(False, str(exc))
 
+    @Slot(str)
+    @Slot(str, "QVariantMap")
+    def launchJsonInLiveryStudio(self, path, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_package_path = ""
+        try:
+            candidate = validated_output_file(self.paths, path)
+            encoded_theme = json.dumps(theme, allow_nan=False) if theme else ""
+            if len(encoded_theme.encode("utf-8")) > 32 * 1024:
+                raise ValueError("Theme context exceeds 32 KiB.")
+            snapshot = json.loads(encoded_theme) if encoded_theme else None
+            self._studio_launching = True
+            self._studio_status = "Preparing selected vinyl for Livery Studio..."
+            self.changed.emit()
+            self._start_thread(target=self._launch_json_studio_worker, args=(str(candidate), snapshot),
+                               name="kfps-studio-json-launch")
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_json_studio_worker(self, path, theme):
+        try:
+            if self._cancel_event.is_set():
+                return
+            candidate = validated_output_file(self.paths, path)
+            bridge_path = _studio_module_path(self.paths.app_root, "host_bridge.py")
+            spec = importlib.util.spec_from_file_location("_kfps_studio_output_adapter", bridge_path)
+            bridge = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bridge)
+            with candidate.open("rb") as source:
+                body = source.read(bridge.MAX_BYTES + 1)
+            if len(body) > bridge.MAX_BYTES:
+                raise ValueError("Vinyl transfer exceeds 8 MiB.")
+            payload = bridge.model.decode_json(body)
+            if not isinstance(payload, dict) or "shapes" not in payload:
+                raise ValueError("Choose a native vinyl JSON containing shapes.")
+            request = {"name": candidate.stem[:120], "vinyl": {"shapes": payload["shapes"]}}
+            if theme:
+                request["ui_theme"] = theme
+            request = bridge.validate_request(request)
+            if not self._cancel_event.is_set():
+                self._launch_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
+    @Slot(str)
+    @Slot(str, "QVariantMap")
+    def launchPackageInLiveryStudio(self, path, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_package_path = str(path or "")
+        try:
+            candidate = _validated_livery_package(self.paths, path)
+            encoded_theme = json.dumps(theme, allow_nan=False) if theme else ""
+            if len(encoded_theme.encode("utf-8")) > 32 * 1024:
+                raise ValueError("Theme context exceeds 32 KiB.")
+            snapshot = json.loads(encoded_theme) if encoded_theme else None
+            self._studio_launching = True
+            self._studio_status = "Validating package artwork for Livery Studio..."
+            self.changed.emit()
+            self._start_thread(target=self._launch_package_studio_worker,
+                               args=(str(candidate), snapshot), name="kfps-studio-package-launch")
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_package_studio_worker(self, path, theme):
+        try:
+            if self._cancel_event.is_set():
+                return
+            candidate = _validated_livery_package(self.paths, path)
+            bridge_path = _studio_module_path(self.paths.app_root, "host_bridge.py")
+            spec = importlib.util.spec_from_file_location("_kfps_studio_package_adapter", bridge_path)
+            bridge = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bridge)
+            request = bridge.request_for_package(candidate)
+            if theme:
+                request["ui_theme"] = theme
+            request = bridge.validate_request(request)
+            if not self._cancel_event.is_set():
+                self._launch_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
     def _launch_studio_worker(self, request):
         try:
+            if self.workspace_studio is not None:
+                result = self.workspace_studio(request, self._cancel_event)
+                if not self._closed:
+                    self.studioLaunchCompleted.emit(True, result["message"])
+                return
             path = _studio_module_path(self.paths.app_root, "host_bridge.py")
             spec = importlib.util.spec_from_file_location("_kfps_studio_host", path)
             bridge = importlib.util.module_from_spec(spec)
@@ -564,6 +685,8 @@ class EditorService(QObject):
         self._status = "Opening the editor window..."
         self.changed.emit()
         try:
+            if self.workspace_editor is not None and self.workspace_editor({"project": project_id, "mode": mode or "activate", "json": json_id}):
+                return
             self._start_thread(
                 target=self._launch_worker,
                 args=(launcher, project_id, mode, json_id) if json_id else (launcher, project_id, mode),
@@ -610,7 +733,7 @@ class EditorService(QObject):
         self._launching = False
         self._running = ok
         if ok:
-            self._status = "Editor opened in its own window."
+            self._status = "Editor opened in the workspace." if url == "workspace" else "Editor opened in its own window."
             self._last_error = ""
             self.log.append(message)
         else:

@@ -64,6 +64,8 @@ class ReportService(QObject):
         context = {"page": page, "version": self.version.localVersion,
                    "theme": self.active_theme_name(), "log": self.log.plainText, "services": {}}
         context["retained_app_log"], context["app_log_writer"] = self.log.diagnostic_snapshot()
+        context["workspace_events"] = self.log.workspace_snapshot()
+        context["workspace_identity"] = self.log.workspace_identity()
         fields = ("status", "running", "lastError", "activeGame", "selectedLayers", "selectedShapes",
                   "candidateCount", "exportedCount", "skippedCount", "viewerReady", "packageAddError",
                   "dependenciesText", "pythonText", "runtimeText", "selectedPresetIndex", "liveLog")

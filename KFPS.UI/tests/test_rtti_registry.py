@@ -350,7 +350,10 @@ class RttiRegistryTests(unittest.TestCase):
             self.assertEqual(saved, cache.read_bytes())
             self.assertEqual("10.0.0.1", load_registry_file(cache)["profiles"][0]["game_build"])
             app_source = (UI / "app.py").read_text(encoding="utf-8")
-            self.assertIn("refresh_runtime_registry(paths.app_root)", app_source)
+            self.assertIn("refresh_registry=should_preindex", app_source)
+            self.assertIn("startup_sequence.beginLoading", app_source)
+            startup_source = (UI / "src/kfps_ui/startup_sequence_service.py").read_text(encoding="utf-8")
+            self.assertIn("self._executor.submit(refresh_runtime_registry, self._paths.app_root)", startup_source)
 
     def test_unwritable_cache_never_breaks_locator_startup(self):
         with tempfile.TemporaryDirectory() as temp:

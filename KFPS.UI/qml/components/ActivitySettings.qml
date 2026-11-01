@@ -31,7 +31,9 @@ ColumnLayout {
         textFormat: Text.PlainText
         wrapMode: Text.Wrap
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(12)
+        font.pixelSize: Theme.textSize(12)
+        font.weight: Theme.bodyWeight
+        lineHeight: Theme.bodyLineHeight
         renderType: Text.NativeRendering
         color: Theme.text
     }
@@ -43,7 +45,9 @@ ColumnLayout {
         textFormat: Text.PlainText
         wrapMode: Text.Wrap
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(12)
+        font.pixelSize: Theme.textSize(12)
+        font.weight: Theme.bodyWeight
+        lineHeight: Theme.bodyLineHeight
         renderType: Text.NativeRendering
         color: Theme.danger
     }

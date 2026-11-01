@@ -51,6 +51,7 @@ class OutputContextMenuActionTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(UI / "app.py"),
+                    "--demo",
                     "--page", "outputs",
                     "--width", "1280",
                     "--height", "800",

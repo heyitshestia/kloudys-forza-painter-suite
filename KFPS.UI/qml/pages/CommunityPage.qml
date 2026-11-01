@@ -169,10 +169,14 @@ Item {
     }
 
     Component.onCompleted: {
+        if (visible) jsonService.setNavigationConsumer("community")
         root.syncUploadSelection()
         root.syncProfile()
     }
-    onVisibleChanged: if (visible) communityService.refreshAccount()
+    onVisibleChanged: if (visible) {
+        jsonService.setNavigationConsumer("community")
+        communityService.refreshAccount()
+    }
 
     Connections {
         target: communityService

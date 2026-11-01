@@ -27,7 +27,7 @@ export function createProjectSaveController({api,getProject}) {
   };
 }
 
-export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.stringify(getProject()),onModalChange=()=>{},loadProject,importVinyl,readVinyl,externalProject,externalVinyl,defaultName,message,doc=document,win=window}) {
+export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.stringify(getProject()),onModalChange=()=>{},loadProject,importVinyl,readVinyl,externalProject,externalVinyl,defaultName,saveDescription=()=>t('Saved in this car\'s project folder.'),message,doc=document,win=window}) {
   const controller=createProjectSaveController({api,getProject});
   let disposed=false,generation=0,working=false,resolveSave=null,conflict=null,projectEntries=[],libraryEntries=[],path='',nextOffset=null,nextProjectOffset=null;
   const make=(tag,text='',attrs={})=>{const node=doc.createElement(tag);node.textContent=text;for(const [key,value] of Object.entries(attrs))node.setAttribute(key,value);return node;};
@@ -95,13 +95,18 @@ export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.
     if(projectEntries.some(entry=>entry.id===previous))projectList.value=previous;
     feedback(openStatus,projectEntries.length?'':'No saved projects for this car yet.');
   });}
+  async function loadSaved(id,isCurrent,revision){
+    const response=await api(`projects/${encodeURIComponent(id)}`);if(!isCurrent())return false;
+    if(response.entry?.id!==id||typeof response.entry.revision!=='string')throw Error('The saved project response is invalid.');
+    const isLayoutCurrent=()=>isCurrent()&&revision===getDocumentRevision();
+    if(!isLayoutCurrent())throw Error('The current layout changed. Nothing was opened.');
+    const loaded=await loadProject(response.project,{isCurrent:isLayoutCurrent});if(!isCurrent()||loaded===false)return false;
+    controller.adopt(response.entry);message('Layout project opened.');return true;
+  }
   async function openSelected(){await request(openDialog,openStatus,async isCurrent=>{
     const id=projectList.value;if(!projectEntries.some(entry=>entry.id===id))return;
-    feedback(openStatus,'Opening project...');const response=await api(`projects/${encodeURIComponent(id)}`);if(!isCurrent())return;
-    const isLayoutCurrent=()=>isCurrent()&&openRevision===getDocumentRevision();
-    if(!isLayoutCurrent())throw Error('The current layout changed. Nothing was opened.');
-    await loadProject(response.project,{isCurrent:isLayoutCurrent});if(!isCurrent())return;
-    controller.adopt(response.entry);openDialog.close('opened');message('Layout project opened.');
+    feedback(openStatus,'Opening project...');
+    if(await loadSaved(id,isCurrent,openRevision))openDialog.close('opened');
   });}
   projectList.addEventListener('change',controls);projectList.addEventListener('dblclick',()=>void openSelected());
   open.addEventListener('click',()=>void openSelected());refresh.addEventListener('click',()=>void listProjects());
@@ -158,12 +163,19 @@ export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.
   };
   win.addEventListener('keydown',modalKeys,{capture:true});
   return {
+    entry:()=>controller.entry(),
     adopt:entry=>controller.adopt(entry),
     isOpen:()=>!disposed&&dialogs.some(node=>node.open),
+    async restore(id,{isCurrent=()=>true}={}){
+      if(disposed||working||dialogs.some(node=>node.open)||typeof id!=='string'||!/^[a-f0-9]{32}$/.test(id))return false;
+      const epoch=++generation,revision=getDocumentRevision();working=true;controls();
+      try{return await loadSaved(id,()=>!disposed&&generation===epoch&&isCurrent(),revision);}
+      finally{working=false;if(!disposed)controls();}
+    },
     async save(){
       if(!start(saveDialog))return null;
       conflict=null;replace.hidden=true;feedback(saveStatus,'');name.value=controller.entry()?.name||defaultName();
-      saveRoot.textContent=t('Saved in this car\'s project folder.');name.focus();name.select();
+      saveRoot.textContent=saveDescription();name.focus();name.select();
       return new Promise(resolve=>{resolveSave=resolve;});
     },
     open(){if(start(openDialog)){openRevision=getDocumentRevision();void listProjects();}},

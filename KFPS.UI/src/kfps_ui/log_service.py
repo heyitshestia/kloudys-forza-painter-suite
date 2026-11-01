@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import queue
+import json
 from collections import deque
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
+import uuid
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
@@ -24,6 +26,11 @@ class LogService(QObject):
         self._diagnostic_lines = deque()
         self._diagnostic_chars = 0
         self._diagnostic_lock = threading.Lock()
+        from .workspace_diagnostics import MAX_EVENTS
+        self._workspace_events = deque(maxlen=MAX_EVENTS)
+        self._workspace_serial = 0
+        self._workspace_session = "c" + uuid.uuid4().hex[:15]
+        self._workspace_identity = {}
         self._writer = None
         if runtime_root is not None:
             from .app_log import AppLogWriter
@@ -47,18 +54,56 @@ class LogService(QObject):
         for line in text.splitlines():
             self._pending.put((line, level))
             diagnostic = f"[{datetime.now().isoformat(timespec='milliseconds')}] {line}"
-            if len(diagnostic) > 8192:
-                diagnostic = "[oversized log line removed]"
-            with self._diagnostic_lock:
-                self._diagnostic_lines.append(diagnostic)
-                self._diagnostic_chars += len(diagnostic)
-                while len(self._diagnostic_lines) > 2500 or self._diagnostic_chars > 1024 * 1024:
-                    self._diagnostic_chars -= len(self._diagnostic_lines.popleft())
-            if self._writer:
-                self._writer.append(diagnostic)
+            self._retain_diagnostic(diagnostic)
         if update_status:
             self._status = text.splitlines()[-1][:130]
             self.statusChanged.emit()
+
+    def _retain_diagnostic(self, diagnostic):
+        if len(diagnostic) > 8192:
+            diagnostic = "[oversized log line removed]"
+        with self._diagnostic_lock:
+            self._diagnostic_lines.append(diagnostic)
+            self._diagnostic_chars += len(diagnostic)
+            while len(self._diagnostic_lines) > 2500 or self._diagnostic_chars > 1024 * 1024:
+                self._diagnostic_chars -= len(self._diagnostic_lines.popleft())
+        if self._writer:
+            self._writer.append(diagnostic)
+
+    def configure_diagnostics(self, version, mode):
+        from .workspace_diagnostics import SCHEMA, clean_event
+        safe = clean_event({"schema": SCHEMA, "event": "app.startup", "outcome": "started",
+                            "version": version, "mode": mode})
+        with self._diagnostic_lock:
+            self._workspace_identity = {key: safe[key] for key in ("version", "mode") if key in safe}
+
+    def diagnostic(self, event, outcome, **fields):
+        from .workspace_diagnostics import COMPONENT_REVISION, SCHEMA, clean_event
+        if self._closed:
+            return
+        with self._diagnostic_lock:
+            self._workspace_serial += 1
+            if event == "app.startup":
+                fields["component_revision"] = COMPONENT_REVISION
+            value = clean_event({**self._workspace_identity, **fields, "schema": SCHEMA,
+                "event": event, "outcome": outcome, "session": self._workspace_session,
+                "serial": self._workspace_serial, "utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds")})
+            if value is None:
+                return
+            self._workspace_events.append(value)
+        # Keep machine-readable evidence out of the UI status and pending-row queue.
+        self._retain_diagnostic(json.dumps(value, separators=(",", ":"), allow_nan=False))
+
+    def workspace_snapshot(self):
+        from .workspace_diagnostics import clean_snapshot
+        with self._diagnostic_lock:
+            return clean_snapshot(list(self._workspace_events))
+
+    def workspace_identity(self):
+        from .workspace_diagnostics import COMPONENT_REVISION, clean_identity
+        with self._diagnostic_lock:
+            return clean_identity({**self._workspace_identity, "session": self._workspace_session,
+                                   "component_revision": COMPONENT_REVISION})
 
     @Slot(str)
     def log(self, text: str): self.append(text)

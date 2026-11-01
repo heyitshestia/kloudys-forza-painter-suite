@@ -28,6 +28,9 @@ class GenerationService(QObject):
         self._live_log_lines = []; self._live_log = "Live generation log appears here."
         self._full_log_path = ""; self._full_log_handle = None
         self._queue = []; self._queue_total = 0; self._queue_index = 0
+        self._active_job = None
+        self._failed_jobs = []
+        self._queue_cancelled = False
         self._force_stop_armed = False
         self._preview_timer = QTimer(self); self._preview_timer.setInterval(1000); self._preview_timer.timeout.connect(self.refreshPreview)
         self._startup_timer = QTimer(self); self._startup_timer.setSingleShot(True); self._startup_timer.setInterval(5000); self._startup_timer.timeout.connect(self._startup_timed_out)
@@ -108,6 +111,8 @@ class GenerationService(QObject):
                 if resolved not in valid_images:
                     valid_images.append(resolved)
         if not valid_images: self.log.append("Choose a source image before generating.", "warning"); return
+        self._failed_jobs = []
+        self._queue_cancelled = False
         self._queue_total = len(valid_images); self._queue_index = 0
         self._queue = [
             (image, preset, layers, save_at, luma, detail, repair, boost, manual, max_res, random_samples, mutated_samples, seed)
@@ -118,6 +123,8 @@ class GenerationService(QObject):
         self._start_single(valid_images[0], preset, layers, save_at, luma, detail, repair, boost, manual, max_res, random_samples, mutated_samples, seed)
 
     def _start_single(self, image, preset, layers, save_at, luma, detail, repair, boost, manual, max_res, random_samples, mutated_samples, seed):
+        self._active_job = (image, preset, layers, save_at, luma, detail, repair, boost,
+                            manual, max_res, random_samples, mutated_samples, seed)
         bridge = self.paths.ui_root / "bridges" / "generation_bridge.py"
         preset_index = preset if 0 <= int(preset) < len(self._presets) else self._selected_preset_index
         args = ["-u", str(bridge), "--image", image, "--preset-index", str(max(0, preset_index)), "--layers", layers or "2000", "--save-at", save_at or layers or "2000", "--seed", str(max(0, seed))]
@@ -160,6 +167,11 @@ class GenerationService(QObject):
         self._startup_timer.stop()
         self._preview_timer.stop()
         self._close_full_generation_log()
+        if self._active_job is not None and not self._queue_cancelled:
+            self._failed_jobs.extend([self._active_job, *self._queue])
+        self._active_job = None
+        self._queue = []
+        self._queue_total = self._queue_index = 0
         self._running = False
         self._status = "Failed to start"
         self.changed.emit()
@@ -378,6 +390,9 @@ class GenerationService(QObject):
         self._preview_timer.stop(); self.refreshPreview()
         self.generatedOutputsChanged.emit()
         self.log.append("Generation finished." if code == 0 else f"Generation exited with code {code}.", "info" if code == 0 else "error")
+        if code != 0 and self._active_job is not None:
+            self._failed_jobs.append(self._active_job)
+        self._active_job = None
         if self._queue:
             self._queue_index += 1
             next_args = self._queue.pop(0)
@@ -386,7 +401,37 @@ class GenerationService(QObject):
             self._start_single(*next_args)
             return
         self._queue_index = 0; self._queue_total = 0
-        self._running = False; self._force_stop_armed = False; self._status = "Complete" if code == 0 else f"Failed (exit {code})"; self.changed.emit()
+        self._running = False
+        self._force_stop_armed = False
+        self._status = (f"Finished with {len(self._failed_jobs)} failed image(s)" if self._failed_jobs else
+                        "Stopped; saved checkpoints kept" if self._queue_cancelled and code == 0 else
+                        "Complete" if code == 0 else f"Failed (exit {code})")
+        self.changed.emit()
+
+    @Property(bool, notify=changed)
+    def canRetryFailed(self):
+        return not self._closed and not self._running and bool(self._failed_jobs)
+
+    @Slot()
+    def retryFailed(self):
+        if not self.canRetryFailed:
+            return
+        jobs, self._failed_jobs = self._failed_jobs, []
+        self._queue_cancelled = False
+        self._queue_total, self._queue_index = len(jobs), 0
+        self._queue = jobs[1:]
+        self._start_single(*jobs[0])
+
+    @Slot()
+    def cancelQueue(self):
+        if not self._running:
+            return
+        if not self.gracefulStop():
+            raise RuntimeError("The stop request was not accepted. The pending queue was kept unchanged.")
+        self._queue_cancelled = True
+        self._queue = []
+        self._queue_total = self._queue_index = 0
+        self.changed.emit()
 
     @Slot()
     def refreshPreview(self):
@@ -402,13 +447,23 @@ class GenerationService(QObject):
             url = file_url(latest)
             if self._set_preview(url, self._file_signature(latest)): self.changed.emit()
 
-    @Slot()
+    @Slot(result=bool)
     def gracefulStop(self):
-        if not self._running: self.log.append("No generation is running."); return
+        if not self._running:
+            self.log.append("No generation is running.")
+            return False
         if self._run_dir:
-            try: (Path(self._run_dir) / ".v2-stop").write_text("stop\n", encoding="utf-8"); self._status = "Stop requested"; self.changed.emit(); self.log.append("Graceful stop requested. The current saved point will finish first.")
-            except Exception as exc: self.log.append(f"Could not request graceful stop: {exc}", "error")
-        else: self.log.append("The run folder is not known yet; use Force Stop only if necessary.", "warning")
+            try:
+                (Path(self._run_dir) / ".v2-stop").write_text("stop\n", encoding="utf-8")
+                self._status = "Stop requested"
+                self.changed.emit()
+                self.log.append("Graceful stop requested. The current saved point will finish first.")
+                return True
+            except OSError as exc:
+                self.log.append(f"Could not request graceful stop: {exc}", "error")
+        else:
+            self.log.append("The run folder is not known yet; use Force Stop only if necessary.", "warning")
+        return False
 
     @Slot()
     def forceStop(self):

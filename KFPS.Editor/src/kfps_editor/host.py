@@ -146,6 +146,10 @@ class EditorDesktop(QMainWindow):
         self.open_timer.setInterval(60000)
         self.open_timer.timeout.connect(self._open_deadline)
         self._allow_close = False
+        self._workspace_close = None
+        self._workspace_prepared = False
+        self.workspace_present = None
+        self._pending_downloads = set()
         self._stopped = False
         self._failed = False
         self._update_guard = update_guard
@@ -300,6 +304,9 @@ class EditorDesktop(QMainWindow):
             record_startup(self.runtime, "instance-state", state=state)
 
     def present_window(self, *, background=False):
+        if self.workspace_present is not None:
+            self.workspace_present(background=background)
+            return
         focused = present(self, background=background)
         record_startup(self.runtime, "window-presented", focused=focused, background=background)
 
@@ -486,7 +493,7 @@ class EditorDesktop(QMainWindow):
                 result = {"ok": False, "error": "Invalid editor response"}
             callback(result)
 
-    def _cancel_close_attempt(self):
+    def _cancel_close_attempt(self, *, notify=True):
         self.close_timer.stop()
         self._close_epoch += 1
         self._closing = False
@@ -494,6 +501,37 @@ class EditorDesktop(QMainWindow):
             self._commands.pop(self._close_request_id, None)
         self._close_request_id = None
         self._close_phase = None
+        self._workspace_prepared = False
+        if notify and self._workspace_close is not None:
+            callback, self._workspace_close = self._workspace_close, None
+            callback(False)
+
+    def prepare_close(self, callback):
+        """Flush/save without destroying the page until the whole workspace agrees."""
+        if self._workspace_close is not None or self._closing or self._close_prompt:
+            callback(False)
+            return
+        self._workspace_close = callback
+        from PySide6.QtGui import QCloseEvent
+        self.closeEvent(QCloseEvent())
+
+    def cancel_close(self):
+        self._cancel_close_attempt()
+
+    def commit_close(self):
+        if not self._workspace_prepared:
+            raise RuntimeError("Editor close has not been prepared")
+        self._allow_close = True
+
+    def _finish_close(self, accepted):
+        if self._workspace_close is not None:
+            callback, self._workspace_close = self._workspace_close, None
+            self._workspace_prepared = bool(accepted)
+            self._closing = bool(accepted)
+            callback(bool(accepted))
+        elif accepted:
+            self._allow_close = True
+            self.close()
 
     def _invalidate_page_commands(self):
         self._page_epoch += 1
@@ -563,14 +601,23 @@ class EditorDesktop(QMainWindow):
         return QMessageBox.StandardButton(box.exec())
 
     def _download(self, download):
-        path, _ = QFileDialog.getSaveFileName(self, self.translator.tr("Save Export"), download.downloadFileName())
-        if not path:
+        identifier = download.id()
+        self._pending_downloads.add(identifier)
+        download.isFinishedChanged.connect(lambda: self._pending_downloads.discard(identifier) if download.isFinished() else None)
+        try:
+            path, _ = QFileDialog.getSaveFileName(self, self.translator.tr("Save Export"), download.downloadFileName())
+            if not path:
+                self._pending_downloads.discard(identifier)
+                download.cancel()
+                return
+            target = Path(path)
+            download.setDownloadDirectory(str(target.parent))
+            download.setDownloadFileName(target.name)
+            download.accept()
+        except Exception:
+            self._pending_downloads.discard(identifier)
             download.cancel()
-            return
-        target = Path(path)
-        download.setDownloadDirectory(str(target.parent))
-        download.setDownloadFileName(target.name)
-        download.accept()
+            raise
 
     def _renderer_stopped(self, status, exit_code):
         if not self._stopped:
@@ -615,15 +662,23 @@ class EditorDesktop(QMainWindow):
         self.page.load(restart_url)
 
     def closeEvent(self, event):
+        if self._pending_downloads:
+            event.ignore()
+            self._close_message("information", "Editor is busy", "Wait for the current save or open operation to finish before closing.")
+            self._finish_close(False)
+            return
         if self._allow_close or self._failed or not self.page:
+            if self._workspace_close is not None:
+                event.ignore()
+                self._finish_close(True)
+                return
             event.accept()
             return
         event.ignore()
         if self._closing or self._close_prompt:
             return
         if not self._ready:
-            self._allow_close = True
-            self.close()
+            self._finish_close(True)
             return
         if self._commands:
             if self._open_uncertain:
@@ -631,6 +686,7 @@ class EditorDesktop(QMainWindow):
                 self._close_timed_out()
                 return
             self._close_message("information", "Editor is busy", "Finish or cancel the current editor operation before closing.")
+            self._finish_close(False)
             return
         self._closing = True
         self._close_command("state", {}, self._confirm_close)
@@ -662,26 +718,28 @@ class EditorDesktop(QMainWindow):
         self.server.diagnostics().record("close-timeout", source="native")
         # Modal Qt dialogs run a nested event loop. Retire this attempt BEFORE
         # showing one, so an arriving success cannot close behind the question.
-        self._cancel_close_attempt()
+        self._cancel_close_attempt(notify=False)
         epoch = self._page_epoch
         choice = self._close_message("warning", "Editor is not responding", "The editor has not responded to the close request. Keep it open to give it more time, or close anyway. Unsaved changes may be lost.", QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if choice == QMessageBox.StandardButton.Close and epoch == self._page_epoch and not self._stopped:
-            self._allow_close = True
-            self.close()
+            self._finish_close(True)
+        else:
+            self._finish_close(False)
 
     def _close_prepared(self, result):
-        self._cancel_close_attempt()
+        self._cancel_close_attempt(notify=False)
         value = result.get("value") if isinstance(result.get("value"), dict) else {}
         if result.get("ok") is not True or value.get("ok") is not True:
             if value.get("cancelled") is True:
+                self._finish_close(False)
                 return
             message = next((text for text in (result.get("error"), value.get("error")) if isinstance(text, str) and text), "The latest recovery or settings could not be written.")
             epoch = self._page_epoch
             choice = self._close_message("warning", "Could not finish saving", self.translator.message(message) + self.translator.tr("\n\nClose anyway? Recent changes may be lost."), QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
             if choice != QMessageBox.StandardButton.Close or epoch != self._page_epoch or self._stopped:
+                self._finish_close(False)
                 return
-        self._allow_close = True
-        self.close()
+        self._finish_close(True)
 
     def shutdown(self):
         if self._stopped:

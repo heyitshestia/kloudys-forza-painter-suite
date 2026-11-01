@@ -482,11 +482,11 @@ Button {
         Item {
             Row {
                 anchors.left: parent.left
-                anchors.leftMargin: Theme.px(17)
+                anchors.leftMargin: Theme.px(Theme.chromeMetric("navContentInset", 17))
                 anchors.right: arrowText.left
-                anchors.rightMargin: Theme.px(8)
+                anchors.rightMargin: Theme.px(Theme.chromeMetric("navContentGap", 8))
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.px(Theme.terminalMode ? 7 : 13)
+                spacing: Theme.px(Theme.terminalMode ? 7 : Theme.chromeMetric("navContentGap", 13))
 
                 Text {
                     visible: Theme.terminalMode
@@ -534,7 +534,7 @@ Button {
 
             Text {
                 id: arrowText
-                width: Theme.px(20)
+                width: Theme.px(Theme.chromeMetric("navArrowWidth", 20))
                 text: "›"
                 visible: !Theme.terminalMode && !Theme.classicMode && (root.active || root.hovered)
                 color: root.active
@@ -546,7 +546,7 @@ Button {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 anchors.right: parent.right
-                anchors.rightMargin: Theme.px(10)
+                anchors.rightMargin: Theme.px(Theme.chromeMetric("navArrowInset", 10))
                 anchors.verticalCenter: parent.verticalCenter
             }
         }

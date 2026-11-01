@@ -18,7 +18,29 @@ GridView {
     reuseItems: true
     cacheBuffer: cellHeight
     boundsBehavior: Flickable.StopAtBounds
-    keyNavigationEnabled: true
+    keyNavigationEnabled: false
+
+    function navigate(event, fromIndex) {
+        var next = fromIndex
+        switch (event.key) {
+        case Qt.Key_Left: next -= 1; break
+        case Qt.Key_Right: next += 1; break
+        case Qt.Key_Up: next -= columns; break
+        case Qt.Key_Down: next += columns; break
+        case Qt.Key_Home: next = 0; break
+        case Qt.Key_End: next = count - 1; break
+        default: return
+        }
+        event.accepted = true
+        if (count === 0) return
+        currentIndex = Math.max(0, Math.min(count - 1, next))
+        positionViewAtIndex(currentIndex, GridView.Contain)
+        if (currentItem) {
+            currentItem.forceActiveFocus(Qt.TabFocusReason)
+            liverySelected(currentItem.path)
+        }
+    }
+    Keys.onPressed: event => navigate(event, currentIndex)
 
     delegate: AbstractButton {
         id: tile
@@ -45,8 +67,17 @@ GridView {
             grid.currentIndex = index
             grid.liverySelected(path)
         }
-        onDoubleClicked: grid.liveryOpened(path)
+        onDoubleClicked: {
+            // Finish Qt's double-click dispatch before hiding/recycling this button.
+            const sourcePath = path
+            Qt.callLater(function() {
+                if (tile.visible && !tile.pooled && tile.path === sourcePath)
+                    grid.liveryOpened(sourcePath)
+            })
+        }
         Keys.onReturnPressed: grid.liveryOpened(path)
+        Keys.onEnterPressed: grid.liveryOpened(path)
+        Keys.onPressed: event => grid.navigate(event, index)
 
         background: Rectangle {
             radius: Theme.framedRadius(Theme.px(6))
@@ -94,7 +125,7 @@ GridView {
                 width: parent.width - Theme.px(18)
                 text: tile.title
                 textFormat: Text.PlainText
-                color: Theme.text
+                color: tile.selected && Theme.classicMode ? Theme.primaryText : Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(12)
                 font.weight: Font.DemiBold
@@ -105,7 +136,7 @@ GridView {
                 width: parent.width - Theme.px(18)
                 text: (tile.modelCode.length > 0 ? tile.modelCode + " | " : "") + "Car " + tile.carId
                 textFormat: Text.PlainText
-                color: Theme.muted
+                color: tile.selected && Theme.classicMode ? Theme.primaryText : Theme.muted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(10.5)
                 elide: Text.ElideRight
@@ -114,7 +145,7 @@ GridView {
                 x: Theme.px(9)
                 width: parent.width - Theme.px(18)
                 text: tile.placementCount + " placements | " + (tile.exportable ? "Export available" : "Preview only")
-                color: tile.exportable ? Theme.subtle : Theme.warning
+                color: tile.selected && Theme.classicMode ? Theme.primaryText : (tile.exportable ? Theme.subtle : Theme.warning)
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(10)
                 elide: Text.ElideRight

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import math
 from pathlib import Path
 import re
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
+
+import numpy as np
 
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 UV_CHANNEL = re.compile(r'(?:0|[1-9][0-9]{0,9})\Z')
@@ -113,7 +114,7 @@ def _uv_bytes(document: dict, binary: bytes, index: int, expected_count: int) ->
         begin = start + offset
         data = binary[begin:begin + count * 8] if stride == 8 else b''.join(
             binary[begin + row * stride:begin + row * stride + 8] for row in range(count))
-        if any(not math.isfinite(value[0]) for value in struct.iter_unpack('<f', data)):
+        if not np.isfinite(np.frombuffer(data, dtype='<f4')).all():
             raise ValueError('UV accessor contains a non-finite value.')
         return data
     except (KeyError, IndexError, TypeError, struct.error) as exc:

@@ -29,7 +29,7 @@ TextField {
     selectedTextColor: Theme.primaryText
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(dense ? 13 : 14)
+    font.pixelSize: Theme.textSize(dense ? 13 : 14)
     font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
     renderType: TextInput.CurveRendering
     font.hintingPreference: Font.PreferFullHinting

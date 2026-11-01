@@ -382,6 +382,10 @@ class DevelopmentHarness:
             return click_item(visible_item(f"JsonTile:{path.name}"), Qt.RightButton)
 
         def click_menu(label: str) -> bool:
+            file_actions = visible_item("GhostButton:File actions")
+            if label != "File actions" and file_actions is not None:
+                if not click_item(file_actions):
+                    return False
             return click_item(visible_item(f"GhostButton:{label}"))
 
         def wait_for_item(name: str, attempts: int = 80):
@@ -432,7 +436,7 @@ class DevelopmentHarness:
         from unittest.mock import patch
         with patch("kfps_ui.editor_service.launch_editor", return_value="Editor open qualified") as launch:
             open_menu(expected["copy"])
-            clicked = click_menu("Open in Editor")
+            clicked = click_item(visible_item("OutputContextAction:edit"))
             for _ in range(60):
                 if launch.called:
                     break
@@ -441,13 +445,15 @@ class DevelopmentHarness:
                    and launch.call_args.kwargs.get("json_id") == "imgs/exported/Copy Source.json",
                    f"clicked={clicked}, calls={launch.call_count}")
         click_item(visible_item("OutputFolderTile:Destination"), Qt.RightButton)
-        record("no-editor-for-folder", visible_item("GhostButton:Open in Editor") is None)
+        record("no-editor-for-folder", visible_item("GhostButton:Open in Editor") is None
+               and visible_item("OutputContextAction:edit") is None)
         QTest.keyClick(self.window, Qt.Key_Escape)
 
         click_item(visible_item("JsonTile:Copy Source.json"))
         click_item(visible_item("JsonTile:Move Source.json"), modifiers=Qt.ControlModifier)
         open_menu(expected["copy"])
-        record("no-editor-for-multiple-files", visible_item("GhostButton:Open in Editor") is None)
+        edit_multiple = visible_item("OutputContextAction:edit")
+        record("no-editor-for-multiple-files", edit_multiple is not None and not edit_multiple.isEnabled())
         QTest.keyClick(self.window, Qt.Key_Escape)
         click_item(visible_item("JsonTile:Copy Source.json"))
 

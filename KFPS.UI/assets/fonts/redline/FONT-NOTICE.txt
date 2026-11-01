@@ -1,0 +1,8 @@
+Unbounded variable font, unmodified binary.
+Copyright 2022 The Unbounded Project Authors.
+License: SIL Open Font License 1.1; see OFL.txt.
+Source: https://github.com/google/fonts/tree/main/ofl/unbounded
+Upstream: https://github.com/googlefonts/unbounded
+Source commit: f3ec43228a864a72487e41552e2140efab9884ea
+Retrieved: 2026-11-01.
+Only the local filename was simplified. No game font was extracted.

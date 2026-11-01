@@ -8,15 +8,16 @@ import os
 from pathlib import Path
 import zipfile
 import tempfile
-import shutil
 
 from PIL import Image
 
 from .prepare import file_hash, prepare_car, within, workspace_lock
 from .readonly_cache import (cache_root, cache_lease, installation_cache_lease, prune_cache, verify_inventory,
-                             seal_inventory, file_inventory, admit_artifact, enforce_budget)
+                             seal_inventory, admit_artifact, enforce_budget)
 from .readonly_preview import FORMAT, make_display_manifest, ordinary_path, write_descriptor
 from .file_io import atomic_stream, io_path
+from .preview_evidence import build_preview_evidence
+from . import saved_atlas_reuse as atlas_reuse
 
 
 def save_png_exclusive(image, path):
@@ -27,35 +28,56 @@ def save_png_exclusive(image, path):
 
 def build_saved_atlas(package, prepared, asset, output, root, *, quality, layer_provider,
                       game_root, cancel_event, progress):
-    """Inherited fixed-name writers only run inside a fresh private staging dir."""
-    from tools.livery.render_contract import build_local_livery_atlases
+    """Verify immutable hits in place; fixed-name writers only see fresh staging."""
+    from tools.livery import render_contract as native
+    atlas_reuse.check_cancel(cancel_event)
+    output = ordinary_path(output, root)
+    shared = prepared['manifest']['inspection_runtime']['render_contract']
+    quality = quality if quality in (2, 4) and layer_provider is not None else 1
+    layers, reusable = None, True
+    if quality > 1:
+        # The provider also verifies private-source identity and ownership. A disk
+        # hit must not bypass it. External raster artwork is not bound by the ZIP.
+        layers = list(layer_provider())
+        atlas_reuse.check_cancel(cancel_event)
+        reusable = not any(layer.get('is_raster_logo') for layer in layers)
+        layer_provider = lambda: layers
+    package_stamp = atlas_reuse.fingerprint(package, cancel_event=cancel_event, maximum=1024**3)
+    mesh = within(root / prepared['files']['mesh'], root)
+    mesh_stat = io_path(mesh).stat()
+    inputs = {'package': package_stamp, 'prepared': prepared['signature'],
+              'contract': atlas_reuse.stable_contract(shared), 'sections': prepared['editor_config']['sections'],
+              'validation': prepared['validation'], 'quality': quality, 'layers': layers,
+              'asset': [asset.model_code, asset.archive_size, asset.archive_mtime_ns],
+              'mesh': [mesh_stat.st_size, mesh_stat.st_mtime_ns],
+              'native': file_hash(Path(native.__file__))}
+    signature = hashlib.sha256(atlas_reuse.canonical(inputs)).hexdigest()
+    cached = atlas_reuse.read_receipt(output, root, signature, cancel_event=cancel_event)
+    if cached is not None and reusable:
+        atlas_reuse.check_cancel(cancel_event)
+        return {**cached['contract'], 'root': str(output), 'cache_hit': True}
     io_path(output.parent).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.a-', dir=io_path(root)) as name:
         staging = Path(name)
-        if io_path(output).exists():
-            for child in io_path(output).iterdir():
-                ordinary_path(child, root)
-                if not child.is_file() or child.stat().st_nlink != 1:
-                    raise ValueError('Saved atlas cache contains an unexpected file.')
-                shutil.copy2(child, staging / child.name)
-        if prepared['manifest']['inspection_runtime']['render_contract']['mask_size'] == [2048, 1024]:
-            contract = build_local_livery_atlases(package, asset, staging,
-                mesh_path=within(root / prepared['files']['mesh'], root),
+        if shared['mask_size'] == [2048, 1024]:
+            contract = native.build_local_livery_atlases(package, asset, staging,
+                mesh_path=mesh,
                 mesh_validation=prepared['validation'], quality_scale=quality,
                 layer_provider=layer_provider, game_folder=game_root, cancel_event=cancel_event, progress=progress)
         else:
             contract = square_mask_atlas(package, prepared, staging, quality_scale=quality,
                 layer_provider=layer_provider, game_folder=game_root, cancel_event=cancel_event, progress=progress)
-        files = file_inventory(staging)
-        if sum(row[0] for row in files.values()) > 192 * 1024**2:
-            raise ValueError('Saved livery atlas exceeds the reserved cache allowance.')
-        if io_path(output).exists():
-            if (set(files) != {p.name for p in io_path(output).iterdir()}
-                    or any(file_hash(staging / path) != file_hash(output / path) for path in files)):
-                raise ValueError('Immutable saved atlas changed. Clear the viewer cache and reopen this livery.')
+        atlas_reuse.check_cancel(cancel_event)
+        if atlas_reuse.fingerprint(package, cancel_event=cancel_event, maximum=1024**3) != package_stamp:
+            raise ValueError('Livery package changed during preview preparation.')
+        receipt = atlas_reuse.write_receipt(staging, root, signature, contract, cancel_event=cancel_event)
+        if cached is not None:
+            if receipt != cached:
+                raise ValueError(atlas_reuse.IMMUTABLE_ERROR)
         else:
+            atlas_reuse.check_cancel(cancel_event)
             staging.replace(io_path(output))
-        return contract
+        return {**contract, 'root': str(output), 'cache_hit': False}
 
 
 def square_mask_atlas(package, prepared, output, *, quality_scale=1, layer_provider=None,
@@ -148,13 +170,15 @@ def prepare_readonly(kfps_root, game_root, asset, package, *, quality_scale=1,
         with cache_lease(root), workspace_lock(root):
             try:
                 phase('Preparing Studio geometry, native materials and UV masks')
-                prepared = prepare_car(Path(kfps_root), Path(game_root), asset.archive_name, root)
+                prepared = prepare_car(Path(kfps_root), Path(game_root), asset.archive_name, root,
+                                       cancel_event=cancel_event)
                 if prepared['manifest']['vehicle']['car_id'] != asset.car_id:
                     raise ValueError('Prepared car identity changed.')
                 phase('Preparing saved livery paint')
                 quality = quality_scale if quality_scale in (2, 4) and layer_provider is not None else 1
                 signature = hashlib.sha256(json.dumps({'source': prepared['signature'],
-                    'adapter': file_hash(Path(__file__))}, sort_keys=True).encode()).hexdigest()[:16]
+                    'adapter': file_hash(Path(__file__)), 'atlas_reuse': file_hash(Path(atlas_reuse.__file__))},
+                    sort_keys=True).encode()).hexdigest()[:16]
                 output = ordinary_path(root / 'saved-atlases' / f'{package_hash[:24]}-{signature}-q{quality}', root)
                 mesh = within(root / prepared['files']['mesh'], root)
                 contract = build_saved_atlas(package, prepared, asset, output, root, quality=quality,
@@ -188,4 +212,5 @@ def prepare_readonly(kfps_root, game_root, asset, package, *, quality_scale=1,
     return {'readonly_descriptor': str(path), 'readonly_descriptor_sha256': file_hash(path),
             'mesh_path': str(mesh), 'render_root': str(output),
             'render_contract': contract, 'mesh_cache_hit': bool(prepared['cache']['mesh']),
-            'cache_usage': usage, 'quality_notes': contract.get('quality_notes', [])}
+            'cache_usage': usage, 'quality_notes': contract.get('quality_notes', []),
+            'preview_evidence': build_preview_evidence(prepared, contract)}

@@ -2349,26 +2349,34 @@ class FullLiveryPackageTests(unittest.TestCase):
 
     def test_livery_page_qualifies_package_and_source_paths(self):
         source = (UI / "qml" / "pages" / "LiveryPage.qml").read_text(encoding="utf-8")
-        self.assertIn("selectPackage(packageDelegate.path)", source)
+        details = (UI / "qml" / "components" / "LiveryPreviewDetails.qml").read_text(encoding="utf-8")
+        self.assertIn("fullLiveryService.browsePackage(path)", source)
+        self.assertIn("fullLiveryService.previewBrowsedPackage()", source)
+        self.assertIn("model: fullLiveryService.packageGridModel", source)
+        self.assertIn("selectedPath: fullLiveryService.browsedPackage", source)
         self.assertIn("fullLiveryService.browseSource(path)", source)
         self.assertIn("fullLiveryService.previewSelectedSource()", source)
-        self.assertIn("Game meshes stay local", source)
+        self.assertIn("Game meshes stay local", details)
         self.assertNotIn("portable inspection mesh", source)
 
-    def test_livery_page_places_clear_cache_between_save_and_scan(self):
+    def test_livery_page_keeps_maintenance_in_the_themed_more_menu(self):
         source = (UI / "qml" / "pages" / "LiveryPage.qml").read_text(encoding="utf-8")
+        menu = source.index('objectName: "liveryMorePopup"')
         save = source.index('text: "Save Folder"')
         clear = source.index('text: "Clear Cache"')
         scan = source.index('"Scan Saves"')
+        self.assertLess(scan, menu)
+        self.assertLess(menu, save)
         self.assertLess(save, clear)
-        self.assertLess(clear, scan)
         self.assertIn("fullLiveryService.clearFullLiveryCache()", source)
 
     def test_livery_page_and_service_expose_only_the_fh6_package_policy(self):
         page = (UI / "qml" / "pages" / "LiveryPage.qml").read_text(encoding="utf-8")
         service = (UI / "src" / "kfps_ui" / "full_livery_service.py").read_text(encoding="utf-8")
 
-        self.assertIn('text: "FH6 package policy"', page)
+        details = (UI / "qml" / "components" / "LiveryPreviewDetails.qml").read_text(encoding="utf-8")
+        self.assertIn('text: "Compatibility"', details)
+        self.assertIn('text: fullLiveryService.running ? "Working..." : "Install in FH6 Save"', details)
         self.assertNotIn("targetGames", page)
         self.assertNotIn("setTargetGame", page)
         self.assertNotIn('label: "FH5"', page)

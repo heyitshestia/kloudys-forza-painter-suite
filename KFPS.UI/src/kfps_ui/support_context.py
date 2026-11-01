@@ -15,6 +15,17 @@ from .support_logs import _safe, discover_updater_files, read_known_file
 
 MAX_STATE = 2 * 1024 * 1024
 IDENTITY_FILES = {
+    "app-entry": "KFPS.UI/app.py",
+    "workspace-entry": "KFPS.UI/workspace.py",
+    "workspace-host": "KFPS.UI/src/kfps_ui/workspace_host.py",
+    "workspace-controller": "KFPS.UI/src/kfps_ui/workspace_controller.py",
+    "workspace-session": "KFPS.UI/src/kfps_ui/workspace_session.py",
+    "workspace-diagnostics": "KFPS.UI/src/kfps_ui/workspace_diagnostics.py",
+    "workspace-tools": "KFPS.UI/src/kfps_ui/workspace_tools.py",
+    "workspace-tasks": "KFPS.UI/src/kfps_ui/workspace_tasks.py",
+    "workspace-shell": "KFPS.UI/qml/Main.qml",
+    "workspace-theme": "KFPS.UI/qml/Kfps/Theme/Theme.qml",
+    "theme-catalog": "KFPS.UI/src/kfps_ui/theme_catalog.py",
     "editor-entry": "KFPS.Editor/editor.py",
     "editor-manifest": "KFPS.Editor/manifest.json",
     "editor-host": "KFPS.Editor/src/kfps_editor/host.py",
@@ -35,6 +46,9 @@ IDENTITY_FILES = {
     "theme-entitlement": "KFPS.UI/src/kfps_ui/supporter_service.py",
     "studio-launcher": "KFPSLiverySudio.exe",
     "studio-host": "tools/livery-studio/src/kfps_livery_lab/native_host.py",
+    "studio-shared-host": "tools/livery-studio/src/kfps_livery_lab/studio_host.py",
+    "studio-preparation": "tools/livery-studio/src/kfps_livery_lab/prepare.py",
+    "studio-atlas-reuse": "tools/livery-studio/src/kfps_livery_lab/saved_atlas_reuse.py",
     "studio-server": "tools/livery-studio/src/kfps_livery_lab/server.py",
     "studio-renderer": "tools/livery-studio/src/web/livery-scene.js",
     "studio-editor": "tools/livery-studio/src/web/livery-editor.mjs",

@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick 6.7
 import QtQuick.Controls 6.7
 import QtQuick.Dialogs 6.7
@@ -7,11 +9,14 @@ import "../components"
 
 Item {
     id: root
+    objectName: "OutputsPage"
     anchors.fill: parent
     clip: true
 
-    property bool wide: Theme.logical(width) >= 1120
+    readonly property bool redlineInterface: Theme.chromeMetric("redlineInterface", 0) > 0
+    property bool wide: Theme.logical(width) >= (redlineInterface ? 800 : 1120)
     property bool compactHeight: Theme.logical(height) < 720
+    property bool showTransferSetup: false
     property int fm8CreatorConfirmStep: 1
     property string fm8PendingCreator: ""
     property string fm8PendingCreatorDisplay: ""
@@ -24,6 +29,16 @@ Item {
     property string outputNameDialogMode: ""
     property string outputNameDialogTarget: ""
     property string outputNameDialogParent: ""
+    property string artworkContextPath: ""
+    property string artworkContextName: ""
+    property string artworkContextNavigation: ""
+    property var artworkContextState: ({})
+    property bool outputStudioStatusVisible: false
+    Component.onCompleted: jsonService.setNavigationConsumer("outputs")
+    onVisibleChanged: {
+        if (visible)
+            jsonService.setNavigationConsumer("outputs")
+    }
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && importSetupCard.width > 0
                                                      && browseOutputsCard.width > 0
@@ -34,10 +49,140 @@ Item {
 
     function openOutputContextMenu(path, name, isFolder, entryKind, sceneX, sceneY, contextState) {
         outputEditorStatusVisible = false
+        if (path && !isFolder && entryKind === "json") {
+            artworkContextPath = path
+            artworkContextName = name
+            artworkContextNavigation = jsonService.navigationKey
+            artworkContextState = contextState
+            var point = artworkContextMenu.parent.mapFromItem(root, sceneX, sceneY)
+            artworkContextMenu.x = Math.max(0, Math.min(point.x, artworkContextMenu.parent.width - artworkContextMenu.width))
+            artworkContextMenu.y = Math.max(0, Math.min(point.y, artworkContextMenu.parent.height - artworkContextMenu.height))
+            artworkContextMenu.open()
+            return
+        }
         outputContextMenus.openFor(
                     path, name, isFolder, entryKind, sceneX, sceneY,
                     contextState.selectionCount, contextState.canMove,
                     contextState.clipboardCount, contextState.canPaste)
+    }
+
+    function artworkActionReason(action, state) {
+        if (state.reason) return state.reason
+        if (action === "edit" && editorService.launching) return "The vinyl editor is starting."
+        if (action === "place" && editorService.studioLaunching) return "Livery Studio is starting."
+        if (action === "export") {
+            if (state.exportReason) return state.exportReason
+            if (transferService.running || cgroupLibraryService.running) return "A game transfer is already running."
+        }
+        return ""
+    }
+
+    function studioThemeContext() {
+        function color(value) {
+            return "rgba(" + Math.round(value.r * 255) + "," + Math.round(value.g * 255)
+                    + "," + Math.round(value.b * 255) + "," + value.a.toFixed(4) + ")"
+        }
+        const variables = {
+            "--bg": Theme.backgroundA, "--shell": Theme.backgroundB,
+            "--panel": Theme.surface, "--panel2": Theme.surfaceRaised, "--panel3": Theme.fieldSurface,
+            "--text": Theme.text, "--muted": Theme.muted, "--soft": Theme.subtle,
+            "--line": Theme.border, "--line2": Theme.borderStrong,
+            "--accent": Theme.primary, "--accent2": Theme.signalSecondary,
+            "--good": Theme.success, "--warn": Theme.warning, "--danger": Theme.danger,
+            "--canvas-bg": Theme.previewSurfaceSoft, "--fabric-canvas-bg": Theme.previewSurface,
+            "--editor-grid-line": Theme.borderSoft, "--editor-grid-axis": Theme.borderStrong,
+            "--editor-guide-line": Theme.signalSecondary, "--editor-guide-selected": Theme.primaryBright,
+            "--editor-guide-draft": Theme.primary, "--editor-notch-line": Theme.borderStrong,
+            "--editor-notch-muted": Theme.muted, "--editor-notch-active": Theme.primaryBright,
+            "--editor-selection-border": Theme.primary, "--editor-shape-outline": Theme.text,
+            "--editor-selection-corner": Theme.primaryBright, "--editor-selection-corner-stroke": Theme.surfaceStrong,
+            "--editor-skew-corner": Theme.warning, "--shape-tile-bg": Theme.fieldSurface,
+            "--dialog-bg": Theme.surfaceStrong, "--dialog-header": Theme.surfaceRaised
+        }
+        Object.keys(variables).forEach(key => variables[key] = color(variables[key]))
+        const fonts = []
+        if (Theme.classicMode && Theme.classicFontFamily !== "Microsoft Sans Serif" && Theme.classicFontFamily !== "sans-serif")
+            fonts.push({family: Theme.classicFontFamily, asset: "fonts/windows94/W95FA.otf"})
+        else if (!Theme.terminalMode && Theme.loadedUiFontFamily.length && Theme.uiFontFile.length)
+            fonts.push({family: Theme.loadedUiFontFamily, asset: Theme.uiFontFile})
+        return {name: Theme.activeThemeName, variables: variables, fontFamily: Theme.fontFamily, fontAssets: fonts}
+    }
+
+    function triggerArtworkAction(action, path, count) {
+        if (["edit", "place", "export", "show"].indexOf(action) < 0) return
+        var state = jsonService.artworkActionState(path, count)
+        if (artworkActionReason(action, state)) return
+        artworkContextMenu.close()
+        jsonInfoPopup.close()
+        outputEditorStatusVisible = action === "edit"
+        outputStudioStatusVisible = action === "place"
+        if (action === "edit") editorService.launchJson(state.path)
+        else if (action === "place") editorService.launchJsonInLiveryStudio(state.path, studioThemeContext())
+        else if (action === "show") desktop.revealOutputFile(state.path)
+        else if (action === "export") {
+            jsonService.selectPath(state.path)
+            showTransferSetup = true
+        }
+    }
+
+    component ArtworkActionButton: GhostButton {
+        required property int index
+        required property var actionOwner
+        readonly property string actionKey: ["edit", "place", "export", "show"][index]
+        objectName: actionOwner.namePrefix + ":" + actionKey
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 1
+        minimumWidth: 0
+        dense: true
+        text: ["Edit vinyl", "Place on car", "Export to game", "Show file"][index]
+        iconName: ["editor", "transfer", "transfer", "folder"][index]
+        readonly property string reason: root.artworkActionReason(actionKey, actionOwner.availability)
+        enabled: reason.length === 0
+        toolTipText: reason || ["Edit this vinyl without changing the original file.",
+            "Send this vinyl to Livery Studio for placement on a car.",
+            "Review online or offline transfer settings. Nothing is written until you confirm a transfer.",
+            "Select this JSON in File Explorer."][index]
+        onClicked: root.triggerArtworkAction(actionKey, actionOwner.path, actionOwner.selectionCount)
+    }
+
+    component ArtworkActions: ColumnLayout {
+        id: actions
+        property string path: ""
+        property int selectionCount: 0
+        property string namePrefix: "OutputAction"
+        readonly property real minimumCellWidth: Math.max(editAction.implicitWidth, placeAction.implicitWidth,
+                                                         exportAction.implicitWidth, showAction.implicitWidth)
+        property int columns: width < minimumCellWidth * 4 + Theme.px(18) ? 2 : 4
+        property var availability: {
+            jsonService.explorerSelectionRevision
+            return jsonService.artworkActionState(path, selectionCount)
+        }
+        spacing: Theme.px(4)
+        GridLayout {
+            Layout.fillWidth: true
+            columns: actions.columns
+            columnSpacing: Theme.px(6)
+            rowSpacing: Theme.px(4)
+            ArtworkActionButton { id: editAction; index: 0; actionOwner: actions }
+            ArtworkActionButton { id: placeAction; index: 1; actionOwner: actions }
+            ArtworkActionButton { id: exportAction; index: 2; actionOwner: actions }
+            ArtworkActionButton { id: showAction; index: 3; actionOwner: actions }
+        }
+        Text {
+            objectName: actions.namePrefix + "Explanation"
+            Layout.fillWidth: true
+            text: actions.availability.reason || actions.availability.exportReason
+                  || (editorService.launching ? "The vinyl editor is starting."
+                      : editorService.studioLaunching ? "Livery Studio is starting."
+                      : transferService.running || cgroupLibraryService.running ? "A game transfer is already running." : "")
+            visible: text.length > 0
+            textFormat: Text.PlainText
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(10)
+            wrapMode: Text.Wrap
+        }
     }
 
     function openOutputNameDialog(mode, target, parentPath, currentName) {
@@ -76,16 +221,30 @@ Item {
 
     GridLayout {
         anchors.fill: parent
+        layoutDirection: root.redlineInterface ? Qt.RightToLeft : Qt.LeftToRight
         columns: root.wide ? 3 : 1
         columnSpacing: Theme.px(12)
         rowSpacing: Theme.px(12)
 
+        GhostButton {
+            objectName: "OutputTransferToggle"
+            visible: !root.wide
+            Layout.alignment: Qt.AlignLeft
+            text: root.showTransferSetup ? "Back to vinyls" : "Import / Export"
+            iconName: root.showTransferSetup ? "chevron-left" : "transfer"
+            dense: true
+            toolTipText: root.showTransferSetup ? "Return to the output gallery." : "Open online and offline transfer controls."
+            onClicked: root.showTransferSetup = !root.showTransferSetup
+        }
+
         HoverCard {
             id: importSetupCard
+            visible: root.wide || root.showTransferSetup
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: root.wide ? Theme.px(360) : -1
-            Layout.minimumWidth: root.wide ? Theme.px(330) : 0
+            Layout.minimumWidth: root.wide ? Theme.px(root.redlineInterface ? 280 : 330) : 0
+            Layout.maximumWidth: root.redlineInterface && root.wide ? Theme.px(360) : Number.POSITIVE_INFINITY
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
@@ -106,8 +265,8 @@ Item {
 
                     SectionHeading {
                         Layout.fillWidth: true
-                        title: "1. Import setup"
-                        subtitle: "Online edits the running game. Offline edits supported local save files."
+                        title: root.redlineInterface ? "TRANSFER" : "Import / Export"
+                        subtitle: root.redlineInterface ? "" : "Online edits the running game. Offline edits supported local save files."
                     }
                 }
 
@@ -137,18 +296,6 @@ Item {
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 toolTipText: "Online import: use the open template's exact layer count (3000 for the standard template), not the JSON shape count. Online export: enter the actual shape-layer count of the open artwork, not its group count."
                             }
-                        }
-
-                        Label { text: "Output source" }
-                        KfpsComboBox {
-                            id: source
-                            objectName: "OutputSource"
-                            Layout.fillWidth: true
-                            dense: root.compactHeight
-                            model: ["Generated finals", "Editor exports", "Game exports", "Library"]
-                            currentIndex: jsonService.sourceIndex
-                            toolTipText: "Choose which KFPS folder or scanned game library is shown in the output browser."
-                            onActivated: jsonService.setSource(currentIndex)
                         }
 
                         GlassPanel {
@@ -364,7 +511,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            text: jsonService.selectedPath || "Select one folder/run, then one checkpoint JSON."
+                            text: jsonService.selectedPath || "No vinyl selected"
                             color: jsonService.selectedPath.length > 0 ? Theme.subtle : Theme.muted
                             font.family: jsonService.selectedPath.length > 0 ? Theme.monoFamily : Theme.fontFamily
                             font.pixelSize: Theme.px(9.2)
@@ -468,7 +615,7 @@ Item {
 
                 PrimaryButton {
                     Layout.fillWidth: true
-                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : "Online Import to Running Game")
+                    text: jsonService.selectedIsGameLibraryItem ? "Already in Game Library" : (transferService.running ? "Working…" : root.redlineInterface ? "Online import" : "Online Import to Running Game")
                     iconName: "transfer"
                     toolTipText: jsonService.selectedIsGameLibraryItem
                                  ? "Library items already came from game save files and cannot be imported through live memory from this view."
@@ -485,7 +632,7 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Open Output Folder"
+                        text: root.redlineInterface ? "Output folder" : "Open Output Folder"
                         iconName: "folder"
                         dense: root.compactHeight
                         toolTipText: "Open the main output folder containing generated vinyls, editor exports, and game exports."
@@ -495,7 +642,7 @@ Item {
                     GhostButton {
                         Layout.fillWidth: true
                         minimumWidth: 0
-                        text: "Online Export from Running Game"
+                        text: root.redlineInterface ? "Online export" : "Online Export from Running Game"
                         iconName: "transfer"
                         dense: root.compactHeight
                         toolTipText: "Auto-detect the running supported game, read its open vinyl group, and save it as a KFPS JSON."
@@ -508,10 +655,11 @@ Item {
 
         HoverCard {
             id: browseOutputsCard
+            visible: root.wide || !root.showTransferSetup
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.columnSpan: root.wide ? 2 : 1
-            Layout.minimumWidth: root.wide ? Theme.px(720) : 0
+            Layout.minimumWidth: root.wide ? Theme.px(root.redlineInterface ? 420 : 720) : 0
             padding: Theme.px(root.compactHeight ? 14 : 16)
             strong: true
 
@@ -525,16 +673,19 @@ Item {
 
                     SectionHeading {
                         Layout.fillWidth: true
-                        title: "2. Browse outputs"
-                        subtitle: "Browse folders, manage JSONs, and open vinyl previews without leaving KFPS."
+                        title: root.redlineInterface ? "LIBRARY" : "Outputs"
                     }
 
                     GhostButton {
-                        Layout.preferredWidth: Theme.px(132)
-                        minimumWidth: Theme.px(118)
+                        id: backupImagesButton
+                        Layout.preferredWidth: Math.max(Theme.px(132),
+                            Math.ceil(Math.max(backupLabelMetrics.advanceWidth, backupBusyMetrics.advanceWidth))
+                            + (reserveSideSlots ? (sideSlotWidth + sideGap) * 2 : 0)
+                            + leftPadding + rightPadding)
+                        minimumWidth: Layout.preferredWidth
                         dense: true
                         iconName: "folder"
-                        text: backupService.running ? "Backing up..." : "Backup imgs"
+                        text: backupService.running ? "Backing up..." : root.redlineInterface ? "Backup" : "Backup imgs"
                         enabled: !backupService.running
                         toolTipText: backupService.status
                                      + (backupService.destination.length > 0
@@ -542,6 +693,101 @@ Item {
                                         : "\nChoose a destination once; KFPS will remember it.")
                                      + "\nEach run adds a complete snapshot. Existing backups are never deleted."
                         onClicked: backupService.backupImgs()
+
+                        TextMetrics {
+                            id: backupLabelMetrics
+                            text: "Backup imgs"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.typeSize(backupImagesButton.textPixelSize)
+                            font.weight: Font.DemiBold
+                        }
+                        TextMetrics {
+                            id: backupBusyMetrics
+                            text: "Backing up..."
+                            font: backupLabelMetrics.font
+                        }
+                    }
+                }
+
+                TabBar {
+                    id: outputCategories
+                    objectName: "OutputCategoryTabs"
+                    Layout.fillWidth: true
+                    implicitWidth: 0
+                    Layout.preferredHeight: Theme.px(40)
+                    spacing: 0
+                    currentIndex: jsonService.sourceIndex
+                    background: Rectangle { color: Theme.backgroundA }
+                    onCountChanged: setCurrentIndex(jsonService.sourceIndex)
+                    Connections {
+                        target: jsonService
+                        function onChanged() {
+                            if (outputCategories.currentIndex !== jsonService.sourceIndex)
+                                outputCategories.currentIndex = jsonService.sourceIndex
+                        }
+                    }
+
+                    Repeater {
+                        id: outputCategoryButtons
+                        model: ["Generated", "Editor exports", "Game exports", "Library"]
+                        delegate: TabButton {
+                            id: categoryTab
+                            required property int index
+                            required property string modelData
+                            objectName: "OutputCategoryTab:" + index
+                            width: outputCategories.width / 4
+                            height: outputCategories.height
+                            padding: Theme.px(10)
+                            text: modelData
+                            hoverEnabled: true
+                            focusPolicy: Qt.StrongFocus
+                            onClicked: {
+                                outputCategories.setCurrentIndex(index)
+                                if (jsonService.sourceIndex !== index) {
+                                    jsonService.setSource(index)
+                                }
+                            }
+                            contentItem: Text {
+                                text: categoryTab.text
+                                textFormat: Text.PlainText
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.px(12)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+                            background: Rectangle {
+                                color: categoryTab.hovered ? Theme.surfaceRaised : Theme.surface
+                                border.color: categoryTab.activeFocus || categoryTab.hovered ? Theme.primary : Theme.border
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: Theme.px(3)
+                                    visible: categoryTab.checked
+                                    color: Theme.primary
+                                }
+                            }
+                            KfpsToolTip {
+                                visible: categoryTab.hovered
+                                text: ["Browse generated vinyls.", "Browse vinyls saved by the Vinyl Editor.",
+                                       "Browse vinyls exported from a running game.",
+                                       "Browse scanned saves and downloaded community vinyls."][categoryTab.index]
+                            }
+                            Keys.onPressed: event => {
+                                var next = index
+                                if (event.key === Qt.Key_Left) next = (index + 3) % 4
+                                else if (event.key === Qt.Key_Right) next = (index + 1) % 4
+                                else if (event.key === Qt.Key_Home) next = 0
+                                else if (event.key === Qt.Key_End) next = 3
+                                else return
+                                var tab = outputCategoryButtons.itemAt(next)
+                                tab.forceActiveFocus()
+                                tab.clicked()
+                                event.accepted = true
+                            }
+                        }
                     }
                 }
 
@@ -574,6 +820,7 @@ Item {
                                     Layout.maximumWidth: Theme.px(420)
                                     text: root.outputEditorStatusVisible
                                           ? (editorService.lastError || editorService.status)
+                                          : root.outputStudioStatusVisible ? editorService.studioStatus
                                           : jsonService.managementStatus.length > 0
                                           ? jsonService.managementStatus
                                           : (jsonService.thumbnailStatus.length > 0 ? jsonService.thumbnailStatus : (jsonService.indexing ? jsonService.indexStatus : (jsonService.selectedName === "—" ? "Double-click a thumbnail for details." : jsonService.selectedName)))
@@ -693,11 +940,10 @@ Item {
                                     model: jsonService.folderModel
                                     textRole: "displayName"
                                     currentIndex: jsonService.currentFolderIndex
-                                    toolTipText: "Jump to Outputs, an output category, or any folder created inside KFPS."
+                                    toolTipText: "Jump to a folder inside the selected category."
                                     onActivated: {
                                         var folder = jsonService.folderModel.get(currentIndex)
                                         jsonService.jumpToFolder(String(folder.path || ""))
-                                        files.positionViewAtBeginning()
                                     }
                                 }
 
@@ -709,15 +955,15 @@ Item {
 
                                 KfpsTextField {
                                     id: outputSearch
+                                    objectName: "OutputSearch"
                                     Layout.fillWidth: true
                                     dense: true
                                     enabled: jsonService.currentFolder.length > 0
-                                    placeholderText: enabled ? "Search current source by vinyl name" : "Open an output category to search"
+                                    placeholderText: "Search this category"
                                     toolTipText: "Filter the current output source by vinyl name. Empty the box to show everything again."
                                     Component.onCompleted: text = jsonService.searchQuery
                                     onTextEdited: {
                                         jsonService.setSearchQuery(text)
-                                        files.positionViewAtBeginning()
                                     }
                                     Connections {
                                         target: jsonService
@@ -743,7 +989,12 @@ Item {
                                     onActivated: {
                                         var modes = ["date-desc", "name-asc", "shapes-asc", "shapes-desc"]
                                         jsonService.setSortMode(modes[currentIndex])
-                                        files.positionViewAtBeginning()
+                                    }
+                                    Connections {
+                                        target: jsonService
+                                        function onChanged() {
+                                            outputSort.currentIndex = ["date-desc", "name-asc", "shapes-asc", "shapes-desc"].indexOf(jsonService.sortMode)
+                                        }
                                     }
                                 }
 
@@ -765,6 +1016,7 @@ Item {
 
                                 GridView {
                                     id: files
+                                    objectName: "OutputFiles"
                                     anchors.fill: parent
                                     clip: true
                                     model: jsonService.explorerModel
@@ -775,6 +1027,35 @@ Item {
                                     property int columns: Math.max(1, Math.floor(width / Theme.px(root.compactHeight ? 148 : 180)))
                                     cellWidth: Math.max(Theme.px(138), width / columns)
                                     cellHeight: Theme.px(root.compactHeight ? 158 : 186)
+                                    property bool restoringNavigation: true
+                                    property string scrollNavigationKey: ""
+                                    function restoreNavigation() {
+                                        restoringNavigation = true
+                                        cancelFlick()
+                                        Qt.callLater(applyNavigation)
+                                    }
+                                    function applyNavigation() {
+                                        forceLayout()
+                                        scrollNavigationKey = jsonService.navigationKey
+                                        contentY = originY + Math.max(0, Math.min(jsonService.explorerScrollY,
+                                                                               contentHeight - height))
+                                        restoringNavigation = false
+                                    }
+                                    Component.onCompleted: restoreNavigation()
+                                    onHeightChanged: restoreNavigation()
+                                    onWidthChanged: restoreNavigation()
+                                    onContentYChanged: {
+                                        if (!restoringNavigation && visible && jsonService.navigationConsumer === "outputs")
+                                            jsonService.setExplorerScroll(scrollNavigationKey, contentY - originY)
+                                    }
+                                    Connections {
+                                        target: jsonService
+                                        function onExplorerAboutToReset() { files.restoringNavigation = true; files.cancelFlick() }
+                                    }
+                                    Connections {
+                                        target: jsonService.explorerModel
+                                        function onModelReset() { files.restoreNavigation() }
+                                    }
 
                                     Keys.onPressed: event => {
                                         if (event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
@@ -1041,7 +1322,6 @@ Item {
                                                     return
                                                 if (fileCard.isFolder) {
                                                     jsonService.openExplorerFolder(fileCard.path)
-                                                    files.positionViewAtBeginning()
                                                     return
                                                 }
                                                 jsonService.selectExplorerEntry(fileCard.index, false, false)
@@ -1061,7 +1341,7 @@ Item {
                                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                                         z: -1
                                         onClicked: mouse => {
-                                            if (outputContextMenus.opened)
+                                            if (outputContextMenus.opened || artworkContextMenu.opened)
                                                 return
                                             if (jsonService.currentFolder.length === 0)
                                                 return
@@ -1103,6 +1383,12 @@ Item {
                                              ? "No vinyl name in this source matches the search."
                                              : "Right-click here to create a folder or paste copied items.")
                                 }
+                            }
+
+                            ArtworkActions {
+                                Layout.fillWidth: true
+                                path: jsonService.selectedPath
+                                selectionCount: jsonService.explorerSelectionCount || (jsonService.selectedPath ? 1 : 0)
                             }
 
                             GlassPanel {
@@ -1162,12 +1448,10 @@ Item {
         moveFolderModel: jsonService.moveFolderModel
         currentFolderPath: jsonService.currentFolder
         onOpenEditorRequested: function(path) {
-            root.outputEditorStatusVisible = true
-            editorService.launchJson(path)
+            root.triggerArtworkAction("edit", path, jsonService.explorerSelectionCount)
         }
         onOpenFolderRequested: function(path) {
             jsonService.openExplorerFolder(path)
-            files.positionViewAtBeginning()
         }
         onCutRequested: jsonService.cutSelection()
         onCopyRequested: jsonService.copySelection()
@@ -1181,6 +1465,49 @@ Item {
             root.openOutputNameDialog(mode, target, parentPath, currentName)
         }
         onDeleteRequested: deleteSelectedEntriesDialog.open()
+    }
+    Popup {
+        id: artworkContextMenu
+        objectName: "OutputArtworkContextMenu"
+        parent: Overlay.overlay
+        width: Math.min(root.width, Theme.px(350))
+        height: artworkContextColumn.implicitHeight + topPadding + bottomPadding
+        padding: Theme.px(10)
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: KfpsPopupSurface { cornerRadius: Theme.px(6) }
+        contentItem: ColumnLayout {
+            id: artworkContextColumn
+            ArtworkActions {
+                Layout.fillWidth: true
+                path: root.artworkContextPath
+                selectionCount: root.artworkContextState.selectionCount || 0
+                namePrefix: "OutputContextAction"
+                columns: 2
+            }
+            GhostButton {
+                Layout.fillWidth: true
+                text: "File actions"
+                iconName: "folder"
+                dense: true
+                toolTipText: "Open copy, move, rename and delete actions for this selection."
+                onClicked: {
+                    artworkContextMenu.close()
+                    var point = root.mapFromItem(artworkContextMenu.parent, artworkContextMenu.x, artworkContextMenu.y)
+                    var state = root.artworkContextState
+                    outputContextMenus.openFor(root.artworkContextPath, root.artworkContextName, false, "json",
+                                               point.x, point.y, state.selectionCount, state.canMove,
+                                               state.clipboardCount, state.canPaste)
+                }
+            }
+        }
+        Connections {
+            target: jsonService
+            function onChanged() {
+                if (root.artworkContextNavigation !== jsonService.navigationKey)
+                    artworkContextMenu.close()
+            }
+        }
     }
     Popup {
         id: outputNameDialog
@@ -1277,6 +1604,16 @@ Item {
 
     Popup {
         id: jsonInfoPopup
+        objectName: "OutputInfoPopup"
+        property string navigationKey: ""
+        onAboutToShow: navigationKey = jsonService.navigationKey
+        Connections {
+            target: jsonService
+            function onChanged() {
+                if (jsonInfoPopup.navigationKey !== jsonService.navigationKey)
+                    jsonInfoPopup.close()
+            }
+        }
         modal: true
         focus: true
         dim: true
@@ -1317,7 +1654,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: Theme.px(460)
+                Layout.minimumHeight: Theme.px(120)
                 radius: Theme.corner(Theme.px(18))
                 color: Theme.angularControlsEnabled ? "transparent" : Theme.previewSurface
                 border.width: Theme.angularControlsEnabled ? 0 : Math.max(1, Theme.px(1))
@@ -1362,6 +1699,13 @@ Item {
                     title: "No preview"
                     message: "The JSON can still be imported, but no thumbnail was available."
                 }
+            }
+
+            ArtworkActions {
+                Layout.fillWidth: true
+                path: root.infoCardPath
+                selectionCount: 1
+                namePrefix: "OutputInfoAction"
             }
 
             GlassPanel {

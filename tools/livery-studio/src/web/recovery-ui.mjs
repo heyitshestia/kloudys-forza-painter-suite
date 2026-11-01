@@ -162,7 +162,14 @@ export function initRecovery({host,api,getProject,loadProject,message=()=>{},isB
   }
   controller=createRecoveryController({api,getProject,loadProject,isBusy,onState:render,debounceMs:config.recovery?.debounce_ms??1500});
   async function loadList(){loading=true;render(controller.state());try{await controller.list();}catch(error){if(!disposed)feedback(errorText(error),true);}finally{loading=false;if(!disposed)render(controller.state());}}
-  open.addEventListener('click',()=>{if(open.disabled||disposed)return;confirm.hidden=true;status.textContent='';dialog.showModal();void loadList();});
+  function openRecovery(){
+    const phase=controller.state().phase;
+    if(disposed||dialog.open||isBusy()||phase==='checkpoint'||phase==='restoring')return false;
+    confirm.hidden=true;status.textContent='';dialog.showModal();
+    // Session reopening may arrive while the initial read-only list is loading.
+    if(!loading)void loadList();return true;
+  }
+  open.addEventListener('click',openRecovery);
   close.addEventListener('click',()=>{if(!close.disabled)dialog.close();});
   dialog.addEventListener('cancel',event=>{if(controller.state().phase)event.preventDefault();});
   // Native input editing, IME and AltGr must not reach editor shortcuts.
@@ -200,5 +207,5 @@ export function initRecovery({host,api,getProject,loadProject,message=()=>{},isB
   // this listener. dispose also flushes before removing our pending state.
   win.addEventListener('pagehide',pagehide,{capture:true});
   void loadList();
-  return {changed:options=>controller.changed(options),refresh:()=>controller.refresh(),dispose(){if(disposed)return;pagehide();disposed=true;controller.dispose();win.removeEventListener('pagehide',pagehide,{capture:true});win.removeEventListener('keydown',modalKeys,{capture:true});dialog.remove();open.remove();}};
+  return {open:openRecovery,changed:options=>controller.changed(options),refresh:()=>controller.refresh(),dispose(){if(disposed)return;pagehide();disposed=true;controller.dispose();win.removeEventListener('pagehide',pagehide,{capture:true});win.removeEventListener('keydown',modalKeys,{capture:true});dialog.remove();open.remove();}};
 }

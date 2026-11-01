@@ -47,6 +47,17 @@ class StartupSequenceTests(unittest.TestCase):
         self.assertFalse(service.claim())
         self.assertEqual(service.source, "")
 
+    def test_ordinary_theme_loads_without_media_or_cinematic(self):
+        self.media(packaged=True)
+        service = self.create(theme="app")
+        self.assertFalse(service.enabled)
+        self.assertEqual(service.source, "")
+        self.assertFalse(service.claim("app"))
+        service.beginLoading()
+        self.jsons.warmIndex.assert_called_once()
+        self.assertTrue(service.ready)
+        self.assertIn("KFPS startup", self.logs.append.call_args.args[0])
+
     def test_once_per_process_and_disabled_theme(self):
         self.media()
         service = self.create(enabled=True)

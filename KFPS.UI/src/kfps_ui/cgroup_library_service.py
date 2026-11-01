@@ -524,9 +524,7 @@ class CGroupLibraryService(QObject):
             )
             self.log.append(self._summary)
             if outputs:
-                self.jsons.setSource(3)
-                self.jsons.refresh()
-                self.jsons.selectPath(outputs[0])
+                self.jsons.refreshLibraryOutputs()
                 self.jsons.refreshRecent()
         else:
             self._status = "Failed"

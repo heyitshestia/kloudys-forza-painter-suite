@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import psutil
-from PySide6.QtCore import QObject, Property, QSortFilterProxyModel, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import QFileDialog
 
 from tools.livery import (
@@ -34,12 +34,16 @@ from .experimental.full_livery.supervisor import (
 )
 from .log_service import LogService
 from .lifecycle import discard_queued_events
+from .livery_library import LiveryLibraryFilter, source_details
 from .models import DictListModel
 from .qt_utils import safe_file_part
+from .workspace_diagnostics import operation as diagnostic_operation, record
 
 
 class FullLiveryService(QObject):
     changed = Signal()
+    sourceSearchChanged = Signal()
+    packageSearchChanged = Signal()
     _resultReady = Signal(object)
     _meshResultReady = Signal(object)
 
@@ -92,20 +96,26 @@ class FullLiveryService(QObject):
         self._active_source_fingerprint = ""
         self._source_fingerprints: dict[str, str] = {}
         self._source_privacy: dict[str, dict[str, Any]] = {}
+        self._source_cars: list[dict[str, Any]] = [{"label": "All cars", "value": 0}]
         self._selected_package = str(self._settings.get("last_package") or "")
+        self._browsed_package = ""
+        self._package_details: dict[str, dict[str, Any]] = {}
+        self._package_cars: list[dict[str, Any]] = [{"label": "All cars", "value": 0}]
         self._viewer_url = ""
         # Legacy High was 2x, now Standard. Never upgrade an old preference to 4x.
         self._viewer_quality = 2 if self._settings.get("viewer_vinyl_quality") == "high" else 1
         self._viewer_wheels_visible = self._settings.get("viewer_wheels_visible") is not False
         self._current_manifest: dict[str, Any] = {}
+        self._preview_evidence: dict[str, Any] = {}
         self._sources = DictListModel(self.SOURCE_ROLES, self)
-        self._source_grid = QSortFilterProxyModel(self)
+        self._source_grid = LiveryLibraryFilter(self)
+        self._source_grid.searchChanged.connect(self.sourceSearchChanged)
         self._source_grid.setSourceModel(self._sources)
-        self._source_grid.setFilterRole(next(
-            role for role, name in self._sources.roleNames().items() if bytes(name) == b"searchText"
-        ))
-        self._source_grid.setFilterCaseSensitivity(Qt.CaseInsensitive)
         self._packages = DictListModel(self.PACKAGE_ROLES, self)
+        self._package_grid = LiveryLibraryFilter(self)
+        self._package_grid.setSortOrder("title")
+        self._package_grid.searchChanged.connect(self.packageSearchChanged)
+        self._package_grid.setSourceModel(self._packages)
         self._decisions = DictListModel(self.DECISION_ROLES, self)
         self._selection_serial = 0
         self._source_preview_serial = 0
@@ -163,11 +173,157 @@ class FullLiveryService(QObject):
 
     @Slot(str)
     def setSourceSearch(self, text: str) -> None:
-        self._source_grid.setFilterFixedString(str(text).strip())
+        self._source_grid.setSearch(str(text).strip())
+        self.changed.emit()
+
+    @Property(int, notify=changed)
+    def sourceCount(self):
+        return self._sources.rowCount()
+
+    @Property(int, notify=changed)
+    def visibleSourceCount(self):
+        return self._source_grid.rowCount()
+
+    @Property("QVariantList", notify=changed)
+    def sourceCars(self):
+        selected = self._source_grid.car_id
+        if selected and not any(item["value"] == selected for item in self._source_cars):
+            return [*self._source_cars, {"label": f"Car ID {selected} (not in current scan)", "value": selected}]
+        return self._source_cars
+
+    @Property(str, notify=sourceSearchChanged)
+    def sourceSearch(self):
+        return self._source_grid.search
+
+    @Property(int, notify=changed)
+    def sourceCarId(self):
+        return self._source_grid.car_id
+
+    @Property(str, notify=changed)
+    def sourceAvailability(self):
+        return self._source_grid.availability
+
+    @Property(str, notify=changed)
+    def sourceSort(self):
+        return self._source_grid.sort_order
+
+    @Slot(int)
+    def setSourceCar(self, car_id: int) -> None:
+        try:
+            self._source_grid.setCarId(car_id)
+        except ValueError:
+            return
+        self.changed.emit()
+
+    @Slot(str)
+    def setSourceAvailability(self, value: str) -> None:
+        try:
+            self._source_grid.setAvailability(value)
+        except ValueError:
+            return
+        self.changed.emit()
+
+    @Slot(str)
+    def setSourceSort(self, value: str) -> None:
+        try:
+            self._source_grid.setSortOrder(value)
+        except ValueError:
+            return
+        self.changed.emit()
+
+    @Slot()
+    def resetSourceFilters(self) -> None:
+        self._source_grid.setSearch("")
+        self._source_grid.setCarId(0)
+        self._source_grid.setAvailability("all")
+        self.changed.emit()
+
+    @Property("QVariantMap", notify=changed)
+    def sourceDetails(self):
+        return source_details(self._source_privacy.get(self._selected_source))
+
+    @Property("QVariantMap", notify=changed)
+    def previewEvidence(self):
+        return self._preview_evidence
+
+    @Property("QVariantList", notify=changed)
+    def sectionDetails(self):
+        counts = (self._current_manifest.get("livery") or {}).get("section_counts")
+        if not isinstance(counts, dict):
+            return []
+        return [{"name": str(name), "count": count} for name, count in counts.items()
+                if type(count) is int and 0 <= count <= 2 ** 31 - 1][:32]
 
     @Property(QObject, constant=True)
     def packageModel(self):
         return self._packages
+
+    @Property(QObject, constant=True)
+    def packageGridModel(self):
+        return self._package_grid
+
+    @Property(int, notify=changed)
+    def packageCount(self):
+        return self._packages.rowCount()
+
+    @Property(int, notify=changed)
+    def visiblePackageCount(self):
+        return self._package_grid.rowCount()
+
+    @Property(str, notify=packageSearchChanged)
+    def packageSearch(self):
+        return self._package_grid.search
+
+    @Property("QVariantList", notify=changed)
+    def packageCars(self):
+        selected = self._package_grid.car_id
+        if selected and not any(item["value"] == selected for item in self._package_cars):
+            return [*self._package_cars, {"label": f"Car ID {selected} (not in current index)", "value": selected}]
+        return self._package_cars
+
+    @Property(int, notify=changed)
+    def packageCarId(self):
+        return self._package_grid.car_id
+
+    @Property(str, notify=changed)
+    def packageSort(self):
+        return self._package_grid.sort_order
+
+    @Slot(str)
+    def setPackageSearch(self, text: str) -> None:
+        if not isinstance(text, str):
+            return
+        self._package_grid.setSearch(text.strip())
+        self.changed.emit()
+
+    @Slot(int)
+    def setPackageCar(self, car_id: int) -> None:
+        try:
+            self._package_grid.setCarId(car_id)
+        except ValueError:
+            return
+        self.changed.emit()
+
+    @Slot(str)
+    def setPackageSort(self, value: str) -> None:
+        if value not in ("title", "car", "placements"):
+            return
+        self._package_grid.setSortOrder(value)
+        self.changed.emit()
+
+    @Slot()
+    def resetPackageFilters(self) -> None:
+        self._package_grid.setSearch("")
+        self._package_grid.setCarId(0)
+        self.changed.emit()
+
+    @Property(str, notify=changed)
+    def browsedPackage(self):
+        return self._browsed_package
+
+    @Property("QVariantMap", notify=changed)
+    def packageDetails(self):
+        return dict(self._package_details.get(self._browsed_package) or {})
 
     @Property(QObject, constant=True)
     def decisionModel(self):
@@ -332,27 +488,79 @@ class FullLiveryService(QObject):
             key=lambda row: (str(row.get("modified") or ""), str(row.get("title") or "").casefold()),
             reverse=True,
         )
-        package_rows = self._catalog.package_rows()
-        package_rows.sort(
-            key=lambda row: (int(row.get("mtimeNs") or 0), str(row.get("title") or "").casefold()),
-            reverse=True,
-        )
-        for row in package_rows:
-            row.pop("mtimeNs", None)
-        self._sources.replace(source_grid_row(row) for row in source_rows)
-        self._packages.replace(package_rows)
-        self._source_privacy = {
-            str(row.get("path") or ""): {
-                "exportable": bool(row.get("exportable")),
-                "privacyDetail": str(row.get("privacyDetail") or ""),
-                "carId": int(row.get("carId") or 0),
-                "title": str(row.get("title") or ""),
-                "modelCode": str(row.get("modelCode") or ""),
-                "placementCount": int(row.get("placementCount") or 0),
-            }
-            for row in source_rows
-            if row.get("path")
-        }
+        self._replace_source_rows(source_rows)
+        self._replace_package_rows(self._cached_package_rows())
+
+    def _cached_package_rows(self) -> list[dict[str, Any]]:
+        rows = self._catalog.package_rows()
+        if not isinstance(rows, (list, tuple)):
+            return []
+
+        def order(row):
+            modified = row.get("mtimeNs")
+            title = row.get("title")
+            return (modified if type(modified) is int and modified >= 0 else 0,
+                    title.casefold() if isinstance(title, str) else "")
+
+        # Keep the legacy raw model order; the browser proxy sorts independently.
+        return sorted((row for row in rows if isinstance(row, dict)), key=order, reverse=True)
+
+    def _replace_source_rows(self, rows) -> None:
+        # Thumbnail probes happen once per index refresh, never on selection/filter.
+        grid_rows = [source_grid_row(row) for row in rows]
+        self._source_privacy = {str(row["path"]): source_details(row)
+                                for row in grid_rows if row.get("path")}
+        cars = {}
+        for row in self._source_privacy.values():
+            car_id = row["carId"]
+            if car_id:
+                cars[car_id] = row["modelCode"] or "Unresolved car"
+        self._source_cars = [{"label": "All cars", "value": 0}] + [
+            {"label": f"{cars[car_id]} (ID {car_id})", "value": car_id}
+            for car_id in sorted(cars)
+        ]
+        self._sources.replace(grid_rows)
+
+    def _replace_package_rows(self, rows) -> None:
+        # Catalog metadata is display-only. Never parse packages to fill a row.
+        grid_rows = []
+        details = {}
+        cars = {}
+        for row in rows if isinstance(rows, (list, tuple)) else ():
+            if not isinstance(row, dict):
+                continue
+            path = row.get("path")
+            if not isinstance(path, str) or not path or "\0" in path or path in details:
+                continue
+            fields = source_details(row)
+            display = {key: fields[key] for key in ("title", "modelCode", "carId", "placementCount")}
+            display.update(path=path,
+                           created=row.get("created") if isinstance(row.get("created"), str) else "",
+                           portableMesh=row.get("portableMesh") is True
+                           or (type(row.get("portableMesh")) is int and row["portableMesh"] == 1))
+            details[path] = display
+            grid_rows.append({**display, "detail": row.get("detail") if isinstance(row.get("detail"), str) else ""})
+            if display["carId"]:
+                cars[display["carId"]] = display["modelCode"] or "Unresolved car"
+        self._package_details = details
+        self._package_cars = [{"label": "All cars", "value": 0}] + [
+            {"label": f"{cars[car_id]} (ID {car_id})", "value": car_id}
+            for car_id in sorted(cars)
+        ]
+        if self._browsed_package and not self._available_package(self._browsed_package):
+            removed = self._browsed_package
+            self._browsed_package = ""
+            if self._selected_package == removed:
+                self.showSourceGrid()
+        self._packages.replace(grid_rows)
+
+    def _available_package(self, path: Any) -> bool:
+        if not isinstance(path, str) or path not in self._package_details:
+            return False
+        try:
+            return Path(path).is_file()
+        except (OSError, ValueError):
+            return False
 
     @Slot()
     def _sync_task_state(self) -> None:
@@ -419,7 +627,9 @@ class FullLiveryService(QObject):
     def _route_worker_result(self, result: dict[str, Any]) -> None:
         if "payload" not in result and isinstance(result.get("value"), dict):
             result = {**result, "payload": result["value"]}
-        resume = self._resume_after_cancel and self._active and bool(result.get("cancelled"))
+        # Leaving the page invalidates selection serials. Completion of that old
+        # worker releases reopening even if it finished before seeing cancellation.
+        resume = self._resume_after_cancel and self._active and not self._tasks.running
         if str(result.get("kind") or "") == "mesh":
             self._meshResultReady.emit(result)
         else:
@@ -636,27 +846,32 @@ class FullLiveryService(QObject):
     @Slot()
     def clearFullLiveryCache(self):
         if self._running or not self._gate.enabled:
+            record(self.log, "cache.clear", "blocked")
             return
-        reopen_source = self._active_source_preview or self._selected_source
-        reopen_package = "" if reopen_source else self._selected_package
+        diagnostic = diagnostic_operation()
+        record(self.log, "cache.clear", "started", op=diagnostic)
+        reopen_source = self._active_source_preview
+        package_preview_active = bool(self._current_manifest or self._viewer_url or self._inspector.running)
+        reopen_package = self._selected_package if not reopen_source and package_preview_active else ""
         self._cancel_source_preview()
         self._cancel_mesh_preparation()
-        self._inspector.stop()
-        self._current_manifest = {}
-        self._selected_package = ""
-        self._viewer_url = ""
+        self._reset_inspector_session()
         self._active_source_preview = ""
         self._running = True
         self._status = "Clearing full-livery cache"
         self._summary = "Removing rebuildable car meshes, section atlases, previews, and the FH6 vehicle index."
         self.changed.emit()
-        self._tasks.start(
-            "clear-cache",
-            self._worker_payload(),
-            kind="clear-cache",
-            metadata={"reopen_source": reopen_source, "reopen_package": reopen_package,
-                      "request_serial": self._mesh_serial},
-        )
+        try:
+            self._tasks.start(
+                "clear-cache",
+                self._worker_payload(),
+                kind="clear-cache",
+                metadata={"reopen_source": reopen_source, "reopen_package": reopen_package,
+                          "request_serial": self._mesh_serial, "diagnostic_operation": diagnostic},
+            )
+        except Exception as exc:
+            record(self.log, "cache.clear", "failed", op=diagnostic, stage="launch", error=exc)
+            raise
 
     @Slot()
     def scanSaves(self):
@@ -714,6 +929,27 @@ class FullLiveryService(QObject):
             self.selectSource(self._selected_source)
 
     @Slot(str)
+    def browsePackage(self, path: str) -> None:
+        if self._closed or not self._gate.can_preview:
+            return
+        self._browsed_package = path if self._available_package(path) else ""
+        # Browsing never inherits a verified manifest or an in-flight preview.
+        self.showSourceGrid()
+        self._status = "Package browser" if self._browsed_package else "Package unavailable"
+        self._summary = ("Cached package details. Open a 3D preview to verify this package."
+                         if self._browsed_package else "Refresh saved packages to update the library.")
+        self.changed.emit()
+
+    @Slot(result=bool)
+    def previewBrowsedPackage(self) -> bool:
+        if self._closed or not self._gate.can_preview:
+            return False
+        if not self._available_package(self._browsed_package):
+            self.browsePackage("")
+            return False
+        return self.selectPackage(self._browsed_package)
+
+    @Slot(str)
     def selectSource(self, path: str):
         if not self._gate.can_preview:
             return
@@ -766,12 +1002,12 @@ class FullLiveryService(QObject):
         self.selectPackage(path)
 
     @Slot(str)
-    def selectPackage(self, path: str):
-        if not self._gate.can_preview:
-            return
+    def selectPackage(self, path: str) -> bool:
+        if self._closed or not self._gate.can_preview:
+            return False
         if (str(Path(path).resolve()) == self._selected_package
                 and (self._tasks.running or self._inspector.running or self._viewer_url)):
-            return
+            return True
         self._selected_source = ""
         self._cancel_source_preview()
         self._cancel_mesh_preparation()
@@ -785,19 +1021,30 @@ class FullLiveryService(QObject):
             self._status = "Package rejected"
             self._summary = str(exc)
             self.changed.emit()
-            return
+            return False
         self._selected_package = selected
+        self._browsed_package = selected if selected in self._package_details else ""
         self._running = True
         self._status = "Verifying full-livery package"
         self._summary = "Reopening the package in the isolated livery worker before rendering it."
+        selection_serial = self._selection_serial
         self.changed.emit()
-        self._tasks.start(
+        accepted = self._tasks.start(
             "open-package",
             self._worker_payload(path=selected, remember=True),
             kind="open-package",
-            metadata={"package_path": selected, "selection_serial": self._selection_serial},
+            metadata={"package_path": selected, "selection_serial": selection_serial},
             supersede=True,
         )
+        if not accepted:
+            self._selected_package = ""
+            self._running = self._tasks.running
+            self._status = "Package preview unavailable"
+            self._summary = "The livery worker did not accept the preview request."
+            self.changed.emit()
+            return False
+        return (self._selected_package == selected and not self._selected_source
+                and self._selection_serial == selection_serial)
 
     def _start_saved_package_migration(self, path: str, *, remember: bool) -> None:
         if self._running:
@@ -813,6 +1060,7 @@ class FullLiveryService(QObject):
             "migrate-package",
             self._worker_payload(path=path, remember=remember),
             kind="migrate-package",
+            metadata={"selection_serial": self._selection_serial},
             supersede=True,
         )
 
@@ -857,6 +1105,7 @@ class FullLiveryService(QObject):
         self._viewer_url = ""
         self._stop_viewer_memory_guard()
         self._current_manifest = {}
+        self._preview_evidence = {}
         self._selected_package = ""
         self._active_source_fingerprint = ""
         self._decisions.replace([])
@@ -872,12 +1121,10 @@ class FullLiveryService(QObject):
             return False
         visible_paths = {str(row.get("path") or "") for row in rows}
         if active not in visible_paths:
-            self._inspector.stop()
-            self._current_manifest = {}
-            self._selected_package = ""
-            self._viewer_url = ""
+            self._cancel_mesh_preparation()
+            self._cancel_source_preview()
+            self._reset_inspector_session()
             self._active_source_preview = ""
-            self._active_source_fingerprint = ""
             if self._selected_source == active:
                 self._selected_source = ""
             return False
@@ -916,6 +1163,7 @@ class FullLiveryService(QObject):
             "add-package",
             self._worker_payload(selected=selected),
             kind="add-package",
+            metadata={"selection_serial": self._selection_serial},
         )
 
     @Slot(str, result=bool)
@@ -1021,11 +1269,7 @@ class FullLiveryService(QObject):
     def refreshPackages(self):
         if self._closed:
             return
-        cached = self._catalog.package_rows()
-        cached.sort(key=lambda row: int(row.get("mtimeNs") or 0), reverse=True)
-        for row in cached:
-            row.pop("mtimeNs", None)
-        self._packages.replace(cached)
+        self._replace_package_rows(self._cached_package_rows())
         if self._running or not self._active or not self._gate.enabled:
             self.changed.emit()
             return
@@ -1043,7 +1287,7 @@ class FullLiveryService(QObject):
             "refresh-packages",
             self._worker_payload(),
             kind="refresh-packages",
-            metadata={"open_package": str(package)},
+            metadata={"open_package": str(package), "selection_serial": self._selection_serial},
         ):
             self._running = False
             self._status = "Package index busy"
@@ -1057,6 +1301,7 @@ class FullLiveryService(QObject):
 
     def _prepare_local_mesh(self, manifest: dict[str, Any], package_path: str) -> None:
         self._cancel_mesh_preparation()
+        self._preview_evidence = {}
         if not self._gate.can_preview:
             return
         if not self._game_folder:
@@ -1110,16 +1355,21 @@ class FullLiveryService(QObject):
         if kind == "clear-cache":
             # Cleanup can finish after a selection change or after leaving the page.
             if result.get("request_serial") != self._mesh_serial:
+                record(self.log, "cache.clear", "discarded", op=result.get("diagnostic_operation"))
                 return
             self._mesh_serial += 1
         self._running = False
         if result.get("cancelled"):
+            if kind == "clear-cache":
+                record(self.log, "cache.clear", "cancelled", op=result.get("diagnostic_operation"))
             if self._active and not self._tasks.running:
                 self._status = "Full-livery task cancelled"
                 self._summary = str(result.get("error") or "The isolated task stopped safely.")
             self.changed.emit()
             return
         if not result.get("ok"):
+            if kind == "clear-cache":
+                record(self.log, "cache.clear", "failed", op=result.get("diagnostic_operation"))
             self._status = "Full-livery task failed"
             self._summary = str(result.get("error") or "Unknown error")
             if kind == "add-package":
@@ -1129,6 +1379,11 @@ class FullLiveryService(QObject):
             self.changed.emit()
             return
         payload = result.get("payload") or {}
+        if (kind in ("add-package", "migrate-package")
+                and result.get("selection_serial", self._selection_serial) != self._selection_serial):
+            # Preserve completed imports, but do not reopen them over a newer browse.
+            self.refreshPackages()
+            return
         if kind == "scan":
             rows = payload.get("rows") or []
             fingerprints = {
@@ -1142,20 +1397,8 @@ class FullLiveryService(QObject):
             empty = int(payload.get("empty") or 0)
             game_assets_ready = bool(payload.get("game_assets_ready"))
             stale_index = bool(payload.get("stale_index"))
-            self._source_privacy = {
-                str(row.get("path") or ""): {
-                    "exportable": bool(row.get("exportable")),
-                    "privacyDetail": str(row.get("privacyDetail") or ""),
-                    "carId": int(row.get("carId") or 0),
-                    "title": str(row.get("title") or ""),
-                    "modelCode": str(row.get("modelCode") or ""),
-                    "placementCount": int(row.get("placementCount") or 0),
-                }
-                for row in rows
-                if row.get("path")
-            }
             self._source_fingerprints = fingerprints
-            self._sources.replace(source_grid_row(row) for row in rows)
+            self._replace_source_rows(rows)
             if self._selected_source and self._selected_source not in self._source_privacy:
                 self._selected_source = ""
             self._status = "FH6 livery scan complete"
@@ -1193,15 +1436,16 @@ class FullLiveryService(QObject):
             self.refreshPackages()
             return
         elif kind == "refresh-packages":
-            rows = list(payload.get("rows") or [])
-            self._packages.replace(rows)
+            self._replace_package_rows(payload.get("rows"))
             cache_hits = int(payload.get("cache_hits") or 0)
+            record(self.log, "cache.catalog", "completed", cache_hits=payload.get("cache_hits"), row_count=self.packageCount)
             self._status = "Full-livery index ready"
             self._summary = (
-                f"Indexed {len(rows):,} saved packages; reused {cache_hits:,} unchanged catalog entries."
+                f"Indexed {self.packageCount:,} saved packages; reused {cache_hits:,} unchanged catalog entries."
             )
             open_package = str(result.get("open_package") or "")
-            if open_package and Path(open_package).is_file():
+            if (open_package and result.get("selection_serial", self._selection_serial) == self._selection_serial
+                    and Path(open_package).is_file()):
                 self.selectPackage(open_package)
                 return
         elif kind == "link-game":
@@ -1272,6 +1516,8 @@ class FullLiveryService(QObject):
         elif kind == "clear-cache":
             files = int(payload.get("files") or 0)
             bytes_removed = int(payload.get("bytes") or 0)
+            record(self.log, "cache.clear", "completed", op=result.get("diagnostic_operation"),
+                   file_count=payload.get("files"), byte_count=payload.get("bytes"))
             removed_mib = bytes_removed / (1024 * 1024)
             self._status = "Full-livery cache cleared"
             self._summary = f"Removed {files:,} cached files ({removed_mib:.1f} MiB)."
@@ -1355,6 +1601,8 @@ class FullLiveryService(QObject):
             self._running = True
             self._status = "Starting isolated 3D viewer"
             self._summary = "Opening the prepared car in a disposable local viewer process."
+            evidence = payload.get("preview_evidence")
+            self._preview_evidence = evidence if isinstance(evidence, dict) else {}
             self._inspector.start(
                 package=self._selected_package,
                 mesh=str(payload.get("mesh_path") or ""),

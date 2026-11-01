@@ -32,7 +32,8 @@ QtObject {
     readonly property QtObject originalPs2: PaletteOriginalPs2 {}
     readonly property QtObject nierAutomata: PaletteNierAutomata {}
     readonly property QtObject archive2049: Palette2049 {}
-    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077, rx93PsychoFrame, originalXbox, originalPs2, nierAutomata, archive2049]
+    readonly property QtObject redline: PaletteRedline {}
+    readonly property var palettes: [nightBlossom, commandPrompt, windows94, patronsAtelier, carbonDark, overdrive200X, apexVector, nightCity2077, rx93PsychoFrame, originalXbox, originalPs2, nierAutomata, archive2049, redline]
 
     readonly property string defaultThemeName: nightBlossom.name
     readonly property var requestedPalette: paletteForName(themeName)
@@ -48,6 +49,8 @@ QtObject {
     readonly property string monoFontFile: palette.monoFontFile
     readonly property string controlSurfaceComponentFile: palette.controlSurfaceComponentFile
     readonly property string titleBarContentComponentFile: palette.titleBarContentComponentFile
+    readonly property string workspaceConsoleComponentFile: palette.workspaceConsoleComponentFile
+    readonly property string createWorkbenchComponentFile: palette.createWorkbenchComponentFile
 
     function chromeMetric(name, fallback) {
         var value = palette.chromeMetrics[name]
@@ -301,8 +304,17 @@ QtObject {
         return Math.round(value)
     }
 
+    // Condensed technical type needs more pixels and a real medium face, not
+    // larger layout geometry. Other palettes retain their existing metrics.
+    readonly property int bodyWeight: technicalTypographyEnabled ? Font.Medium : Font.Normal
+    readonly property real bodyLineHeight: technicalTypographyEnabled ? 1.2 : 1.0
+
+    function textSize(value) {
+        return technicalTypographyEnabled ? Math.max(14, Math.round(value * 1.1)) : px(value)
+    }
+
     function typeSize(value) {
-        return Math.max(12, Math.round(value))
+        return Math.max(12, textSize(value))
     }
 
     function logical(value) {

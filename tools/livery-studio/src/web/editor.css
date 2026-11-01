@@ -1,4 +1,20 @@
 /* Theme materials never change viewports, artwork colors or stored layout. */
+.commandSearch { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); box-sizing: border-box; padding: 16px; border: 1px solid var(--command-border); border-radius: 8px; background: var(--command-bg); color: var(--command-text); }
+.commandSearchHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.commandSearchHeader h2 { margin: 0; font-size: 18px; }
+.commandSearchHeader button { flex: 0 0 32px; width: 32px; height: 32px; padding: 6px; }
+.commandSearch input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.commandSearchResults { display: grid; gap: 4px; max-height: min(420px, 55vh); overflow-y: auto; }
+.commandSearch .commandSearchResult { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; width: 100%; min-height: 54px; padding: 8px; text-align: left; white-space: normal; border: 1px solid var(--command-border); border-radius: 4px; background: var(--command-bg); color: var(--command-text); }
+.commandSearchResult span, .commandSearchResult small { overflow-wrap: anywhere; }
+.commandSearchResult small { grid-column: 1 / -1; color: var(--command-muted); font-weight: normal; }
+.commandSearchResult kbd { font: inherit; font-size: 12px; }
+.commandSearchResult:focus-visible { outline: 2px solid var(--command-accent); outline-offset: -2px; }
+.commandSearchResult:disabled { opacity: .65; }
+.commandSearchStatus { margin: 8px 0 0; overflow-wrap: anywhere; font-size: 13px; }
+.commandSearch { --command-bg: var(--dialog-bg, var(--panel)); --command-text: var(--text); --command-border: var(--line); --command-muted: var(--muted); --command-accent: var(--accent); }
+#workspaceSearch { flex: 0 0 32px; width: 32px; height: 32px; padding: 6px; }
+#outputSummary { overflow-wrap: anywhere; }
 /* Automata styling is confined to UI chrome, never the car canvas. */
 :root[data-editor-theme-base="builtin:nier"] :is(#commands,#editTools,footer,.section-heading) { background: var(--shell); border-radius: 0; box-shadow: inset 0 -1px var(--line); }
 :root[data-editor-theme-base="builtin:nier"] #commands { border-bottom: 1px solid var(--line2); box-shadow: inset 0 -3px var(--shell),inset 0 -4px var(--line); background-image: repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--line) 12%,transparent) 5px 6px); }

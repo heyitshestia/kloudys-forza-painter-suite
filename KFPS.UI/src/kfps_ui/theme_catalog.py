@@ -16,6 +16,7 @@ ORIGINAL_XBOX_THEME = "Original Xbox"
 ORIGINAL_PS2_THEME = "Original PS2"
 NIER_AUTOMATA_THEME = "NieR Automata"
 ARCHIVE_2049_THEME = "2049"
+REDLINE_THEME = "Redline"
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ THEME_PRESETS: tuple[ThemePreset, ...] = (
     ThemePreset(ORIGINAL_PS2_THEME, "PaletteOriginalPs2"),
     ThemePreset(NIER_AUTOMATA_THEME, "PaletteNierAutomata"),
     ThemePreset(ARCHIVE_2049_THEME, "Palette2049"),
+    ThemePreset(REDLINE_THEME, "PaletteRedline"),
 )
 
 KNOWN_THEME_NAMES = frozenset(preset.name for preset in THEME_PRESETS)

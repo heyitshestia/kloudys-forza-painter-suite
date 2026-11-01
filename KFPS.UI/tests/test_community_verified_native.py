@@ -30,9 +30,9 @@ def source_hashes():
 
 
 def native():
-    from PySide6.QtCore import QObject, Qt, QUrl, QPoint, QPointF, qInstallMessageHandler
+    from PySide6.QtCore import QObject, Property, Signal, Slot, Qt, QUrl, QPoint, QPointF, qInstallMessageHandler
     from PySide6.QtGui import QColor, QFontDatabase
-    from PySide6.QtQml import QQmlEngine, QQmlExpression, QQmlPropertyMap
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
     from PySide6.QtQuick import QQuickView
     from PySide6.QtQuickControls2 import QQuickStyle
     from PySide6.QtTest import QTest
@@ -46,6 +46,22 @@ def native():
             QFontDatabase.addApplicationFont(str(font))
     from test_community_policy_service import PolicyServiceTests, settle
     from kfps_ui.theme_catalog import THEME_PRESETS
+
+    class JsonServiceStub(QObject):
+        changed = Signal()
+        currentSourceIndexing = Property(bool, lambda self: False, constant=True)
+        fileModel = Property("QVariantList", lambda self: [], constant=True)
+        searchQuery = Property(str, lambda self: "", constant=True)
+        searchSummary = Property(str, lambda self: "", constant=True)
+        sourceIndex = Property(int, lambda self: 0, constant=True)
+
+        def __init__(self):
+            super().__init__()
+            self.navigation_calls = []
+
+        @Slot(str)
+        def setNavigationConsumer(self, consumer):
+            self.navigation_calls.append(consumer)
 
     class VerifiedUiTests(unittest.TestCase):
         def setUp(self):
@@ -97,10 +113,7 @@ def native():
             context.setContextProperty("communityGalleryMode", True)
             context.setContextProperty("screenshotMode", True)
             context.setContextProperty("settings", {"communityLanguage": "en"})
-            self.json_stub = QQmlPropertyMap()
-            for key, value in {"currentSourceIndexing": False, "fileModel": [],
-                               "searchQuery": "", "searchSummary": "", "sourceIndex": 0}.items():
-                self.json_stub.insert(key, value)
+            self.json_stub = JsonServiceStub()
             context.setContextProperty("jsonService", self.json_stub)
             context.setContextProperty("assetRoot", QUrl.fromLocalFile(str(UI / "assets")).toString())
             path = "pages/CommunityPage.qml" if retained else "community-preview/CommunityPreview.qml"
@@ -293,6 +306,13 @@ def native():
             self.service.setScopeIndex(7)
             self.wait()
             self.open_view(retained=True)
+            self.assertEqual(self.json_stub.navigation_calls, ["community"])
+            page = self.view.rootObject()
+            page.setProperty("visible", False)
+            self.assertEqual(self.json_stub.navigation_calls, ["community"])
+            page.setProperty("visible", True)
+            self.wait()
+            self.assertEqual(self.json_stub.navigation_calls, ["community", "community"])
             self.expression("activeTab=2")
             self.wait()
             self.screenshot("retained-profile-en-1400")

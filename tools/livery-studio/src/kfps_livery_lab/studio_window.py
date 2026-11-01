@@ -1,7 +1,9 @@
 """Native Studio process boundary; no Qt imports or UI work in the calling host."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -13,6 +15,57 @@ import psutil
 
 LAB = Path(__file__).resolve().parents[2]
 WINDOWS = LAB / "runs/studio-windows"
+NATIVE_OWNER_MESSAGE = (
+    "Studio is already open in another native window or workspace tab. "
+    "Use that window, or save your work and close it before opening Studio here. "
+    "The existing document has not been changed.")
+
+
+class NativeOwnerError(RuntimeError):
+    """A live native document must not be replaced by another owner."""
+
+
+def native_owner_directory(url):
+    validate_window_url(url)
+    # The car token and handoff fragment can change while the same page is live.
+    origin = f"http://127.0.0.1:{urlsplit(url).port}"
+    directory = LAB / "runs/native-owners" / hashlib.sha256(origin.encode()).hexdigest()
+    if directory.resolve() != directory or any(
+            path.is_symlink() or path.is_junction()
+            for path in (LAB / "runs", directory.parent, directory)):
+        raise NativeOwnerError("The Studio ownership folder is redirected. No window was opened.")
+    return directory
+
+
+def acquire_native_owner(url):
+    """An OS lease, not PID metadata, owns the page until shutdown or process exit."""
+    from kfps_editor.instance_lock import EditorInstanceLock
+    directory = native_owner_directory(url)
+    directory.mkdir(parents=True, exist_ok=True)
+    lock = EditorInstanceLock(directory)
+    if not lock.tryLock(0):
+        raise NativeOwnerError(NATIVE_OWNER_MESSAGE)
+    return lock
+
+
+def owns_native_url(lock, url):
+    return bool(lock is not None and lock.isLocked()
+                and lock.runtime.resolve() == native_owner_directory(url))
+
+
+@contextmanager
+def native_admission(url, current_owner=None):
+    """Reserve mutation before a new page, or borrow this caller's live lease."""
+    if current_owner is not None and current_owner.isLocked():
+        if not owns_native_url(current_owner, url):
+            raise NativeOwnerError("Studio is already open on another backend. Close its tab before reopening it.")
+        yield current_owner
+        return
+    lock = acquire_native_owner(url)
+    try:
+        yield lock
+    finally:
+        lock.unlock()
 
 
 def validate_window_url(url):
@@ -20,7 +73,7 @@ def validate_window_url(url):
     if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port
             or parsed.username or parsed.password or parsed.query
             or not re.fullmatch(r"/[A-Za-z0-9_-]{43}/", parsed.path)
-            or (parsed.fragment and not re.fullmatch(r"vinyl=[a-f0-9]{32}", parsed.fragment))):
+            or (parsed.fragment and not re.fullmatch(r"(?:vinyl|layout)=[a-f0-9]{32}", parsed.fragment))):
         raise ValueError("Invalid local Studio window URL.")
     return url
 

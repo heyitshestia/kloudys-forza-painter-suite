@@ -11,6 +11,7 @@ from PySide6.QtQuick import QQuickImageProvider
 
 from fh6_rtti_registry import refresh_runtime_registry
 from .lifecycle import discard_queued_events
+from .workspace_diagnostics import operation, record
 
 
 class StartupFrameProvider(QQuickImageProvider):
@@ -53,6 +54,7 @@ class StartupSequenceService(QObject):
         self._paths, self._jsons, self._runtime, self._logs = paths, jsons, runtime, logs
         self._closed = self._claimed = self._started = self._ready = False
         self._ready_elapsed = None
+        self._diagnostic = None
         self._refresh_registry = refresh_registry
         self._forced_muted = self._muted = bool(muted)
         self._player = self._audio = self._sink = None
@@ -60,13 +62,13 @@ class StartupSequenceService(QObject):
         self._playing = False
         self.frame_provider = StartupFrameProvider()
         self._executor = self._future = None
-        themes = {"ps2": ("ps2", "PS2"), "xbox": ("original-xbox", "Xbox")}
+        themes = {"app": (None, "KFPS"), "ps2": ("ps2", "PS2"), "xbox": ("original-xbox", "Xbox")}
         if theme not in themes:
             raise ValueError("Unsupported startup theme")
         self._theme = theme
         asset_folder, self._label = themes[theme]
-        candidates = (paths.runtime_root / f"theme-assets/{asset_folder}/startup.mp4",
-                      paths.asset_root / f"themes/{asset_folder}/startup.mp4")
+        candidates = ((paths.runtime_root / f"theme-assets/{asset_folder}/startup.mp4",
+                       paths.asset_root / f"themes/{asset_folder}/startup.mp4") if asset_folder else ())
         media = None
         for candidate in candidates:
             try:
@@ -191,8 +193,14 @@ class StartupSequenceService(QObject):
             return
         self._started = True
         self._started_at = time.monotonic()
+        self._diagnostic = operation()
+        record(self._logs, "startup.index", "started", op=self._diagnostic)
         # JsonService owns scans and thumbnail warming; do not create a second writer.
-        self._jsons.warmIndex()
+        try:
+            self._jsons.warmIndex()
+        except Exception as exc:
+            record(self._logs, "startup.index", "failed", op=self._diagnostic, error=exc)
+            raise
         if self._refresh_registry:
             self._executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="startup-registry")
@@ -214,6 +222,9 @@ class StartupSequenceService(QObject):
     @Slot(object)
     def _record_registry_result(self, result):
         if not self._closed:
+            outcome = {"ok": "completed", "disabled": "deferred", "throttled": "deferred"}.get(result.get("result"), "failed")
+            record(self._logs, "startup.registry", outcome,
+                   op=self._diagnostic, stage="registry")
             self._logs.append("Startup registry refresh: " + str(result.get("result", "complete")))
 
     @Slot()
@@ -228,6 +239,7 @@ class StartupSequenceService(QObject):
         self._ready = True
         self._ready_elapsed = elapsed
         self._timer.stop()
+        record(self._logs, "startup.index", "deferred" if busy else "ready", op=self._diagnostic, busy=bool(busy))
         message = f"{self._label} startup ready after {elapsed:.2f}s"
         if busy:
             message += "; output indexing continues in the background"
@@ -237,6 +249,7 @@ class StartupSequenceService(QObject):
     @Slot(str)
     def recordPlaybackError(self, message):
         if not self._closed:
+            record(self._logs, "startup.playback", "failed")
             self._logs.append(f"{self._label} startup playback unavailable: " + str(message)[:300], "warning")
 
     @Slot()

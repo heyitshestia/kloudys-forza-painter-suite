@@ -8777,8 +8777,8 @@ async function exportJson() {
     const defaultName = cleanProjectBaseName(currentProjectName || loadedName, "vinyl");
     if (!exportName) {
       const requestedName = await requestTextInput(
-        KfpsI18n.t("Export Vinyl JSON"), KfpsI18n.t("JSON name"), defaultName,
-        KfpsI18n.t("This creates a game-ready JSON in KFPS imgs/editor. It does not replace the editable project."),
+        KfpsI18n.t("Export artwork"), KfpsI18n.t("JSON name"), defaultName,
+        KfpsI18n.t("Destination: KFPS Outputs / Editor exports (imgs/editor). Native vinyl JSON with group metadata; not an editable project or a full-car livery. Choose the game and transfer mode in Outputs. Nothing is installed here."),
       );
       if (requestedName === null) {
         setStatus(KfpsI18n.t("JSON export cancelled."));
@@ -8799,7 +8799,7 @@ async function exportJson() {
       if (generation === documentGeneration) selectJsonBrowserEntryById(result.id);
       setStatus(KfpsI18n.t("Exported {0} layer(s) to imgs/editor/{1}.", payload.shapes.length, result.name || `${exportName}.fh6-import.json`));
     }
-    showCornerNotice(KfpsI18n.t("FH6 JSON saved inside KFPS"), KfpsI18n.t("Open Import JSON, choose Editor exports, and import it from there."));
+    showCornerNotice(KfpsI18n.t("Artwork exported"), KfpsI18n.t("Editor exports: {0}. Nothing installed. Save project separately to keep editable work.", result.path || result.name || exportName));
   } catch (err) {
     if (result?.receipt) {
       console.warn("Export saved; presentation refresh failed.", err);
@@ -8851,13 +8851,21 @@ function liveryStudioThemeContext() {
 }
 
 let studioSourceContext = null;
+let studioOpening = false;
 let studioSourceReturning = false;
+let studioSourceReturnState = "editing";
+let studioSourceReturnedHistory = null;
 
 function refreshStudioSourceReturn() {
   const button = $("returnLiverySource");
   if (!button) return;
   button.hidden = !studioSourceContext;
   button.disabled = studioSourceReturning || !studioSourceContext || studioSourceContext.generation !== documentIdentity;
+  const changedSinceReturn = studioSourceReturnState === "returned"
+    && (currentHistoryState() !== studioSourceReturnedHistory || nudgeHistoryPending);
+  window.KfpsWorkspace?.refreshSourceStatus(studioSourceContext,
+    studioSourceContext && studioSourceContext.generation !== documentIdentity ? "stale"
+      : studioSourceReturning ? "returning" : changedSinceReturn ? "changed" : studioSourceReturnState);
 }
 
 async function initializeStudioSourceReturn() {
@@ -8869,6 +8877,8 @@ async function initializeStudioSourceReturn() {
     const context = result.context;
     if (!context || context.projectId !== startupProjectId() || editorProjects.association?.target_id !== context.projectId) return;
     studioSourceContext = { ...context, generation: documentIdentity };
+    studioSourceReturnState = "editing";
+    studioSourceReturnedHistory = null;
     refreshStudioSourceReturn();
   } catch (_) { /* Optional integration never prevents the regular editor from starting. */ }
 }
@@ -8889,6 +8899,7 @@ async function returnLiverySource() {
       activateDockPanel("exportCheckPane");
       throw new Error("Fix the vinyl export errors before returning to Studio.");
     }
+    const returnedHistory = currentHistoryState();
     const response = await fetch("/api/fabric-editor/studio-source-return", {
       method: "POST", headers: { ...EDITOR_MUTATION_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({ jobId: studioSourceContext.jobId, projectId: studioSourceContext.projectId,
@@ -8896,8 +8907,13 @@ async function returnLiverySource() {
     });
     const result = await response.json();
     if (!response.ok || result.error) throw new Error(result.error || "Studio could not accept the source.");
+    studioSourceReturnState = "returned";
+    studioSourceReturnedHistory = returnedHistory;
     setStatus(KfpsI18n.t(result.message));
-  } catch (error) { showError(KfpsI18n.t("Could not return source to Studio"), error); }
+  } catch (error) {
+    studioSourceReturnState = "failed";
+    showError(KfpsI18n.t("Could not return source to Studio"), error);
+  }
   finally { studioSourceReturning = false; refreshStudioSourceReturn(); }
 }
 
@@ -8905,6 +8921,7 @@ async function openLiveryStudio() {
   const button = $("openLiveryStudio");
   if (!button || button.disabled) return;
   button.disabled = true;
+  studioOpening = true;
   try {
     flushPendingNudgeHistory();
     const objects = vinylObjects();
@@ -8930,6 +8947,7 @@ async function openLiveryStudio() {
   } catch (error) {
     showError(KfpsI18n.t("Livery Studio could not start"), error);
   } finally {
+    studioOpening = false;
     button.disabled = false;
   }
 }
@@ -8972,7 +8990,7 @@ async function saveProject(options = {}) {
         options.saveAs ? KfpsI18n.t("Save Project As") : KfpsI18n.t("Save Editable Project"),
         KfpsI18n.t("Project name"),
         options.saveAs ? cleanProjectBaseName(currentProjectName || defaultName, defaultName) : defaultName,
-        KfpsI18n.t("Projects preserve editable layers, groups, guides, and the reference image. Export JSON separately when the vinyl is ready."),
+        KfpsI18n.t("Destination: KFPS internal project storage. Preserves editable layers, nested groups, guides and the reference image. Export artwork separately; saving does not install anything in the game."),
       );
       if (requestedName === null) {
         setStatus(KfpsI18n.t("Project save cancelled."));
@@ -9003,7 +9021,7 @@ async function saveProject(options = {}) {
       renderHistoryList();
       setStatus(KfpsI18n.t("Saved project internally: {0}{1}", currentProjectName, documentDirty ? KfpsI18n.t(". Newer changes are still unsaved. Recovery pending.") : ""));
     }
-    showCornerNotice(KfpsI18n.t("Project saved inside KFPS"), KfpsI18n.t("Saved {0}.", result.title || projectName));
+    showCornerNotice(KfpsI18n.t("Project saved inside KFPS"), KfpsI18n.t("Saved editable project: {0}", result.path || result.title || projectName));
   } catch (err) {
     if (result?.receipt) {
       console.warn("Project saved; presentation refresh failed.", err);
@@ -12890,11 +12908,6 @@ function bindUi() {
   $("exportJson").addEventListener("click", exportJson);
   $("openLiveryStudio")?.addEventListener("click", openLiveryStudio);
   $("returnLiverySource")?.addEventListener("click", returnLiverySource);
-  const studioIcon = window.KfpsWorkspace?.icon?.("Palette");
-  if (studioIcon && $("openLiveryStudio")) {
-    $("openLiveryStudio").prepend(studioIcon);
-    $("openLiveryStudio").classList.add("workspaceButton");
-  }
   $("saveProject").addEventListener("click", () => saveProject());
   $("saveProjectAs")?.addEventListener("click", saveProjectAs);
   $("copyLayer")?.addEventListener("click", copySelectedLayers);
@@ -13401,6 +13414,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 document.addEventListener("visibilitychange", () => {
+  editorRenderer.setPageVisible(!document.hidden);
   if (document.visibilityState !== "hidden") return;
   flushPendingNudgeHistory();
   flushPendingAutosaveToBrowser();
@@ -13491,6 +13505,7 @@ window.addEventListener("kfps-preferences-status", (event) => {
 });
 
 async function startEditor() {
+  editorRenderer.setPageVisible(!document.hidden);
   window.KfpsEditorDiagnostics?.configure({ headers: EDITOR_MUTATION_HEADERS, state: editorDiagnosticState });
   initCanvas();
   // An empty restart needs an undo origin before the first interactive insertion.
@@ -13559,7 +13574,7 @@ function editorDiagnosticState() {
 
 function startDiagnosticReadout() {
   setInterval(() => {
-    if ($("performancePane")?.hidden || !window.KfpsEditorDiagnostics) return;
+    if (document.hidden || $("performancePane")?.hidden || !window.KfpsEditorDiagnostics) return;
     const data = window.KfpsEditorDiagnostics.snapshot();
     const metrics = data.metrics, state = data.state, log = data.logging;
     setText("perfFrame", KfpsI18n.t("{0} ms", metrics.frameP95.toFixed(1)));

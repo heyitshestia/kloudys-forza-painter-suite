@@ -1,6 +1,8 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property string workspaceConsoleComponentFile: ""
+    readonly property string createWorkbenchComponentFile: ""
     readonly property var chromeMetrics: ({ frameScale: 0.60, compactFrameScale: 0.24, titleHeight: 66, compactTitleHeight: 30, leftInset: 108, compactLeftInset: 43, rightInset: 22, compactRightInset: 9, bottomInset: 96, compactBottomInset: 39, sidebarHeaderHeight: 76, compactSidebarHeaderHeight: 60, windowButtonsTopInset: 3, compactWindowButtonsTopInset: 0, windowButtonsHeight: 30, compactWindowButtonsIconLift: 8 })
     readonly property string titleBarContentComponentFile: "../themes/rx93/Rx93TitleContent.qml"
     readonly property string name: "RX-93 Psycho-Frame"

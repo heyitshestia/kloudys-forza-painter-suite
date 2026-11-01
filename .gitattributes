@@ -19,3 +19,4 @@
 /tools/livery/chassis-converter/bin/win-x64/Kfps.ChassisConverter.exe -text
 /tools/livery-studio/** text eol=lf
 /tools/livery-studio/runs/component-converter/converter/publish/Kfps.LiveryLab.Converter.exe -text
+/tools/livery-studio/tests export-ignore

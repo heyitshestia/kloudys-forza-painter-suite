@@ -66,7 +66,22 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONUTF8: "1"
-        run: python -m unittest discover -s KFPS.UI/tests -p "test_*.py" -v
+        run: python -B KFPS.UI/tools/run_ui_tests.py --pattern "test_*.py"
+
+      - name: Test all themes in the connected workspace
+        env:
+          PYTHONUTF8: "1"
+        run: python -B KFPS.UI/tools/test_workspace_themes.py --output runtime/ci-workspace-themes --rhi --width 1000 --height 700
+
+      - name: Preserve connected workspace evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-theme-evidence
+          path: |
+            runtime/ci-workspace-themes/*.json
+            runtime/ci-workspace-themes/*.png
+          if-no-files-found: warn
 
       - name: Test livery viewer status transport
         run: node --test KFPS.UI/tools/test_livery_viewer_status.mjs
@@ -128,7 +143,7 @@ jobs:
         run: |
           python -B -m unittest discover -s KFPS.UI/tests -p "test_studio_preview_quality_*.py" -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test KFPS.Editor/web/tests/studio-preview-quality.test.mjs KFPS.Editor/web/tests/studio-preview-quality-lifecycle.test.mjs KFPS.Editor/web/tests/studio-generated-import.test.mjs
+          node --test KFPS.Editor/web/tests/studio-preview-quality.test.mjs KFPS.Editor/web/tests/studio-preview-quality-lifecycle.test.mjs KFPS.Editor/web/tests/studio-generated-import.test.mjs KFPS.Editor/web/tests/studio-inactive-preview.test.mjs KFPS.Editor/web/tests/studio-mask-loading.test.mjs KFPS.UI/tests/handoff_status.mjs KFPS.UI/tests/source_edit_monitor.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Lint the QML entry point and extracted Outputs menu

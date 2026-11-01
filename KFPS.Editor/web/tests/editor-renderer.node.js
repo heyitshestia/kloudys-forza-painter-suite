@@ -49,6 +49,107 @@ function fixture(t, fault={}) {
     get draws(){return draws;}};
 }
 
+test('inactive pages trim largest caches to a budget, then expire without changing objects',t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date']});
+  const f=fixture(t), removed=[];
+  f.objects.forEach((object,index)=>Object.assign(object,{_cacheCanvas:{width:256,height:256},
+    _removeCacheCanvas(){removed.push(index);this._cacheCanvas=null;}}));
+  f.objects[0]._cacheCanvas={width:4096,height:4096};
+  const identity=f.objects.map(o=>o.kloudy);
+  assert.ok(f.owner.hybridRenderNow());
+  f.owner.setPageVisible(false);
+  t.mock.timers.tick(4999);assert.equal(removed.length,0);
+  t.mock.timers.tick(1);assert.deepEqual(removed,[0]);
+  assert.ok(f.owner.inactiveRetainedBytes<=96*1024*1024);
+  t.mock.timers.tick(25000);assert.equal(removed.length,300);
+  assert.equal(f.owner.inactiveCacheReleased,true);
+  assert.equal(f.owner.meshCount,0);
+  assert.deepEqual(f.objects.map(o=>o.kloudy),identity);
+  assert.equal(f.owner.beginHybridRender(),false);
+  f.owner.setPageVisible(true);
+  assert.equal(f.owner.inactiveCacheReleased,false);
+  assert.ok(f.owner.active);
+  assert.ok(f.owner.hybridRenderNow());
+});
+
+test('small documents stay warm and a recent return extends bounded retention',t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:100000});
+  const f=fixture(t);let removed=0;
+  f.objects[0]._cacheCanvas={width:256,height:256};
+  f.objects[0]._removeCacheCanvas=function(){removed++;this._cacheCanvas=null;};
+  f.owner.setPageVisible(false);t.mock.timers.tick(6000);
+  assert.equal(removed,0);assert.equal(f.owner.inactiveCacheReleased,false);
+  f.owner.setPageVisible(true);t.mock.timers.tick(1000);
+  f.owner.setPageVisible(false);t.mock.timers.tick(30000);assert.equal(removed,0);
+  t.mock.timers.tick(30000);assert.equal(removed,1);
+});
+
+test('low-memory devices use a smaller cap and nested cache ownership is visited once',t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date']});
+  const descriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{deviceMemory:4}});
+  t.after(()=>{if(descriptor)Object.defineProperty(globalThis,'navigator',descriptor);else delete globalThis.navigator;});
+  const f=fixture(t);let removed=0;
+  const nested={_cacheCanvas:{width:4096,height:4096},_removeCacheCanvas(){removed++;this._cacheCanvas=null;}};
+  f.objects[0]._objects=[nested];f.objects[0].clipPath=nested;nested.clipPath=f.objects[0];
+  f.objects[1]._cacheCanvas={width:2048,height:2048};
+  f.objects[1]._removeCacheCanvas=function(){this._cacheCanvas=null;};
+  f.owner.setPageVisible(false);t.mock.timers.tick(5000);
+  assert.equal(removed,1);assert.equal(f.owner.inactiveRetainedBytes,16*1024*1024);
+  t.mock.timers.tick(25000);assert.equal(f.owner.inactiveRetainedBytes,0);
+});
+
+test('a delayed background timer expires rather than starting another retention window',t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:100000});
+  const f=fixture(t);let removed=0;
+  f.objects[0]._cacheCanvas={width:256,height:256};
+  f.objects[0]._removeCacheCanvas=function(){removed++;this._cacheCanvas=null;};
+  f.owner.setPageVisible(false);t.mock.timers.tick(90000);
+  assert.equal(removed,1);assert.equal(f.owner.inactiveRetainedBytes,0);
+  assert.equal(f.owner.inactiveCacheReleased,true);
+});
+
+test('rapid switching and disposal cancel pending inactive cleanup',t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture(t);let removed=0;
+  f.objects[0]._cacheCanvas={width:256,height:256};
+  f.objects[0]._removeCacheCanvas=()=>removed++;
+  for(let i=0;i<20;i++) {f.owner.setPageVisible(false);t.mock.timers.tick(100);f.owner.setPageVisible(true);}
+  t.mock.timers.tick(6000);assert.equal(removed,0);
+  f.owner.setPageVisible(false);f.owner.dispose();t.mock.timers.tick(6000);
+  assert.equal(removed,0);assert.equal(f.frames.size,0);
+});
+
+test('inactive cache resume shows GPU preview before rebuilding Fabric in bounded batches',t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date']});
+  const f=fixture(t), painted=[];let requests=0,clock=0;
+  t.mock.method(performance,'now',()=>++clock);
+  f.canvas.requestRenderAll=()=>requests++;
+  f.objects.forEach((object,index)=>Object.assign(object,{canvas:f.canvas,visible:true,
+    shouldCache:()=>true,renderCache:()=>painted.push(index)}));
+  f.owner.setPageVisible(false);t.mock.timers.tick(5000);t.mock.timers.tick(25000);requests=0;
+  f.owner.setPageVisible(true);
+  assert.equal(requests,0,'Resume must not queue an unbounded cold Fabric repaint');
+  f.nextFrame();assert.ok(painted.length>0&&painted.length<300);assert.equal(f.element.hidden,false);
+  while(f.owner.warmingDocument)f.nextFrame();
+  assert.equal(painted.length,300);assert.equal(requests,1);
+});
+
+test('quick return requeues interrupted paint and hidden late work cannot grow GPU caches',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture(t);let paints=0;
+  f.canvas.requestRenderAll=()=>paints++;
+  assert.ok(f.owner.hybridRenderNow());
+  f.owner.setPageVisible(false);paints=0;
+  f.owner.setPageVisible(true);assert.equal(paints,1);
+  f.owner.setPageVisible(false);t.mock.timers.tick(5000);
+  assert.equal(f.owner.initHybridRenderer(),null);
+  assert.equal(f.owner.resizeHybridRenderer(),false);
+  await f.owner.prewarmHybridMeshesForObjects();
+  assert.equal(f.owner.meshCount,0);assert.equal(f.element.width,1);
+  f.owner.setPageVisible(true);assert.ok(f.owner.hybridRenderNow());
+});
+
 test('partial program, buffer and texture failures release all owned allocations',t=>{
   for(const fault of [{shaderCheck:1},{shaderCheck:2},{shaderCheck:4},{link:true},{bufferData:true},
     {nullKind:'Buffer',nullAt:1},{nullKind:'Buffer',nullAt:2},{nullKind:'Texture',nullAt:1}]){

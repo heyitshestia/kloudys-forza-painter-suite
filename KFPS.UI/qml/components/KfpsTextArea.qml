@@ -26,7 +26,7 @@ TextArea {
     selectedTextColor: Theme.primaryText
     placeholderTextColor: Theme.subtle
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(Theme.technicalTypographyEnabled ? 13.0 : 11.5)
+    font.pixelSize: Theme.textSize(Theme.technicalTypographyEnabled ? 13.0 : 11.5)
     font.weight: Theme.technicalTypographyEnabled ? Font.DemiBold : Font.Normal
     renderType: TextEdit.CurveRendering
     font.hintingPreference: Font.PreferFullHinting

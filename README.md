@@ -26,6 +26,8 @@ The tools are free, including bulk import and export. Ko-fi support is optional.
 
 Windows is required. Image generation needs a working OpenCL-capable GPU driver. The editors also offer an optional **Google Chrome** mode; Chrome is installed separately.
 
+**One window, connected tools.** KFPS 3.2 keeps the main app, Vinyl Editor and Studio in tabs. Tools load when you open them and keep your work when you switch away. Send a vinyl to Studio with **Place on car**, or open its source in the 2D editor and apply the changes back. The standalone launchers and Chrome options are still available. Settings can optionally reopen your previous tabs.
+
 ## Create
 
 **Start with an image. Finish with editable Forza shapes.**
@@ -38,7 +40,7 @@ Windows is required. Image generation needs a working OpenCL-capable GPU driver.
 
 ![KFPS Create in Night Blossom, with source controls and a saved Mini Kloudy vinyl preview](docs/screenshots/repo-page/create.png)
 
-Finished artwork goes into **Outputs**, alongside editor exports, game exports, and your library. Preview and organise files there, or right-click a JSON to **Open in Editor**.
+Finished artwork goes into **Outputs**, with separate tabs for generated artwork, editor exports, game exports and your library. Preview and organise files there, or right-click a JSON to edit it, place it on a car or prepare a game export.
 
 ## Vinyl Editor
 
@@ -121,7 +123,7 @@ For live import, open the intended placeholder vinyl in-game and enter its actua
 
 ## Make It Yours
 
-The main app includes **seven public themes**: Night Blossom, Command Prompt, Apex Vector, Night City 2077, RX-93 Psycho-Frame, Original Xbox, and Original PS2.
+The main app includes **ten public themes**: Night Blossom, Command Prompt, Apex Vector, Night City 2077, RX-93 Psycho-Frame, Original Xbox, Original PS2, NieR Automata, 2049 and Redline.
 
 Original Xbox and Original PS2 bring their own dashboard-style navigation. [Original PS2](docs/ORIGINAL_PS2_THEME.md) also includes a sound-timed startup animation with a saved mute option. Both themes carry into the Vinyl Editor and Livery Studio.
 

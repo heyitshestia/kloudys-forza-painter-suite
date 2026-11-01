@@ -95,6 +95,12 @@ def native(root, evidence, width, height):
                 install = window.findChild(QObject, "ImportOfflineLibrary")
                 controls = window.findChild(QObject, "OfflineLibraryControls")
                 assert combo and read and install and controls, "Missing real Outputs controls"
+                if not controls.property("visible"):
+                    toggle = window.findChild(QObject, "OutputTransferToggle")
+                    assert toggle and toggle.property("visible"), "Transfer setup is unreachable"
+                    point = toggle.mapToScene(QPointF(toggle.width() / 2, toggle.height() / 2)).toPoint()
+                    QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, point)
+                    wait_for(lambda: controls.property("visible"), "Transfer setup did not open")
                 assert "FH2" not in service.gameTargets, "Retired FH2 is offered"
                 assert not window.findChild(QObject, "FH2ExtractionGuide"), "Retired FH2 guide is present"
                 if state["phase"] == "read":
@@ -104,7 +110,7 @@ def native(root, evidence, width, height):
                     fh3_height = controls.height()
                     combo.setProperty("currentIndex", service.gameTargets.index("FH6"))
                     wait_for(lambda: combo.property("currentText") == "FH6", "FH6 selection did not settle")
-                    assert install.property("visible"), "FH6 import must remain available"
+                    wait_for(lambda: install.property("visible"), "FH6 import must remain available")
                     combo.setProperty("currentIndex", service.gameTargets.index(game.upper()))
                     wait_for(lambda: read.property("text") == "Scan FH3 Saves", "FH3 label did not return")
                     QTest.qWait(200)
@@ -142,6 +148,9 @@ def native(root, evidence, width, height):
                     saved = json.loads(Path(service.lastOutput).read_text(encoding="utf-8"))
                     assert len(saved["shapes"]) == 3
                     assert len(saved["shapes"][1]["editor_group_path"]) == 2
+                    assert Path(jsons.selectedPath) == source, "Background extraction changed the current selection"
+                    jsons.setSource(3)
+                    jsons.selectPath(service.lastOutput)
                     assert Path(jsons.selectedPath) == Path(service.lastOutput)
                     window.grabWindow().save(str(evidence / f"{mode}-complete.png"))
                     result["checks"].append({"game": game, "mode": mode, "layers": 3,

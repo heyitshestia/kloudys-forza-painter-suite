@@ -1,6 +1,7 @@
 """Explicit, revision-bound Studio source edits through the existing 2D editor."""
 from __future__ import annotations
 
+import hashlib
 import hmac
 import importlib.util
 import json
@@ -10,6 +11,7 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
 import threading
 import time
 from urllib.error import HTTPError
@@ -226,10 +228,45 @@ def _source(value, resolve_resource):
     return result
 
 
+def _workspace_owns_source(root, runtime):
+    """Consult a credential-free routing hint; the workspace still authorizes IPC."""
+    try:
+        marker, _ = _customization_json(Path(root) / "runtime/workspace/studio-session.json", root, 4096)
+        if (not isinstance(marker, dict) or set(marker) != {"format", "pid", "session"}
+                or marker["format"] != "kfps-workspace-studio/1"
+                or type(marker["pid"]) is not int or not 0 < marker["pid"] < 0xFFFFFFFF
+                or not isinstance(marker["session"], str) or not re.fullmatch(r"[a-f0-9]{64}", marker["session"])):
+            return False
+        context = editor_context(runtime, private=True)
+        if context is None:
+            return False
+        url = urlsplit(context["returnUrl"])
+        suffix = "api/source-editor/" + context["jobId"] + "/return"
+        base = url._replace(path=url.path.removesuffix(suffix), query="", fragment="").geturl()
+        if not hmac.compare_digest(marker["session"], hashlib.sha256(base.encode("utf-8")).hexdigest()):
+            return False
+        from kfps_editor.activation import process_running
+        return process_running(marker["pid"]) is True
+    except (OSError, ValueError, OverflowError, RecursionError):
+        return False
+
+
 def _launch_editor(root, runtime, cancelled):
     """No alternate editor implementation: normal CLI, preference and baseline checks."""
     if cancelled.is_set():
         return
+    if os.name == "nt":
+        package = str(Path(root) / "KFPS.Editor/src")
+        if package not in sys.path:
+            sys.path.insert(0, package)
+        from kfps_editor.ipc import forward_before_qt, instance_name, wait_until_ready
+        from kfps_editor.launch_preferences import use_chrome
+        if not use_chrome(root) and _workspace_owns_source(root, runtime):
+            project = (Path(runtime) / "projects" / PROJECT_ID).relative_to(root).as_posix()
+            if forward_before_qt(instance_name(root, Path(root) / "runtime/workspace"),
+                                 {"mode": "activate", "project": project, "background": True}, timeout=8000):
+                wait_until_ready(runtime, instance_name(root, runtime), cancelled, background=True)
+                return
     baseline = _module("baseline", root / "KFPS.Editor/src/kfps_editor/baseline.py")
     args = ["--from-kfps", "--runtime-root", str(runtime), "--project-id", PROJECT_ID]
     command, environment = baseline.launch_command(root, root / "KFPS.Editor/editor.py", args,

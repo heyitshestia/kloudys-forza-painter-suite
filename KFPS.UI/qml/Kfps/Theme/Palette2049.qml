@@ -1,6 +1,8 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property string workspaceConsoleComponentFile: "themes/2049/ArchiveConsole.qml"
+    readonly property string createWorkbenchComponentFile: "../themes/2049/ArchiveWorkbench.qml"
     readonly property var chromeMetrics: ({instrumentInterface: 1, wideSidebar: 210, compactSidebar: 110, titleHeight: 30, compactTitleHeight: 30, windowButtonsHeight: 30, sidebarHeaderHeight: 110, compactSidebarHeaderHeight: 76, navButtonHeight: 44, workspaceLeftInset: 56, workspaceRightInset: 56, workspaceBottomInset: 150})
     readonly property string titleBarContentComponentFile: "../themes/2049/ArchiveTitleContent.qml"
     readonly property string controlSurfaceComponentFile: "../themes/2049/ArchiveControlSurface.qml"

@@ -72,6 +72,70 @@
     const contextCleanup = [];
     let disposed = false;
     let generation = 0;
+    let pageVisible = true, inactiveTimer = null, inactiveCacheReleased = false;
+    let lastVisibleAt = -Infinity, inactiveRetainedBytes = 0;
+    const deviceMemory = Number(globalThis.navigator?.deviceMemory);
+    const inactiveBudget = (deviceMemory > 0 && deviceMemory <= 4 ? 32 : 96) * 1024 * 1024;
+
+    function trimInactiveCaches(budget) {
+      if (disposed || pageVisible) return;
+      const seen = new Set(), caches = [];
+      const collect = object => {
+        if (!object || seen.has(object)) return;
+        seen.add(object);
+        if (object._cacheCanvas && object._removeCacheCanvas) {
+          const bytes = object._cacheCanvas.width * object._cacheCanvas.height * 4;
+          caches.push({ object, bytes: Number.isFinite(bytes) && bytes >= 0 ? bytes : Number.MAX_SAFE_INTEGER });
+        }
+        collect(object.clipPath);
+        object._objects?.forEach(collect);
+      };
+      scene.objects().forEach(collect); collect(reference.image);
+      let remaining = caches.reduce((sum, entry) => sum + entry.bytes, 0);
+      // Keep many small reusable buffers instead of one oversized cache.
+      for (const { object, bytes } of caches.sort((a, b) => b.bytes - a.bytes)) {
+        if (budget && remaining <= budget) break;
+        object._cacheCanvas.width = object._cacheCanvas.height = 1;
+        object._removeCacheCanvas(); object.dirty = true;
+        remaining -= bytes; inactiveCacheReleased = true;
+      }
+      inactiveRetainedBytes = Math.max(0, remaining);
+      if (hybridRenderer) {
+        for (const mesh of hybridMeshCache.values()) hybridRenderer.gl.deleteBuffer(mesh.buffer);
+        hybridMeshCache.clear(); releaseHybridOverlay();
+        hybridRenderer.element.width = hybridRenderer.element.height = 1;
+      }
+      if (!budget) inactiveCacheReleased = true;
+      record("phase", { phase: "inactive-cache", state: budget ? "bounded" : "released", retainedBytes: inactiveRetainedBytes });
+    }
+
+    function setPageVisible(visible) {
+      if (disposed || pageVisible === Boolean(visible)) return;
+      pageVisible = Boolean(visible);
+      clearTimeout(inactiveTimer); inactiveTimer = null;
+      if (pageVisible) {
+        lastVisibleAt = Date.now(); inactiveRetainedBytes = 0;
+        if (inactiveCacheReleased) {
+          inactiveCacheReleased = false;
+          warmDocumentCaches({ deferFabric: true });
+        } else scene.canvas()?.requestRenderAll?.();
+        return;
+      }
+      endHybridRenderNow();
+      scene.canvas()?.cancelRequestedRender?.();
+      // A recently revisited document stays warm longer, within the same cap.
+      // Neither phase owns source bitmaps, document objects or recovery data.
+      const retentionMs = Date.now() - lastVisibleAt < 15000 ? 60000 : 30000;
+      const expiresAt = Date.now() + retentionMs;
+      inactiveTimer = setTimeout(() => {
+        inactiveTimer = null;
+        if (disposed || pageVisible) return;
+        trimInactiveCaches(Date.now() >= expiresAt ? 0 : inactiveBudget);
+        if (Date.now() < expiresAt) inactiveTimer = setTimeout(() => {
+          inactiveTimer = null; trimInactiveCaches(0);
+        }, expiresAt - Date.now());
+      }, 5000);
+    }
     function record(kind, fields) {
       try { diagnostics?.record(kind, fields); } catch (_) { /* Reporting cannot own rendering. */ }
     }
@@ -235,7 +299,7 @@
     }
 
     function initHybridRenderer() {
-      if (disposed) return null;
+      if (disposed || !pageVisible) return null;
       if (hybridRenderer || hybridDisabledReason) return hybridRenderer;
       const element = view.element("hybridRenderCanvas");
       if (!element) {
@@ -455,13 +519,13 @@
         targets.push(object);
       }
       for (let index = 0; index < targets.length; index += 1) {
-        if (disposed || epoch !== generation || documentEpoch !== scene.generation()) return;
+        if (disposed || !pageVisible || epoch !== generation || documentEpoch !== scene.generation()) return;
         hybridMeshForObject(targets[index]);
         if ((index + 1) % HYBRID_RENDER_PREWARM_CHUNK === 0) {
           await schedule.nextFrame();
         }
       }
-      if (disposed || epoch !== generation || documentEpoch !== scene.generation()) return;
+      if (disposed || !pageVisible || epoch !== generation || documentEpoch !== scene.generation()) return;
       if (hybridRenderNow()) {
         // Draw every newly loaded resource set once while load progress is still
         // visible. Drivers can defer buffer specialization as well as shader work.
@@ -752,6 +816,7 @@
     }
 
     function hybridRenderNow() {
+      if (disposed || !pageVisible) return false;
       try {
         if (!resizeHybridRenderer() || !hybridShouldUse()) {
           endHybridRenderNow();
@@ -782,7 +847,7 @@
     }
 
     function requestHybridRender() {
-      if (disposed || hybridRenderFrame) return;
+      if (disposed || !pageVisible || hybridRenderFrame) return;
       hybridRenderFrame = requestAnimationFrame(() => {
         hybridRenderFrame = null;
         if (!hybridRenderActive) return;
@@ -797,7 +862,7 @@
 
     function beginHybridRender(reason = "interaction") {
       cancelDocumentWarmup();
-      if (disposed || scene.toolMode() === "guides") return false;
+      if (disposed || !pageVisible || scene.toolMode() === "guides") return false;
       const objects = scene.objects();
       if (!hybridShouldUse(objects)) return false;
       clearTimeout(hybridRenderSettleTimer);
@@ -838,9 +903,9 @@
         documentId: job.identity, layers: job.warmed });
     }
 
-    function warmDocumentCaches() {
+    function warmDocumentCaches({ deferFabric = false } = {}) {
       const canvas = scene.canvas();
-      if (!canvas || disposed) return false;
+      if (!canvas || disposed || !pageVisible) return false;
       // Publish a complete GPU frame before the queued Fabric pass can build all
       // cold caches at once. Ordinary drawing remains the fallback and final view.
       canvas.cancelRequestedRender();
@@ -848,7 +913,7 @@
         canvas.requestRenderAll();
         return false;
       }
-      canvas.requestRenderAll();
+      if (!deferFabric) canvas.requestRenderAll();
       const job = { canvas, identity: scene.documentIdentity(), objects: scene.objects().slice(),
         index: 0, warmed: 0, frame: 0, started: performance.now() };
       documentWarmup = job;
@@ -888,8 +953,10 @@
     }
     return {
       reset,
+      setPageVisible,
       dispose() {
         if (disposed) return;
+        clearTimeout(inactiveTimer); inactiveTimer = null;
         disposed = true; reset();
         contextCleanup.splice(0).forEach(remove => remove());
       },
@@ -907,6 +974,8 @@
       settleHybridRender,
       warmDocumentCaches,
       get warmingDocument() { return Boolean(documentWarmup); },
+      get inactiveCacheReleased() { return inactiveCacheReleased; },
+      get inactiveRetainedBytes() { return inactiveRetainedBytes; },
       get renderer() { return hybridRenderer; },
       get meshCount() { return hybridMeshCache.size; },
       get active() { return hybridRenderActive; },

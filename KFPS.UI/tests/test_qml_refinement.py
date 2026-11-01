@@ -114,8 +114,9 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_outputs_library_and_offline_controls_do_not_require_a_key(self):
         outputs = self.read("pages/JsonPage.qml")
-        self.assertIn('model: ["Generated finals", "Editor exports", "Game exports", "Library"]', outputs)
-        self.assertIn('objectName: "OutputSource"', outputs)
+        self.assertIn('model: ["Generated", "Editor exports", "Game exports", "Library"]', outputs)
+        self.assertIn('objectName: "OutputCategoryTabs"', outputs)
+        self.assertNotIn('objectName: "OutputSource"', outputs)
         self.assertIn('objectName: "OfflineLibraryControls"', outputs)
         self.assertIn('objectName: "ScanOfflineLibrary"', outputs)
         self.assertNotIn("supporterService.unlocked", outputs)
@@ -152,7 +153,7 @@ class QmlRefinementTests(unittest.TestCase):
 
     def test_outputs_header_exposes_append_only_imgs_backup(self):
         outputs = self.read("pages/JsonPage.qml")
-        self.assertIn('text: backupService.running ? "Backing up..." : "Backup imgs"', outputs)
+        self.assertIn('text: backupService.running ? "Backing up..." : root.redlineInterface ? "Backup" : "Backup imgs"', outputs)
         self.assertIn("onClicked: backupService.backupImgs()", outputs)
         self.assertIn("Existing backups are never deleted.", outputs)
 
@@ -166,20 +167,29 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn("clipboard.setMimeData(mime)", service)
         self.assertIn("QUrl.fromLocalFile", service)
 
-    def test_livery_wip_notice_is_modal_and_acknowledged_once_per_process(self):
+    def test_liveries_opens_without_wip_gate_but_keeps_install_confirmation(self):
         main = self.read("Main.qml")
         livery = self.read("pages/LiveryPage.qml")
 
-        self.assertIn("property bool liveryWipNoticeAcknowledged: false", main)
-        self.assertIn("item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged", main)
-        self.assertIn("function onWipNoticeAccepted()", main)
-        self.assertIn("window.liveryWipNoticeAcknowledged = true", main)
-        self.assertIn('objectName: "liveryWipPreviewOverlay"', livery)
-        self.assertIn("visible: !root.wipNoticeAcknowledged", livery)
-        self.assertIn("acceptedButtons: Qt.AllButtons", livery)
-        self.assertIn('text: "WIP"', livery)
-        self.assertIn("heavy work-in-progress preview", livery)
-        self.assertIn("onClicked: root.dismissWipNotice()", livery)
+        self.assertNotIn("liveryWipNoticeAcknowledged", main)
+        self.assertNotIn("onWipNoticeAccepted", main)
+        self.assertNotIn("wipPreviewOverlay", livery)
+        self.assertNotIn("wipNoticeAcknowledged", livery)
+        self.assertNotIn('text: "WIP"', livery)
+        details = self.read("components/LiveryPreviewDetails.qml")
+        self.assertIn("onInstallRequested: installConfirm.open()", livery)
+        self.assertIn("onClicked: root.installRequested()", details)
+        self.assertIn('title: "Install this FH6 livery?"', livery)
+        self.assertIn("onAccepted: fullLiveryService.installSelectedPackage()", livery)
+
+    def test_livery_experimental_label_does_not_block_the_library(self):
+        livery = self.read("pages/LiveryPage.qml")
+        self.assertNotIn('objectName: "liveryWipPreviewOverlay"', livery)
+        self.assertIn('text: "Experimental"', livery)
+        self.assertIn('objectName: "liveryLibraryTabs"', livery)
+        self.assertIn('objectName: "liveryCarFilter"', livery)
+        self.assertIn('objectName: "liveryAvailabilityFilter"', livery)
+        self.assertIn('objectName: "liverySortOrder"', livery)
 
     def test_outputs_uses_game_adapter_capabilities(self):
         outputs = self.read("pages/JsonPage.qml")
@@ -399,9 +409,9 @@ class QmlRefinementTests(unittest.TestCase):
         outputs = self.read("pages/JsonPage.qml")
         scroll_end = outputs.index('"Online Import to Running Game"')
         self.assertIn("id: importSetupScroll", outputs[:scroll_end])
-        self.assertIn('text: "Open Output Folder"', outputs[scroll_end:])
+        self.assertIn('text: root.redlineInterface ? "Output folder" : "Open Output Folder"', outputs[scroll_end:])
         self.assertIn("onClicked: desktop.openJsonFolders()", outputs[scroll_end:])
-        self.assertIn('text: "Online Export from Running Game"', outputs[scroll_end:])
+        self.assertIn('text: root.redlineInterface ? "Online export" : "Online Export from Running Game"', outputs[scroll_end:])
         self.assertIn("onClicked: transferService.exportJson", outputs[scroll_end:])
 
     def test_outputs_use_explorer_style_selection_and_confirmed_mixed_deletion(self):

@@ -18,6 +18,25 @@ ApplicationWindow {
     readonly property bool dashboardNavigationVisible: Theme.chromeMetric("dashboardNavigation", 0) > 0 && sidebar.dashboardVisible
     title: dashboardNavigationVisible ? "KFPS - Main Menu" : appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
+    readonly property bool inWorkspace: typeof workspaceHosted !== "undefined" && workspaceHosted
+    readonly property var workspaceColors: ({background: Theme.backgroundA.toString(), surface: Theme.surface.toString(),
+        text: Theme.text.toString(), border: Theme.border.toString(), accent: Theme.primary.toString(),
+        accentText: Theme.primaryText.toString(), font: Theme.fontFamily, fontSize: Theme.textSize(13)})
+    property string pendingSetting: ""
+    function focusPendingSetting() {
+        if (pendingSetting && appController.currentPage === "settings" && pageLoader.item
+                && typeof pageLoader.item.focusSetting === "function") {
+            pageLoader.item.focusSetting(pendingSetting)
+            pendingSetting = ""
+        }
+    }
+    Connections {
+        target: typeof workspaceTools !== "undefined" ? workspaceTools : null
+        function onSettingRequested(key) {
+            window.pendingSetting = key
+            Qt.callLater(window.focusPendingSetting)
+        }
+    }
 
     FontLoader {
         id: windows94Font
@@ -63,7 +82,6 @@ ApplicationWindow {
                                  : consoleExpandedHeight
     property Item glassBackdropSource: backdropLayer
     property bool updateAutoOpened: false
-    property bool liveryWipNoticeAcknowledged: false
 
     Binding { target: Theme; property: "reducedMotion"; value: settings.reducedMotion }
     Binding { target: Theme; property: "ambientMotion"; value: settings.ambientMotion }
@@ -141,6 +159,8 @@ ApplicationWindow {
             width: parent.width
             window: window
             z: 50
+            visible: !window.inWorkspace
+            height: window.inWorkspace ? 0 : Theme.px(Theme.chromeMetric(window.shortWindow || window.compactSidebar ? "compactTitleHeight" : "titleHeight", Theme.classicMode ? 30 : Metrics.titleHeight))
         }
 
         Item {
@@ -354,7 +374,7 @@ ApplicationWindow {
                     anchors.bottom: parent.bottom
                     anchors.leftMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceLeftInset", 12))
                     anchors.rightMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceRightInset", 14))
-                    anchors.topMargin: window.instrumentInterface ? Theme.px(window.shortWindow ? 70 : 86) : window.headerHeight
+                    anchors.topMargin: window.instrumentInterface ? Theme.px(Theme.chromeMetric("workspaceTopInset", window.shortWindow ? 70 : 86)) : window.headerHeight
                     anchors.bottomMargin: Theme.terminalMode ? 0 : Theme.px(Theme.chromeMetric("workspaceBottomInset", 11))
                     spacing: Theme.terminalMode ? 0 : Theme.px(10)
 
@@ -372,8 +392,7 @@ ApplicationWindow {
                         }
 
                         onPageLoaded: function(page, item) {
-                            if (page === "liveries" && item)
-                                item.wipNoticeAcknowledged = window.liveryWipNoticeAcknowledged
+                            Qt.callLater(window.focusPendingSetting)
                             if (page === currentPage && pageTransition.replayOnContentReady)
                                 pageTransition.play()
                         }
@@ -400,15 +419,6 @@ ApplicationWindow {
                         }
                     }
 
-                    Connections {
-                        target: pageLoader.item
-                        ignoreUnknownSignals: true
-
-                        function onWipNoticeAccepted() {
-                            window.liveryWipNoticeAcknowledged = true
-                        }
-                    }
-
                     BottomPanel {
                         id: bottom
                         visible: appController.showBottomPanel
@@ -432,7 +442,7 @@ ApplicationWindow {
                 id: instrumentConsole
                 anchors.fill: parent
                 active: window.instrumentInterface
-                source: "themes/2049/ArchiveConsole.qml"
+                source: Theme.workspaceConsoleComponentFile
                 z: 30
             }
         }

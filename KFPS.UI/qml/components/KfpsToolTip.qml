@@ -23,7 +23,8 @@ ToolTip {
         id: tipMetrics
         text: root.text
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(10.8)
+        font.pixelSize: Theme.textSize(10.8)
+        font.weight: Theme.bodyWeight
     }
 
     contentItem: Text {
@@ -32,7 +33,8 @@ ToolTip {
         text: root.text
         color: Theme.text
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(10.8)
+        font.pixelSize: Theme.textSize(10.8)
+        font.weight: Theme.bodyWeight
         font.letterSpacing: 0
         wrapMode: Text.Wrap
         lineHeight: 1.2

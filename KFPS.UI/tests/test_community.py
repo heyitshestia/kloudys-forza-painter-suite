@@ -539,6 +539,7 @@ class CommunityBoundaryTests(unittest.TestCase):
             }
             try:
                 with patch("kfps_ui.community_service.CommunityApiClient", FakeClient):
+                    previous_source = jsons.sourceIndex
                     service.downloadSelected()
                     self.assertTrue(wait_for(lambda: bool(service.downloadedPath) and not service.busy), service.errorMessage)
                 downloaded = Path(service.downloadedPath)
@@ -546,6 +547,8 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertTrue(download_calls[0][1])
                 self.assertEqual(download_calls[0][3], "regular-session")
                 self.assertFalse(service.supporterAccess)
+                self.assertEqual(previous_source, jsons.sourceIndex, "Completion must not navigate away from current work")
+                jsons.setSource(3)
                 self.assertTrue(wait_for(
                     lambda: jsons.sourceIndex == 3
                     and "Public Fixture.json" in [row["name"] for row in jsons.explorerModel.rows]
@@ -555,10 +558,8 @@ class CommunityBoundaryTests(unittest.TestCase):
                 self.assertFalse(jsons.selectedIsGameLibraryItem)
 
                 jsons.goUp()
-                self.assertEqual(
-                    ["Generated JSONs", "Editor JSONs", "Game Exports", "Library"],
-                    [row["name"] for row in jsons.explorerModel.rows],
-                )
+                self.assertEqual(3, jsons.sourceIndex, "Up at a category root must retain that category")
+                self.assertIn("Public Fixture.json", [row["name"] for row in jsons.explorerModel.rows])
                 jsons.setSource(3)
                 self.assertIn("Public Fixture.json", [row["name"] for row in jsons.explorerModel.rows])
             finally:
@@ -568,7 +569,7 @@ class CommunityBoundaryTests(unittest.TestCase):
             restarted = JsonService(paths, DummyPreview(), desktop, log)
             try:
                 self.assertTrue(wait_for(lambda: 3 in restarted._source_index_cache))
-                self.assertIn("Library", [row["name"] for row in restarted.explorerModel.rows])
+                self.assertEqual(0, restarted.sourceIndex, "Restart should not navigate to a completed download")
                 restarted.setSource(3)
                 self.assertIn("Public Fixture.json", [row["name"] for row in restarted.explorerModel.rows])
             finally:

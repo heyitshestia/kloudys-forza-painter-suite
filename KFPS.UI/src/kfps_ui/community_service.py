@@ -2236,8 +2236,7 @@ class CommunityService(QObject):
             self.log.append(f"Community JSON downloaded: {self._downloaded_path}")
             if self.jsons is not None:
                 try:
-                    self.jsons.setSource(3)
-                    self.jsons.refresh()
+                    self.jsons.refreshLibraryOutputs()
                 except Exception:
                     pass
         elif operation.startswith("private_preview:"):

@@ -1,4 +1,153 @@
+// BEGIN FIXED WEB COMMAND SEARCH
+/* Kept identical in both independently served web roots; parity is tested. */
+(function (root, factory) {
+  'use strict';
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.KfpsCommandSearch = api;
+})(typeof globalThis === 'undefined' ? this : globalThis, function () {
+  'use strict';
+  function createBridge({owner, pageId, revision, blocked, commands, dispatch, activity = () => ({running:false, status:'', detail:''})}) {
+    let previous = null, sequence = 0;
+    function list() {
+      const current = JSON.stringify(revision());
+      if (current !== previous) { previous = current; sequence++; }
+      const token = owner + ':' + pageId + ':' + sequence;
+      const reason = blocked();
+      return {token, commands: commands().map(command => ({
+        ...command, id: command.key,
+        enabled: !reason && command.enabled,
+        reason: reason || command.reason || '',
+      }))};
+    }
+    return Object.freeze({
+      list,
+      activity: () => activity(),
+      execute(id, token) {
+        const current = list();
+        if (typeof token !== 'string' || token !== current.token) return {ok:false, error:'stale-context'};
+        const command = current.commands.find(item => item.id === id);
+        if (!command) return {ok:false, error:'unknown-command'};
+        if (!command.enabled) return {ok:false, error:command.reason || 'unavailable'};
+        return dispatch(command.key) || {ok:true};
+      },
+    });
+  }
+  function install({owner, revision, blocked, entries, t, trigger, icon, activity}) {
+    const doc = trigger.ownerDocument, win = doc.defaultView;
+    const make = (tag, text, className) => {
+      const node = doc.createElement(tag);
+      if (text) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    };
+    const dialog = make('dialog', '', 'commandSearch');
+    dialog.id = 'workspaceCommandSearch';
+    const heading = make('h2', t('Search commands')); heading.id = 'workspaceCommandHeading';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    const close = make('button'); close.type = 'button';
+    close.title = t('Close'); close.setAttribute('aria-label', t('Close')); close.append(icon('X'));
+    const header = make('div', '', 'commandSearchHeader'); header.append(heading, close);
+    const input = make('input'); input.type = 'search'; input.maxLength = 120;
+    input.setAttribute('aria-label', t('Search commands')); input.placeholder = t('Search commands');
+    const results = make('div', '', 'commandSearchResults');
+    const status = make('p', '', 'commandSearchStatus'); status.setAttribute('role', 'status');
+    dialog.append(header, input, results, status); doc.body.append(dialog);
+    let composing = false, openedRevision = null, returnFocus = null;
+    const commands = () => entries.map(entry => {
+      const node = doc.getElementById(entry.key);
+      const description = node?.dataset.workspaceTooltip || node?.title || '';
+      const reason = entry.reason?.() || '';
+      const enabled = !!node && !node.disabled && !node.hidden && !reason;
+      return {key:entry.key, label:t(entry.label), description,
+        shortcut:entry.shortcut?.() || '', enabled,
+        reason:reason || (enabled ? '' : description || t('Unavailable in the current context.'))};
+    });
+    const api = createBridge({owner, pageId:win.crypto.randomUUID(), revision, activity,
+      blocked:() => composing ? t('Finish text composition first.')
+        : [...doc.querySelectorAll('dialog[open]')].some(node => node !== dialog)
+          ? t('Close the current dialog first.') : blocked(),
+      commands, dispatch:key => {
+        if (dialog.open) return {ok:false, error:t('Close the current dialog first.')};
+        doc.getElementById(key).click();
+        return {ok:true};
+      }});
+    function execute(id) {
+      if (api.list().token !== openedRevision) {
+        status.textContent = t('The document changed. Close and reopen command search.');
+        results.replaceChildren(); return;
+      }
+      const command = api.list().commands.find(item => item.id === id);
+      if (!command?.enabled) { render(); return; }
+      dialog.close();
+      const result = api.execute(id, openedRevision);
+      if (!result.ok) status.textContent = result.error;
+    }
+    function render() {
+      const focused = doc.activeElement?.dataset.commandKey;
+      const current = api.list();
+      if (current.token !== openedRevision) {
+        results.replaceChildren(); status.textContent = t('The document changed. Close and reopen command search.'); return;
+      }
+      const query = input.value.trim().toLocaleLowerCase();
+      const matches = current.commands.filter(command =>
+        [command.label, command.description, command.shortcut].join(' ').toLocaleLowerCase().includes(query));
+      results.replaceChildren();
+      for (const command of matches) {
+        const button = make('button', '', 'commandSearchResult'); button.type = 'button';
+        button.disabled = !command.enabled; button.dataset.commandKey = command.key;
+        const label = make('span', command.label), binding = make('kbd', command.shortcut);
+        const description = make('small', command.enabled ? command.description : command.reason);
+        button.append(label, binding, description); button.addEventListener('click', () => execute(command.id));
+        results.append(button);
+      }
+      status.textContent = matches.length ? '' : t('No matching commands.');
+      if (focused) [...results.children].find(node => node.dataset.commandKey === focused && !node.disabled)?.focus();
+    }
+    const observer = new MutationObserver(() => { if (dialog.open) render(); });
+    for (const entry of entries) {
+      const node = doc.getElementById(entry.key);
+      if (node) observer.observe(node, {attributes:true, attributeFilter:['disabled','hidden','title','data-workspace-tooltip']});
+    }
+    win.addEventListener('pagehide', event => { if (!event.persisted) observer.disconnect(); });
+    trigger.title = t('Search commands'); trigger.setAttribute('aria-label', t('Search commands'));
+    trigger.addEventListener('click', () => {
+      if (composing || [...doc.querySelectorAll('dialog[open]')].some(node => node !== dialog)) return;
+      returnFocus = doc.activeElement; openedRevision = api.list().token; input.value = '';
+      render(); dialog.showModal(); input.focus();
+    });
+    close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => { if (!doc.querySelector('dialog[open]')) returnFocus?.focus(); });
+    input.addEventListener('input', render);
+    doc.addEventListener('compositionstart', () => { composing = true; }, true);
+    doc.addEventListener('compositionend', () => { composing = false; if (dialog.open) render(); }, true);
+    win.addEventListener('keydown', event => {
+      if (!dialog.open) return;
+      event.stopImmediatePropagation();
+      if (event.isComposing || event.keyCode === 229 || composing) {
+        if (event.key === 'Enter' || event.key === 'Escape') event.preventDefault();
+        return;
+      }
+      if (event.getModifierState?.('AltGraph')) return;
+      const buttons = [...results.querySelectorAll('button:not(:disabled)')];
+      const index = buttons.indexOf(doc.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : buttons.length - 1)
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      } else if (event.key === 'Enter' && doc.activeElement === input) {
+        event.preventDefault(); buttons[0]?.click();
+      }
+    }, true);
+    win.kfpsWorkspaceCommands = api;
+    return api;
+  }
+  return {createBridge, install};
+});
+// END FIXED WEB COMMAND SEARCH
 import { studioDiagnostics as diagnostics, projectCounts } from './diagnostics.mjs';
+import {createSourceEditMonitor,sourceEditStatusKey} from './source-edit-monitor.mjs';
 import { sceneReady, updatePaintCanvas, sceneState, sceneDiagnosticMetrics, isSceneReady, currentVehicleParts, validatePartConfiguration, setVehicleParts } from './livery-scene.js';
 import { createSurfaceEditor } from './surface-edit.mjs';
 import { initializeStudioTools } from './studio-tools.mjs';
@@ -9,7 +158,7 @@ import { initProjectStorage } from './project-storage-ui.mjs';
 import { initInspection } from './inspection-tools.mjs';
 import { initializeActionConfirmations } from './action-confirmations.mjs';
 import { confirmationSpec } from './confirmation-policy.mjs';
-import {t,sectionLabel,number,stateLabel,errorText} from './i18n.mjs';
+import {t,sectionLabel,number,errorText} from './i18n.mjs';
 import {previewQuality,previewFootprint,checkPreviewQuality,scaledTransform} from './preview-quality.mjs';
 import {hasMasks,maskImageCount,closeVinylPreview,decodeVinylPreview,drawVinylPreview} from './vinyl-compositing.mjs';
 import { emptyProject, validateProject, serializeProject, sectionVinylJson, sectionShapeCount, placementMatrix, invertMatrix, mapPoint, sectionToPaint, createHistory, makePlacement, scalePlacement, movePlacementToSection, placementStepIndex, transformPlacement, MAX_VINYLS, MAX_PLACEMENTS, MAX_NATIVE_VINYL_SHAPES } from './layout-model.mjs';
@@ -21,7 +170,12 @@ let images = new Map(), sectionCanvases = new Map();
 const sources = new Map(), history = createHistory(100,MAX_VINYLS*2);
 let activeQuality='balanced';
 let previewAllocationBlocked=false;
+let inactivePreviewTimer=null,previewCachesReleased=false;
+let previewExpiresAt=0,lastPreviewVisibleAt=-Infinity;
+const previewDeviceMemory=Number(globalThis.navigator?.deviceMemory);
+const inactivePreviewBudget=(previewDeviceMemory>0&&previewDeviceMemory<=4?32:96)*1024*1024;
 let config, project, selected = null, pickedSource = null, saved = '', busy = false, disposed = false, queued = 0, drag = null;
+let sessionRestore=null,sessionLoading=false;
 let experimentNotice = '', experimentError = false;
 let transform = null, surface = null, surfaceMode = 'orbit', sourceSignature = '', placementSignature = '';
 const sourceButtons = new Map(), placementButtons = new Map();
@@ -38,11 +192,25 @@ let handoffWorking=false;
 let externalPicker=null;
 let previewError='';
 let saveWorking=false;
+let activeWebOperation='';
 let selectedIds=[],tools=null,recovery=null,inspection=null,sourceEdit=null,confirmations=null,projectStorage=null;
+const sourceMonitor=createSourceEditMonitor({
+  read:job=>api('source-editor/'+job.id,undefined,5000),
+  update:(job,value)=>{
+    if(disposed||sourceEdit!==job)return;
+    job.status=value.status;
+    if(Number.isSafeInteger(value.customizationWarnings))job.customizationWarnings=value.customizationWarnings;
+    const applyError=job.applyError&&['ready','taken'].includes(value.status)?job.applyError:'';
+    sourceEditMessage([t(sourceEditStatusKey(applyError?'apply-failed':value.status)),errorText(applyError||value.error||'')].filter(Boolean).join(' '));
+    tools?.refresh();
+  },
+  onError:job=>{if(!disposed&&sourceEdit===job)sourceEditMessage('Automatic checks paused. Use Check changes to retry.');},
+});
 let sourceDocumentId=crypto.randomUUID();
+let commandRevision=0;
 let snapGuide=null;
 let carCatalogue=[],carCurrent=null,carPicked=null,carJob=null,carWorking=false,carCommitting=false,carCancelRequested=false,navigationAuthorized=false;
-function interactionBusy() { return busy || saveWorking || !!drag || !!transform || externalPicker!==null || projectStorage?.isOpen()===true; }
+function interactionBusy() { return busy || saveWorking || sessionLoading || sessionRestore?.state==='pending' || !!drag || !!transform || externalPicker!==null || projectStorage?.isOpen()===true; }
 function canPreview() { return !previewError&&isSceneReady(); }
 function editBlocked() { return interactionBusy()||!canPreview(); }
 function requirePreview() { if(!canPreview())throw Error('The preview is unavailable. Save the current layout, then reload the preview.'); }
@@ -215,7 +383,8 @@ async function confirmOperation(spec) {
 function sourceEditMessage(text,job=sourceEdit){
   const count=job?.customizationWarnings;
   const warning=Number.isSafeInteger(count)&&count>0?t`${count} unused custom themes could not be inherited. Your selected theme and other settings were preserved.`:'';
-  tools.status('sourceEditStatus',[t(text),warning].filter(Boolean).join(' '));
+  const destination=job?.name?t('Source: {0} | Destination: Livery Studio',job.name):'';
+  tools.status('sourceEditStatus',[destination,[t(text),warning].filter(Boolean).join(' ')].filter(Boolean).join(' | '));
 }
 async function studioAction(action,...args) {
   if(editBlocked()||disposed||!flushNumeric())return;
@@ -284,23 +453,22 @@ async function studioAction(action,...args) {
     const source=project.vinyls.find(v=>v.id===current().vinylId),binding={documentId:sourceDocumentId,sourceId:idFactory(),sourceRevision:0};
     setBusy(true);try{
       const value=await api('source-editor',{...binding,source:{name:source.name.slice(0,120),shapes:source.shapes}});
+      if(disposed||binding.documentId!==sourceDocumentId)return;
       if(!/^[a-f0-9]{32}$/.test(value?.id))throw Error('The source editor did not return a valid edit link.');
-      sourceEdit={...binding,id:value.id,vinylId:source.id,placementId:selected,status:value.status,customizationWarnings:value.customizationWarnings};
-      sourceEditMessage('2D editor opened. Return artwork from its File menu, then check changes here.');
+      sourceEdit={...binding,id:value.id,vinylId:source.id,placementId:selected,name:source.name,status:value.status,customizationWarnings:value.customizationWarnings};
+      sourceMonitor.start(sourceEdit);
+      sourceEditMessage(sourceEditStatusKey(value.status));
     }finally{if(!disposed)setBusy(false);}return;
   }
   if(action==='checkSourceEdit'){
-    if(!sourceEdit)return;const job=sourceEdit,value=await api('source-editor/'+job.id);
-    if(disposed||sourceEdit!==job)return;sourceEdit.status=value.status;
-    if(Number.isSafeInteger(value.customizationWarnings))sourceEdit.customizationWarnings=value.customizationWarnings;
-    sourceEditMessage(value.status==='ready'?t('Returned artwork ready to apply.'):value.error?errorText(value.error):t`Source edit: ${stateLabel(value.status)}`);tools.refresh();return;
+    await sourceMonitor.check();return;
   }
   if(action==='cancelSourceEdit'){
     if(!sourceEdit)return;const job=sourceEdit;
     setBusy(true);try{
       await api(`source-editor/${job.id}/cancel`,{});
       if(disposed||sourceEdit!==job)return;
-      sourceEdit=null;sourceEditMessage('Edit link cancelled. Your current artwork is unchanged.',job);
+      sourceMonitor.stop();sourceEdit=null;sourceEditMessage('Edit link cancelled. Your current artwork is unchanged.',job);
     }finally{if(!disposed)setBusy(false);}return;
   }
   if(action==='applySourceEdit'){
@@ -310,6 +478,10 @@ async function studioAction(action,...args) {
     const affected=args[0]==='selection'?[job.placementId]:project.placements.filter(p=>p.vinylId===job.vinylId).map(p=>p.id);
     if(affected.some(locked))throw Error('Unlock the affected placements first.');
     if(!await confirmOperation(confirmationSpec('source.apply',{project,sourceEdit:job,scope:args[0]})))return;
+    if(disposed||sourceEdit!==job||sourceDocumentId!==job.documentId)return;
+    sourceMonitor.stop();
+    delete job.applyError;
+    sourceEditMessage(sourceEditStatusKey('applying'),job);
     setBusy(true);try{
       const result=await api(`source-editor/${job.id}/take`,{documentId:job.documentId,sourceId:job.sourceId,sourceRevision:job.sourceRevision});
       if(disposed||sourceEdit!==job||sourceDocumentId!==job.documentId)throw Error('Source edit was interrupted. Nothing was replaced.');
@@ -317,7 +489,16 @@ async function studioAction(action,...args) {
       let next={...project,placements:project.placements.map(p=>affected.includes(p.id)?{...p,vinylId:replacement.id}:p),vinyls:[...project.vinyls,replacement]};
       const used=new Set(next.placements.map(p=>p.vinylId));next.vinyls=next.vinyls.filter(v=>used.has(v.id));next=syncSourceLinks(project,next);
       if(Number.isSafeInteger(result.customizationWarnings))job.customizationWarnings=result.customizationWarnings;
-      await applyProjectChange(next,'Returned artwork applied.');sourceEdit=null;diagnostics.emit('action',{action:'source_return',outcome:'ok'});sourceEditMessage('Source updated. Undo restores the previous artwork.',job);
+      await applyProjectChange(next,'Returned artwork applied.');
+      if(disposed||sourceEdit!==job||sourceDocumentId!==job.documentId)return;
+      sourceEdit=null;diagnostics.emit('action',{action:'source_return',outcome:'ok'});sourceEditMessage(sourceEditStatusKey('applied'),job);
+    }catch(error){
+      if(!disposed&&sourceEdit===job&&sourceDocumentId===job.documentId){
+        job.applyError=String(error?.message||error);
+        sourceEditMessage(t(sourceEditStatusKey('apply-failed'))+' '+errorText(error),job);
+        sourceMonitor.start(job);
+      }
+      throw error;
     }finally{if(!disposed)setBusy(false);}return;
   }
   throw Error('Unknown authoring action.');
@@ -343,9 +524,10 @@ function pruneSources() {
   const retained=history.retainedVinylIds(); project.vinyls.forEach(v=>retained.add(v.id));
   for(const id of sources.keys())if(!retained.has(id)){sources.delete(id);closeVinylPreview(images.get(id));images.delete(id);}
 }
-function commit(before) { history.push(before, snapshot()); pruneSources(); refresh();recovery?.changed();diagnostics.emit('action',{action:'edit',outcome:'ok',...projectCounts(project,config.sections.length)}); }
+function commit(before) { if(history.push(before, snapshot()))commandRevision++; pruneSources(); refresh();recovery?.changed();diagnostics.emit('action',{action:'edit',outcome:'ok',...projectCounts(project,config.sections.length)}); }
 function restore(state) {
   if (!state) return;
+  commandRevision++;
   const requested=state.vehicle_parts||{},existing=currentVehicleParts();
   const parts=!canPreview()?structuredClone(requested):JSON.stringify(existing)===JSON.stringify(requested)?existing:setVehicleParts(requested);
   project.vinyls=state.vinylIds.map(id=>{const source=sources.get(id);if(!source)throw Error('Undo source is unavailable.');return source;});
@@ -368,6 +550,106 @@ function icon(button) {
   button.prepend(svg);
 }
 document.querySelectorAll('[data-icon]').forEach(icon);
+// Read the captions owned by existing bindings; command search adds no key binding.
+for(const id of ['saveProject','undo','redo','reset','modeOrbit','modeMove','modeScale','modeRotate','modeSkew']) {
+  const node=$(id);if(node)node.dataset.commandShortcut=node.title.match(/\(([^()]+)\)/)?.[1]||'';
+}
+function initializeCommandSearch() {
+  window.KfpsCommandSearch.install({owner:'studio',t,trigger:$('workspaceSearch'),
+    activity:()=>({running:Boolean(saveWorking||busy||handoffWorking||sessionLoading||sessionRestore?.state==='pending'),
+      status:saveWorking?t('Saving project...'):handoffWorking?t('Importing editor vinyl...'):sessionLoading||sessionRestore?.state==='pending'
+        ?t(sessionRestore?.state==='cancelled'?'Cancellation requested...':sessionRestore?.carSwitch?(carCommitting?'Opening the prepared car...':'Preparing car geometry and paint surfaces...'):'Opening project...')
+        :busy?t(activeWebOperation||'Working...'):'',
+      detail:sessionRestore?.state==='pending'&&sessionRestore.carSwitch?sessionRestore.car.model_code+' / '+sessionRestore.car.car_id:config.vehicle.model_code+' / '+sectionLabel($('section').value)}),
+    revision:()=>[sourceDocumentId,commandRevision,selectedIds,pickedSource,$('section').value],
+    blocked:()=>disposed||interactionBusy()?t('Finish the current operation first.'):'',
+    icon:name=>{const host=document.createElement('span');host.dataset.icon=name;icon(host);return host.firstChild;},
+    entries:[
+      ['saveProject','Save project'],['openProject','Open project'],['importVinyl','Add vinyl'],
+      ['editSource','Edit vinyl'],['exportSource','Export source artwork'],['exportSection','Export section artwork'],
+      ['exportExperiment','Export experimental ZIP'],['chooseCar','Choose car'],['undo','Undo'],['redo','Redo'],
+      ['reset','Reset view'],['modeOrbit','Orbit'],['showTheme','Appearance'],['showShortcuts','Keyboard shortcuts'],
+    ].map(([key,label])=>({key,label,shortcut:()=>$(key)?.dataset.commandShortcut||'',
+      reason:()=>key==='exportSection'&&config.section_vinyl_export===true&&!project.placements.some(p=>p.section===$('section').value&&p.visible&&p.opacity>0)
+        ?t('No visible placements on this section.'):key==='editSource'&&(!selectedIds.length||config.source_editor_roundtrip!==true)
+          ?t('Select a placement with source editing available.'):''}))});
+}
+async function openProjectPicker() {
+  if(disposed||interactionBusy()||!flushNumeric())return false;
+  const identity=sourceDocumentId,revision=commandRevision;
+  if(!await confirmReplace()||disposed||interactionBusy()||sourceDocumentId!==identity||commandRevision!==revision)return false;
+  if(projectStorage)projectStorage.open();else beginExternalPicker('project');
+  return true;
+}
+function initializeWorkspaceSession() {
+  const requests=new Map();
+  const dirty=()=>changed()||!!transform||!!drag;
+  const finish=(request,state)=>{request.state=state;if(!disposed)refresh();return {requestId:request.requestId,state};};
+  const cancelRestore=requestId=>{
+    const request=requests.get(requestId);
+    if(!request||request.state!=='pending')return false;
+    if(request.carSwitch&&(carCommitting||navigationAuthorized))return false;
+    finish(request,'cancelled');if(request.carSwitch)cancelCarSwitch();return true;
+  };
+  window.kfpsWorkspaceSession=Object.freeze({
+    snapshot:()=>({ready:!disposed&&window.__liveryLab?.ready===true,
+      reference:{car:{car_id:config.vehicle.car_id,model_code:config.vehicle.model_code},project:projectStorage?.entry()?.id||'',dirty:dirty()},
+      restore:sessionRestore?{requestId:sessionRestore.requestId,state:sessionRestore.state}:null}),
+    async restore(ref,requestId) {
+      if(typeof requestId!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(requestId))return {ok:false,error:'invalid-request'};
+      if(requests.has(requestId)){const request=requests.get(requestId);return {requestId,state:request.state};}
+      if(requests.size>=128)return {ok:false,error:'request-limit'};
+      const blocked=disposed||interactionBusy()||document.querySelector('dialog[open]')||window.__liveryLab?.ready!==true;
+      const request={requestId,state:'pending'};requests.set(requestId,request);sessionRestore=request;
+      if(!ref||!ref.car||!Number.isSafeInteger(ref.car.car_id)||ref.car.car_id<0||typeof ref.car.model_code!=='string'
+        ||ref.car.model_code.length>160||typeof ref.dirty!=='boolean'||ref.project!==undefined&&(typeof ref.project!=='string'||ref.project!==''&&!/^[a-f0-9]{32}$/.test(ref.project)))return finish(request,'failed');
+      if(blocked)return finish(request,'busy');
+      const current=()=>!disposed&&sessionRestore===request&&request.state==='pending'&&numericEdited.size===0&&!transform&&!drag;
+      if(ref.car.car_id!==config.vehicle.car_id||ref.car.model_code!==config.vehicle.model_code){
+        if(dirty()||carJob)return finish(request,'busy');
+        if(config.car_switch!==true)return finish(request,'failed');
+        const identity=sourceDocumentId,revision=commandRevision;
+        request.carSwitch=true;request.car={...ref.car};sessionLoading=true;
+        try{return finish(request,await restoreSessionCar(ref.car,()=>current()&&sourceDocumentId===identity&&commandRevision===revision&&!dirty()));}
+        catch(error){if(!current()&&carJob?.status!=='committed')return finish(request,'cancelled');message(error.message,true);return finish(request,'failed');}
+        finally{sessionLoading=false;if(!disposed)refresh();}
+      }
+      if(ref.dirty){
+        finish(request,'recovery');
+        return recovery?.open()?{requestId,state:'recovery'}:finish(request,'failed');
+      }
+      if(dirty())return finish(request,'busy');
+      if(!ref.project)return finish(request,'restored');
+      if(!projectStorage)return finish(request,'failed');
+      sessionLoading=true;refresh();
+      try{
+        const loaded=await projectStorage.restore(ref.project,{isCurrent:current});
+        if(!current())return finish(request,'cancelled');
+        return finish(request,loaded?'restored':'cancelled');
+      }catch(error){
+        if(!current())return finish(request,'cancelled');
+        if(!disposed)message(error.message,true);
+        return finish(request,error.status===404?'missing':'failed');
+      }finally{sessionLoading=false;if(!disposed)refresh();}
+    },
+    cancelRestore,
+  });
+  // Explicit input supersedes a pending background reopen; the loader checks
+  // this request again immediately before its atomic document swap.
+  for(const type of ['pointerdown','keydown','input','compositionstart'])document.addEventListener(type,event=>{
+    if(event.isTrusted&&sessionRestore?.state==='pending')cancelRestore(sessionRestore.requestId);
+  },{capture:true,signal:stop.signal});
+}
+function refreshOutputSummary() {
+  const destination=projectStorage?t('KFPS per-car project folder')
+    :window.__kfpsStudioNativeDownloads===true?t('Chosen save location'):t('Browser downloads');
+  const download=window.__kfpsStudioNativeDownloads===true?t('Chosen save location'):t('Browser downloads');
+  $('saveProject').title=t('Save project: {0}. Car: {1} / {2}. Keeps all sections, sources, placement groups and parts; nothing installed.',destination,config.vehicle.model_code,config.vehicle.car_id);
+  $('outputSummary').textContent=t('Project: {0}. Artwork and experimental ZIP: {1}. Car: {2} / {3}. Section artwork: {4}. Experimental ZIP game acceptance is unverified; nothing installed.',destination,download,config.vehicle.model_code,config.vehicle.car_id,sectionLabel($('section').value));
+  $('exportSource').title=t('Export original source artwork to {0}. Placement transforms and other sections are not included; nothing installed.',download);
+  const sections=[...new Set(project.placements.filter(p=>p.visible&&p.opacity>0).map(p=>sectionLabel(p.section)))].join(', ')||t('No visible placements.');
+  $('experimentDestination').textContent=t('FH6 template ZIP. Destination: {0}. Car: {1} / {2}. Visible artwork sections: {3}. Nothing is installed.',download,config.vehicle.model_code,config.vehicle.car_id,sections);
+}
 async function responseError(response) {
   const raw=await response.text();
   let reason=raw,value;
@@ -486,6 +768,39 @@ async function initializePreviewQuality() {
   $('previewQuality').value=activeQuality;
   $('previewQuality').addEventListener('change',()=>void changePreviewQuality(),{signal:stop.signal});
 }
+function trimInactivePreview() {
+  inactivePreviewTimer=null;
+  if(disposed||!document.hidden||!config)return;
+  if(busy){inactivePreviewTimer=setTimeout(trimInactivePreview,5000);return;}
+  const budget=Date.now()>=previewExpiresAt?0:inactivePreviewBudget;
+  const entries=[...sectionCanvases].map(([name,canvas])=>({name,canvas,bytes:canvas.width*canvas.height*4}));
+  let bytes=entries.reduce((sum,item)=>sum+item.bytes,sectionCanvas.width*sectionCanvas.height*4);
+  // Keep the displayed section and smaller canvases when they fit. The atlas and
+  // source images are authoritative preview inputs, not disposable section caches.
+  for(const item of entries.sort((a,b)=>b.bytes-a.bytes)) {
+    if(budget&&bytes<=budget)break;
+    item.canvas.width=item.canvas.height=1;sectionCanvases.delete(item.name);
+    dirtySections.add(item.name);bytes-=item.bytes;previewCachesReleased=true;
+  }
+  if(!budget||bytes>budget){sectionCanvas.width=sectionCanvas.height=1;previewCachesReleased=true;}
+  if(budget)inactivePreviewTimer=setTimeout(trimInactivePreview,Math.max(0,previewExpiresAt-Date.now()));
+}
+function handlePreviewVisibility() {
+  clearTimeout(inactivePreviewTimer);inactivePreviewTimer=null;
+  if(disposed)return;
+  if(document.hidden){
+    if(queued)cancelAnimationFrame(queued);queued=0;
+    previewExpiresAt=Date.now()+(Date.now()-lastPreviewVisibleAt<15000?60000:30000);
+    inactivePreviewTimer=setTimeout(trimInactivePreview,5000);
+  }else if(config){
+    lastPreviewVisibleAt=Date.now();
+    if(previewCachesReleased){
+      previewCachesReleased=false;
+      [sectionCanvas.width,sectionCanvas.height]=previewQuality(activeQuality).size;
+    }
+    schedule();
+  }
+}
 function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=images) {
   const {scale,size}=previewQuality(quality);
   let surface = cache.get(name);
@@ -515,6 +830,7 @@ function paintSection(section,quality=activeQuality,cache=sectionCanvases,raster
     [x,y,1,1,x-padding,y-padding,padding,padding],[x+w-1,y,1,1,x+w,y-padding,padding,padding],[x,y+h-1,1,1,x-padding,y+h,padding,padding],[x+w-1,y+h-1,1,1,x+w,y+h,padding,padding]]) atlasContext.drawImage(atlas,sx,sy,sw,sh,dx,dy,dw,dh);
 }
 function drawSelection() {
+  if(document.hidden)return;
   const scale=previewQuality(activeQuality).scale;
   sectionContext.setTransform(scale,0,0,scale,0,0); sectionContext.clearRect(0,0,2048,1024);
   const surface = sectionCanvases.get($('section').value); if (surface) sectionContext.drawImage(surface,0,0,2048,1024);
@@ -536,9 +852,9 @@ function drawSelection() {
   sectionContext.moveTo(point[0],point[1]-20); sectionContext.lineTo(point[0],point[1]+20); sectionContext.stroke();
 }
 function schedule() {
-  if (queued || disposed || !canPreview()) return;
+  if (queued || disposed || document.hidden || !canPreview()) return;
   queued = requestAnimationFrame(() => {
-    queued = 0; if (disposed || !canPreview()) return;
+    queued = 0; if (disposed || document.hidden || !canPreview()) return;
     const start = performance.now();
     const needed=new Set(project.placements.filter(p=>p.visible&&p.opacity>0).map(p=>p.section));
     if([...needed].some(name=>!sectionCanvases.has(name))){
@@ -667,6 +983,7 @@ function refresh() {
   $('exportSection').title=config.section_vinyl_export!==true?t('Section vinyl export is unavailable in this backend'):t`Export visible artwork on ${sectionLabel($('section').value)} as one native vinyl JSON (maximum ${MAX_NATIVE_VINYL_SHAPES} shapes)`;
   $('sectionEmpty').hidden=onSection.some(item=>item.visible&&item.opacity>0);
   $('sectionEmpty').textContent=onSection.length?t('No visible placements on this section.'):t`No placements on ${sectionLabel($('section').value)}.`;
+  refreshOutputSummary();
   $('counts').textContent=t`${project.placements.length} placements / ${project.vinyls.length} vinyl sources`;
   $('vehicle').textContent=t`${config.vehicle.model_code} / Car ${config.vehicle.car_id} / ${project.placements.length} placements`;
   const list=$('placementList'),signature=JSON.stringify([project.placements.map(p=>[p.id,p.vinylId,p.section,p.visible]),project.authoring||null]);
@@ -719,6 +1036,7 @@ async function importFile(file,options={}) {
     project.placements.push(placement);selected=placement.id;pickedSource=id;dirtySections.add(placement.section);schedule();commit(before);
     message('Vinyl added.');
     diagnostics.emit('action',{action:'import',outcome:'ok',...projectCounts(project,config.sections.length)});
+    return true;
   }finally{if(!adopted)closeVinylPreview(image);}
 }
 async function confirmReplace() {
@@ -764,11 +1082,13 @@ async function openFile(file,options={}) {
   selected=next.placements[0]?.id||null;pickedSource=current()?.vinylId||next.vinyls[0]?.id||null; if(current()) $('section').value=current().section;
   retainParts(parts);
   selectedIds=authoring.selectionIds(project,selected?[selected]:[],{expandGroups:true});sourceDocumentId=crypto.randomUUID();
-  history.reset(); saved=options.recovery?'':fingerprint();markAll();refresh();
+  sourceMonitor.stop();
+  history.reset(); saved=options.recovery||options.unsaved?'':fingerprint();markAll();refresh();
   projectStorage?.adopt(null);
   if(!options.recovery)recovery?.changed({newDocument:true});
   message(next.vehicle_parts?'Layout and component configuration reopened.':'Layout reopened with the initial component configuration; no component overrides were stored.');
   diagnostics.emit('action',{action:options.recovery?'recovery':'reopen',outcome:'ok',...projectCounts(project,config.sections.length)});
+  return true;
 }
 function nativeDownloadFinished(url,result) {
   const pending=nativeDownloads.get(url);
@@ -853,26 +1173,54 @@ async function chooseCar() {
   if(carJob){carMessage('Preparation status is unresolved. Retry status or cancel before choosing another car.',true);refreshCars();return;}
   carWorking=true;carCancelRequested=false;setBusy(true);carMessage('Reading local car catalogue...');
   try {
-    const value=await api('cars');
+    const value=await readCarCatalogue();
     if(disposed)return;
-    if(value?.enabled!==true||!Array.isArray(value.cars)||value.cars.length>4096)throw Error('The car catalogue is unavailable.');
-    const ids=new Set();
-    const cars=value.cars.map(car=>{
-      if(!car||!(/^[a-f0-9]{32}$/).test(car.id)||ids.has(car.id)||typeof car.name!=='string'||!car.name.trim()||car.name.length>240
-        ||typeof car.model_code!=='string'||!car.model_code.trim()||car.model_code.length>160||/[\x00-\x1f]/.test(car.name+car.model_code)
-        ||!(car.car_id===null||Number.isSafeInteger(car.car_id)&&car.car_id>=0))throw Error('The car catalogue contains invalid entries.');
-      ids.add(car.id);return {id:car.id,name:car.name,model_code:car.model_code,car_id:car.car_id};
-    });
-    if(value.current!==null&&!ids.has(value.current))throw Error('The current car is missing from the catalogue.');
-    carCatalogue=cars;carCurrent=value.current;carPicked=null;$('carSearch').value='';renderCars();
-    carMessage(cars.length?'Choose a car. The current layout stays intact until the new car is ready.':'No car archives were found in the configured installation.');
+    carCatalogue=value.cars;carCurrent=value.current;carPicked=null;$('carSearch').value='';renderCars();
+    carMessage(value.cars.length?'Choose a car. The current layout stays intact until the new car is ready.':'No car archives were found in the configured installation.');
   } catch(error){if(!disposed){carCatalogue=[];carPicked=null;renderCars();carMessage(error.message,true);}}
   finally{carWorking=false;if(!disposed)setBusy(false);}
 }
-async function confirmCarReplacement() {
+async function readCarCatalogue() {
+  const value=await api('cars');
+  if(value?.enabled!==true||!Array.isArray(value.cars)||value.cars.length>4096)throw Error('The car catalogue is unavailable.');
+  const ids=new Set();
+  const cars=value.cars.map(car=>{
+    if(!car||!(/^[a-f0-9]{32}$/).test(car.id)||ids.has(car.id)||typeof car.name!=='string'||!car.name.trim()||car.name.length>240
+      ||typeof car.model_code!=='string'||!car.model_code.trim()||car.model_code.length>160||/[\x00-\x1f]/.test(car.name+car.model_code)
+      ||!(car.car_id===null||Number.isSafeInteger(car.car_id)&&car.car_id>=0))throw Error('The car catalogue contains invalid entries.');
+    ids.add(car.id);return {id:car.id,name:car.name,model_code:car.model_code,car_id:car.car_id};
+  });
+  if(value.current!==null&&!ids.has(value.current))throw Error('The current car is missing from the catalogue.');
+  return {cars,current:value.current};
+}
+async function restoreSessionCar(car,isCurrent) {
+  carWorking=true;carCommitting=false;carCancelRequested=false;setBusy(true);
+  try {
+    const value=await readCarCatalogue();
+    if(!isCurrent())return 'cancelled';
+    const matches=value.cars.filter(item=>item.car_id===car.car_id&&item.model_code===car.model_code);
+    if(matches.length!==1)return matches.length?'failed':'missing';
+    if(matches[0].id===value.current)throw Error('The current car is missing from the catalogue.');
+    carCatalogue=value.cars;carCurrent=value.current;carPicked=matches[0].id;
+    $('carSearch').value='';renderCars();$('carPicker').showModal();carMessage('Starting car preparation...');
+    carJob=carJobValue(await api('car-switch',{carId:carPicked}));
+    await followCarJob(isCurrent);
+    return navigationAuthorized?'pending':!isCurrent()||carCancelRequested?'cancelled':'failed';
+  }finally{
+    carWorking=false;carCommitting=false;
+    if(!disposed){if(!carJob&&!navigationAuthorized)$('carPicker').close();setBusy(false);}
+  }
+}
+async function confirmCarReplacement(packageArtwork=false) {
   if(!changed())return 'discard';
-  const dialog=$('confirmCarSwitch');dialog.returnValue='cancel';dialog.showModal();
-  return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
+  const dialog=$('confirmCarSwitch'),original=[];
+  if(packageArtwork){
+    for(const [selector,text] of [['h2','Save this layout before opening package artwork?'],['p','Only editable artwork is imported. Body paint and materials are not imported. The source package is unchanged.'],['button[value=discard]','Discard and open'],['button[value=save]','Save and open']]){
+      const node=dialog.querySelector(selector);original.push([node,node.textContent]);node.textContent=t(text);
+    }
+  }
+  dialog.returnValue='cancel';dialog.showModal();
+  return new Promise(resolve=>dialog.addEventListener('close',()=>{for(const [node,text] of original)node.textContent=text;resolve(dialog.returnValue);},{once:true}));
 }
 function carJobValue(value,expectedId=null) {
   if(!value||!(/^[a-f0-9]{32}$/).test(value.id)||(expectedId&&value.id!==expectedId)||!['preparing','ready','cancelling','cancelled','failed','committed'].includes(value.status))throw Error('The car preparation returned an invalid status. Your layout is retained.');
@@ -881,9 +1229,10 @@ function carJobValue(value,expectedId=null) {
 async function waitForCar() {
   await new Promise(resolve=>{const done=()=>{clearTimeout(timer);stop.signal.removeEventListener('abort',done);resolve();};const timer=setTimeout(done,500);stop.signal.addEventListener('abort',done,{once:true});});
 }
-async function followCarJob() {
+async function followCarJob(isCurrent=()=>true) {
   let cancellationSent=carJob.status==='cancelling';
   while(!disposed) {
+    if(!isCurrent())carCancelRequested=true;
     if(carCancelRequested&&!cancellationSent){carJob=carJobValue(await api(`car-switch/${carJob.id}/cancel`,{}),carJob.id);cancellationSent=true;}
     if(disposed)return;
     if(carJob.status==='cancelled'){carJob=null;carMessage('Car preparation cancelled. The previous layout is unchanged.');return;}
@@ -893,10 +1242,17 @@ async function followCarJob() {
       carCommitting=true;refreshCars();carMessage('Opening the prepared car...');
       const value=await api(`car-switch/${carJob.id}/commit`,{});
       if(disposed)return;
-      const result=carJobValue(value,carJob.id),url=new URL(value.url,window.location.href);
+      // Commit rotates the backend token. A late cancellation cannot keep this
+      // obsolete page usable; reconcile the receipt before leaving it.
+      const result=carJobValue(value,carJob.id);
+      if(result.status==='committed')carJob=result;
+      const url=new URL(value.url,window.location.href);
       if(result.status!=='committed'||typeof value.url!=='string'||url.origin!==window.location.origin||url.username||url.password||url.search||url.hash
         ||!(/^\/[A-Za-z0-9_-]{32,128}\/$/).test(url.pathname)||url.pathname===window.location.pathname)throw Error('The car switch returned an invalid destination. Save your retained layout before reopening the Studio.');
       navigationAuthorized=true;
+      // The inbox is independent of the rotating car-session token. Forward
+      // only an opaque, allowlisted fragment to the shared host dispatcher.
+      if((/^#(?:vinyl|layout)=[a-f0-9]{32}$/).test(window.location.hash||''))url.hash=window.location.hash;
       try{window.location.assign(url.href);}catch(error){navigationAuthorized=false;throw error;}
       return;
     }
@@ -944,32 +1300,65 @@ function handoffMessage(text,error=false,retry=false) {
   $('hostTransfer').hidden=false;$('hostTransferMessage').textContent=error?errorText(text):t(text);
   $('hostTransferMessage').classList.toggle('error',error);$('retryHostTransfer').hidden=!retry;
 }
+async function openPackageArtwork(value,isCurrent) {
+  const incoming=value.layout,car=incoming?.vehicle;
+  if(!car||!Number.isSafeInteger(car.car_id)||car.car_id<=0||typeof car.model_code!=='string'||!car.model_code.trim()
+    ||car.model_code.length>160||/[\x00-\x1f]/.test(car.model_code))throw Error('The package has no exact car identity.');
+  const different=car.car_id!==config.vehicle.car_id||car.model_code!==config.vehicle.model_code;
+  if(different&&window.__kfpsStudioNativeDownloads!==true)throw Error("In Chrome, save your work and choose this package's car in Studio before opening it. Automatic car switching could interrupt another Studio window.");
+  if(different&&config.car_switch!==true)throw Error('This session cannot open the package car. Save your work, then restart Studio.');
+  // Validate before asking to replace anything. The final open also checks the
+  // actual prepared car's sections and stages all images before adoption.
+  validateProject(incoming,car,different?['Front','Back','Top','Left','Right','Spoiler','FrontWindshield','BackWindshield','TopWindow','LeftWindow','RightWindow']:config.sections.map(s=>s.section));
+  serializeProject(incoming);
+  if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
+  const choice=await confirmCarReplacement(true);
+  if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
+  if(!['save','discard'].includes(choice)){handoffMessage('Package opening cancelled. The current layout is unchanged.',false,true);return false;}
+  if(choice==='save'&&!await downloadProject()){handoffMessage('Save cancelled. The current car and layout are unchanged.',false,true);return false;}
+  if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
+  if(different){
+    const result=await restoreSessionCar(car,isCurrent);
+    if(result==='missing')throw Error('The exact package car is not installed. Nothing was opened.');
+    if(result==='failed')throw Error('The package car could not be prepared. The current layout is retained.');
+    if(result==='cancelled')handoffMessage('Package opening cancelled. The current layout is unchanged.',false,true);
+    return false;
+  }
+  return await openFile(new File([serializeProject(incoming)],`${value.name.trim()}.kfps-layout.json`,{type:'application/json'}),{isCurrent,unsaved:true});
+}
 async function importHostVinyl() {
   const hash=window.location?.hash||'';
-  if(!hash.startsWith('#vinyl')||handoffWorking||disposed)return;
-  const match=/^#vinyl=([a-f0-9]{32})$/.exec(hash);
-  if(!match){handoffMessage('The incoming vinyl link is invalid. Use Add vinyl to import its JSON file.',true);return;}
-  const id=match[1];
+  if(!/^#(?:vinyl|layout)/.test(hash)||handoffWorking||disposed)return;
+  const match=/^#(vinyl|layout)=([a-f0-9]{32})$/.exec(hash);
+  if(!match){handoffMessage('The incoming artwork link is invalid.',true);return;}
+  const kind=match[1],id=match[2],layoutTransfer=kind==='layout';
   const clearFragment=()=>{if(window.location.hash===hash)window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search);};
   if(completedHandoffs.has(id)){clearFragment();return;}
-  if(config.host_vinyl_handoff!==true){handoffMessage('This session cannot receive editor vinyls. Use Add vinyl to import its JSON file.',true,true);return;}
+  if(config[`host_${kind}_handoff`]!==true){handoffMessage('This session cannot receive this artwork. Save your work, then restart Studio.',true,true);return;}
   if(!canPreview()){handoffMessage('Save the current layout and reload the preview before importing the incoming vinyl.',true,true);return;}
   if(interactionBusy()){handoffMessage('Finish the current edit, then retry the incoming vinyl.',false,true);return;}
   if(!flushNumeric()){handoffMessage('Correct or cancel the numeric draft, then retry the incoming vinyl.',true,true);return;}
-  handoffWorking=true;setBusy(true);handoffMessage('Importing editor vinyl...');
+  const documentId=sourceDocumentId,revision=fingerprint();
+  const isCurrent=()=>!disposed&&sourceDocumentId===documentId&&fingerprint()===revision&&window.location.hash===hash;
+  handoffWorking=true;setBusy(true);handoffMessage(layoutTransfer?'Opening package artwork...':'Importing editor vinyl...');
   try {
-    const response=await fetch(`./api/host-vinyl/${id}`,{signal:stop.signal});
+    const response=await fetch(`./api/host-${kind}/${id}`,{signal:stop.signal});
     if(!response.ok)throw await responseError(response);
     if(response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json')throw Error('The incoming vinyl response is not JSON.');
     const raw=await response.text();
-    if(new TextEncoder().encode(raw).byteLength>8*1024*1024)throw Error('The incoming vinyl exceeds 8 MiB.');
+    if(new TextEncoder().encode(raw).byteLength>(layoutTransfer?32:8)*1024*1024)throw Error('The incoming artwork exceeds its size limit.');
     const value=JSON.parse(raw);
-    if(!value||typeof value.name!=='string'||!value.name.trim()||value.name.trim().length>120||/[\x00-\x1f]/.test(value.name)
-      ||!Array.isArray(value.shapes)||!value.shapes.length||value.shapes.length>3000)throw Error('The incoming vinyl data is invalid.');
-    await importFile(new File([JSON.stringify({shapes:value.shapes})],`${value.name.trim()}.json`,{type:'application/json'}));
-    completedHandoffs.add(id);clearFragment();handoffMessage(t`${value.name.trim()} imported.`);
+    if(!value||typeof value.name!=='string'||!value.name.trim()||value.name.trim().length>120||/[\x00-\x1f]/.test(value.name))throw Error('The incoming artwork data is invalid.');
+    if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
+    if(layoutTransfer){if(!await openPackageArtwork(value,isCurrent))return;}
+    else{
+      if(!Array.isArray(value.shapes)||!value.shapes.length||value.shapes.length>3000)throw Error('The incoming vinyl data is invalid.');
+      if(!await importFile(new File([JSON.stringify({shapes:value.shapes})],`${value.name.trim()}.json`,{type:'application/json'}),{isCurrent}))return;
+    }
+    completedHandoffs.add(id);if(completedHandoffs.size>64)completedHandoffs.delete(completedHandoffs.values().next().value);
+    clearFragment();handoffMessage(layoutTransfer?'Package artwork opened. Body paint and materials were not imported. The source package is unchanged.':t`${value.name.trim()} imported.`);
   } catch(error) {
-    if(!disposed)handoffMessage(t`${errorText(error)} Retry, or use Add vinyl to import the JSON file.`,true,true);
+    if(!disposed)handoffMessage(errorText(error),true,true);
   } finally {
     handoffWorking=false;
     if(!disposed){setBusy(false);if(window.location?.hash&&window.location.hash!==hash)void importHostVinyl();}
@@ -1029,7 +1418,7 @@ async function exportExperiment() {
   } catch(error) {if(!disposed)experimentMessage(error.message,true);throw error;}
 }
 function edit(callback) { if(editBlocked()||disposed||!flushNumeric())return; const before=snapshot(); callback(); commit(before); markAll(); }
-function run(callback) { return async()=>{if(interactionBusy()||disposed||!flushNumeric())return; setBusy(true);try{await callback();}catch(error){if(!disposed)message(error.message,true);}finally{if(!disposed)setBusy(false);}}; }
+function run(callback, label='') { return async()=>{if(interactionBusy()||disposed||!flushNumeric())return; activeWebOperation=label;setBusy(true);try{await callback();}catch(error){if(!disposed)message(error.message,true);}finally{activeWebOperation='';if(!disposed)setBusy(false);}}; }
 function point(event) {const r=sectionCanvas.getBoundingClientRect();return [(event.clientX-r.left)*2048/r.width,(event.clientY-r.top)*1024/r.height];}
 function hitPlacements(section,x,y) {
   const hits=[];
@@ -1066,9 +1455,12 @@ async function initialize() {
   tools=initializeStudioTools({action:studioAction,message,select:(id,options)=>selectPlacement(id,undefined,options),
     artworkButton:p=>artworkButton(project.vinyls.find(v=>v.id===p.vinylId),`${sectionLabel(p.section)}${locked(p.id)?' / Locked':''}`),
     state:()=>({project,selectedIds,busy:interactionBusy()||!canPreview(),locked:selectedIds.filter(locked),sourceEditing:sourceEdit,sourceEditorAvailable:config.source_editor_roundtrip===true})});
+  $('editSource').textContent=t('Edit vinyl');
+  $('editSource').title=t('Edit the selected placement source in the 2D Editor. Returned changes require Apply in Studio.');
   inspection=initInspection({host:$('inspectionToolsHost'),message,isBusy:interactionBusy});
   if(config.project_storage?.enabled===true)projectStorage=initProjectStorage({api,message,
     defaultName:()=>config.vehicle.model_code,
+    saveDescription:()=>t('Editable project for {0} / {1}: all sections, sources, placement groups and parts. Saved in this car\'s KFPS project folder, not in a game save.',config.vehicle.model_code,config.vehicle.car_id),
     getDocumentRevision:()=>sourceDocumentId+':'+fingerprint(),
     onModalChange:()=>refresh(),
     getProject:()=>validateProject(project,config.vehicle,config.sections.map(s=>s.section)),
@@ -1094,8 +1486,8 @@ async function initialize() {
   $('section').addEventListener('change',()=>{if(interactionBusy())return;if(!flushNumeric()){if(current())$('section').value=current().section;return;}selected=null;refresh();schedule();});
   $('vinylSource').addEventListener('change',()=>{if(interactionBusy())return;pickedSource=$('vinylSource').value;refreshSources(false);});
   $('placeSource').addEventListener('click',placeSource);
-  $('exportSource').addEventListener('click',run(exportSource));
-  $('exportSection').addEventListener('click',run(exportSection));
+  $('exportSource').addEventListener('click',run(exportSource,'Exporting source artwork...'));
+  $('exportSection').addEventListener('click',run(exportSection,'Exporting section artwork...'));
   $('retryHostTransfer').addEventListener('click',()=>void importHostVinyl());
   window.addEventListener('hashchange',()=>void importHostVinyl(),{signal:stop.signal});
   $('placementSection').addEventListener('change',()=>{
@@ -1113,7 +1505,7 @@ async function initialize() {
   $('importVinyl').addEventListener('click',()=>{if(!editBlocked()&&flushNumeric()){if(projectStorage&&config.vinyl_library?.enabled)projectStorage.addVinyl();else beginExternalPicker('vinyl');}});
   $('vinylFile').addEventListener('change',()=>completeExternalPicker('vinyl'));
   $('vinylFile').addEventListener('cancel',()=>completeExternalPicker('vinyl',true));
-  $('openProject').addEventListener('click',async()=>{if(!interactionBusy()&&flushNumeric()&&await confirmReplace()){if(projectStorage)projectStorage.open();else beginExternalPicker('project');}});
+  $('openProject').addEventListener('click',openProjectPicker);
   $('projectFile').addEventListener('change',()=>completeExternalPicker('project'));
   $('projectFile').addEventListener('cancel',()=>completeExternalPicker('project',true));
   $('saveProject').addEventListener('click',saveProject);
@@ -1127,7 +1519,7 @@ async function initialize() {
   $('saveRecovery').addEventListener('click',saveProject);
   $('reloadPreview').addEventListener('click',()=>{if(disposed||interactionBusy())return;if(changed()){message('Save the layout before reloading the preview.',true);return;}window.location.reload();});
   $('openSaveArtwork').addEventListener('click',run(openSaveArtwork));
-  $('exportExperiment').addEventListener('click',run(exportExperiment));
+  $('exportExperiment').addEventListener('click',run(exportExperiment,'Preparing experimental ZIP...'));
   $('resetParts').addEventListener('click',()=>{
     if(editBlocked()||disposed||!flushNumeric())return;
     const before=snapshot();retainParts(setVehicleParts({}));commit(before);
@@ -1240,11 +1632,14 @@ async function initialize() {
     if(delta){event.preventDefault();try{edit(()=>{const p=current(),n=event.shiftKey?10:1;project=transformProject(project,p.id,{x:Math.max(-4096,Math.min(4096,p.x+delta[0]*n)),y:Math.max(-4096,Math.min(4096,p.y+delta[1]*n))},{bypassSnap:true});});}catch(error){message(error.message,true);}}
   });
   window.addEventListener('beforeunload',event=>{if(!navigationAuthorized&&(changed()||saveWorking)){event.preventDefault();event.returnValue='';}});
+  initializeCommandSearch();
+  initializeWorkspaceSession();
   markAll();refresh();message('Ready.');await importHostVinyl();if(disposed)return;
   window.__liveryLab={getProject:()=>structuredClone(project),getSelection:()=>[...selectedIds],getMetrics:()=>({...metrics,cachedSources:images.size,
     previewQuality:activeQuality,qualityDimensions:[...previewQuality(activeQuality).size],paintDimensions:[atlas.width,atlas.height],
-    sectionCanvases:sectionCanvases.size,previewBytes:previewMemory()}),getScene:sceneState,getAtlas:()=>atlas.toDataURL(),ready:true};
+    sectionCanvases:sectionCanvases.size,previewCachesReleased,sectionCanvasSize:[sectionCanvas.width,sectionCanvas.height],previewBytes:previewMemory()}),getScene:sceneState,getAtlas:()=>atlas.toDataURL(),ready:true};
   diagnostics.emit('readiness',{ready:true,...projectCounts(project,config.sections.length)});diagnostics.sample(true);
+  if(document.hidden)handlePreviewVisibility();
 }
 function componentSelectionChanged(){
   if(disposed||!project||!canPreview())return;
@@ -1268,6 +1663,9 @@ function viewerFailed(event) {
 window.addEventListener('kfps-viewer-error',viewerFailed,{signal:stop.signal});
 window.addEventListener('kfps-component-selection',componentSelectionChanged);
 window.addEventListener('kfps-theme-applied',()=>{if(project&&!disposed&&canPreview())drawSelection();},{signal:stop.signal});
+window.addEventListener('pagehide',()=>sourceMonitor.stop(),{once:true});
+document.addEventListener('visibilitychange',handlePreviewVisibility,{signal:stop.signal});
+window.addEventListener('pagehide',()=>clearTimeout(inactivePreviewTimer),{once:true});
 window.addEventListener('pagehide',()=>{disposed=true;projectStorage?.dispose();confirmations?.dispose();for(const url of nativeDownloads.keys())nativeDownloadFinished(url,{status:'cancelled'});surface?.dispose();surface=null;tools?.dispose();inspection?.dispose();window.removeEventListener('kfps-component-selection',componentSelectionChanged);stop.abort();if(queued)cancelAnimationFrame(queued);queued=0;releasePreview(images,sectionCanvases,atlas);sources.clear();releaseArtworkButtons(sourceButtons);releaseArtworkButtons(placementButtons);sourceButtons.clear();placementButtons.clear();sectionCanvas.width=sectionCanvas.height=1;$('sourcePreview').width=$('sourcePreview').height=1;
   // Recovery's own unload handler runs after this listener. Retain the gesture
   // busy state until then so an unfinished transform cannot be auto-saved.

@@ -15,13 +15,46 @@ Item {
     readonly property bool wide: Theme.logical(width) >= 1180
     readonly property bool compactHeight: Theme.logical(height) < 760
     property bool pageActive: true
-    property bool wipNoticeAcknowledged: false
     property bool showGallery: true
+    property int libraryTab: 0
+    readonly property bool galleryHasSelection: libraryTab === 0
+                                               ? fullLiveryService.selectedSource.length > 0
+                                               : fullLiveryService.browsedPackage.length > 0
+    readonly property var galleryDetails: libraryTab === 0 ? fullLiveryService.sourceDetails
+                                                          : fullLiveryService.packageDetails
+    readonly property bool hasStudioPackageStatus: showGallery && libraryTab === 1
+                                                  && !fullLiveryService.running
+                                                  && fullLiveryService.browsedPackage.length > 0
+                                                  && editorService.studioPackagePath === fullLiveryService.browsedPackage
+                                                  && editorService.studioStatus.length > 0
+    readonly property bool canPreviewSelection: fullLiveryService.featureEnabled && !fullLiveryService.running
+                                               && galleryHasSelection
+                                               && (libraryTab === 1 || fullLiveryService.gameFolder.length > 0)
+    readonly property bool packageFiltersActive: fullLiveryService.packageSearch.length > 0
+                                                || fullLiveryService.packageCarId !== 0
+    readonly property bool filtersActive: fullLiveryService.sourceSearch.length > 0
+                                         || fullLiveryService.sourceCarId !== 0
+                                         || fullLiveryService.sourceAvailability !== "all"
+    readonly property var availabilityOptions: [
+        {label: "All availability", value: "all"},
+        {label: "Exportable", value: "exportable"},
+        {label: "Preview only", value: "preview"}
+    ]
+    readonly property var sortOptions: [
+        {label: "Newest first", value: "modified"},
+        {label: "Title", value: "title"},
+        {label: "Car ID", value: "car"},
+        {label: "Most shapes", value: "placements"}
+    ]
+    readonly property var packageSortOptions: [
+        {label: "Title", value: "title"},
+        {label: "Car ID", value: "car"},
+        {label: "Most shapes", value: "placements"}
+    ]
     // WebEngine treats a repeated URL assignment as navigation. This string
     // changes only for a new session, unlike the service's shared status signal.
     readonly property string viewerSessionUrl: fullLiveryService.viewerUrl
     readonly property string viewerThemeJson: JSON.stringify(studioThemeContext())
-    signal wipNoticeAccepted()
 
     function studioThemeContext() {
         // Qt serializes translucent colors as ARGB; CSS requires explicit RGBA.
@@ -56,6 +89,12 @@ Item {
     }
 
     function openSelectedLivery() {
+        if (libraryTab === 1) {
+            if (!canPreviewSelection) return
+            if (fullLiveryService.previewBrowsedPackage())
+                showGallery = false
+            return
+        }
         if (fullLiveryService.selectedSource.length === 0 || fullLiveryService.gameFolder.length === 0)
             return
         showGallery = false
@@ -72,13 +111,7 @@ Item {
             showGallery = false
     }
 
-    function dismissWipNotice() {
-        wipNoticeAcknowledged = true
-        wipNoticeAccepted()
-    }
-
     Component.onCompleted: {
-        fullLiveryService.setSourceSearch("")
         if (pageActive)
             fullLiveryService.activate()
     }
@@ -92,398 +125,569 @@ Item {
         }
     }
 
+
+    function optionIndex(options, value) {
+        for (let i = 0; i < options.length; ++i) {
+            if (options[i].value === value)
+                return i
+        }
+        return 0
+    }
+
+    function scrollLibraryToBeginning() {
+        Qt.callLater(function() { liveryGrid.positionViewAtBeginning() })
+    }
+
+    function scrollPackagesToBeginning() {
+        Qt.callLater(function() { packages.positionViewAtBeginning() })
+    }
+
+    function retryPreview() {
+        if (fullLiveryService.running) return
+        if (fullLiveryService.selectedSource.length > 0)
+            fullLiveryService.previewSelectedSource()
+        else if (fullLiveryService.browsedPackage.length > 0)
+            fullLiveryService.previewBrowsedPackage()
+        else if (fullLiveryService.selectedPackage.length > 0)
+            fullLiveryService.selectPackage(fullLiveryService.selectedPackage)
+    }
+
+    onWideChanged: {
+        if (wide)
+            detailsPopup.close()
+    }
+    onShowGalleryChanged: detailsPopup.close()
+
+    Connections {
+        target: root
+        function onPageActiveChanged() {
+            if (!root.pageActive) {
+                detailsPopup.close()
+                morePopup.close()
+            }
+        }
+    }
+
+    component PlainToolTip: KfpsToolTip {
+        id: plainTip
+        contentItem: Text {
+            width: plainTip.preferredTextWidth
+            text: plainTip.text
+            textFormat: Text.PlainText
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(10.8)
+            wrapMode: Text.Wrap
+        }
+    }
+
+    component LibraryTab: TabButton {
+        id: tabControl
+        implicitHeight: Theme.px(34)
+        padding: Theme.px(8)
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.px(12)
+        contentItem: Text {
+            text: tabControl.text
+            font: tabControl.font
+            color: tabControl.checked ? (Theme.classicMode ? Theme.primaryText : Theme.primaryBright) : Theme.muted
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            color: tabControl.checked ? Theme.rowSelectedSurface : Theme.surface
+            radius: Theme.framedRadius(Theme.px(4))
+            border.width: tabControl.activeFocus ? Math.max(1, Theme.px(1)) : 0
+            border.color: Theme.focusColor
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.px(2)
+                visible: tabControl.checked
+                color: Theme.primary
+            }
+        }
+        KfpsToolTip {
+            visible: tabControl.hovered
+            text: tabControl.text
+        }
+    }
+
+    component SmallIconButton: ToolButton {
+        id: iconButton
+        property string iconName: "reports"
+        property string fallbackText: "i"
+        property string help: ""
+        readonly property bool symbolsOnly: !Theme.iconGlyphsVisible || GraphicsInfo.api === GraphicsInfo.Software
+        implicitWidth: Theme.px(34)
+        implicitHeight: Theme.px(34)
+        Layout.minimumWidth: implicitWidth
+        Layout.maximumWidth: implicitWidth
+        Layout.minimumHeight: implicitHeight
+        hoverEnabled: true
+        Accessible.name: help
+        contentItem: Item {
+            Icon {
+                anchors.centerIn: parent
+                visible: !iconButton.symbolsOnly
+                name: iconButton.iconName
+                iconSize: Theme.px(16)
+                tint: iconButton.enabled ? Theme.text : Theme.subtle
+            }
+            Text {
+                anchors.fill: parent
+                visible: iconButton.symbolsOnly
+                text: iconButton.fallbackText
+                textFormat: Text.PlainText
+                color: iconButton.enabled ? Theme.text : Theme.subtle
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.px(14)
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+        background: Rectangle {
+            color: iconButton.down ? Theme.rowSelectedSurface
+                                  : (iconButton.hovered ? Theme.rowHover : Theme.fieldSurface)
+            radius: Theme.framedRadius(Theme.px(4))
+            border.width: Math.max(1, Theme.px(1))
+            border.color: iconButton.activeFocus ? Theme.focusColor : Theme.borderSoft
+        }
+        KfpsToolTip {
+            visible: iconButton.hovered
+            text: iconButton.help
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
-        spacing: Theme.px(10)
+        spacing: Theme.px(8)
 
-        GlassPanel {
+        RowLayout {
+            id: pageHeader
             Layout.fillWidth: true
-            Layout.preferredHeight: toolbarContent.implicitHeight + Theme.px(20)
-            strong: true
+            Layout.minimumHeight: Theme.px(42)
+            spacing: Theme.px(8)
 
-            RowLayout {
-                id: toolbarContent
-                anchors.fill: parent
-                anchors.margins: Theme.px(10)
-                spacing: Theme.px(8)
-
-                Icon {
-                    name: "monitor"
-                    iconSize: Theme.px(30)
-                    glow: true
-                    Layout.alignment: Qt.AlignVCenter
+            Icon {
+                name: "monitor"
+                iconSize: Theme.px(24)
+            }
+            Text {
+                text: "Liveries"
+                color: Theme.text
+                font.family: Theme.displayFamily
+                font.pixelSize: Theme.px(20)
+                font.weight: Font.DemiBold
+            }
+            Text {
+                text: "Experimental"
+                color: Theme.warning
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.px(10)
+                HoverHandler { id: experimentalHover }
+                KfpsToolTip {
+                    visible: experimentalHover.hovered
+                    text: "Experimental livery preview and package tools."
                 }
+            }
+            Item { Layout.fillWidth: true }
 
-                SectionHeading {
-                    Layout.fillWidth: true
-                    title: root.showGallery ? "Liveries" : "Full Livery Workshop"
-                    subtitle: root.showGallery ? fullLiveryService.status : fullLiveryService.summary
-                    HoverHandler { id: liveryStatusHover }
-                    KfpsToolTip {
-                        visible: liveryStatusHover.hovered
-                        text: fullLiveryService.summary
-                    }
-                }
-
-                KfpsComboBox {
-                    dense: true
-                    visible: !root.showGallery
-                    Layout.preferredWidth: Theme.px(130)
-                    model: ["Standard", "High"]
-                    currentIndex: fullLiveryService.viewerQuality - 1
-                    enabled: fullLiveryService.featureEnabled
-                    onActivated: fullLiveryService.setViewerQuality(currentIndex + 1)
-                    objectName: "LiveryVinylResolution"
-                    toolTipText: "Vinyl resolution: Standard uses the previous High detail. High doubles width and height and uses more memory."
-                    Accessible.name: "Vinyl resolution"
-                }
-
-                GhostButton {
-                    objectName: "launchLiveryStudioButton"
-                    dense: true
-                    text: editorService.studioLaunching ? "Starting..." : "Livery Studio"
-                    iconName: "editor"
-                    enabled: !editorService.studioLaunching
-                    toolTipText: editorService.studioStatus.length > 0 ? editorService.studioStatus : "Open the independent car and vinyl workspace."
-                    onClicked: editorService.launchLiveryStudio(root.studioThemeContext())
-                }
-
-                GhostButton {
-                    dense: true
-                    text: fullLiveryService.gameFolder.length > 0 ? "FH6 Linked" : "FH6 Folder"
-                    iconName: "folder"
-                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                    toolTipText: fullLiveryService.gameFolder.length > 0
-                                 ? "FH6 is linked at " + fullLiveryService.gameFolder + ". Choose this again to change it."
-                                 : "Choose the local FH6 game or Content folder used to resolve car IDs and meshes."
-                    onClicked: fullLiveryService.chooseGameFolder()
-                }
-
-                GhostButton {
-                    dense: true
-                    text: "Save Folder"
-                    iconName: "folder"
-                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                    toolTipText: "Choose the FH6 GameSave root if it was not found automatically."
-                    onClicked: fullLiveryService.chooseSaveRoot()
-                }
-
-                GhostButton {
-                    objectName: "clearFullLiveryCacheButton"
-                    dense: true
-                    text: "Clear Cache"
-                    iconName: "refresh"
-                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                    toolTipText: "Remove rebuilt full-livery previews, car meshes, and indexes. Saved liveries and packages are kept."
-                    onClicked: fullLiveryService.clearFullLiveryCache()
-                }
-
-                GhostButton {
-                    dense: true
-                    text: "Diagnostics"
-                    iconName: "reports"
-                    enabled: !fullLiveryService.running
-                    toolTipText: "Export privacy-scrubbed livery worker, cache, crash-recovery, and environment diagnostics."
-                    onClicked: fullLiveryService.exportDiagnostics()
-                }
-
-                PrimaryButton {
-                    dense: true
-                    text: fullLiveryService.running ? "Working..." : "Scan Saves"
-                    iconName: "refresh"
-                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                    toolTipText: "Find unique full-car FH6 livery records without changing the save."
-                    onClicked: fullLiveryService.scanSaves()
-                }
-
-
-                Text {
-                    text: fullLiveryService.featureStage.toUpperCase()
-                    color: fullLiveryService.featureStable ? Theme.success : Theme.warning
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.px(9.5)
-                    font.weight: Font.DemiBold
-                }
+            GhostButton {
+                objectName: "launchLiveryStudioButton"
+                dense: true
+                text: editorService.studioLaunching ? "Starting..." : "Studio"
+                iconName: "editor"
+                enabled: !editorService.studioLaunching
+                toolTipText: editorService.studioStatus.length > 0
+                             ? editorService.studioStatus : "Open Livery Studio."
+                onClicked: editorService.launchLiveryStudio(root.studioThemeContext())
+            }
+            PrimaryButton {
+                dense: true
+                text: fullLiveryService.running ? "Working..." : "Scan Saves"
+                iconName: "refresh"
+                enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
+                toolTipText: "Find unique full-car FH6 livery records without changing the save."
+                onClicked: fullLiveryService.scanSaves()
+            }
+            GhostButton {
+                id: moreButton
+                objectName: "liveryMoreButton"
+                dense: true
+                text: "More"
+                iconName: "tools"
+                selected: morePopup.visible
+                toolTipText: "Folders, cache and diagnostics."
+                onClicked: morePopup.visible ? morePopup.close() : morePopup.open()
             }
         }
 
         Text {
+            objectName: "liveryLibraryStatus"
             Layout.fillWidth: true
-            visible: editorService.studioStatus.length > 0
-            text: editorService.studioStatus
-            color: Theme.text
+            text: root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
+                  ? editorService.studioStatus : fullLiveryService.status
+            textFormat: Text.PlainText
+            color: Theme.muted
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.px(12)
-            wrapMode: Text.Wrap
+            font.pixelSize: Theme.px(11)
+            elide: Text.ElideRight
+            HoverHandler { id: statusHover }
+            PlainToolTip {
+                visible: statusHover.hovered
+                text: root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
+                      ? editorService.studioStatus : fullLiveryService.summary
+            }
         }
 
-        GridLayout {
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(1, Theme.px(1))
+            color: Theme.divider
+        }
+
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            columns: root.wide && !root.showGallery ? 3 : 2
-            columnSpacing: Theme.px(10)
-            rowSpacing: Theme.px(10)
+            spacing: Theme.px(12)
 
-            GlassPanel {
+            ColumnLayout {
+                id: mainContent
+                Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.preferredWidth: Theme.px(330)
-                Layout.minimumWidth: Theme.px(280)
-                Layout.maximumWidth: Theme.px(390)
-                soft: true
+                Layout.minimumWidth: 0
+                spacing: Theme.px(8)
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.px(11)
-                    spacing: Theme.px(7)
+                RowLayout {
+                    visible: root.showGallery
+                    Layout.fillWidth: true
+                    spacing: Theme.px(8)
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Local FH6 liveries"
-                            color: Theme.text
-                            font.family: Theme.displayFamily
-                            font.pixelSize: Theme.px(15)
-                            font.weight: Font.DemiBold
-                        }
-                        Text {
-                            text: liveryGrid.count
-                            color: Theme.subtle
-                            font.family: Theme.monoFamily
-                            font.pixelSize: Theme.px(10)
-                        }
+                    TabBar {
+                        id: libraryTabs
+                        objectName: "liveryLibraryTabs"
+                        Layout.preferredWidth: Theme.px(276)
+                        Layout.maximumWidth: Theme.px(276)
+                        currentIndex: root.libraryTab
+                        onCurrentIndexChanged: root.libraryTab = currentIndex
+                        background: Item {}
+                        LibraryTab { text: "In-game saves" }
+                        LibraryTab { text: "Packages" }
                     }
-
                     Text {
                         Layout.fillWidth: true
-                        text: fullLiveryService.selectedSource.length > 0 ? fullLiveryService.selectedTitle : "No livery selected"
-                        textFormat: Text.PlainText
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(12)
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        visible: fullLiveryService.selectedSource.length > 0
-                        text: fullLiveryService.selectedVehicle + "\n" + fullLiveryService.selectedCounts
-                        textFormat: Text.PlainText
+                        text: root.libraryTab === 0
+                              ? fullLiveryService.visibleSourceCount + " / " + fullLiveryService.sourceCount
+                              : fullLiveryService.visiblePackageCount + " / " + fullLiveryService.packageCount
                         color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(10.5)
-                        wrapMode: Text.Wrap
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.px(10)
+                        elide: Text.ElideRight
+                        HoverHandler { id: countHover }
+                        KfpsToolTip {
+                            visible: countHover.hovered
+                            text: root.libraryTab === 0
+                                  ? fullLiveryService.visibleSourceCount + " visible of " + fullLiveryService.sourceCount + " saved liveries"
+                                  : fullLiveryService.visiblePackageCount + " visible of " + fullLiveryService.packageCount + " saved packages"
+                        }
                     }
-
-                    PrimaryButton {
-                        objectName: "openSelectedLiveryPreviewButton"
-                        Layout.fillWidth: true
+                    GhostButton {
+                        objectName: "addFullLiveryPackageButton"
                         dense: true
-                        text: "Open 3D Preview"
-                        iconName: "monitor"
+                        text: "Add Package"
+                        iconName: "folder"
                         enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                                 && fullLiveryService.selectedSource.length > 0
-                                 && fullLiveryService.gameFolder.length > 0
-                        toolTipText: fullLiveryService.gameFolder.length > 0
-                                     ? "Render the selected livery on its exact car."
-                                     : "Link the FH6 game folder to enable 3D previews."
-                        onClicked: root.openSelectedLivery()
+                        toolTipText: "Validate and add a received .kfpslivery package."
+                        onClicked: {
+                            root.libraryTab = 1
+                            fullLiveryService.choosePackage()
+                        }
                     }
+                }
+
+                Text {
+                    objectName: "fullLiveryPackageAddError"
+                    Layout.fillWidth: true
+                    visible: fullLiveryService.packageAddError.length > 0
+                    text: "Package not added: " + fullLiveryService.packageAddError
+                    textFormat: Text.PlainText
+                    color: Theme.danger
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.px(11)
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    HoverHandler { id: packageAddErrorHover }
+                    PlainToolTip {
+                        visible: packageAddErrorHover.hovered
+                        text: fullLiveryService.packageAddError
+                    }
+                }
+
+                GridLayout {
+                    id: filterToolbar
+                    visible: root.showGallery && root.libraryTab === 0
+                    Layout.fillWidth: true
+                    columns: Theme.logical(width) >= 900 ? 5 : 4
+                    columnSpacing: Theme.px(6)
+                    rowSpacing: Theme.px(6)
+
+                    KfpsTextField {
+                        id: liverySearch
+                        objectName: "liveryGridSearch"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: Theme.px(180)
+                        Layout.columnSpan: filterToolbar.columns === 5 ? 1 : 4
+                        dense: true
+                        placeholderText: "Search liveries, models or IDs"
+                        text: fullLiveryService.sourceSearch
+                        toolTipText: "Search saved livery names, car models and IDs."
+                        onTextChanged: {
+                            if (text !== fullLiveryService.sourceSearch)
+                                searchDebounce.restart()
+                        }
+                        onAccepted: {
+                            searchDebounce.stop()
+                            fullLiveryService.setSourceSearch(text)
+                            root.scrollLibraryToBeginning()
+                        }
+                        Timer {
+                            id: searchDebounce
+                            interval: 150
+                            onTriggered: {
+                                fullLiveryService.setSourceSearch(liverySearch.text)
+                                root.scrollLibraryToBeginning()
+                            }
+                        }
+                    }
+                    KfpsComboBox {
+                        objectName: "liveryCarFilter"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.px(190)
+                        dense: true
+                        model: fullLiveryService.sourceCars
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndex(fullLiveryService.sourceCars, fullLiveryService.sourceCarId)
+                        onActivated: {
+                            fullLiveryService.setSourceCar(currentValue)
+                            root.scrollLibraryToBeginning()
+                        }
+                        toolTipText: "Filter by exact car ID."
+                        Accessible.name: "Car filter"
+                    }
+                    KfpsComboBox {
+                        objectName: "liveryAvailabilityFilter"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.px(155)
+                        dense: true
+                        model: root.availabilityOptions
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndex(root.availabilityOptions, fullLiveryService.sourceAvailability)
+                        onActivated: {
+                            fullLiveryService.setSourceAvailability(currentValue)
+                            root.scrollLibraryToBeginning()
+                        }
+                        toolTipText: "Show all liveries, exportable liveries or preview-only liveries."
+                        Accessible.name: "Availability filter"
+                    }
+                    KfpsComboBox {
+                        objectName: "liverySortOrder"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.px(150)
+                        dense: true
+                        model: root.sortOptions
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndex(root.sortOptions, fullLiveryService.sourceSort)
+                        onActivated: {
+                            fullLiveryService.setSourceSort(currentValue)
+                            root.scrollLibraryToBeginning()
+                        }
+                        toolTipText: "Sort saved liveries."
+                        Accessible.name: "Livery sort order"
+                    }
+                    SmallIconButton {
+                        objectName: "resetLiveryFiltersButton"
+                        iconName: "refresh"
+                        fallbackText: "x"
+                        help: "Clear search and filters."
+                        enabled: root.filtersActive
+                        onClicked: {
+                            searchDebounce.stop()
+                            fullLiveryService.resetSourceFilters()
+                            root.scrollLibraryToBeginning()
+                        }
+                    }
+                }
+
+                GridLayout {
+                    id: packageFilters
+                    visible: root.showGallery && root.libraryTab === 1
+                    Layout.fillWidth: true
+                    columns: Theme.logical(width) >= 720 ? 4 : 3
+                    columnSpacing: Theme.px(6)
+                    rowSpacing: Theme.px(6)
+                    KfpsTextField {
+                        id: packageSearch
+                        objectName: "liveryPackageSearch"
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: Theme.px(180)
+                        Layout.columnSpan: packageFilters.columns === 4 ? 1 : 3
+                        dense: true
+                        placeholderText: "Search packages, models or IDs"
+                        text: fullLiveryService.packageSearch
+                        toolTipText: "Search indexed package names, models, car IDs and paths."
+                        onTextChanged: {
+                            if (text !== fullLiveryService.packageSearch)
+                                packageSearchDebounce.restart()
+                        }
+                        onAccepted: {
+                            packageSearchDebounce.stop()
+                            fullLiveryService.setPackageSearch(text)
+                            root.scrollPackagesToBeginning()
+                        }
+                        Timer {
+                            id: packageSearchDebounce
+                            interval: 150
+                            onTriggered: {
+                                fullLiveryService.setPackageSearch(packageSearch.text)
+                                root.scrollPackagesToBeginning()
+                            }
+                        }
+                    }
+                    KfpsComboBox {
+                        objectName: "liveryPackageCarFilter"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.px(190)
+                        dense: true
+                        model: fullLiveryService.packageCars
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndex(fullLiveryService.packageCars, fullLiveryService.packageCarId)
+                        onActivated: {
+                            fullLiveryService.setPackageCar(currentValue)
+                            root.scrollPackagesToBeginning()
+                        }
+                        Accessible.name: "Package car filter"
+                        toolTipText: "Filter packages by exact car ID."
+                    }
+                    KfpsComboBox {
+                        objectName: "liveryPackageSortOrder"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: Theme.px(160)
+                        dense: true
+                        model: root.packageSortOptions
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndex(root.packageSortOptions, fullLiveryService.packageSort)
+                        onActivated: {
+                            fullLiveryService.setPackageSort(currentValue)
+                            root.scrollPackagesToBeginning()
+                        }
+                        Accessible.name: "Package sort order"
+                        toolTipText: "Sort the package library."
+                    }
+                    SmallIconButton {
+                        objectName: "resetLiveryPackageFiltersButton"
+                        iconName: "refresh"
+                        fallbackText: "x"
+                        help: "Clear package search and car filter."
+                        enabled: root.packageFiltersActive
+                        onClicked: {
+                            packageSearchDebounce.stop()
+                            fullLiveryService.resetPackageFilters()
+                            root.scrollPackagesToBeginning()
+                        }
+                    }
+                }
+
+                RowLayout {
+                    visible: !root.showGallery
+                    Layout.fillWidth: true
+                    spacing: Theme.px(8)
 
                     GhostButton {
                         objectName: "returnToLiveryGridButton"
-                        Layout.fillWidth: true
                         dense: true
-                        visible: !root.showGallery
                         text: "Back to Liveries"
                         iconName: "chevron-left"
-                        toolTipText: "Close the 3D preview and return to the livery grid without changing your selection."
+                        toolTipText: "Close the 3D preview and return to the library."
                         onClicked: root.returnToGallery()
                     }
-
-                    PrimaryButton {
-                        Layout.fillWidth: true
-                        dense: true
-                        text: fullLiveryService.running ? "Packaging..." : "Export Selected"
-                        iconName: "transfer"
-                        enabled: !fullLiveryService.running
-                                 && fullLiveryService.featureEnabled
-                                 && fullLiveryService.selectedSource.length > 0
-                                 && fullLiveryService.selectedSourceExportable
-                        toolTipText: fullLiveryService.selectedSourceExportable
-                                     ? "Create a verified shareable package and add it directly to Saved packages. Game meshes stay local."
-                                     : fullLiveryService.selectedSourcePrivacyMessage
-                        onClicked: fullLiveryService.exportSelected()
-                    }
-
                     Text {
                         Layout.fillWidth: true
-                        visible: fullLiveryService.selectedSource.length > 0
-                                 && !fullLiveryService.selectedSourceExportable
-                        text: fullLiveryService.selectedSourcePrivacyMessage
-                        color: Theme.warning
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(10.5)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.max(1, Theme.px(1))
-                        color: Theme.divider
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            Layout.fillWidth: true
-                            text: "Saved packages"
-                            color: Theme.text
-                            font.family: Theme.displayFamily
-                            font.pixelSize: Theme.px(15)
-                            font.weight: Font.DemiBold
-                        }
-                        GhostButton {
-                            objectName: "addFullLiveryPackageButton"
-                            dense: true
-                            text: "Add"
-                            iconName: "folder"
-                            enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                            toolTipText: "Validate and add a received .kfpslivery package to this KFPS instance."
-                            onClicked: fullLiveryService.choosePackage()
-                        }
-                    }
-
-                    Text {
-                        objectName: "fullLiveryPackageAddError"
-                        Layout.fillWidth: true
-                        visible: fullLiveryService.packageAddError.length > 0
-                        text: "Package not added: " + fullLiveryService.packageAddError
+                        text: fullLiveryService.selectedTitle
                         textFormat: Text.PlainText
-                        color: Theme.danger
+                        color: Theme.text
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(11)
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 5
+                        font.pixelSize: Theme.px(13)
+                        font.weight: Font.DemiBold
                         elide: Text.ElideRight
-                        HoverHandler { id: packageAddErrorHover }
-                        ToolTip.visible: visible && packageAddErrorHover.hovered
-                        ToolTip.text: text
                     }
-
-                    FastListView {
-                        id: packages
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: Theme.px(150)
-                        model: fullLiveryService.packageModel
-                        spacing: Theme.px(3)
-                        clip: true
-
-                        delegate: Item {
-                            id: packageDelegate
-                            required property string title
-                            required property string path
-                            required property string modelCode
-                            required property int placementCount
-                            required property bool portableMesh
-                            width: packages.width
-                            height: packageRow.implicitHeight
-
-                            Rectangle {
-                                anchors.fill: parent
-                                visible: packageDelegate.path === fullLiveryService.selectedPackage
-                                radius: Theme.framedRadius(Theme.px(5))
-                                color: Theme.rowSelectedSurface
-                                border.width: Math.max(1, Theme.px(1))
-                                border.color: Theme.primary
-                            }
-
-                            QuickActionRow {
-                                id: packageRow
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                dense: true
-                                iconName: "monitor"
-                                title: packageDelegate.title
-                                subtitle: packageDelegate.modelCode + " · " + packageDelegate.placementCount + " placements"
-                                enabled: fullLiveryService.featureEnabled
-                                toolTipText: packageDelegate.portableMesh
-                                             ? "Open this development package in the interactive car inspector."
-                                             : "Open this verified package using the matching car assets from your local FH6 installation."
-                                onClicked: {
-                                    root.showGallery = false
-                                    fullLiveryService.selectPackage(packageDelegate.path)
-                                }
-                            }
-                        }
-
-                        ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
-                    }
-
-                    GhostButton {
-                        Layout.fillWidth: true
+                    KfpsComboBox {
+                        objectName: "LiveryVinylResolution"
                         dense: true
-                        text: "Open Package Folder"
-                        iconName: "folder"
-                        toolTipText: "Open the folder containing shareable full-livery packages."
-                        onClicked: fullLiveryService.openPackageFolder()
+                        Layout.preferredWidth: Theme.px(130)
+                        model: ["Standard", "High"]
+                        currentIndex: fullLiveryService.viewerQuality - 1
+                        enabled: fullLiveryService.featureEnabled
+                        onActivated: fullLiveryService.setViewerQuality(currentIndex + 1)
+                        toolTipText: "Vinyl resolution: Standard uses the previous High detail. High doubles width and height and uses more memory."
+                        Accessible.name: "Vinyl resolution"
+                    }
+                    SmallIconButton {
+                        visible: !root.wide
+                        iconName: "reports"
+                        help: "Preview details and compatibility."
+                        onClicked: detailsPopup.open()
                     }
                 }
-            }
 
-            GlassPanel {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumWidth: Theme.px(470)
-                strong: true
-                clip: true
+                Item {
+                    id: contentSurface
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.px(120)
+                    clip: true
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.px(12)
-                    visible: root.showGallery
-                    spacing: Theme.px(10)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        KfpsTextField {
-                            id: liverySearch
-                            objectName: "liveryGridSearch"
-                            Layout.fillWidth: true
-                            placeholderText: "Search liveries, car models or IDs"
-                            toolTipText: "Filter local liveries by name, car model or car ID."
-                            onTextChanged: searchDebounce.restart()
-                            Timer {
-                                id: searchDebounce
-                                interval: 150
-                                onTriggered: fullLiveryService.setSourceSearch(liverySearch.text)
-                            }
-                        }
-                        Text {
-                            text: liveryGrid.count + " liveries"
-                            color: Theme.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(11)
-                        }
-                    }
                     LiveryThumbnailGrid {
                         id: liveryGrid
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        objectName: "liveryThumbnailGrid"
+                        anchors.fill: parent
+                        visible: root.showGallery && root.libraryTab === 0
                         model: fullLiveryService.sourceGridModel
                         selectedPath: fullLiveryService.selectedSource
                         enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
                         loading: fullLiveryService.running
-                        filtered: liverySearch.text.trim().length > 0
+                        filtered: root.filtersActive
                         onLiverySelected: function(path) { fullLiveryService.browseSource(path) }
                         onLiveryOpened: function(path) {
                             fullLiveryService.browseSource(path)
                             root.openSelectedLivery()
                         }
                     }
-                }
+
+                    LiveryPackageList {
+                        id: packages
+                        objectName: "fullLiveryPackageList"
+                        anchors.fill: parent
+                        visible: root.showGallery && root.libraryTab === 1
+                        model: fullLiveryService.packageGridModel
+                        selectedPath: fullLiveryService.browsedPackage
+                        filtered: root.packageFiltersActive
+                        enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
+                        onPackageSelected: function(path) { fullLiveryService.browsePackage(path) }
+                        onPackageOpened: function(path) {
+                            fullLiveryService.browsePackage(path)
+                            root.openSelectedLivery()
+                        }
+                    }
 
                 Loader {
                     id: inspectorLoader
@@ -546,144 +750,298 @@ Item {
                     }
                 }
 
-                Rectangle {
-                    anchors.fill: parent
-                    color: "#090b0e"
-                    opacity: fullLiveryService.viewerReady ? 0 : 1
-                    visible: !root.showGallery && opacity > 0
-                    Behavior on opacity { NumberAnimation { duration: Theme.reducedMotion ? 0 : 160 } }
-                }
 
-                EmptyState {
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width - Theme.px(40), Theme.px(460))
-                    visible: !root.showGallery && !fullLiveryService.viewerReady
-                    iconName: "monitor"
-                    title: fullLiveryService.running || fullLiveryService.selectedPackage.length > 0
-                           ? fullLiveryService.status
-                           : "Open a full-livery package"
-                    message: fullLiveryService.running || fullLiveryService.selectedPackage.length > 0
-                             ? fullLiveryService.summary
-                             : "Select a saved package to inspect the resolved car, turn it freely, zoom in, and isolate projected livery sections."
-                }
-            }
-
-            GlassPanel {
-                visible: !root.showGallery
-                Layout.fillHeight: true
-                Layout.fillWidth: !root.wide
-                Layout.preferredWidth: root.wide ? Theme.px(310) : -1
-                Layout.minimumWidth: root.wide ? Theme.px(270) : 0
-                Layout.maximumWidth: root.wide ? Theme.px(360) : -1
-                Layout.columnSpan: root.wide ? 1 : 2
-                Layout.preferredHeight: root.wide ? -1 : Theme.px(250)
-                soft: true
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.px(11)
-                    spacing: Theme.px(7)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: fullLiveryService.selectedTitle
-                        color: Theme.text
-                        font.family: Theme.displayFamily
-                        font.pixelSize: Theme.px(16)
-                        font.weight: Font.DemiBold
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Theme.previewSurface
+                        opacity: fullLiveryService.viewerReady ? 0 : 1
+                        visible: !root.showGallery && opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.reducedMotion ? 0 : 160 } }
                     }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: fullLiveryService.selectedVehicle + "\n" + fullLiveryService.selectedCounts
-                        color: Theme.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.px(10.5)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: "FH6 package policy"
-                        color: Theme.primaryBright
-                        font.family: Theme.displayFamily
-                        font.pixelSize: Theme.px(13)
-                        font.weight: Font.DemiBold
-                    }
-
-                    FastListView {
-                        id: decisions
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: Theme.px(130)
-                        model: fullLiveryService.decisionModel
-                        spacing: Theme.px(3)
-                        clip: true
-
-                        delegate: Item {
-                            required property string action
-                            required property string item
-                            required property string detail
-                            width: decisions.width
-                            height: decisionColumn.implicitHeight + Theme.px(12)
-
-                            Column {
-                                id: decisionColumn
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Theme.px(2)
-                                Text {
-                                    width: parent.width
-                                    text: action + "  " + item
-                                    color: action === "DISCARD" ? Theme.danger
-                                           : (action === "CHANGE" ? Theme.warning
-                                           : (action === "KEEP" ? Theme.success : Theme.primaryBright))
-                                    font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.px(9.5)
-                                    font.weight: Font.DemiBold
-                                    wrapMode: Text.WordWrap
-                                }
-                                Text {
-                                    width: parent.width
-                                    text: detail
-                                    color: Theme.subtle
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.px(9)
-                                    wrapMode: Text.WordWrap
-                                }
+                    Column {
+                        anchors.centerIn: parent
+                        width: Math.min(parent.width - Theme.px(40), Theme.px(460))
+                        visible: !root.showGallery && !fullLiveryService.viewerReady
+                        spacing: Theme.px(10)
+                        Icon {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            name: "monitor"
+                            iconSize: Theme.px(28)
+                        }
+                        Text {
+                            width: parent.width
+                            objectName: "liveryPreviewStatus"
+                            text: fullLiveryService.status
+                            textFormat: Text.PlainText
+                            color: Theme.text
+                            font.family: Theme.displayFamily
+                            font.pixelSize: Theme.px(16)
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 3
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            width: parent.width
+                            objectName: "liveryPreviewSummary"
+                            text: fullLiveryService.summary
+                            textFormat: Text.PlainText
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(12)
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 4
+                            elide: Text.ElideRight
+                            HoverHandler { id: previewSummaryHover }
+                            PlainToolTip {
+                                visible: previewSummaryHover.hovered
+                                text: fullLiveryService.summary
                             }
                         }
-
-                        ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
+                        GhostButton {
+                            objectName: "retryLiveryPreviewButton"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: !fullLiveryService.running
+                            dense: true
+                            text: "Retry Preview"
+                            iconName: "refresh"
+                            enabled: fullLiveryService.featureEnabled
+                                     && ((fullLiveryService.selectedSource.length > 0 && fullLiveryService.gameFolder.length > 0)
+                                         || fullLiveryService.browsedPackage.length > 0
+                                         || fullLiveryService.selectedPackage.length > 0)
+                            toolTipText: "Retry the selected preview without changing the save or replacing artwork."
+                            onClicked: root.retryPreview()
+                        }
                     }
+                }
 
-                    PrimaryButton {
-                        objectName: "installExactCarFullLiveryButton"
+                RowLayout {
+                    visible: root.showGallery && !root.wide
+                    Layout.fillWidth: true
+                    spacing: Theme.px(8)
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        dense: true
-                        text: fullLiveryService.running ? "Working..." : "Install in FH6 Save"
-                        iconName: "transfer"
-                        enabled: !fullLiveryService.running && fullLiveryService.selectedPackageInstallable
-                        toolTipText: fullLiveryService.selectedPackageInstallable
-                                     ? "Install this package as a new local livery for its exact FH6 car."
-                                     : "Open a verified shareable package for its exact FH6 car first."
-                        onClicked: installConfirm.open()
+                        Layout.minimumWidth: 0
+                        spacing: Theme.px(2)
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.galleryHasSelection ? (root.galleryDetails.title || "Untitled livery")
+                                                           : (root.libraryTab === 0 ? "Select a livery" : "Select a package")
+                            textFormat: Text.PlainText
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(12)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.galleryHasSelection
+                                  ? (root.galleryDetails.modelCode || "Unresolved car") + " | Car "
+                                    + (root.galleryDetails.carId || "?") + " | "
+                                    + (root.galleryDetails.placementCount || 0) + " placements" : ""
+                            textFormat: Text.PlainText
+                            color: Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.px(10)
+                            elide: Text.ElideRight
+                        }
                     }
-
-                    StatusRow {
-                        Layout.fillWidth: true
+                    GhostButton {
+                        objectName: "compactLiveryPreviewButton"
                         dense: true
-                        label: "Package state"
-                        value: fullLiveryService.status
-                        state: fullLiveryService.status.indexOf("failed") >= 0 || fullLiveryService.status.indexOf("rejected") >= 0 ? "bad"
-                               : (fullLiveryService.running ? "warn" : "ok")
+                        text: "Preview"
+                        iconName: "monitor"
+                        enabled: root.canPreviewSelection
+                        toolTipText: root.libraryTab === 1 ? "Verify and open the selected package."
+                                     : fullLiveryService.gameFolder.length > 0
+                                     ? "Open the selected livery in 3D."
+                                     : "Link the FH6 folder under More to enable 3D previews."
+                        onClicked: root.openSelectedLivery()
+                    }
+                    GhostButton {
+                        objectName: "liverySelectionDetailsButton"
+                        dense: true
+                        text: "Details"
+                        iconName: "reports"
+                        enabled: root.galleryHasSelection
+                        toolTipText: "Selection details and available actions."
+                        onClicked: detailsPopup.open()
                     }
                 }
             }
+
+            Rectangle {
+                visible: root.wide
+                Layout.fillHeight: true
+                Layout.preferredWidth: Math.max(1, Theme.px(1))
+                color: Theme.divider
+            }
+            Item {
+                id: detailsHost
+                visible: root.wide
+                Layout.fillHeight: true
+                Layout.preferredWidth: Theme.px(300)
+                Layout.minimumWidth: Theme.px(300)
+                Layout.maximumWidth: Theme.px(300)
+            }
+        }
+    }
+
+    LiveryPreviewDetails {
+        id: selectionDetails
+        parent: root.wide ? detailsHost : detailsPopup.contentItem
+        anchors.fill: parent
+        anchors.topMargin: root.wide ? 0 : Theme.px(40)
+        visible: root.wide || detailsPopup.visible
+        viewingPreview: !root.showGallery
+        sourceMode: root.showGallery ? root.libraryTab === 0 : fullLiveryService.selectedSource.length > 0
+        onPreviewRequested: {
+            detailsPopup.close()
+            root.openSelectedLivery()
+        }
+        onStudioRequested: {
+            detailsPopup.close()
+            editorService.launchPackageInLiveryStudio(fullLiveryService.browsedPackage, root.studioThemeContext())
+        }
+        onInstallRequested: installConfirm.open()
+    }
+
+    Popup {
+        id: detailsPopup
+        objectName: "liveryDetailsPopup"
+        parent: root
+        modal: false
+        dim: false
+        focus: true
+        padding: Theme.px(12)
+        width: Math.min(root.width - Theme.px(16), Theme.px(380))
+        height: Math.max(0, root.height - pageHeader.height - Theme.px(24))
+        x: root.width - width - Theme.px(8)
+        y: pageHeader.height + Theme.px(12)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: KfpsPopupSurface {
+            surfaceColor: Qt.rgba(Theme.surfaceRaised.r, Theme.surfaceRaised.g, Theme.surfaceRaised.b, 1)
+            cornerRadius: Theme.px(6)
+        }
+        contentItem: Item {
+            RowLayout {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                Text {
+                    Layout.fillWidth: true
+                    text: "Details"
+                    color: Theme.text
+                    font.family: Theme.displayFamily
+                    font.pixelSize: Theme.px(14)
+                    font.weight: Font.DemiBold
+                }
+                SmallIconButton {
+                    iconName: "chevron-right"
+                    fallbackText: "x"
+                    help: "Close details."
+                    onClicked: detailsPopup.close()
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: morePopup
+        objectName: "liveryMorePopup"
+        parent: root
+        modal: false
+        dim: false
+        focus: true
+        padding: Theme.px(8)
+        width: Math.min(root.width - Theme.px(16), Theme.px(270))
+        height: Math.min(moreActions.implicitHeight + padding * 2, root.height - Theme.px(16))
+        x: root.width - width
+        y: Math.min(pageHeader.height + Theme.px(6), root.height - height)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: KfpsPopupSurface {
+            surfaceColor: Qt.rgba(Theme.surfaceRaised.r, Theme.surfaceRaised.g, Theme.surfaceRaised.b, 1)
+            cornerRadius: Theme.px(6)
+        }
+        contentItem: Flickable {
+            contentWidth: width
+            contentHeight: moreActions.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
+            ColumnLayout {
+                id: moreActions
+                width: parent.width
+                spacing: Theme.px(4)
+                GhostButton {
+                    Layout.fillWidth: true
+                    dense: true
+                    text: fullLiveryService.gameFolder.length > 0 ? "Change FH6 Folder" : "Link FH6 Folder"
+                    iconName: "folder"
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
+                    toolTipText: fullLiveryService.gameFolder.length > 0
+                                 ? fullLiveryService.gameFolder : "Choose the local FH6 game or Content folder."
+                    onClicked: {
+                        morePopup.close()
+                        fullLiveryService.chooseGameFolder()
+                    }
+                }
+                GhostButton {
+                    Layout.fillWidth: true
+                    dense: true
+                    text: "Save Folder"
+                    iconName: "folder"
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
+                    toolTipText: "Choose the FH6 GameSave root."
+                    onClicked: {
+                        morePopup.close()
+                        fullLiveryService.chooseSaveRoot()
+                    }
+                }
+                GhostButton {
+                    Layout.fillWidth: true
+                    dense: true
+                    text: "Open Package Folder"
+                    iconName: "folder"
+                    toolTipText: "Open the folder containing shareable full-livery packages."
+                    onClicked: {
+                        morePopup.close()
+                        fullLiveryService.openPackageFolder()
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(1, Theme.px(1))
+                    color: Theme.divider
+                }
+                GhostButton {
+                    objectName: "clearFullLiveryCacheButton"
+                    Layout.fillWidth: true
+                    dense: true
+                    text: "Clear Cache"
+                    iconName: "refresh"
+                    enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
+                    toolTipText: "Remove rebuilt previews, meshes and indexes. Saved liveries and packages are kept."
+                    onClicked: {
+                        morePopup.close()
+                        fullLiveryService.clearFullLiveryCache()
+                    }
+                }
+                GhostButton {
+                    Layout.fillWidth: true
+                    dense: true
+                    text: "Diagnostics"
+                    iconName: "reports"
+                    enabled: !fullLiveryService.running
+                    toolTipText: "Export privacy-scrubbed livery diagnostics."
+                    onClicked: {
+                        morePopup.close()
+                        fullLiveryService.exportDiagnostics()
+                    }
+                }
+            }
+            ScrollBar.vertical: KfpsScrollBar { policy: ScrollBar.AsNeeded }
         }
     }
 
@@ -693,80 +1051,5 @@ Item {
         text: "KFPS will verify the package against the exact car, create a recovery record, and add a new livery without replacing existing save entries. Different-car installation is blocked. FH6 may need to reload its save before the new livery appears."
         buttons: MessageDialog.Ok | MessageDialog.Cancel
         onAccepted: fullLiveryService.installSelectedPackage()
-    }
-
-    FocusScope {
-        id: wipPreviewOverlay
-        objectName: "liveryWipPreviewOverlay"
-        anchors.fill: parent
-        z: 1000
-        visible: !root.wipNoticeAcknowledged
-        focus: visible
-
-        onVisibleChanged: {
-            if (visible)
-                Qt.callLater(function () { wipAcknowledgeButton.forceActiveFocus() })
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            color: Qt.rgba(0.01, 0.01, 0.018, 0.80)
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.AllButtons
-            preventStealing: true
-            onWheel: function(wheel) { wheel.accepted = true }
-        }
-
-        GlassPanel {
-            anchors.centerIn: parent
-            width: Math.min(parent.width - Theme.px(40), Theme.px(650))
-            height: wipNoticeContent.implicitHeight + Theme.px(56)
-            strong: true
-
-            ColumnLayout {
-                id: wipNoticeContent
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.px(36)
-                anchors.rightMargin: Theme.px(36)
-                spacing: Theme.px(14)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "WIP"
-                    color: Theme.warning
-                    font.family: Theme.displayFamily
-                    font.pixelSize: Theme.px(root.compactHeight ? 54 : 72)
-                    font.weight: Font.Black
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "This page is a heavy work-in-progress preview, not a finished or dependable product. Expect incomplete behavior, rendering issues, and changes while it is being developed."
-                    color: Theme.text
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(root.compactHeight ? 13 : 15)
-                    font.weight: Font.Medium
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                }
-
-                PrimaryButton {
-                    id: wipAcknowledgeButton
-                    objectName: "liveryWipAcknowledgeButton"
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: Theme.px(180)
-                    text: "OK"
-                    iconName: "check"
-                    toolTipText: "Acknowledge the livery preview warning for this KFPS session."
-                    onClicked: root.dismissWipNotice()
-                }
-            }
-        }
     }
 }

@@ -250,9 +250,12 @@ def _ready_record(info_path, config, *, managed=False, created=None):
                    and connection.laddr.port == port for connection in listeners):
             return None
         capabilities = _probe(info.get("url"), config["archive"])
+        vehicle = capabilities.get("vehicle")
         return {"url": info["url"], "pid": process.pid, "created": process.create_time(),
                 "workspace": str(info_path.parent), "managed": managed, "reused": True,
+                "vehicle": {key: vehicle.get(key) for key in ("car_id", "model_code")} if isinstance(vehicle, dict) else None,
                 "host_vinyl_handoff": capabilities.get("host_vinyl_handoff") is True,
+                "host_layout_handoff": capabilities.get("host_layout_handoff") is True,
                 "host_theme_handoff": capabilities.get("host_theme_handoff") is True,
                 "ui_theme_persistence": capabilities.get("ui_theme_persistence") is True}
     except IncompatibleStudio:
@@ -434,7 +437,7 @@ def window_preflight(expected_kfps_root=None):
 def open_studio_window(url, *, cancelled=None):
     base, separator, fragment = url.partition("#")
     validate_url(base)
-    if separator and not re.fullmatch(r"vinyl=[a-f0-9]{32}", fragment):
+    if separator and not re.fullmatch(r"(?:vinyl|layout)=[a-f0-9]{32}", fragment):
         raise ValueError("Invalid Studio vinyl handoff.")
     if os.environ.get("KFPS_LIVERY_NO_OPEN") == "1":
         return False

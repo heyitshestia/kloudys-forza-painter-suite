@@ -19,7 +19,7 @@ import threading
 import time
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from .host_bridge import HANDOFF_ID, HandoffError, read_handoff
+from .host_bridge import HANDOFF_ID, HandoffError, read_handoff, read_layout_handoff
 from .car_workspace import CarError, CarWorkspace, ID as CAR_JOB_ID, prepared_assets
 from .model import MAX_BODY_BYTES, NativeVinylRenderer, ValidationError, decode_json
 from .prepare import LAB_ROOT, atomic_json, prepare_car, within, workspace_lock, load_baseline
@@ -45,7 +45,7 @@ VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.j
 OPTIONAL_WEB_FILES = ("authoring-model.mjs", "studio-tools.mjs", "mirror-links.mjs",
                       "recovery-ui.mjs", "inspection-tools.mjs", "action-confirmations.mjs", "confirmation-policy.mjs",
                       "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs",
-                      "preview-quality.mjs", "vinyl-compositing.mjs")
+                      "preview-quality.mjs", "vinyl-compositing.mjs", "source-edit-monitor.mjs")
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 MAX_NATIVE_TEXTURE_BYTES = 80 * 1024 * 1024
 # The qualified Studio client consumes validated #vinyl handoffs on startup/hashchange.
@@ -768,17 +768,19 @@ class LiveryLabServer:
             if relative == "api/cars" or relative == "api/car-switch" or relative.startswith("api/car-switch/"):
                 current_archive = prepared.get("editor_config", {}).get("vehicle", {}).get("archive_name")
                 return self._car_request(request, relative, target, token, current_archive)
-            if relative.startswith("api/host-vinyl/"):
+            if relative.startswith(("api/host-vinyl/", "api/host-layout/")):
                 if request.command != "GET":
                     return self.reply(request, 405, {"error": "Method not allowed."})
-                identifier = relative[len("api/host-vinyl/"):]
+                layout_transfer = relative.startswith("api/host-layout/")
+                identifier = relative.split("/", 2)[2]
                 if (not HANDOFF_ID.fullmatch(identifier) or target.query or target.fragment
                         or relative != target.path[len(token) + 2:]):
                     return self.reply(request, 400, {"error": "Invalid vinyl transfer identifier."})
                 if not self.render_lock.acquire(blocking=False):
                     return self.reply(request, 503, {"error": "A vinyl is already rendering. Retry after it completes."})
                 try:
-                    result = read_handoff(identifier, resolve_resource=self.renderer._resource)
+                    read_transfer = read_layout_handoff if layout_transfer else read_handoff
+                    result = read_transfer(identifier, resolve_resource=self.renderer._resource)
                     status = 200
                 except HandoffError as exc:
                     status, result = exc.status, {"error": str(exc)}
@@ -837,6 +839,7 @@ class LiveryLabServer:
                                                  "livery_section_policy": section_limit_policy(),
                                                  **self.language.configuration(),
                                                  "host_vinyl_handoff": HOST_VINYL_HANDOFF_READY,
+                                                 "host_layout_handoff": True,
                                                  "host_theme_handoff": True, "ui_theme_persistence": True,
                                                  "ui_theme": self.theme_context.effective(),
                                                  "host_ui_theme": self.theme_context.get(),

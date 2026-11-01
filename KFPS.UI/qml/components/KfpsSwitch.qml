@@ -138,7 +138,9 @@ Switch {
         leftPadding: switchTrack.implicitWidth + root.spacing
         text: root.text
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(dense ? 10.5 : 11.5)
+        font.pixelSize: Theme.textSize(dense ? 10.5 : 11.5)
+        font.weight: Theme.bodyWeight
+        lineHeight: Theme.bodyLineHeight
         font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
         color: root.enabled ? Theme.text : Theme.subtle
         opacity: root.hovered ? 1.0 : 0.92

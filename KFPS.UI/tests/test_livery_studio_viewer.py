@@ -58,6 +58,15 @@ class StudioBridgeTests(unittest.TestCase):
         self.assertEqual(kwargs['quality_scale'], 2)
         self.assertTrue(callable(kwargs['layer_provider']))
 
+    def test_preview_evidence_survives_shared_worker_bridge(self):
+        evidence = {'quality_scale': 2, 'paint_size': [8192, 4096],
+                    'geometry': [{'label': 'Livery primitives missing UV3', 'value': '2', 'tone': 'warning'}]}
+        self.adapter.prepare_readonly.return_value['preview_evidence'] = evidence
+        result = self.call()
+        self.assertEqual(evidence, result['preview_evidence'])
+        self.assertEqual('package', result['package_id'])
+        self.assertEqual(str(self.root / 'test.kfpslivery'), result['package_path'])
+
     def test_preview_only_does_not_create_source_layer_capability(self):
         self.manifest['sharing'] = {'exportable': False, 'preview_only': True, 'local_unowned_preview': True}
         self.payload['package_path'] = str(self.root / 'test.kfpspreview')

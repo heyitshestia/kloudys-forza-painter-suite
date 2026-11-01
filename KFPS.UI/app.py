@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 UI_ROOT = Path(__file__).resolve().parent
@@ -14,6 +12,16 @@ for item in (str(SRC), str(ROOT)):
     if item not in sys.path:
         sys.path.insert(0, item)
 
+if __name__ == "__main__":
+    from kfps_ui.entrypoint import launch_workspace, uses_workspace
+
+    if uses_workspace(sys.argv[1:]):
+        raise SystemExit(launch_workspace(UI_ROOT))
+
+# Background removal already requires NumPy. Load it before PySide's import
+# hook so Qt does not inspect the numerical modules for Qt feature usage.
+import numpy
+
 from PySide6.QtCore import QCoreApplication, Qt, QTimer, QUrl
 from PySide6.QtGui import QCursor, QGuiApplication, QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
@@ -22,7 +30,6 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWebEngineQuick import QtWebEngineQuick
 from PySide6.QtWidgets import QApplication
 
-from fh6_rtti_registry import refresh_runtime_registry
 from kfps_ui.app_controller import AppController
 from kfps_ui.app_paths import AppPaths
 from kfps_ui.backup_service import BackupService
@@ -38,18 +45,16 @@ from kfps_ui.editor_service import EditorService
 from kfps_ui.full_livery_service import FullLiveryService
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.help_service import HelpService
-from kfps_ui.json_service import JsonService, build_startup_json_index_cache
-from kfps_ui.json_thumbnail_worker import worker_command, worker_environment
+from kfps_ui.json_service import JsonService
 from kfps_ui.log_service import LogService
 from kfps_ui.preview_service import PreviewService
-from kfps_ui.qml_lifecycle import exec_qml_application
+from kfps_ui.qml_lifecycle import dispose_qml_application, exec_qml_application
 from kfps_ui.report_service import ReportService
 from kfps_ui.renderer_policy import apply_renderer_policy, select_renderer_policy
 from kfps_ui.runtime_service import RuntimeService
 from kfps_ui.settings_service import SettingsService
 from kfps_ui.source_download_guard import SourceDownloadGuardStatus, evaluate_source_download_guard
 from kfps_ui.source_image_service import SourceImageService
-from kfps_ui.startup_splash import StartupSplash
 from kfps_ui.startup_sequence_service import StartupSequenceService
 from kfps_ui.supporter_service import SupporterService
 from kfps_ui.theme_catalog import (
@@ -68,6 +73,7 @@ from kfps_ui.window_geometry import ScreenRect, calculate_window_placement
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--legacy-ui", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--screenshot")
     parser.add_argument("--layout-report")
     parser.add_argument("--layout-report-dir")
@@ -119,104 +125,6 @@ def parse_args():
     parser.add_argument("--full-livery-inspector-ready", help=argparse.SUPPRESS)
     parser.add_argument("--full-livery-inspector-stop", help=argparse.SUPPRESS)
     return parser.parse_args()
-
-
-def _startup_thumbnail_seconds() -> float:
-    raw = os.environ.get("KFPS_STARTUP_THUMBNAIL_SECONDS", "5")
-    try:
-        seconds = float(raw)
-    except (TypeError, ValueError):
-        seconds = 5.0
-    return max(0.0, min(300.0, seconds))
-
-
-def _run_startup_thumbnail_worker(app: QApplication, paths: AppPaths, progress, max_seconds: float) -> int:
-    cmd = worker_command(paths, cache_file=paths.runtime_root / "json-browser-index.v1.json", max_seconds=max_seconds, app_executable=sys.executable)
-    kwargs = {
-        "cwd": str(UI_ROOT),
-        "env": worker_environment(paths),
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.DEVNULL,
-        "text": True,
-    }
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    started = time.monotonic()
-    proc = subprocess.Popen(cmd, **kwargs)
-    progress("Rendering missing thumbnails in a separate room...", 5, 100)
-    hard_limit = max_seconds + 12.0 if max_seconds > 0 else 0.0
-    while proc.poll() is None:
-        elapsed = time.monotonic() - started
-        if hard_limit and elapsed >= hard_limit:
-            proc.kill()
-            proc.communicate(timeout=2)
-            progress("Thumbnail worker got stuck making tiny posters. Opening anyway.", 100, 100)
-            return 0
-        if max_seconds > 0:
-            done = min(95, 5 + int((min(elapsed, max_seconds) / max_seconds) * 90.0))
-        else:
-            done = 50
-        progress("Rendering missing thumbnails in a separate room...", done, 100)
-        app.processEvents()
-        time.sleep(0.05)
-    stdout, stderr = proc.communicate(timeout=2)
-    if proc.returncode != 0:
-        progress("Thumbnail worker misplaced its notes. Opening with the cache we have.", 100, 100)
-        return 0
-    try:
-        return max(0, int((stdout or "0").strip().splitlines()[-1]))
-    except (IndexError, TypeError, ValueError):
-        return 0
-
-
-def run_startup_output_index(
-    app: QApplication,
-    paths: AppPaths,
-    preview: PreviewService,
-    show_splash: bool = True,
-    warm_thumbnails: bool = False,
-    thumbnail_seconds: float = 45.0,
-) -> None:
-    splash = None
-    splash_started = time.monotonic()
-    bits = [
-        "Counting rectangles with the clipboard upside down.",
-        "Asking the JSON pile to stand in a straight line.",
-        "Putting tiny name tags on vinyl files.",
-        "Checking under the sofa for missing layer counts.",
-        "Polishing the progress bar with a napkin.",
-    ]
-
-    if show_splash:
-        splash = StartupSplash(paths.asset_root)
-        splash.show()
-        app.processEvents()
-
-    def progress(message: str, done: int, total: int):
-        if not splash:
-            return
-        splash.set_status(message, bits[done % len(bits)])
-        splash.set_progress(done, total)
-        app.processEvents()
-
-    try:
-        progress("Saving the latest FH6 locator for offline use...", 1, 100)
-        refresh_runtime_registry(paths.app_root)
-        build_startup_json_index_cache(paths, preview=preview, progress=progress)
-        progress("Output library has been bullied into a cache file.", 100, 100)
-        if warm_thumbnails:
-            count = _run_startup_thumbnail_worker(app, paths, progress, thumbnail_seconds)
-            noun = "thumbnail" if count == 1 else "thumbnails"
-            progress(f"Thumbnail cache warmed with {count} new {noun}.", 100, 100)
-    except Exception:
-        progress("Index preflight tripped over its own shoelaces. Opening anyway.", 100, 100)
-    finally:
-        if splash:
-            while time.monotonic() - splash_started < 5.0:
-                app.processEvents()
-                time.sleep(0.05)
-            splash.close()
-            app.processEvents()
 
 
 def run_source_download_blocker(
@@ -276,7 +184,9 @@ def run_source_download_blocker(
     return exec_qml_application(app, engine)
 
 
-def main():
+def main(*, workspace_runtime=None):
+    from kfps_ui.workspace_diagnostics import operation, record
+    startup_diagnostic = operation()
     args = parse_args()
     if args.community_preview_test:
         args.community_preview = args.demo = True
@@ -392,22 +302,7 @@ def main():
 
     preview = PreviewService(paths)
     should_preindex = not args.skip_startup_index and not args.demo and os.environ.get("KFPS_SKIP_STARTUP_INDEX", "").strip() != "1"
-    show_splash = should_preindex and not (args.screenshot or args.screenshot_dir or os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen")
-    should_warm_thumbnails = (
-        show_splash
-        and not args.skip_startup_thumbnails
-        and os.environ.get("KFPS_SKIP_STARTUP_THUMBNAILS", "").strip() != "1"
-    )
     startup_theme = {"Original PS2": "ps2", "Original Xbox": "xbox"}.get(settings.theme)
-    if should_preindex and not startup_theme:
-        run_startup_output_index(
-            app,
-            paths,
-            preview,
-            show_splash=show_splash,
-            warm_thumbnails=should_warm_thumbnails,
-            thumbnail_seconds=_startup_thumbnail_seconds(),
-        )
 
     logs = LogService(runtime_root=paths.runtime_root)
     if renderer_policy.warning:
@@ -418,6 +313,10 @@ def main():
     desktop = DesktopService(paths, logs)
     backup = BackupService(paths, settings, logs)
     version = VersionService(paths.app_root / "VERSION", demo=args.demo)
+    logs.configure_diagnostics(version.localVersion, "unified" if workspace_runtime is not None else "standalone")
+    baseline = getattr(workspace_runtime, "baseline", None)
+    record(logs, "app.startup", "started", op=startup_diagnostic,
+           verification_ms=baseline.get("verification_ms") if isinstance(baseline, dict) else None)
     announcements = AnnouncementService(demo=args.demo)
     release_announcement = ReleaseAnnouncementService(paths.app_root)
     activity = ActivityService(paths.app_root)
@@ -431,9 +330,9 @@ def main():
         enabled=bool(startup_theme) and not settings.reducedMotion and (
             args.startup_preview or (not args.demo and not args.screenshot and not args.screenshot_dir
                                     and os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen")),
-        refresh_registry=bool(startup_theme) and should_preindex,
+        refresh_registry=should_preindex,
         muted=os.environ.get("KFPS_STARTUP_MUTED", "") == "1",
-        theme=startup_theme or "ps2",
+        theme=startup_theme or "app",
     )
     def sync_startup_mute():
         startup_sequence.setMuted(settings.xboxStartupMuted if startup_theme == "xbox" else settings.ps2StartupMuted)
@@ -476,6 +375,12 @@ def main():
     reports = ReportService(paths, logs, version, settings)
     updates = UpdateService(paths, logs)
     controller = AppController()
+    from kfps_ui.workspace_tools import WorkspaceTools
+    workspace_tools = WorkspaceTools(paths, controller, {
+        "generation": generation, "transfer": transfer, "offline": cgroup_library,
+        "liveries": full_livery, "editor": editor, "outputs": jsons,
+        "upscaler": upscaler, "background": background_remover, "backup": backup,
+    })
     reports.bind_support_context({
         "transfer": transfer, "generator": generation, "editor": editor,
         "liveries": full_livery, "offline": cgroup_library, "outputs": jsons,
@@ -485,11 +390,55 @@ def main():
     })
     changelog = ChangelogService(paths.app_root / "CHANGELOG.md", auto_refresh=not args.demo)
 
+    workspace = workspace_controller = None
+    shutdown_order = [
+        startup_sequence, community_preview, community_gallery,
+        upscaler, background_remover, reports, editor, transfer, generation,
+        full_livery, cgroup_library, community, supporter, jsons, runtime,
+        backup, changelog, announcements, release_announcement, activity,
+        version, logs,
+    ]
+    shutdown_started = False
+
+    def shutdown_services():
+        nonlocal shutdown_started
+        if shutdown_started:
+            return
+        shutdown_started = True
+        shutdown_diagnostic = operation()
+        shutdown_failed = False
+        record(logs, "app.shutdown", "started", op=shutdown_diagnostic)
+        # Release every owner even if an earlier cleanup raises. Logs close last.
+        for owner, method in ((workspace_tools, "close"),
+                              (workspace_controller, "close"), (workspace, "shutdown")):
+            if owner is None:
+                continue
+            try:
+                if getattr(owner, method)() is False:
+                    shutdown_failed = True
+            except Exception as exc:
+                shutdown_failed = True
+                record(logs, "app.shutdown", "failed", op=shutdown_diagnostic, stage="workspace", error=exc)
+                print(f"KFPS shutdown warning ({type(owner).__name__}): {exc}", file=sys.stderr)
+        for service in shutdown_order:
+            if service is logs:
+                record(logs, "app.shutdown", "failed" if shutdown_failed else "completed", op=shutdown_diagnostic)
+            close = getattr(service, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as exc:
+                    shutdown_failed = True
+                    record(logs, "app.shutdown", "failed", op=shutdown_diagnostic, stage="cleanup", error=exc)
+                    print(f"KFPS shutdown warning ({type(service).__name__}): {exc}", file=sys.stderr)
+
     engine = QQmlApplicationEngine()
     engine.addImageProvider("theme-startup", startup_sequence.frame_provider)
     ctx = engine.rootContext()
+    ctx.setContextProperty("workspaceHosted", workspace_runtime is not None)
     objects = {
         "appController": controller,
+        "workspaceTools": workspace_tools,
         "settings": settings,
         "logs": logs,
         "versionService": version,
@@ -537,10 +486,14 @@ def main():
     if community_gallery is not None:
         engine.addImageProvider("community-gallery", community_gallery.images)
 
+    # Select the initial page before its QML loaders are constructed.
+    controller.navigate(args.page)
     qml = paths.qml_root / "Main.qml"
     engine.addImportPath(str(paths.qml_root))
     engine.load(QUrl.fromLocalFile(str(qml)))
     if not engine.rootObjects():
+        record(logs, "app.startup", "failed", op=startup_diagnostic, stage="qml")
+        dispose_qml_application(engine, shutdown_services)
         return 2
     window = engine.rootObjects()[0]
     if not app_icon.isNull() and hasattr(window, "setIcon"):
@@ -607,7 +560,7 @@ def main():
             window_state["maximized"],
         )
 
-    if persist_window_state:
+    if persist_window_state and workspace_runtime is None:
         window.xChanged.connect(remember_normal_geometry)
         window.yChanged.connect(remember_normal_geometry)
         window.widthChanged.connect(remember_normal_geometry)
@@ -615,17 +568,46 @@ def main():
         window.visibilityChanged.connect(remember_window_state)
         app.aboutToQuit.connect(save_window_state)
 
-    controller.navigate(args.page)
+    if workspace_runtime is not None:
+        from kfps_ui.workspace_host import WorkspaceWindow
+        from kfps_ui.workspace_controller import WorkspaceController
+        try:
+            workspace = WorkspaceWindow(window, offscreen=os.environ.get("QT_QPA_PLATFORM") == "offscreen", log=logs)
+            workspace_controller = WorkspaceController(workspace, paths, editor, workspace_runtime)
+            workspace_controller.configure_session(settings, controller)
+            workspace_tools.attach_session(workspace_controller.session)
+            workspace.move(window.x(), window.y())
+        except Exception as exc:
+            record(logs, "app.startup", "failed", op=startup_diagnostic, stage="workspace", error=exc)
+            dispose_qml_application(engine, shutdown_services)
+            raise
+        if persist_window_state:
+            def remember_workspace_geometry():
+                if workspace.isMinimized():
+                    return
+                window_state["maximized"] = workspace.isMaximized()
+                if not workspace.isMaximized() and not workspace.isFullScreen():
+                    normal_geometry.update(x=workspace.x(), y=workspace.y(),
+                                           width=workspace.width(), height=workspace.height())
+            workspace.geometryChanged.connect(remember_workspace_geometry)
+            app.aboutToQuit.connect(save_window_state)
+    shown_window = workspace or window
+    workspace_tools.attach(window, workspace)
     if args.community_preview_background:
         window.setFlag(Qt.WindowDoesNotAcceptFocus, True)
         window.setFlag(Qt.WindowStaysOnBottomHint, True)
+        if workspace is not None:
+            workspace.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
+            workspace.setWindowFlag(Qt.WindowStaysOnBottomHint, True)
+            workspace.setAttribute(Qt.WA_ShowWithoutActivating, True)
     if args.community_preview_minimized:
-        window.showMinimized()
+        shown_window.showMinimized()
     elif placement.maximized and persist_window_state:
-        window.showMaximized()
+        shown_window.showMaximized()
     else:
-        window.show()
-    if startup_theme:
+        shown_window.show()
+    record(logs, "app.startup", "ready", op=startup_diagnostic, stage="workspace" if workspace else "qml")
+    if should_preindex or startup_theme:
         QTimer.singleShot(0, startup_sequence.beginLoading)
     development_harness = install_development_harness(
         app, window, controller, community, settings, jsons, args,
@@ -639,45 +621,6 @@ def main():
         else:
             check = run_theme_checks if args.community_preview_test == "themes" else run_checks
             QTimer.singleShot(1500, lambda: check(app, window, community_preview, state, QML_ERRORS))
-    shutdown_order = [
-        startup_sequence,
-        community_preview,
-        community_gallery,
-        upscaler,
-        background_remover,
-        reports,
-        editor,
-        transfer,
-        generation,
-        full_livery,
-        cgroup_library,
-        community,
-        supporter,
-        jsons,
-        runtime,
-        backup,
-        changelog,
-        announcements,
-        release_announcement,
-        activity,
-        version,
-        logs,
-    ]
-    shutdown_started = False
-
-    def shutdown_services():
-        nonlocal shutdown_started
-        if shutdown_started:
-            return
-        shutdown_started = True
-        for service in shutdown_order:
-            close = getattr(service, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception as exc:
-                    print(f"KFPS shutdown warning ({type(service).__name__}): {exc}", file=sys.stderr)
-
     app.aboutToQuit.connect(shutdown_services)
     return exec_qml_application(app, engine, shutdown_services)
 

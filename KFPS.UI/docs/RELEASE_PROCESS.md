@@ -22,6 +22,10 @@ the final upstream check and release gates. A draft changelog is not publication
    plus real hidden/offscreen workflows for materially changed interfaces.
    Verify actual save/reopen, recovery, failure/cancellation and ownership behavior,
    not only source assertions. Inspect the staged diff and whitespace checks.
+   Use `KFPS.UI/tools/run_ui_tests.py` for combined Python discovery so graphical
+   tests share a correctly initialized QApplication. The connected-window theme
+   harness is `KFPS.UI/tools/test_workspace_themes.py`; legacy `--demo` shell
+   captures alone do not qualify the connected workspace.
 3. Freeze diagnostics, announcement and activity integration with matching
    collector/service contracts. Use synthetic inputs and disable activity in
    automated hosts. Test report collection/privacy without real report submission.

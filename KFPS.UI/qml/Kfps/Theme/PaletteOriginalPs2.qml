@@ -1,6 +1,8 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property string workspaceConsoleComponentFile: ""
+    readonly property string createWorkbenchComponentFile: ""
     readonly property var chromeMetrics: ({ dashboardNavigation: 1, titleHeight: 42, compactTitleHeight: 30, leftInset: 8, compactLeftInset: 0, rightInset: 8, compactRightInset: 0, bottomInset: 8, compactBottomInset: 0, sidebarHeaderHeight: 88, compactSidebarHeaderHeight: 88, wideSidebar: 80, compactSidebar: 80, navButtonHeight: 46, windowButtonsHeight: 30 })
     readonly property string titleBarContentComponentFile: "../themes/ps2/Ps2TitleContent.qml"
     readonly property string name: "Original PS2"

@@ -189,8 +189,18 @@ class CarWorkspace:
                 raise CarError(409, "This car is already open.")
             if any(r["status"] in ("preparing", "ready", "cancelling") for r in self.records.values()):
                 raise CarError(409, "Another car preparation is still active.")
+            # Reuse only a completed, inactive directory witnessed by this live
+            # session. A new job still runs the full preparation/verification path.
+            root = next((r["root"] for r in reversed(self.records.values())
+                         if r["car"]["id"] == car_id and r["status"] in ("committed", "cancelled")
+                         and r.get("prepared") and r["root"] in self.owned
+                         and r["root"] != self.active_root), None)
+            if root is not None:
+                if not self._check_inactive_owned(root, allow_missing=True):
+                    self.owned.remove(root)
+                    root = None
             # Only directories created and recorded by this live session may be removed.
-            while len(self.owned) >= MAX_WORKSPACES:
+            while root is None and len(self.owned) >= MAX_WORKSPACES:
                 old = next((p for p in self.owned if p != self.active_root), None)
                 if old is None:
                     raise CarError(409, "The car workspace is full.")
@@ -199,8 +209,11 @@ class CarWorkspace:
             while len(self.records) >= MAX_RECORDS:
                 self.records.popitem(last=False)
             identifier = secrets.token_hex(16)
-            root = within(self.root / identifier, self.root)
-            root.mkdir(parents=True, exist_ok=False)
+            if root is None:
+                root = within(self.root / identifier, self.root)
+                root.mkdir(parents=True, exist_ok=False)
+            else:
+                self.owned.remove(root)
             self.owned.append(root)
             record = {"id": identifier, "status": "preparing", "car": car, "root": root,
                       "cancel": threading.Event()}
@@ -210,18 +223,27 @@ class CarWorkspace:
             thread.start()
             return self._view(record)
 
-    def _remove(self, root):
+    def _check_inactive_owned(self, root, *, allow_missing=False):
         root = Path(root)
         if root not in self.owned or root == self.active_root or root.parent != self.root or not ID.fullmatch(root.name):
             raise ValueError("Not an inactive owned workspace.")
         if root.is_symlink() or getattr(root, "is_junction", lambda: False)() or root.resolve() != root:
             raise ValueError("Refusing a redirected workspace.")
+        if allow_missing and not root.exists():
+            return False
+        if not root.is_dir():
+            raise ValueError("The owned workspace is missing.")
         for directory, folders, files in os.walk(root, followlinks=False):
             for name in folders + files:
                 path = Path(directory) / name
-                if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+                if (path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+                        or (path.is_file() and path.stat().st_nlink != 1)):
                     raise ValueError("Refusing a redirected workspace member.")
-        shutil.rmtree(root)
+        return True
+
+    def _remove(self, root):
+        if self._check_inactive_owned(root, allow_missing=True):
+            shutil.rmtree(root)
 
     def _prepare(self, record):
         from .converter_process import _execute

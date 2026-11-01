@@ -29,6 +29,7 @@ class TransferService(QObject):
         self.jsons = jsons
         self._running = False
         self._status = "Ready"
+        self._last_output = ""
         self._buffer = b""
         self._live_log_lines: list[str] = []
         self._pending_live_lines: list[str] = []
@@ -61,6 +62,10 @@ class TransferService(QObject):
     @Property(str, notify=changed)
     def status(self):
         return self._status
+
+    @Property(str, notify=changed)
+    def lastOutput(self):
+        return self._last_output
 
     @Property(str, notify=changed)
     def liveLog(self):
@@ -136,6 +141,7 @@ class TransferService(QObject):
         bridge = self.paths.ui_root / "bridges" / "transfer_bridge.py"
         self._open_full_transfer_log()
         self._running = True
+        self._last_output = ""
         self._status = status
         self._buffer = b""
         self._live_log_lines = []
@@ -286,9 +292,8 @@ class TransferService(QObject):
         self._write_full_transfer_log(line)
         if line.startswith("KFPS_SELECTED_JSON:") or line.startswith("WPF_SELECTED_JSON:"):
             selected = line.split(":", 1)[1].strip()
-            self.jsons.setSource(2)
-            self.jsons.refresh()
-            self.jsons.selectPath(selected)
+            self._last_output = selected
+            self.jsons.refreshGameOutputs()
             self._queue_live_log([f"Selected exported JSON: {Path(selected).name}"])
             return
         if self._stream_live_transfer_line(line):

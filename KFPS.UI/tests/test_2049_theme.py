@@ -34,8 +34,9 @@ class Archive2049ThemeTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text())["theme"], "2049")
 
     def test_asset_and_component_paths_exist(self):
-        for relative in re.findall(r'property string \w+File: "([^"]+)"', PALETTE.read_text()):
-            path = UI / "qml/shell" / relative if relative.endswith(".qml") else UI / "assets" / relative
+        for name, relative in re.findall(r'property string (\w+File): "([^"]+)"', PALETTE.read_text(encoding="utf-8")):
+            base = UI / "qml" if name == "workspaceConsoleComponentFile" else UI / "qml/shell" if relative.endswith(".qml") else UI / "assets"
+            path = base / relative
             self.assertTrue(path.is_file(), relative)
         for name in ("optical-glass.png", "optical-backing.png", "optical-rim.png", "phosphor-raster.png", "analog-wear.png", "analog-sweep.png"):
             self.assertTrue((UI / "assets/themes/2049" / name).is_file())

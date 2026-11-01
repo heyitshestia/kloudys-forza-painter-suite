@@ -82,6 +82,21 @@ class WorkerProgressTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "result write denied")
 
+    def test_late_cancel_does_not_erase_completed_result(self):
+        def execute(request, cancel, *, progress):
+            cancel.set()
+            return {"saved": "completed"}
+        with patch.object(worker_main, "execute_operation", side_effect=execute):
+            self.assertEqual(worker_main.run_request(self.request, self.result), 0)
+        result = json.loads(self.result.read_text())
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["value"], {"saved": "completed"})
+
+    def test_operation_acknowledged_cancel_is_reported(self):
+        with patch.object(worker_main, "execute_operation", side_effect=InterruptedError("Stopped before commit")):
+            self.assertEqual(worker_main.run_request(self.request, self.result), 2)
+        self.assertTrue(json.loads(self.result.read_text())["cancelled"])
+
 
 if __name__ == "__main__":
     unittest.main()

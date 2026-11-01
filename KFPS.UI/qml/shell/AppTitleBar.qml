@@ -93,6 +93,24 @@ Rectangle {
         spacing: Theme.classicMode ? Theme.px(2) : 0
 
         Repeater {
+            model: typeof workspaceTools !== "undefined" ? ["commands", "tasks"] : []
+            delegate: GhostButton {
+                required property string modelData
+                objectName: "WorkspaceTool:" + modelData
+                iconName: modelData === "commands" ? "terminal" : "reports"
+                text: ""
+                minimumWidth: Theme.px(32)
+                width: Theme.px(36)
+                height: parent.height
+                dense: true
+                toolTipText: modelData === "commands" ? "Commands and settings"
+                    : "Background tasks (" + workspaceTools.activeCount + " running)"
+                Accessible.name: toolTipText
+                onClicked: modelData === "commands" ? workspaceTools.openCommands() : workspaceTools.openTasks()
+            }
+        }
+
+        Repeater {
             model: ["min", "max", "close"]
 
             delegate: Rectangle {

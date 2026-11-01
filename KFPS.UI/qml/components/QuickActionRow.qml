@@ -13,12 +13,13 @@ Item {
     property string subtitle: ""
     property string toolTipText: ""
     property bool dense: false
-    readonly property string effectiveToolTipText: toolTipText.trim().length > 0 ? toolTipText : title
+    readonly property string effectiveToolTipText: (toolTipText.trim().length > 0 ? toolTipText : title)
+                                                   + (subtitle.length > 0 ? "\n" + subtitle : "")
     readonly property bool hovered: hover.hovered
     readonly property bool pressed: tap.pressed
     signal clicked
 
-    implicitHeight: Theme.px(dense ? 35 : 48)
+    implicitHeight: Math.max(Theme.px(dense ? 35 : 48), rowText.implicitHeight + Theme.px(8))
     Layout.minimumHeight: implicitHeight
     scale: Theme.classicMode ? 1.0 : (tap.pressed ? 0.992 : 1.0)
     Behavior on scale { enabled: !Theme.reducedMotion; NumberAnimation { duration: 75; easing.type: Easing.OutCubic } }
@@ -71,6 +72,7 @@ Item {
     }
 
     Column {
+        id: rowText
         anchors.left: parent.left
         anchors.leftMargin: Theme.px(root.dense ? 29 : 36)
         anchors.right: arrow.left
@@ -83,7 +85,7 @@ Item {
             text: root.title
             color: Theme.text
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.px(root.dense ? 10.1 : 11.5)
+            font.pixelSize: Theme.textSize(root.dense ? 10.1 : 11.5)
             font.weight: Font.Medium
             elide: Text.ElideRight
         }
@@ -94,7 +96,8 @@ Item {
             text: root.subtitle
             color: Theme.subtle
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.px(root.dense ? 8.1 : 9.5)
+            font.pixelSize: Theme.textSize(root.dense ? 8.1 : 9.5)
+            font.weight: Theme.bodyWeight
             elide: Text.ElideRight
         }
     }

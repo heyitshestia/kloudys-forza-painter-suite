@@ -167,12 +167,11 @@ def _actual_index_max(document: dict, binary: bytes, accessor_index: object) -> 
     component_size = ACCESSOR_COMPONENT_BYTES[component_type]
     stride = int(view.get("byteStride") or component_size)
     start = int(view.get("byteOffset") or 0) + int(accessor.get("byteOffset") or 0)
-    format_code = "H" if component_type == 5123 else "I"
-    if stride == component_size:
-        end = start + count * component_size
-        return max(value[0] for value in struct.iter_unpack(f"<{format_code}", binary[start:end]))
-    unpack = struct.Struct(f"<{format_code}").unpack_from
-    return max(unpack(binary, start + offset * stride)[0] for offset in range(count))
+    # The caller validates the layout; a strided view scans only index elements,
+    # without copying the buffer or interpreting interleaved padding as indices.
+    values = np.ndarray((count,), dtype="<u2" if component_type == 5123 else "<u4",
+                        buffer=binary, offset=start, strides=(stride,))
+    return int(values.max())
 
 
 def _accessor_array(

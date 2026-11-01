@@ -234,7 +234,12 @@ def _warped_uv_layer(
         float(projection.get("xorigin", 0.0)),
         float(projection.get("yorigin", 0.0)),
     )
-    return artwork.convert("RGBA").transform(
+    rgba = artwork.convert("RGBA")
+    # Only exact zero in every channel is invariant under the zero-filled warp.
+    # Transparent pixels with nonzero RGB must keep the normal transformation.
+    if np.isfinite(affine).all() and rgba.getextrema() == ((0, 0),) * 4:
+        return rgba
+    return rgba.transform(
         ATLAS_SIZE,
         Image.Transform.AFFINE,
         affine,
@@ -474,6 +479,7 @@ def build_local_livery_atlases(
     quality_scale: int = 1,
     layer_provider=None,
     game_folder: str | Path | None = None,
+    _predecoded_masks: dict[str, tuple[Image.Image, dict[str, Any], str]] | None = None,
 ) -> dict[str, Any]:
     package = Path(package_path).resolve()
     output = Path(output_dir).resolve()
@@ -513,7 +519,7 @@ def build_local_livery_atlases(
         except (OSError, ValueError, TypeError, AttributeError):
             pass
 
-    masks = _archive_masks(asset)
+    masks = _archive_masks(asset) if _predecoded_masks is None else _predecoded_masks
     section_layers = {}
     quality_notes = []
     if scale > 1:

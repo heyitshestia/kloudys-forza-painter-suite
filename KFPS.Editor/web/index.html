@@ -49,9 +49,9 @@
           <button id="openJsonBrowser" title="Open a generated final, editor export, or another KFPS JSON.">Open JSON</button>
           <input id="jsonInput" class="hiddenFileInput" type="file" accept=".json,application/json">
           <button id="loadProject" title="Open a saved editable project.">Open Project</button>
-          <button id="saveProject" class="primary" title="Save changes to this editable project.">Save</button>
+          <button id="saveProject" class="primary" title="Save editable layers, nested groups, guides and reference image in KFPS project storage. This does not export or install artwork.">Save project</button>
           <button id="saveProjectAs" title="Save this editable project with a new name.">Save As</button>
-          <button id="openLiveryStudio" type="button" title="Open Livery Studio in its own window and send this vinyl when supported.">Livery Studio</button>
+          <button id="openLiveryStudio" type="button" title="Place on car in Livery Studio. Sends this vinyl to Studio; nothing is installed in the game.">Place on car</button>
           <button id="returnLiverySource" type="button" title="Return this edited source to Studio for an explicit instance update." hidden>Return to Studio</button>
         </div>
         <div class="menuGroup">
@@ -72,7 +72,7 @@
         </div>
         <div class="menuGroup exportGroup">
           <span>Finish</span>
-          <button id="exportJson" class="primary" title="Validate and export one FH-compatible JSON into KFPS Outputs.">Export JSON</button>
+          <button id="exportJson" class="primary" title="Export artwork as native vinyl JSON to KFPS Outputs / Editor exports. The editable project is saved separately; nothing is installed in the game.">Export artwork</button>
           <button id="startEditorTour" type="button" title="Start the guided editor tour.">Tour</button>
           <button id="helpBtn" title="Open the complete editor guide.">Help</button>
           <button id="shortcutsBtn" title="View or change editor shortcuts.">Keys</button>
@@ -571,7 +571,8 @@
               <span>Issues</span><b id="exportWarningCount">0</b>
             </div>
             <div id="exportIssueList" class="exportIssueList"></div>
-            <p class="hint">Export saves one game-ready JSON into imgs/editor. Project-only groups, guides, and reference images are not included.</p>
+            <p id="exportDestinationSummary" class="hint">Destination: KFPS Outputs / Editor exports (imgs/editor). Native vinyl JSON, not an editable project or a full-car livery. Choose the target game and transfer mode in KFPS Outputs; nothing is installed here.</p>
+            <p class="hint">Artwork includes hidden vinyl layers and nested-group metadata. Offline transfers preserve nested groups; interleaved groups split to preserve drawing order. Live-memory transfers remain flat. Guides and reference images stay in the editable project only.</p>
           </section>
         </div>
       </aside>
@@ -658,7 +659,7 @@
         <ul>
           <li>Top layer rows draw over lower layer rows.</li>
           <li>Forward and Back move one step. To Front and To Back move selected layers to an edge.</li>
-          <li>Use <b>Group</b> for editor-only organization. Groups help select, hide, or lock related layers without changing export structure.</li>
+          <li>Use <b>Group</b> to select, hide, or lock related layers. Editable projects and artwork JSON keep nested-group metadata; offline transfers preserve nesting, while live-memory transfers stay flat.</li>
           <li>Rename Layer and Rename Group make dense projects easier to scan without changing game resources.</li>
           <li><b>Hide Group</b> hides grouped layers while editing. Hidden vinyl layers still export, and Export Check warns about them.</li>
           <li><b>Lock Group</b> prevents accidental edits to grouped layers.</li>

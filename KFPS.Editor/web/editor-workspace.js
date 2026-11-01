@@ -1,3 +1,151 @@
+// BEGIN FIXED WEB COMMAND SEARCH
+/* Kept identical in both independently served web roots; parity is tested. */
+(function (root, factory) {
+  'use strict';
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.KfpsCommandSearch = api;
+})(typeof globalThis === 'undefined' ? this : globalThis, function () {
+  'use strict';
+  function createBridge({owner, pageId, revision, blocked, commands, dispatch, activity = () => ({running:false, status:'', detail:''})}) {
+    let previous = null, sequence = 0;
+    function list() {
+      const current = JSON.stringify(revision());
+      if (current !== previous) { previous = current; sequence++; }
+      const token = owner + ':' + pageId + ':' + sequence;
+      const reason = blocked();
+      return {token, commands: commands().map(command => ({
+        ...command, id: command.key,
+        enabled: !reason && command.enabled,
+        reason: reason || command.reason || '',
+      }))};
+    }
+    return Object.freeze({
+      list,
+      activity: () => activity(),
+      execute(id, token) {
+        const current = list();
+        if (typeof token !== 'string' || token !== current.token) return {ok:false, error:'stale-context'};
+        const command = current.commands.find(item => item.id === id);
+        if (!command) return {ok:false, error:'unknown-command'};
+        if (!command.enabled) return {ok:false, error:command.reason || 'unavailable'};
+        return dispatch(command.key) || {ok:true};
+      },
+    });
+  }
+  function install({owner, revision, blocked, entries, t, trigger, icon, activity}) {
+    const doc = trigger.ownerDocument, win = doc.defaultView;
+    const make = (tag, text, className) => {
+      const node = doc.createElement(tag);
+      if (text) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    };
+    const dialog = make('dialog', '', 'commandSearch');
+    dialog.id = 'workspaceCommandSearch';
+    const heading = make('h2', t('Search commands')); heading.id = 'workspaceCommandHeading';
+    dialog.setAttribute('aria-labelledby', heading.id);
+    const close = make('button'); close.type = 'button';
+    close.title = t('Close'); close.setAttribute('aria-label', t('Close')); close.append(icon('X'));
+    const header = make('div', '', 'commandSearchHeader'); header.append(heading, close);
+    const input = make('input'); input.type = 'search'; input.maxLength = 120;
+    input.setAttribute('aria-label', t('Search commands')); input.placeholder = t('Search commands');
+    const results = make('div', '', 'commandSearchResults');
+    const status = make('p', '', 'commandSearchStatus'); status.setAttribute('role', 'status');
+    dialog.append(header, input, results, status); doc.body.append(dialog);
+    let composing = false, openedRevision = null, returnFocus = null;
+    const commands = () => entries.map(entry => {
+      const node = doc.getElementById(entry.key);
+      const description = node?.dataset.workspaceTooltip || node?.title || '';
+      const reason = entry.reason?.() || '';
+      const enabled = !!node && !node.disabled && !node.hidden && !reason;
+      return {key:entry.key, label:t(entry.label), description,
+        shortcut:entry.shortcut?.() || '', enabled,
+        reason:reason || (enabled ? '' : description || t('Unavailable in the current context.'))};
+    });
+    const api = createBridge({owner, pageId:win.crypto.randomUUID(), revision, activity,
+      blocked:() => composing ? t('Finish text composition first.')
+        : [...doc.querySelectorAll('dialog[open]')].some(node => node !== dialog)
+          ? t('Close the current dialog first.') : blocked(),
+      commands, dispatch:key => {
+        if (dialog.open) return {ok:false, error:t('Close the current dialog first.')};
+        doc.getElementById(key).click();
+        return {ok:true};
+      }});
+    function execute(id) {
+      if (api.list().token !== openedRevision) {
+        status.textContent = t('The document changed. Close and reopen command search.');
+        results.replaceChildren(); return;
+      }
+      const command = api.list().commands.find(item => item.id === id);
+      if (!command?.enabled) { render(); return; }
+      dialog.close();
+      const result = api.execute(id, openedRevision);
+      if (!result.ok) status.textContent = result.error;
+    }
+    function render() {
+      const focused = doc.activeElement?.dataset.commandKey;
+      const current = api.list();
+      if (current.token !== openedRevision) {
+        results.replaceChildren(); status.textContent = t('The document changed. Close and reopen command search.'); return;
+      }
+      const query = input.value.trim().toLocaleLowerCase();
+      const matches = current.commands.filter(command =>
+        [command.label, command.description, command.shortcut].join(' ').toLocaleLowerCase().includes(query));
+      results.replaceChildren();
+      for (const command of matches) {
+        const button = make('button', '', 'commandSearchResult'); button.type = 'button';
+        button.disabled = !command.enabled; button.dataset.commandKey = command.key;
+        const label = make('span', command.label), binding = make('kbd', command.shortcut);
+        const description = make('small', command.enabled ? command.description : command.reason);
+        button.append(label, binding, description); button.addEventListener('click', () => execute(command.id));
+        results.append(button);
+      }
+      status.textContent = matches.length ? '' : t('No matching commands.');
+      if (focused) [...results.children].find(node => node.dataset.commandKey === focused && !node.disabled)?.focus();
+    }
+    const observer = new MutationObserver(() => { if (dialog.open) render(); });
+    for (const entry of entries) {
+      const node = doc.getElementById(entry.key);
+      if (node) observer.observe(node, {attributes:true, attributeFilter:['disabled','hidden','title','data-workspace-tooltip']});
+    }
+    win.addEventListener('pagehide', event => { if (!event.persisted) observer.disconnect(); });
+    trigger.title = t('Search commands'); trigger.setAttribute('aria-label', t('Search commands'));
+    trigger.addEventListener('click', () => {
+      if (composing || [...doc.querySelectorAll('dialog[open]')].some(node => node !== dialog)) return;
+      returnFocus = doc.activeElement; openedRevision = api.list().token; input.value = '';
+      render(); dialog.showModal(); input.focus();
+    });
+    close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => { if (!doc.querySelector('dialog[open]')) returnFocus?.focus(); });
+    input.addEventListener('input', render);
+    doc.addEventListener('compositionstart', () => { composing = true; }, true);
+    doc.addEventListener('compositionend', () => { composing = false; if (dialog.open) render(); }, true);
+    win.addEventListener('keydown', event => {
+      if (!dialog.open) return;
+      event.stopImmediatePropagation();
+      if (event.isComposing || event.keyCode === 229 || composing) {
+        if (event.key === 'Enter' || event.key === 'Escape') event.preventDefault();
+        return;
+      }
+      if (event.getModifierState?.('AltGraph')) return;
+      const buttons = [...results.querySelectorAll('button:not(:disabled)')];
+      const index = buttons.indexOf(doc.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : buttons.length - 1)
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      } else if (event.key === 'Enter' && doc.activeElement === input) {
+        event.preventDefault(); buttons[0]?.click();
+      }
+    }, true);
+    win.kfpsWorkspaceCommands = api;
+    return api;
+  }
+  return {createBridge, install};
+});
+// END FIXED WEB COMMAND SEARCH
 /* Presentation adapter: moves existing controls without duplicating editing state. */
 (function (root) {
   'use strict';
@@ -82,10 +230,11 @@
     const bar = document.querySelector('.appMenus');
     const groups = [...bar.querySelectorAll('.menuGroup')];
     const actions = document.createElement('div'); actions.className = 'workspaceDocumentActions';
-    ['undoBtn', 'redoBtn', 'loadProject', 'saveProject', 'exportJson'].forEach(id => actions.append($(id)));
+    ['undoBtn', 'redoBtn', 'loadProject', 'saveProject', 'openLiveryStudio', 'returnLiverySource', 'exportJson'].forEach(id => actions.append($(id)));
+    actions.append(button('workspaceSearch', 'Search commands', 'Search'));
     bar.after(actions);
-    const symbols = { undoBtn: 'Undo2', redoBtn: 'Redo2', loadProject: 'FolderOpen', saveProject: 'Save', exportJson: 'Download' };
-    Object.entries(symbols).forEach(([id, symbol]) => decorate($(id), symbol, ['undoBtn', 'redoBtn'].includes(id)));
+    const symbols = { undoBtn: 'Undo2', redoBtn: 'Redo2', loadProject: 'FolderOpen', saveProject: 'Save', openLiveryStudio: 'Palette', returnLiverySource: 'Undo2', exportJson: 'Download', workspaceSearch: 'Search' };
+    Object.entries(symbols).forEach(([id, symbol]) => decorate($(id), symbol, ['undoBtn', 'redoBtn', 'openLiveryStudio', 'workspaceSearch'].includes(id)));
     const labels = ['File', 'Edit', 'View', 'Help'];
     groups.forEach((group, i) => {
       group.querySelector(':scope > span')?.remove();
@@ -125,6 +274,21 @@
     }, true);
     window.addEventListener('resize', () => document.querySelectorAll('.workspaceMenu:popover-open')
       .forEach(menu => positionMenu(menu.__trigger, menu)));
+  }
+  function refreshSourceStatus(context, state = 'editing') {
+    const node = $('workspaceSourceStatus');
+    if (!node) return;
+    node.hidden = !context;
+    document.querySelector('.editorShell')?.classList.toggle('workspaceSourceHandoff', Boolean(context));
+    if (!context) { node.textContent = ''; return; }
+    const labels = {
+      editing: 'Editing source artwork.', returning: 'Returning source artwork...',
+      returned: 'Returned to Studio.', failed: 'Could not return source to Studio',
+      changed: 'Changes not returned. Start a new source edit in Studio.',
+      stale: 'This is a different document. Open a new source edit from Studio.',
+    };
+    node.dataset.state = state;
+    node.textContent = t('Source: {0} | Destination: Livery Studio', context.name) + ' | ' + t(labels[state] || labels.editing);
   }
   function setupTools() {
     const symbols = { select: 'MousePointer2', shapeLibrary: 'Shapes', text: 'Type', pixelArt: 'Grid2X2',
@@ -415,6 +579,34 @@
     initialized = true;
     document.documentElement.classList.add('workspaceRedesign');
     setupMenus(); setupTools(); setupLayers(); setupProperties(); setupDock(); setupZoom(); setupTooltips(); refreshShortcuts();
+    root.KfpsCommandSearch.install({ owner: 'editor', t, icon, trigger: $('workspaceSearch'),
+      activity: () => ({running: Boolean(projectSaveInProgress || exportSaveInProgress || studioOpening || studioSourceReturning),
+        status: projectSaveInProgress ? t('Saving project...') : exportSaveInProgress ? t('Exporting artwork...')
+          : studioOpening ? t('Preparing Livery Studio...') : studioSourceReturning ? t('Returning source to Studio...') : '',
+        detail: currentProjectName || loadedName || ''}),
+      revision: () => [documentIdentity, documentGeneration, editorHistory.sequence, overlayRevision, selectedVinylObjects().map(object => object.kloudy?.editor_id)],
+      blocked: () => editorShutdownPromise || editorCommands.busy || projectSaveInProgress || exportSaveInProgress || studioOpening || studioSourceReturning || recoveryRestoreDepth > 0
+        || pixelArtGenerationRunning || textVinylGenerationRunning || Boolean(editorAssetLibrary?.busy)
+        || historyLocked || canvas?._currentTransform ? t('Finish the current operation first.') : '',
+      entries: [
+        {key:'saveProject', label:'Save project', reason:() => hasEditableWorkspace() ? '' : t('Nothing to save. Add a shape, reference image, or guide first.')},
+        {key:'saveProjectAs', label:'Save Project As', reason:() => hasEditableWorkspace() ? '' : t('Nothing to save. Add a shape, reference image, or guide first.')},
+        {key:'exportJson', label:'Export artwork', reason:() => !vinylObjects().length ? t('Nothing to export. Import a JSON or add at least one shape first.') : exportValidation().errors.length ? t('Fix the artwork export errors in Export Check.') : ''},
+        {key:'openLiveryStudio', label:'Place on car', reason:() => vinylObjects().length && exportValidation().errors.length ? t('Fix the vinyl export errors before sending it to Livery Studio.') : ''},
+        {key:'returnLiverySource', label:'Return to Studio'},
+        {key:'loadProject', label:'Open Project'}, {key:'openJsonBrowser', label:'Open JSON'},
+        {key:'undoBtn', label:'Undo', shortcut:() => shortcutFor('undo')},
+        {key:'redoBtn', label:'Redo', shortcut:() => shortcutFor('redo')},
+        {key:'fitView', label:'Fit design'}, {key:'resetView', label:'Reset view'},
+        {key:'fitSelected', label:'Fit selection', reason:() => selectedVinylObjects().length ? '' : t('No selection')},
+        {key:'adjustTheme', label:'Appearance'}, {key:'shortcutsBtn', label:'Keyboard shortcuts'},
+        {key:'workspaceReset', label:'Reset workspace'},
+      ]});
+    const sourceStatus = document.createElement('div');
+    sourceStatus.id = 'workspaceSourceStatus'; sourceStatus.hidden = true;
+    sourceStatus.setAttribute('role', 'status'); sourceStatus.setAttribute('aria-live', 'polite');
+    document.querySelector('.contextBar').after(sourceStatus);
+    refreshStudioSourceReturn();
     // Existing command owners may replace captions as selection changes.
     const observer = new MutationObserver(() => {
       for (const [node, config] of iconButtons) {
@@ -425,5 +617,5 @@
     root.KfpsDocking?.init();
     scheduleCanvasResize();
   }
-  root.KfpsWorkspace = Object.freeze({ init, icon, refreshShortcuts, resetLayout, attachMenu });
+  root.KfpsWorkspace = Object.freeze({ init, icon, refreshShortcuts, refreshSourceStatus, resetLayout, attachMenu });
 })(window);

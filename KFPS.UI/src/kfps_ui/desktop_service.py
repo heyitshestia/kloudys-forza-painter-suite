@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import webbrowser
+import subprocess
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, QUrl
@@ -11,6 +13,20 @@ from .app_paths import AppPaths
 from .editor_launch import find_chrome
 from .log_service import LogService
 from .qt_utils import open_path
+
+
+def validated_output_file(paths: AppPaths, value: str) -> Path:
+    """Resolve an existing vinyl only within the four configured output roots."""
+    if not value or len(value) > 32768:
+        raise ValueError("Choose an existing JSON from the Outputs folders.")
+    candidate = Path(value).resolve()
+    roots = (paths.generated_root, paths.editor_json_root, paths.exported_root, paths.library_root)
+    root = next((root.resolve() for root in roots if candidate.is_relative_to(root.resolve())), None)
+    if (root is None or not root.is_relative_to(paths.app_root.resolve())
+            or candidate.suffix.lower() != ".json" or not candidate.is_file()
+            or candidate.name.lower().endswith((".meta.json", ".fabric-project.json"))):
+        raise ValueError("Choose an existing JSON from the Outputs folders.")
+    return candidate
 
 
 class DesktopService(QObject):
@@ -111,6 +127,19 @@ class DesktopService(QObject):
             self.log.append(f"Opened folder: {value}")
         except Exception as exc:
             self.log.append(f"Could not open folder: {exc}", "error")
+
+    @Slot(str, result=bool)
+    def revealOutputFile(self, value):
+        try:
+            candidate = validated_output_file(self.paths, value)
+            if sys.platform != "win32":
+                raise ValueError("File selection in Explorer is available on Windows only.")
+            subprocess.Popen(["explorer.exe", f"/select,{candidate}"],
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+            return True
+        except (OSError, ValueError) as exc:
+            self.log.append(f"Could not show output file: {exc}", "error")
+            return False
 
     def _open_or_create(self, path: Path):
         try:

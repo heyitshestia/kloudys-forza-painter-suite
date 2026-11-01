@@ -4,7 +4,7 @@ import Kfps.Theme 1.0
 Text {
     color: Theme.text
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(12)
+    font.pixelSize: Theme.textSize(12)
     font.weight: Font.DemiBold
     font.capitalization: Theme.classicMode ? Font.MixedCase : Font.AllUppercase
     font.letterSpacing: 0

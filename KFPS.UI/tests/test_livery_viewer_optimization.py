@@ -51,6 +51,31 @@ class ViewerOptimizationTests(unittest.TestCase):
         with patch.object(self.service, "_viewer_process_memory", return_value=(0, 0)):
             self.service._inspector_ready("http://127.0.0.1:9876/session/")
 
+    def test_late_success_releases_requested_page_reopen(self):
+        self.service._resume_after_cancel = True
+        with patch.object(self.service, 'scanSaves') as scan:
+            self.service._route_worker_result(dict(kind='mesh', request_serial=-1, ok=True, value={}))
+        scan.assert_called_once()
+        self.assertFalse(self.service._resume_after_cancel)
+
+    def test_task_journal_retains_real_supervisor_failure_after_busy_reset(self):
+        from kfps_ui.workspace_tasks import TaskJournal
+        journal = TaskJournal()
+        self.addCleanup(journal.close)
+        journal.watch('liveries', self.service, label='Liveries', page='liveries', detail='summary')
+        self.service._running = True
+        self.service._status = 'Scanning FH6 liveries'
+        self.service.changed.emit()
+        task = self.service._tasks
+        task._memory_budget = LiveryMemoryBudget.for_memory(8 * GIB, 4 * GIB)
+        task._request = dict(kind='scan', operation='scan-saves', request_id='test-result')
+        task._result_file = self.root / 'task-result.json'
+        task._result_file.write_text(json.dumps(dict(ok=False, error='Test source missing')), encoding='utf-8')
+        task._on_finished(2, QProcess.ExitStatus.NormalExit)
+        self.app.processEvents()
+        self.assertEqual('Full-livery task failed', journal.rows[0]['status'])
+        self.assertIn('Test source missing', journal.rows[0]['detail'])
+
     def test_ready_requires_the_first_complete_frame(self):
         self.open_viewer()
         self.assertFalse(self.service.viewerReady)
@@ -295,6 +320,7 @@ class ViewerOptimizationTests(unittest.TestCase):
                 self.service._selected_source = str(path) if kind == "source" else ""
                 self.service._active_source_preview = self.service._selected_source
                 self.service._selected_package = str(path) if kind == "package" else ""
+                self.service._current_manifest = {"package_id": "active-preview"}
                 with patch.object(self.service._tasks, "start", return_value=True) as start:
                     self.service.clearFullLiveryCache()
                     self.assertEqual("clear-cache", start.call_args.args[0])
@@ -314,6 +340,7 @@ class ViewerOptimizationTests(unittest.TestCase):
         source = self.root / "C_livery"
         source.write_bytes(b"original input")
         self.service._selected_source = str(source)
+        self.service._active_source_preview = str(source)
         self.service._game_folder = str(self.root)
         with patch.object(self.service._tasks, "start", return_value=True) as start:
             self.service.clearFullLiveryCache()
@@ -334,6 +361,7 @@ class ViewerOptimizationTests(unittest.TestCase):
         source.touch()
         self.service._game_folder = str(self.root)
         self.service._selected_source = str(source)
+        self.service._active_source_preview = str(source)
         with patch.object(self.service._tasks, "start", return_value=True) as start:
             self.service.clearFullLiveryCache()
             metadata = start.call_args.kwargs["metadata"]
@@ -352,6 +380,7 @@ class ViewerOptimizationTests(unittest.TestCase):
         old.touch()
         new.touch()
         self.service._selected_package = str(old)
+        self.service._current_manifest = {"package_id": "active-preview"}
         with patch.object(self.service._tasks, "start", return_value=True) as start:
             self.service.clearFullLiveryCache()
             metadata = start.call_args.kwargs["metadata"]
@@ -370,6 +399,7 @@ class ViewerOptimizationTests(unittest.TestCase):
         source.touch()
         self.service._game_folder = str(self.root)
         self.service._selected_source = str(source)
+        self.service._active_source_preview = str(source)
         with patch.object(self.service._tasks, "start", return_value=True) as start:
             self.service.clearFullLiveryCache()
             metadata = start.call_args.kwargs["metadata"]
@@ -387,6 +417,7 @@ class ViewerOptimizationTests(unittest.TestCase):
         source.touch()
         self.service._game_folder = str(self.root)
         self.service._selected_source = str(source)
+        self.service._active_source_preview = str(source)
         with patch.object(self.service._tasks, "start", return_value=True) as start:
             self.service.clearFullLiveryCache()
             result = {"kind": "clear-cache", "ok": True,

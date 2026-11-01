@@ -3,13 +3,32 @@ import QtQuick.Controls 6.7
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 import "../components"
+import "../themes/redline"
 
 Item {
     id: root
     anchors.fill: parent
     clip: true
 
-    property bool wide: Theme.logical(width) >= 1120
+    function focusSetting(key) {
+        var item = ({theme: themePreset, chrome: editorChromeToggle, motion: reducedMotionToggle,
+                     folders: foldersCard, session: sessionToggle})[key]
+        if (!item) return
+        if (redlineInterface)
+            selectedSection = key === "folders" ? 1 : key === "chrome" ? 2 : 0
+        Qt.callLater(function() {
+            var pos = item.mapToItem(pageScroll.contentItem, 0, 0)
+            pageScroll.contentItem.contentY = Math.max(0, Math.min(
+                pageScroll.contentItem.contentHeight - pageScroll.availableHeight,
+                pageScroll.contentItem.contentY + pos.y - Theme.px(12)))
+            item.forceActiveFocus()
+        })
+    }
+
+    readonly property var session: typeof workspaceTools !== "undefined" ? workspaceTools.session : null
+    readonly property bool redlineInterface: Theme.chromeMetric("redlineInterface", 0) > 0
+    property int selectedSection: 0
+    property bool wide: !redlineInterface && Theme.logical(width) >= 1120
     property bool compactHeight: Theme.logical(height) < 720
     readonly property bool headerAlignmentAvailable: root.wide
                                                      && interfaceCard.width > 0
@@ -27,15 +46,40 @@ Item {
         onTriggered: desktop.refreshChromeStatus()
     }
 
+    ColumnLayout {
+        visible: root.redlineInterface
+        width: Theme.px(210)
+        spacing: Theme.px(12)
+        RedlineText { text: "SETTINGS"; heading: true; color: Theme.primary; Layout.bottomMargin: Theme.px(12) }
+        Repeater {
+            model: ["INTERFACE", "FOLDERS", "MAINTENANCE"]
+            RedlineButton {
+                required property int index
+                required property string modelData
+                objectName: "RedlineSettingsSection:" + index
+                Layout.fillWidth: true
+                menuEntry: true; minimal: true; displayText: true
+                text: modelData; slotNumber: "0" + (index + 1)
+                selected: root.selectedSection === index
+                onClicked: {
+                    root.selectedSection = index
+                    if (pageScroll.contentItem && pageScroll.contentItem.contentY !== undefined)
+                        pageScroll.contentItem.contentY = 0
+                }
+            }
+        }
+    }
+
     FastScrollView {
         id: pageScroll
         anchors.fill: parent
+        anchors.leftMargin: root.redlineInterface ? Theme.px(250) : 0
         contentWidth: availableWidth
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
     GridLayout {
-        width: pageScroll.availableWidth
+        width: root.redlineInterface ? Math.min(pageScroll.availableWidth, Theme.px(880)) : pageScroll.availableWidth
         height: root.wide ? Math.max(pageScroll.availableHeight, implicitHeight) : implicitHeight
         columns: root.wide ? 3 : 1
         columnSpacing: Theme.px(12)
@@ -43,6 +87,7 @@ Item {
 
         HoverCard {
             id: interfaceCard
+            visible: !root.redlineInterface || root.selectedSection === 0
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
             Layout.minimumHeight: interfaceContent.implicitHeight + padding * 2
@@ -77,8 +122,30 @@ Item {
                     }
                 }
 
+                KfpsSwitch {
+                    id: sessionToggle
+                    objectName: "WorkspaceSessionToggle"
+                    Layout.fillWidth: true
+                    visible: root.session !== null
+                    text: qsTr("Reopen previous workspace")
+                    checked: root.session ? root.session.restoreEnabled : false
+                    toolTipText: qsTr("Restore saved tool tabs on startup. Tools load only when selected; unsaved recovery stays separate.")
+                    onToggled: if (root.session) root.session.restoreEnabled = checked
+                }
+                GhostButton {
+                    objectName: "WorkspaceSessionReopen"
+                    Layout.fillWidth: true
+                    visible: root.session !== null
+                    enabled: root.session ? root.session.previousAvailable : false
+                    text: qsTr("Reopen previous tabs")
+                    iconName: "folder"
+                    toolTipText: root.session ? root.session.status : ""
+                    onClicked: if (root.session) root.session.restorePrevious()
+                }
+
                 Label { text: "Theme preset" }
                 KfpsComboBox {
+                    id: themePreset
                     Layout.fillWidth: true
                     dense: root.compactHeight
                     model: supporterService.availableThemes
@@ -95,7 +162,9 @@ Item {
                           : Theme.activeThemeName + " is active."
                     color: Theme.subtle
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(10.2)
+                    font.pixelSize: Theme.textSize(10.2)
+                    font.weight: Theme.bodyWeight
+                    lineHeight: Theme.bodyLineHeight
                     wrapMode: Text.Wrap
                     maximumLineCount: 3
                     elide: Text.ElideRight
@@ -139,10 +208,12 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.px(root.compactHeight ? 132 : 150)
+                    Layout.preferredHeight: Math.max(Theme.px(root.compactHeight ? 132 : 150),
+                                                     supporterKeyContent.implicitHeight + Theme.px(20))
                     soft: true
 
                     ColumnLayout {
+                        id: supporterKeyContent
                         anchors.fill: parent
                         anchors.margins: Theme.px(10)
                         spacing: Theme.px(6)
@@ -154,7 +225,7 @@ Item {
                                    ? Theme.primaryBright
                                    : (supporterService.keyValid ? Theme.warning : Theme.muted)
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(12.2)
+                            font.pixelSize: Theme.textSize(12.2)
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
@@ -165,10 +236,10 @@ Item {
                                   + "\nExisting keys unlock supporter themes locally. No PC binding or online activation."
                             color: supporterService.unlocked ? Theme.muted : Theme.subtle
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(9.8)
+                            font.pixelSize: Theme.textSize(9.8)
+                            font.weight: Theme.bodyWeight
+                            lineHeight: Theme.bodyLineHeight
                             wrapMode: Text.Wrap
-                            maximumLineCount: 4
-                            elide: Text.ElideRight
                         }
 
                         RowLayout {
@@ -222,7 +293,7 @@ Item {
                             text: "Supporter themes"
                             color: Theme.primaryBright
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(12.4)
+                            font.pixelSize: Theme.textSize(12.4)
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
@@ -232,7 +303,9 @@ Item {
                             text: "Existing supporter keys unlock four exclusive themes. All local tools are free."
                             color: Theme.muted
                             font.family: Theme.fontFamily
-                            font.pixelSize: Theme.px(9.6)
+                            font.pixelSize: Theme.textSize(9.6)
+                            font.weight: Theme.bodyWeight
+                            lineHeight: Theme.bodyLineHeight
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
@@ -260,6 +333,7 @@ Item {
                 KfpsSwitch {
                     Layout.fillWidth: true
                     text: "Reduce nonessential motion"
+                    id: reducedMotionToggle
                     checked: settings.reducedMotion
                     toolTipText: "Turn off decorative and nonessential animation while keeping all app functions available."
                     onToggled: settings.reducedMotion = checked
@@ -296,6 +370,7 @@ Item {
 
         HoverCard {
             id: foldersCard
+            visible: !root.redlineInterface || root.selectedSection === 1
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
             Layout.minimumHeight: foldersContent.implicitHeight + padding * 2
@@ -403,6 +478,7 @@ Item {
 
         HoverCard {
             id: maintenanceCard
+            visible: !root.redlineInterface || root.selectedSection === 2
             Layout.fillWidth: true
             Layout.fillHeight: root.wide
             Layout.minimumHeight: maintenanceContent.implicitHeight + padding * 2
@@ -451,6 +527,7 @@ Item {
 
                 KfpsCheckBox {
                     objectName: "editorChromeToggle"
+                    id: editorChromeToggle
                     Layout.fillWidth: true
                     dense: root.compactHeight
                     text: "Use Google Chrome for editor"
@@ -521,7 +598,9 @@ Item {
                     text: jsonService.thumbnailStatus
                     color: Theme.subtle
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(9.4)
+                    font.pixelSize: Theme.textSize(9.4)
+                    font.weight: Theme.bodyWeight
+                    lineHeight: Theme.bodyLineHeight
                     wrapMode: Text.Wrap
                 }
 
@@ -531,7 +610,9 @@ Item {
                     text: "Editor: " + editorService.status
                     color: editorService.lastError.length > 0 ? Theme.danger : Theme.subtle
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.px(9.4)
+                    font.pixelSize: Theme.textSize(9.4)
+                    font.weight: Theme.bodyWeight
+                    lineHeight: Theme.bodyLineHeight
                     wrapMode: Text.Wrap
                 }
 

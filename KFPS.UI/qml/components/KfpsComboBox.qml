@@ -28,7 +28,7 @@ ComboBox {
     topPadding: 0
     bottomPadding: 0
     font.family: Theme.fontFamily
-    font.pixelSize: Theme.px(dense ? 13 : 14)
+    font.pixelSize: Theme.textSize(dense ? 13 : 14)
     font.weight: Font.Medium
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus

@@ -10,7 +10,8 @@ CheckBox {
 
     property bool dense: false
     property bool crispText: true
-    font.pixelSize: Theme.px(dense ? 13 : 14)
+    font.pixelSize: Theme.textSize(dense ? 13 : 14)
+    font.weight: Theme.bodyWeight
     font.family: Theme.fontFamily
     font.capitalization: Theme.terminalMode ? Font.AllUppercase : Font.MixedCase
     property string toolTipText: ""
@@ -106,6 +107,7 @@ CheckBox {
         rightPadding: 0
         text: root.text
         font: root.font
+        lineHeight: Theme.bodyLineHeight
         renderType: root.crispText ? Text.CurveRendering : Text.QtRendering
         color: root.enabled ? Theme.text : Theme.subtle
         opacity: 1.0

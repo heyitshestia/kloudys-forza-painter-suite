@@ -42,7 +42,7 @@ function sceneHarness() {
     renderer:{initTexture(){},setPixelRatio(){},setSize(){}},requestRender(){},
     viewport:{clientWidth:320,clientHeight:200},window:{devicePixelRatio:1},
     navigator:{deviceMemory:2},gpuBudgetBytes:1024*MiB,modelResourceBytes:0,
-    renderWidth:0,renderHeight:0,renderPixelRatio:0,modelBounds:null,
+    renderWidth:0,renderHeight:0,renderPixelRatio:0,modelBounds:null,framebufferTrimmed:false,document:{hidden:false},
     homeCamera:{clone:()=>({sub:()=>({})})},homeTarget:{},camera:{updateProjectionMatrix(){}},
   });
   vm.runInContext([
@@ -78,7 +78,7 @@ function editorHarness(scene=sceneHarness()) {
     navigator:{deviceMemory:8},$:node,t:value=>value,errorText:value=>value,
     diagnostics:{emit(){}},sceneState:()=>({device:scene.graphicsDevice,bytes:scene.resourceBytes()}),
     fetch:async()=>({ok:true,json:async()=>({version:1,quality:'sharp'})}),
-    document:{createElement:tag=>tag==='canvas'?canvas():{}},
+    document:{hidden:false,addEventListener(){},createElement:tag=>tag==='canvas'?canvas():{}},
     window:{addEventListener:(event,handler)=>listeners.set(event,handler),removeEventListener(){}},
     projectStorage:null,confirmations:null,nativeDownloads:new Map(),surface:null,tools:null,
     inspection:null,recovery:null,queued:0,transform:null,drag:null,

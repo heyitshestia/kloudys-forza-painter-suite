@@ -1,6 +1,8 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property string workspaceConsoleComponentFile: ""
+    readonly property string createWorkbenchComponentFile: ""
     readonly property var chromeMetrics: ({workspaceLeftInset: 34, workspaceRightInset: 30, workspaceBottomInset: 24})
     readonly property string titleBarContentComponentFile: ""
     readonly property string controlSurfaceComponentFile: ""

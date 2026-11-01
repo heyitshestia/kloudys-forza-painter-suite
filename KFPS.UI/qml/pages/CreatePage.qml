@@ -696,7 +696,7 @@ Item {
     Loader {
         anchors.fill: parent
         active: root.instrumentInterface
-        source: "../themes/2049/ArchiveWorkbench.qml"
+        source: Theme.createWorkbenchComponentFile
         onLoaded: item.session = root
     }
 

@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat as stat_module
 import sys
 import tempfile
 import zipfile
@@ -17,6 +18,8 @@ from .file_io import atomic_stream, io_path, resolved_path
 
 LAB_ROOT = Path(__file__).resolve().parents[2]
 PREPARE_FORMAT = "kfps-livery-lab-prepared-v1"
+RECEIPT_FORMAT = "kfps-livery-lab-preparation-receipt-v1"
+MAX_PREPARED_BYTES = 8 * 1024 * 1024
 
 
 def within(path: Path, root: Path) -> Path:
@@ -121,6 +124,155 @@ def _source_stamp(stat: os.stat_result) -> tuple:
     return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
+def _check_cancel(cancel_event) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Car preparation was cancelled.")
+
+
+def _ordinary_path(path: Path) -> Path:
+    # Check the spelling before resolving: even an in-root link aliases mutable
+    # outputs and must not acquire a verification receipt.
+    path = Path(os.path.abspath(path))
+    for part in (path, *path.parents):
+        native = io_path(part)
+        try:
+            info = native.lstat()
+        except FileNotFoundError:
+            continue
+        if (stat_module.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400
+                or (stat_module.S_ISREG(info.st_mode) and info.st_nlink != 1)):
+            raise ValueError("Preparation cannot use redirected or multiply linked files.")
+    return path
+
+
+def _check_output_paths(root: Path) -> None:
+    for name in ("prepared.json", "preparation-receipt.json", "component-coverage.json"):
+        _ordinary_path(root / name)
+    count = 0
+    for name in ("mesh", "internal", "render", "material-preview"):
+        directory = _ordinary_path(root / name)
+        if not directory.exists():
+            continue
+        for parent, dirs, files in os.walk(directory, followlinks=False):
+            for child in (*dirs, *files):
+                _ordinary_path(Path(parent) / child)
+                count += 1
+                if count > 512:
+                    raise ValueError("Preparation output inventory exceeds its bound.")
+
+
+def _read_object(path: Path, limit=MAX_PREPARED_BYTES) -> dict:
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("Duplicate preparation metadata key.")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError("Non-finite preparation metadata: " + value)
+
+    with io_path(_ordinary_path(path)).open("rb") as stream:
+        body = stream.read(limit + 1)
+    if len(body) > limit:
+        raise ValueError("Preparation metadata exceeds its bound.")
+    result = json.loads(body, object_pairs_hook=pairs, parse_constant=invalid_constant)
+    if not isinstance(result, dict):
+        raise ValueError("Preparation metadata must be an object.")
+    return result
+
+
+def _value_hash(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _receipt_code(baseline: Path) -> dict:
+    import numpy
+    import PIL
+    import zlib
+
+    # Check these again before publication, not just on receipt lookup. The
+    # blank authoring path uses neither vector rendering nor external shapes.
+    lab = ("prepare.py", "component_coverage.py", "converter_process.py", "converter_provenance.py",
+           "file_io.py", "render_adapter.py", "material_preview.py", "material_assets.py",
+           "wheel_fitment.py", "part_fitment.py")
+    native = ("render_contract.py", "portable_mesh_converter.py", "vehicle_assets.py",
+              "projection_alignment.py", "derived_cache.py")
+    files = {"lab/" + name: file_hash(Path(__file__).with_name(name)) for name in lab}
+    files.update({"native/" + name: file_hash(baseline / "tools/livery" / name) for name in native})
+    return {"files": files, "runtime": {"python": sys.version, "numpy": numpy.__version__,
+                    "pillow": PIL.__version__, "zlib": zlib.ZLIB_RUNTIME_VERSION}}
+
+
+def _prepared_images(prepared: dict) -> list[str]:
+    files = prepared["files"]
+    textures = files["native_textures"]
+    if (files["mesh"] != "mesh/vehicle.glb" or files["coverage"] != "component-coverage.json"
+            or not isinstance(files["masks"], list) or len(files["masks"]) != 3
+            or not isinstance(textures, dict) or len(textures) > 32):
+        raise ValueError("Invalid prepared file inventory.")
+    images = [files["paint"], *files["masks"], *textures.values()]
+    for name in images:
+        if (not isinstance(name, str) or not name or "\\" in name or ":" in name
+                or Path(name).is_absolute() or any(p in ("", ".", "..") for p in name.split("/"))):
+            raise ValueError("Invalid prepared image path.")
+    expected = {files["mesh"], files["coverage"], *images}
+    if len(expected) != len(images) + 2 or set(prepared["file_sha256"]) != expected:
+        raise ValueError("Incomplete prepared file fingerprints.")
+    return images
+
+
+def _validate_prepared_files(root: Path, prepared: dict, cancel_event) -> dict:
+    from PIL import Image
+
+    images = _prepared_images(prepared)
+    stamps = {}
+    for name, expected in prepared["file_sha256"].items():
+        _check_cancel(cancel_event)
+        path = within(_ordinary_path(root / name), root)
+        before = _source_stamp(path.stat())
+        if file_hash(path) != expected:
+            raise ValueError("Prepared artifact fingerprint changed.")
+        if name in images:
+            with Image.open(io_path(path)) as image:
+                image.verify()
+        if _source_stamp(path.stat()) != before:
+            raise ValueError("Prepared artifact changed during validation.")
+        stamps[name] = before
+    return stamps
+
+
+def _receipt_matches(root: Path, prepared: dict, dependencies: dict, validation: dict, cancel_event):
+    try:
+        receipt = _read_object(root / "preparation-receipt.json", 64 * 1024)
+        if (receipt.get("format") != RECEIPT_FORMAT or receipt.get("dependencies") != dependencies
+                or receipt.get("prepared_sha256") != file_hash(root / "prepared.json")
+                or prepared.get("format") != PREPARE_FORMAT or prepared.get("validation") != validation):
+            return None
+        stamps = _validate_prepared_files(root, prepared, cancel_event)
+        for name in ("internal/blank-sections.zip", "render/index.json"):
+            _check_cancel(cancel_event)
+            if file_hash(_ordinary_path(root / name)) != receipt["artifacts"][name]:
+                return None
+            stamps[name] = _source_stamp((root / name).stat())
+        return stamps
+    except InterruptedError:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+        return None
+
+
+def _write_receipt(root: Path, dependencies: dict) -> None:
+    receipt = {"format": RECEIPT_FORMAT, "dependencies": dependencies,
+               "prepared_sha256": file_hash(root / "prepared.json"),
+               "artifacts": {name: file_hash(_ordinary_path(root / name)) for name in
+                             ("internal/blank-sections.zip", "render/index.json")}}
+    atomic_json(root / "preparation-receipt.json", receipt)
+
+
 def lab_converter(baseline: Path) -> Path:
     build = within(LAB_ROOT / "runs" / "component-converter" / "converter", LAB_ROOT / "runs")
     try:
@@ -151,8 +303,11 @@ def blank_sections(path: Path, section_names) -> None:
     os.replace(temporary, path)
 
 
-def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path) -> dict:
+def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path, *, cancel_event=None) -> dict:
+    _check_cancel(cancel_event)
+    _ordinary_path(workspace)
     root = workspace_environment(workspace)
+    _check_output_paths(root)
     baseline = load_baseline(kfps_root)
     game = Path(game_root).resolve(strict=True)
     if not archive or Path(archive).name != archive or any(c in archive for c in "\\/:") or not archive.lower().endswith(".zip"):
@@ -193,6 +348,8 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path)
                  "baseline": {name: file_hash(baseline / name) for name in (
                      "tools/livery/render_contract.py", "tools/livery/portable_mesh_converter.py",
                      "tools/livery/vehicle_assets.py", "tools/livery/projection_alignment.py")}}
+    code = _receipt_code(baseline)
+    _check_cancel(cancel_event)
     for name in ("internal", "mesh", "render"):
         within(root / name, root).mkdir(exist_ok=True)
     mesh = within(root / "mesh" / "vehicle.glb", root)
@@ -200,28 +357,84 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path)
     cached = {}
     if index.is_file():
         try:
-            cached = json.loads(index.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            cached = _read_object(index)
+        except (OSError, ValueError, RecursionError):
             cached = {}
     mesh_cached = (cached.get("signature") == signature and mesh.is_file()
                    and cached.get("mesh_sha256") == file_hash(mesh))
-    diagnostics = dict(cached.get("conversion") or {}) if mesh_cached else {}
+    diagnostics = cached.get("conversion") if mesh_cached else {}
+    if not isinstance(diagnostics, dict):
+        mesh_cached = False
+        diagnostics = {}
+    diagnostics = dict(diagnostics)
     if mesh_cached:
         try:
             validation = validate_local_chassis_glb(mesh)
         except (ValueError, OSError, RuntimeError):
             mesh_cached = False
     if not mesh_cached:
+        _check_cancel(cancel_event)
         staged = within(root / "mesh" / "vehicle.pending.glb", root)
         try:
-            convert_vehicle_model_to_glb(asset, staged, converter_path=converter, diagnostics=diagnostics)
+            convert_vehicle_model_to_glb(asset, staged, converter_path=converter, diagnostics=diagnostics,
+                                         cancel_event=cancel_event)
             validation = validate_local_chassis_glb(staged)
             os.replace(staged, mesh)
         finally:
             staged.unlink(missing_ok=True)
 
+    _check_cancel(cancel_event)
+    vehicle = {"car_id": asset.car_id, "model_code": asset.model_code, "archive_name": source.name}
+
+    def dynamic_inputs():
+        _check_cancel(cancel_event)
+        issue = None
+        try:
+            reference = read_reference_record(LAB_ROOT, vehicle, archive_sha256=source_hash)
+        except (OSError, ValueError, UnicodeError) as error:
+            reference = None
+            issue = ("missing-reference" if isinstance(error, FileNotFoundError)
+                     else "unreadable-reference" if isinstance(error, OSError)
+                     else "invalid-reference")
+        materials = prepare_material_preview(mesh, game_root=game, prepared_root=root)
+        _check_cancel(cancel_event)
+        return reference, issue, materials
+
+    # Re-run dynamic material/reference verification rather than maintaining a
+    # second archive-dependency resolver (including unsupported/missing assets).
+    fitment_reference, reference_issue, native_materials = dynamic_inputs()
+    _check_cancel(cancel_event)
+    dependencies = {"signature": _value_hash(signature), "code": code,
+                    "source": str(source), "source_stamp": list(source_stamp),
+                    "game": str(game), "workspace": str(root), "vehicle": vehicle,
+                    "materials": _value_hash(native_materials),
+                    "reference": _value_hash([fitment_reference, reference_issue])}
+
+    def check_inputs():
+        _check_cancel(cancel_event)
+        reference, issue, materials = dynamic_inputs()
+        if (_value_hash([reference, issue]) != dependencies["reference"]
+                or _value_hash(materials) != dependencies["materials"]):
+            raise ValueError("Material or fitment inputs changed during preparation. Retry preparation.")
+        if (_source_stamp(source.stat()) != source_stamp or file_hash(source) != source_hash
+                or _source_stamp(source.stat()) != source_stamp or _receipt_code(baseline) != code
+                or file_hash(converter) != signature["converter_sha256"]):
+            raise ValueError("Source car archive or preparation dependencies changed. Retry preparation.")
+        _check_cancel(cancel_event)
+
+    stamps = _receipt_matches(root, cached, dependencies, validation, cancel_event) if mesh_cached else None
+    if stamps is not None:
+        check_inputs()
+        if any(_source_stamp(_ordinary_path(root / name).stat()) != stamp for name, stamp in stamps.items()):
+            raise ValueError("Prepared artifacts changed before reuse. Retry preparation.")
+        cached["cache"] = {"mesh": True, "render": True}
+        atomic_json(index, cached)
+        _write_receipt(root, dependencies)
+        return cached
+
     internal = within(root / "internal" / "blank-sections.zip", root)
     blank_sections(internal, SECTION_TO_SLOT)
+    _check_cancel(cancel_event)
     contract = build_authoring_atlases(internal, asset, root / "render", mesh_path=mesh, mesh_validation=validation)
     projection = read_projection_metadata(asset)
     by_slot = {row["section"].casefold(): row for row in projection["sections"]}
@@ -235,25 +448,16 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path)
             item["atlasToLocal"] = list(_atlas_to_local_affine(
                 row["slot"], 2048, 1024, float(metadata.get("xorigin", 0)), float(metadata.get("yorigin", 0))))
         sections.append(item)
-    vehicle = {"car_id": asset.car_id, "model_code": asset.model_code, "archive_name": source.name}
     render_metadata = {key: contract[key] for key in ("format", "uv_contract", "assembly", "paint_size", "mask_size", "filters", "sections", "quality_scale", "quality_source")}
     from tools.livery.portable_mesh_converter import _glb_payloads
     wheel_document, _ = _glb_payloads(mesh)
-    reference_issue = None
-    try:
-        fitment_reference = read_reference_record(LAB_ROOT, vehicle, archive_sha256=source_hash)
-    except (OSError, ValueError, UnicodeError) as error:
-        # Optional research data must not prevent opening valid native geometry.
-        fitment_reference = None
-        reference_issue = ("missing-reference" if isinstance(error, FileNotFoundError)
-                           else "unreadable-reference" if isinstance(error, OSError)
-                           else "invalid-reference")
     render_metadata["assembly"] = placeholder_assembly(
         render_metadata["assembly"], wheel_document, fitment_reference)
     if reference_issue:
         render_metadata["assembly"]["wheel_fitment"].update(
             reference_issue=reference_issue,
             reason="Optional wheel/body reference could not be validated. No guessed wheels or part relationships are applied.")
+    _check_cancel(cancel_event)
     coverage = audit_components(source, mesh)
     if reference_issue:
         coverage["limitations"] = [*coverage.get("limitations", []),
@@ -265,7 +469,6 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path)
         raise ValueError("Converted UV values failed copy-integrity verification. The car was not opened.")
     coverage_path = within(root / "component-coverage.json", root)
     atomic_json(coverage_path, coverage)
-    native_materials = prepare_material_preview(mesh, game_root=game, prepared_root=root)
     native_textures = {"profile": native_materials["profile"], "game_equivalent": False,
                        "declarations": {row["resource_path"]: row["sha256"] for row in native_materials["declarations"]
                                         if row["status"] == "verified"},
@@ -305,9 +508,7 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path)
     prepared["file_sha256"] = {name: file_hash(within(root / name, root)) for name in
                                [prepared["files"]["mesh"], prepared["files"]["coverage"], *image_names]}
     # All stages reopen the archive; do not publish mixed inputs under an old hash.
-    if (_source_stamp(source.stat()) != source_stamp
-            or file_hash(source) != source_hash
-            or _source_stamp(source.stat()) != source_stamp):
-        raise ValueError("Source car archive changed during preparation. Retry preparation.")
+    check_inputs()
     atomic_json(index, prepared)
+    _write_receipt(root, dependencies)
     return prepared

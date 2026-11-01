@@ -52,7 +52,8 @@ def build_authoring_atlases(package, asset, output_dir, *, mesh_path, mesh_valid
     size = sizes.pop()
     if size == SOURCE_SIZE:
         return native.build_local_livery_atlases(package, asset, output_dir,
-                                                mesh_path=mesh_path, mesh_validation=mesh_validation)
+                                                mesh_path=mesh_path, mesh_validation=mesh_validation,
+                                                _predecoded_masks=masks)
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     signature = {"adapter_revision": 1, "adapter_sha256": file_hash(Path(__file__)),

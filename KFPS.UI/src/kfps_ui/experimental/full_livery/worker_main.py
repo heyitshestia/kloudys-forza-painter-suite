@@ -54,8 +54,8 @@ def run_request(request_file: str | Path, result_file: str | Path, parent_pid: i
             diagnostic.event("progress", message=message)
 
         value = execute_operation(request, cancel_event, progress=progress)
-        if cancel_event.is_set():
-            raise InterruptedError("The full-livery task was cancelled.")
+        # Only the operation can acknowledge cancellation before its commit point.
+        # A late stop request must not hide a successfully saved result.
         response = {
             "protocol": int(request["protocol"]),
             "request_id": request_id,

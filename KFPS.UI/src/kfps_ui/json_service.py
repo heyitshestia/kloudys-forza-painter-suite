@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import concurrent.futures
+from collections import OrderedDict
 import json
+import math
 import os
 import re
 import shutil
@@ -17,7 +19,7 @@ from PySide6.QtGui import QGuiApplication
 from kfps_shapes import convert_fd6_payload, is_fd6_payload
 
 from .app_paths import AppPaths
-from .desktop_service import DesktopService
+from .desktop_service import DesktopService, validated_output_file
 from .json_index import (
     JSON_INDEX_CACHE_VERSION,
     OUTPUT_FOLDER_MARKER,
@@ -50,6 +52,8 @@ WINDOWS_RESERVED_NAMES = {
     *(f"LPT{index}" for index in range(1, 10)),
 }
 OUTPUT_SORT_MODES = {"date-desc", "name-asc", "shapes-asc", "shapes-desc"}
+NAVIGATION_LIMIT = 64
+NAVIGATION_SELECTION_LIMIT = 2048
 
 
 def build_startup_json_index_cache(
@@ -68,6 +72,7 @@ def build_startup_json_index_cache(
 
 class JsonService(QObject):
     changed = Signal()
+    explorerAboutToReset = Signal()
     _previewReady = Signal(str, str, str)
     _indexReady = Signal(int, int, object, str)
 
@@ -98,7 +103,13 @@ class JsonService(QObject):
         self._selection_anchor_path = ""
         self._selection_revision = 0
         self._management_status = ""
-        self._current_folder = ""
+        self._current_folder = str(self._root())
+        self._navigation_consumer = "outputs"
+        self._consumer_sources = {"outputs": 0, "community": 0}
+        self._navigation_states = OrderedDict()
+        self._category_states = {}
+        self._explorer_scroll_y = 0.0
+        self._navigation_initial_selection = True
         self._explorer_rows: list[dict] = []
         self._back_history: list[str] = []
         self._forward_history: list[str] = []
@@ -199,6 +210,104 @@ class JsonService(QObject):
     def searchQuery(self): return self._search_query
     @Property(str, notify=changed)
     def sortMode(self): return self._sort_mode
+    @Property(str, notify=changed)
+    def navigationConsumer(self): return self._navigation_consumer
+    @Property(str, notify=changed)
+    def navigationKey(self):
+        return f"{self._navigation_consumer}:{self._source}:{self._fast_path_key(self._current_folder)}"
+    @Property(float, notify=changed)
+    def explorerScrollY(self): return self._explorer_scroll_y
+
+    @Slot(str, float)
+    def setExplorerScroll(self, key, value):
+        if key == self.navigationKey and math.isfinite(value):
+            self._explorer_scroll_y = min(10_000_000.0, max(0.0, value))
+
+    def _navigation_state_key(self, folder=None):
+        return (self._navigation_consumer, self._source, self._fast_path_key(folder or self._current_folder))
+
+    def _remember_navigation(self):
+        key = self._navigation_state_key()
+        self._navigation_states[key] = {
+            "folder": self._current_folder, "search": self._search_query, "sort": self._sort_mode,
+            "scroll": self._explorer_scroll_y, "selected": self._selected_path,
+            "selection": self._explorer_selection[:NAVIGATION_SELECTION_LIMIT],
+            "anchor": self._selection_anchor_path,
+        }
+        self._navigation_states.move_to_end(key)
+        while len(self._navigation_states) > NAVIGATION_LIMIT:
+            # Keep the category roots available for safe missing-folder recovery.
+            victim = next((candidate for candidate, state in self._navigation_states.items()
+                           if not self._same_path(state["folder"], self._source_roots()[candidate[1]])),
+                          next(iter(self._navigation_states)))
+            del self._navigation_states[victim]
+        self._category_states[(self._navigation_consumer, self._source)] = {
+            "folder": self._current_folder,
+            "back": self._back_history[-NAVIGATION_LIMIT:],
+            "forward": self._forward_history[-NAVIGATION_LIMIT:],
+        }
+        self._consumer_sources[self._navigation_consumer] = self._source
+
+    def _safe_navigation_folder(self, value):
+        root = self._root()
+        candidate = Path(value or root)
+        if (candidate.is_dir() and self._path_is_within(candidate, root)
+                and (self._same_path(candidate, root) or self._is_accessible_managed_folder(candidate, self._source))):
+            return str(candidate)
+        return str(root)
+
+    def _restore_navigation(self, folder=None, category=False):
+        state = self._category_states.get((self._navigation_consumer, self._source), {})
+        requested = folder if folder is not None else state.get("folder", str(self._root()))
+        self._current_folder = self._safe_navigation_folder(requested)
+        if category:
+            self._back_history = list(state.get("back", []))
+            self._forward_history = list(state.get("forward", []))
+        for history in (self._back_history, self._forward_history):
+            history[:] = [value for value in history[-NAVIGATION_LIMIT:]
+                          if self._same_path(value, self._safe_navigation_folder(value))]
+        saved = self._navigation_states.get(self._navigation_state_key(), {})
+        self._navigation_initial_selection = not bool(saved)
+        self._search_query = saved.get("search", "")
+        self._sort_mode = saved.get("sort", "date-desc")
+        self._explorer_scroll_y = saved.get("scroll", 0.0)
+        self._explorer_selection = list(saved.get("selection", []))
+        self._explorer_selection_keys = {self._preview_key(value) for value in self._explorer_selection}
+        self._selection_anchor_path = saved.get("anchor", "")
+        self._clear_selection(emit=False)
+        self._selected_path = saved.get("selected", "")
+        self._selection_revision += 1
+
+    @Slot(str)
+    def setNavigationConsumer(self, consumer):
+        if consumer not in self._consumer_sources or consumer == self._navigation_consumer:
+            return
+        self._remember_navigation()
+        self._navigation_consumer = consumer
+        self._source = self._consumer_sources[consumer]
+        self._restore_navigation(category=True)
+        self._refresh_folder_model(force=True)
+        self._load_source()
+
+    @Slot(str, int, result="QVariantMap")
+    def artworkActionState(self, value, count):
+        path = Path(str(value or ""))
+        reason = ""
+        if count != 1 or not value:
+            reason = "Select one vinyl to use artwork actions."
+        else:
+            try:
+                path = validated_output_file(self.paths, str(value))
+                if not self._explorer_json_visible(path):
+                    raise ValueError("Not a vinyl JSON")
+            except (OSError, ValueError):
+                reason = "This output is missing or is not a supported vinyl JSON."
+        valid = not reason
+        library = valid and self._path_is_within(path, self.paths.library_root) and not self._path_is_within(path, self.paths.library_root / "Community")
+        return {"path": str(path.resolve()) if valid else "", "reason": reason,
+                "canEdit": valid, "canPlace": valid, "canShow": valid,
+                "canExport": valid and not library,
+                "exportReason": reason or ("This vinyl is already in the Game Library." if library else "")}
     @Property(int, notify=changed)
     def explorerSelectionCount(self): return len(self._explorer_selection)
     @Property(str, notify=changed)
@@ -246,7 +355,7 @@ class JsonService(QObject):
     @Property(bool, notify=changed)
     def canGoForward(self): return bool(self._forward_history)
     @Property(bool, notify=changed)
-    def canGoUp(self): return bool(self._current_folder)
+    def canGoUp(self): return bool(self._current_folder) and not self._same_path(self._current_folder, self._root())
     @Property(int, notify=changed)
     def clipboardCount(self): return len(self._clipboard_paths)
     @Property(bool, notify=changed)
@@ -653,19 +762,19 @@ class JsonService(QObject):
         self._refresh_folder_model()
         rows = []
         if not self._current_folder:
-            rows = [self._source_entry_row(source) for source in range(len(self._source_roots()))]
+            self._current_folder = str(self._root())
+            self._refresh_folder_model(force=True)
+            self._refresh_explorer()
+            return
         else:
             root = self._root()
             root.mkdir(parents=True, exist_ok=True)
             current = Path(self._current_folder)
             valid_folder = self._same_path(current, root) or self._is_accessible_managed_folder(current, self._source)
             if not current.is_dir() or not self._path_is_within(current, root) or not valid_folder:
-                self._current_folder = ""
-                self._back_history.clear()
-                self._forward_history.clear()
-                self._search_query = ""
+                self._restore_navigation(str(root))
                 self._refresh_folder_model(force=True)
-                self._refresh_explorer()
+                self._apply_search_filter()
                 return
             current_index = self._current_source_index()
             cached_rows = current_index.get("rowsByKey", {})
@@ -715,6 +824,11 @@ class JsonService(QObject):
                 ]
                 direct_rows = self._sort_json_rows(direct_rows)
                 rows.extend(self._explorer_json_row(row["path"], cached_rows) for row in direct_rows)
+        visible_keys = {self._preview_key(row.get("path")) for row in rows}
+        self._explorer_selection = [value for value in self._explorer_selection if self._preview_key(value) in visible_keys]
+        self._explorer_selection_keys = {self._preview_key(value) for value in self._explorer_selection}
+        if self._preview_key(self._selection_anchor_path) not in self._explorer_selection_keys:
+            self._selection_anchor_path = ""
         self._explorer_index_by_key = {}
         self._explorer_operable_keys = set()
         self._explorer_json_keys = set()
@@ -729,6 +843,7 @@ class JsonService(QObject):
                 self._explorer_json_keys.add(key)
         self._update_operation_selection_counts()
         self._explorer_rows = rows
+        self.explorerAboutToReset.emit()
         self._explorer_model.replace(rows)
 
     def _update_operation_selection_counts(self):
@@ -1388,13 +1503,13 @@ class JsonService(QObject):
 
     @Slot(int)
     def setSource(self, index):
-        self._source = max(0,min(len(self._source_roots()) - 1,index))
+        index = max(0, min(len(self._source_roots()) - 1, index))
+        if index == self._source:
+            return
+        self._remember_navigation()
+        self._source = index
         self._selected_group=-1
-        self._current_folder = str(self._root())
-        self._back_history.clear()
-        self._forward_history.clear()
-        self._clear_explorer_selection(emit=False)
-        self.clearSelection()
+        self._restore_navigation(category=True)
         self._refresh_folder_model(force=True)
         self._load_source(force=False)
         self._restart_thumbnail_warm_for_current_source()
@@ -1402,11 +1517,13 @@ class JsonService(QObject):
 
     @Slot(str)
     def setSearchQuery(self, value):
-        query = str(value or "").strip()
+        query = str(value or "").strip()[:512]
         if query == self._search_query:
             return
         self._search_query = query
+        self._explorer_scroll_y = 0.0
         self._clear_explorer_selection(emit=False)
+        self._clear_selection(emit=False)
         self._apply_search_filter()
 
     @Slot(str)
@@ -1415,6 +1532,7 @@ class JsonService(QObject):
         if mode not in OUTPUT_SORT_MODES or mode == self._sort_mode:
             return
         self._sort_mode = mode
+        self._explorer_scroll_y = 0.0
         self._apply_search_filter()
 
     @Slot()
@@ -1439,8 +1557,19 @@ class JsonService(QObject):
             return
         self._request_source_scan(1, force=True)
 
+    @Slot()
+    def refreshLibraryOutputs(self):
+        """Refresh downloaded/scanned artwork without changing any consumer's location."""
+        if not self._closed:
+            self._request_source_scan(3, force=True)
+
+    @Slot()
+    def refreshGameOutputs(self):
+        if not self._closed:
+            self._request_source_scan(2, force=True)
+
     def _navigate_to_folder(self, value, record_history=True):
-        requested = str(value or "")
+        requested = str(value or self._root())
         source = self._source
         target = ""
         if requested:
@@ -1459,28 +1588,22 @@ class JsonService(QObject):
             target = str(candidate.resolve())
         if target == self._current_folder or (target and self._same_path(target, self._current_folder)):
             return True
-        if record_history:
-            self._back_history.append(self._current_folder)
-            self._forward_history.clear()
+        self._remember_navigation()
         source_changed = bool(target) and source != self._source
+        if record_history and not source_changed:
+            self._back_history.append(self._current_folder)
+            self._back_history = self._back_history[-NAVIGATION_LIMIT:]
+            self._forward_history.clear()
         self._source = source
-        self._current_folder = target
+        self._restore_navigation(target, category=source_changed)
         self._refresh_folder_model(force=True)
         self._selected_group = -1
         self._management_status = ""
-        self._clear_explorer_selection(emit=False)
-        self.clearSelection()
-        had_search = bool(self._search_query)
-        if had_search:
-            self._search_query = ""
         if source_changed:
             self._load_source(force=False)
             self._restart_thumbnail_warm_for_current_source()
         else:
-            if had_search:
-                self._apply_search_filter()
-            else:
-                self._refresh_explorer()
+            self._apply_search_filter()
         self.changed.emit()
         return True
 
@@ -1512,12 +1635,9 @@ class JsonService(QObject):
 
     @Slot()
     def goUp(self):
-        if not self._current_folder:
+        if not self.canGoUp:
             return
-        if self._same_path(self._current_folder, self._root()):
-            self._navigate_to_folder("", record_history=True)
-        else:
-            self._navigate_to_folder(str(Path(self._current_folder).parent), record_history=True)
+        self._navigate_to_folder(str(Path(self._current_folder).parent), record_history=True)
 
     @Slot(int, bool, bool)
     def selectExplorerEntry(self, index, control, shift):
@@ -2009,6 +2129,16 @@ class JsonService(QObject):
             return result
 
         self._current_folder = remap(self._current_folder)
+        remapped_states = OrderedDict()
+        for (consumer, source_index, _), state in self._navigation_states.items():
+            state = dict(state, folder=remap(state["folder"]), selected=remap(state["selected"]),
+                         anchor=remap(state["anchor"]), selection=[remap(value) for value in state["selection"]])
+            remapped_states[(consumer, source_index, self._fast_path_key(state["folder"]))] = state
+        self._navigation_states = remapped_states
+        for state in self._category_states.values():
+            state["folder"] = remap(state["folder"])
+            state["back"] = [remap(value) for value in state["back"]]
+            state["forward"] = [remap(value) for value in state["forward"]]
         self._back_history = [remap(value) for value in self._back_history]
         self._forward_history = [remap(value) for value in self._forward_history]
         self._clipboard_paths = [remap(value) for value in self._clipboard_paths]
@@ -2196,13 +2326,27 @@ class JsonService(QObject):
                 for source, is_folder, display_name, source_index in deleted
             )
 
+        for key, state in list(self._navigation_states.items()):
+            if was_deleted(state["folder"]):
+                del self._navigation_states[key]
+                continue
+            state["selection"] = [value for value in state["selection"] if not was_deleted(value)]
+            for field in ("selected", "anchor"):
+                if was_deleted(state[field]):
+                    state[field] = ""
+        for (_, source_index), state in self._category_states.items():
+            if was_deleted(state["folder"]):
+                state["folder"] = str(self._source_roots()[source_index])
+            for field in ("back", "forward"):
+                state[field] = [value for value in state[field] if not was_deleted(value)]
+
         if was_deleted(self._current_folder):
             deleted_parent = next(
                 source.parent for source, is_folder, display_name, source_index in deleted
                 if self._same_path(self._current_folder, source)
                 or (is_folder and self._path_is_within(self._current_folder, source))
             )
-            self._current_folder = str(deleted_parent.resolve())
+            self._restore_navigation(str(deleted_parent.resolve()))
         self._back_history = [path for path in self._back_history if not was_deleted(path)]
         self._forward_history = [path for path in self._forward_history if not was_deleted(path)]
         self._clipboard_paths = [path for path in self._clipboard_paths if not was_deleted(path)]
@@ -2439,12 +2583,16 @@ class JsonService(QObject):
                 self.changed.emit()
             return
         selected = self._selected_path
-        if selected and any(self._same_path(row.get("path"), selected) for row in self._visible_file_rows):
-            self.changed.emit()
-        elif self._visible_file_rows:
-            self._select_path(str(self._visible_file_rows[0]["path"]), log=False, queue_preview=False)
+        if (selected and Path(selected).is_file()
+                and self._preview_key(selected) in self._explorer_json_keys):
+            self._select_path(selected, log=False, queue_preview=False)
+        elif self._navigation_initial_selection and self._explorer_json_keys:
+            first = next(row for row in self._explorer_rows if row.get("entryKind") == "json")
+            self._select_path(first["path"], log=False, queue_preview=False)
         else:
-            self.clearSelection()
+            self._clear_selection()
+        if self._explorer_rows:
+            self._navigation_initial_selection = False
 
     @staticmethod
     def _same_path(left, right):

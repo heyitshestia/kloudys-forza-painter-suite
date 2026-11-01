@@ -1,6 +1,8 @@
 import QtQuick 6.7
 
 QtObject {
+    readonly property string workspaceConsoleComponentFile: ""
+    readonly property string createWorkbenchComponentFile: ""
     readonly property var chromeMetrics: ({dashboardNavigation: 1, wideSidebar: 104, compactSidebar: 104, titleHeight: 36, compactTitleHeight: 32, windowButtonsHeight: 32, sidebarHeaderHeight: 84, compactSidebarHeaderHeight: 84, workspaceLeftInset: 20, workspaceRightInset: 20})
     readonly property string titleBarContentComponentFile: "../themes/apex/ApexTitleContent.qml"
     readonly property string controlSurfaceComponentFile: "../themes/apex/ApexControlSurface.qml"

@@ -1,5 +1,51 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2
+
+### One Workspace
+
+- KFPS, the Vinyl Editor and Livery Studio now share one window. Open a tool when you need it, switch tabs, and come back to the same document, selection and undo history.
+- The separate Editor and Studio executables are staying. Your Chrome preferences still work too; Chrome opens separately rather than inside the KFPS window.
+- Place on car sends your Editor artwork to Studio. Editing a placement's source opens a separate Source tab, so it does not replace the vinyl you were already working on.
+- Source edits now show where they are going and whether changes have been returned. Studio notices returned artwork, but you still decide when and where to apply it.
+- Closing tabs or the whole workspace checks for unsaved work. Cancelling leaves your documents open. Duplicate native Studio windows cannot take ownership of the same session.
+
+### Less Waiting, Less Background Work
+
+- Removed the fixed five-second wait from normal KFPS startup and moved loading behind the window. Xbox and PS2 keep their themed intros.
+- Editor and Studio load on demand. Inactive tabs pause rendering and gradually release disposable drawing caches, while keeping your artwork and history.
+- Preview and Studio reuse verified prepared-car files on disk. Returning to a car or reopening a livery avoids repeating work when its inputs have not changed.
+- Reduced repeated work during first-time car preparation, and reuse valid saved preview atlases. New cars still need conversion; loading time depends on the car and your machine.
+
+### Outputs And Liveries
+
+- Replaced the four Outputs folder tiles with compact Generated, Editor exports, Game exports and Library tabs.
+- Each category remembers its folder, search, sorting, scroll position and selection. Background scans and imports no longer move you away from what you were browsing.
+- Edit vinyl, Place on car, Export to game and Show file now use consistent actions. Narrow windows can switch between the gallery and transfer controls without losing their place.
+- Cleaned up the Liveries browser with separate in-game saves and packages, search, car filters, sorting and clearer details for the selected entry.
+- Added Open in Studio below Open 3D Preview for livery packages. It opens the package's editable artwork without changing the original file. In-game save entries remain preview/export inputs.
+- Native Studio can prepare the package's car after checking unsaved work. In Chrome, select the matching car first. Package opening does not import body paint or materials.
+
+### Finding Things And Picking Up Again
+
+- Added command search for the current tool and common KFPS settings, with your configured shortcuts and explanations for unavailable actions.
+- Added a background-task view for ongoing work, results and supported stop/retry actions. Completing a task does not interrupt your current page.
+- Added optional Reopen previous workspace in Settings. It starts off disabled, loads saved tools when selected, and leaves unsaved work to the existing Recovery interface.
+- Existing projects, themes, custom shortcuts and folder locations carry over. Exporting artwork no longer gets mistaken for saving the editable project.
+
+### Themes And Polish
+
+- Added Redline: a new free theme with its own category navigation, bold red selections, a dedicated Create layout and separate Library and System sections.
+- Brought every theme into the connected workspace, including the newer Apex Vector and 2049 layouts. Reduced Motion and inactive-window behavior remain respected.
+- Improved Night City text readability while keeping its font, and fixed the missing icon on Open in Studio.
+- Extended local diagnostics for startup, tab ownership, handoffs, cache reuse and recovery. Reports can identify the relevant component versions without including artwork or project names in the new lifecycle records.
+
+### Download And Compatibility
+
+- A new KFPS-3.2-bundled.zip is available, alongside the normal signed updater. All three application launchers are included.
+- Save your work and close KFPS, Editor and Studio before updating, including separate Chrome windows connected to Studio.
+- Studio's full-design export remains experimental. This update does not change the supported games, native mask behavior or existing game-write checks.
+
 ## 3.1.126
 
 ### 2049

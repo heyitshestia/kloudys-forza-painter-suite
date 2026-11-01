@@ -1442,6 +1442,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     raise ValueError("Truncated Studio source return request.")
                 helper = _studio_source_helper()
                 result = helper.editor_return(paths.preferences.parent, helper.model.decode_json(raw))
+                returned = getattr(self.server, "workspace_source_returned", None)
+                if returned is not None:
+                    returned()
                 self._send_json(result)
             except (OSError, ValueError, RuntimeError, RecursionError) as exc:
                 self._send_json({"error": str(exc)}, status=getattr(exc, "status", 400))
@@ -1468,7 +1471,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 bridge = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(bridge)
                 request = bridge.validate_request(bridge.model.decode_json(body))
-                result = bridge.launch_from_host(ROOT, request, open_window=True)
+                workspace_open = getattr(self.server, "workspace_studio_open", None)
+                result = (workspace_open(request) if workspace_open is not None
+                          else bridge.launch_from_host(ROOT, request, open_window=True))
                 self._send_json(result)
             except (OSError, ValueError, RuntimeError, TimeoutError, RecursionError) as exc:
                 self._send_json({"error": str(exc)}, status=400)

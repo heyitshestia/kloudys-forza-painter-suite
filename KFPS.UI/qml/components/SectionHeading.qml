@@ -13,7 +13,7 @@ Column {
         width: parent.width
         color: Theme.technicalTypographyEnabled ? Theme.signalPrimary : Theme.text
         font.family: Theme.displayFamily
-        font.pixelSize: Theme.px(Theme.classicMode ? 17 : 21)
+        font.pixelSize: Theme.textSize(Theme.classicMode ? 17 : 21)
         font.weight: Theme.classicMode ? Font.Bold : Font.DemiBold
         font.capitalization: Theme.technicalTypographyEnabled ? Font.AllUppercase : Font.MixedCase
         wrapMode: Text.Wrap
@@ -27,7 +27,8 @@ Column {
         color: Theme.technicalTypographyEnabled ? Theme.signalSecondary : Theme.muted
         opacity: Theme.technicalTypographyEnabled ? 0.78 : 1.0
         font.family: Theme.fontFamily
-        font.pixelSize: Theme.px(11.5)
+        font.pixelSize: Theme.textSize(11.5)
+        font.weight: Theme.bodyWeight
         wrapMode: Text.Wrap
         lineHeight: 1.28
     }

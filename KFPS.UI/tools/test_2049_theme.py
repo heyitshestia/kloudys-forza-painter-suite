@@ -372,7 +372,9 @@ def install(app, window, controller, community, settings, jsons, app_args):
             check(settings.theme == "Night Blossom", "keyboard selects existing theme")
             combo.forceActiveFocus()
             QTest.keyClick(window, Qt.Key_Space)
-            QTest.keyClick(window, Qt.Key_End)
+            QTest.keyClick(window, Qt.Key_Home)
+            for _ in range(context.contextProperty("supporterService").availableThemes.index("2049")):
+                QTest.keyClick(window, Qt.Key_Down)
             QTest.keyClick(window, Qt.Key_Return)
             QTest.qWait(400)
             check(settings.theme == "2049", "keyboard selects 2049")
@@ -392,6 +394,9 @@ def install(app, window, controller, community, settings, jsons, app_args):
                 check((find("ArchiveBackdrop") is not None) == (preset.name == "2049"), "theme unload/reload " + preset.name)
                 wrapper = find("ThemedPageTransition")
                 check(wrapper.property("contentOffsetX") == 0 and wrapper.property("contentOffsetY") == 0, "no offset after switching " + preset.name)
+            settings.theme = "2049"
+            QTest.qWait(200)
+            check(find("ArchiveBackdrop") is not None, "2049 restored after catalog traversal")
             check(find("ApplicationWorkspace").isVisible(), "switch back releases previous dashboard")
             capture("settings-return")
             # Only the offscreen platform receives simulated activation.
@@ -409,8 +414,9 @@ def install(app, window, controller, community, settings, jsons, app_args):
             else:
                 settings.theme = "Night Blossom"
                 QTest.qWait(150)
-                app.sendEvent(window, QEvent(QEvent.WindowActivate))
+                window.requestActivate()
                 QTest.qWait(120)
+                check(window.isActive(), "offscreen window activated for motion")
                 ticker = find("AnnouncementTicker")
                 scroll = window.findChild(QObject, "TickerScrollAnimation")
                 restart = window.findChild(QObject, "TickerRestartTimer")
@@ -430,8 +436,10 @@ def install(app, window, controller, community, settings, jsons, app_args):
                         settings.reducedMotion = False
                     else:
                         ticker.setProperty(preference, preference == "visible")
-                    QTest.qWait(120)
-                    check(scroll.property("running"), "ticker resumes " + preference)
+                    deadline = time.perf_counter() + 2
+                    while not scroll.property("running") and time.perf_counter() < deadline:
+                        QTest.qWait(25)
+                    check(ticker.property("motionAllowed") and scroll.property("running"), "ticker resumes " + preference)
                 settings.theme = "2049"
                 QTest.qWait(120)
                 foreground = find("ArchiveForeground")
