@@ -185,6 +185,10 @@ it.each([
   const created=await call('/v1/artworks','POST',upload(41,{classification:original}),token);
   expect(created.status,await created.clone().text()).toBe(201);
   const id=(await created.json() as any).artwork.id;
+  // This case needs prior publication evidence, not a zero-duration clock tick.
+  const publication=await env.DB.prepare(`UPDATE vinyl_publications
+    SET committed_at='2020-01-01T00:00:00.000Z' WHERE artwork_id=?1 AND closed_at IS NULL`).bind(id).run();
+  expect(publication.meta.changes).toBe(1);
   const oldRevision=await env.DB.prepare('SELECT design_key FROM artwork_revisions WHERE artwork_id=?1').bind(id).first<any>();
   expect((await call(`/v1/artworks/${id}`,'DELETE',undefined,token)).status).toBe(200);
   const restored=await call('/v1/artworks','POST',upload(41,{classification}),token,
