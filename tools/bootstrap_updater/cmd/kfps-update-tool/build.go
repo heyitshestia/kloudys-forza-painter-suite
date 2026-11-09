@@ -206,6 +206,9 @@ func buildPayload(arguments []string) error {
 	if err := writeEditorBaseline(appSnapshot, pythonSnapshot); err != nil {
 		return err
 	}
+	if err := validateGarageSupport(appSnapshot, pythonSnapshot); err != nil {
+		return err
+	}
 	applicationFiles, err := walkedApplicationFiles(appSnapshot)
 	if err != nil {
 		return err

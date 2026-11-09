@@ -1,5 +1,7 @@
 __pycache__/
 *.py[cod]
+!tools/garage-reader/vendor/**/*.pyd
+!tools/garage-reader/vendor/*.pyd
 *$py.class
 
 __unfinished__/

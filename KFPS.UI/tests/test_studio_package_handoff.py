@@ -80,6 +80,11 @@ class PackageHandoffTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        for target, value in (("LAB_ROOT", self.root), ("CONTROL", self.root / "runs/control"),
+                              ("WORKSPACE", self.root / "runs/workspace")):
+            isolated = patch.object(bridge.launcher, target, value)
+            isolated.start()
+            self.addCleanup(isolated.stop)
         self.package = self.root / "fixture.kfpslivery"
         self.payload = make_package(self.package)
         for target, value in (("LAB_ROOT", self.root), ("HANDOFF_ROOT", self.root / "runs/inbox")):
@@ -133,6 +138,15 @@ class PackageHandoffTests(unittest.TestCase):
         with patch.object(package_handoff, "MAX_PACKAGE_BYTES", 1), self.assertRaises(ValueError):
             bridge.request_for_package(self.package)
 
+    def test_startup_permission_roundtrip_is_optional_and_session_bound(self):
+        request = bridge.request_for_package(self.package)
+        url = "http://127.0.0.1:1234/" + "a" * 43 + "/"
+        identifier = bridge.stage_handoff(request, startup_session=url)
+        self.assertEqual(bridge.read_layout_handoff(identifier), dict(request, startup_session=url))
+        self.assertNotIn("startup_session", request)
+        with self.assertRaises(ValueError):
+            bridge.stage_handoff(request, startup_session="https://example.com/")
+
     def test_layout_validator_retains_masks_metadata_and_rejects_lossy_inputs(self):
         value = bridge.request_for_package(self.package)
         masked = value["layout"]["vinyls"][0]["shapes"][0]
@@ -164,7 +178,8 @@ class PackageHandoffTests(unittest.TestCase):
 
     def test_package_launch_requires_capability_and_native_url_is_allowlisted(self):
         request = bridge.request_for_package(self.package)
-        ready = {"url": "http://127.0.0.1:1234/" + "a" * 43 + "/", "host_layout_handoff": True, "reused": False}
+        ready = {"url": "http://127.0.0.1:1234/" + "a" * 43 + "/", "host_layout_handoff": True,
+                 "reused": False, "chrome_exposed": False}
         with patch.object(bridge.launcher, "ensure_ready", return_value=ready):
             result = bridge.launch_from_host(ROOT, request)
         self.assertTrue(result["transferred"])
@@ -218,7 +233,7 @@ class PackageHandoffTests(unittest.TestCase):
         request = bridge.request_for_package(self.package)
         for chrome, vehicle in ((True, request["layout"]["vehicle"]), (False, {"car_id": 99, "model_code": "OTHER"})):
             ready = {"url": "http://127.0.0.1:1234/" + "a" * 43 + "/", "host_layout_handoff": True,
-                     "vehicle": vehicle, "reused": False}
+                     "vehicle": vehicle, "reused": False, "chrome_exposed": False}
             with self.subTest(chrome=chrome), patch.object(bridge.launcher, "ensure_ready", return_value=ready), \
                     patch.object(bridge.launcher, "window_preflight"), \
                     patch.object(bridge.launcher, "_window_module", return_value=SimpleNamespace(use_chrome=lambda _: chrome)), \

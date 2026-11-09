@@ -20,3 +20,5 @@
 /tools/livery-studio/** text eol=lf
 /tools/livery-studio/runs/component-converter/converter/publish/Kfps.LiveryLab.Converter.exe -text
 /tools/livery-studio/tests export-ignore
+# Preserve the reviewed worker inventory and upstream package RECORD hashes.
+/tools/garage-reader/** -text

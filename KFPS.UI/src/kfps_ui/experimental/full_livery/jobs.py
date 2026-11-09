@@ -761,6 +761,11 @@ def prepare_mesh(paths: JobPaths, payload: dict[str, Any], cancel_event, progres
     return prepare_studio_mesh(paths, payload, cancel_event, progress=progress)
 
 
+def prepare_garage(paths: JobPaths, payload: dict[str, Any], cancel_event, progress=None) -> dict[str, Any]:
+    from .operations import prepare_garage as prepare_studio_garage
+    return prepare_studio_garage(paths, payload, cancel_event, progress=progress)
+
+
 def clear_cache(paths: JobPaths, _payload: dict[str, Any], _cancel_event) -> dict[str, int]:
     paths.cache.relative_to(paths.root)
     if paths.cache.name != f"v{CACHE_REVISION}":
@@ -794,6 +799,7 @@ OPERATIONS = {
     "export-package": export_package,
     "install-package": install_package,
     "prepare-mesh": prepare_mesh,
+    "prepare-garage": prepare_garage,
     "clear-cache": clear_cache,
 }
 
@@ -802,6 +808,6 @@ def execute_operation(request: dict[str, Any], cancel_event, progress=None) -> d
     paths = JobPaths.from_request(request)
     paths.ensure()
     operation = str(request["operation"])
-    if operation == "prepare-mesh":
-        return prepare_mesh(paths, dict(request.get("payload") or {}), cancel_event, progress=progress)
+    if operation in ("prepare-mesh", "prepare-garage"):
+        return OPERATIONS[operation](paths, dict(request.get("payload") or {}), cancel_event, progress=progress)
     return OPERATIONS[operation](paths, dict(request.get("payload") or {}), cancel_event)

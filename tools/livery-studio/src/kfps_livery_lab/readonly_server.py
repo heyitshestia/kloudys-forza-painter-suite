@@ -19,7 +19,7 @@ from .file_io import io_path
 
 WEB_FILES = ('readonly.html', 'readonly.mjs', 'readonly.css', 'viewer.css', 'livery-scene.js',
              'surface-math.mjs', 'native-material.mjs', 'native-texture-binding.mjs', 'preview-quality.mjs',
-             'wheel-model.mjs', 'inspection-tools.mjs', 'component-model.mjs', 'layout-model.mjs', 'mirror-links.mjs',
+             'wheel-model.mjs', 'inspection-tools.mjs', 'component-model.mjs', 'garage-build.mjs', 'layout-model.mjs', 'mirror-links.mjs',
              'icons.js', 'LICENSE.lucide', 'theme-adapter.mjs', 'i18n.mjs',
              'locales/en.mjs', 'locales/ko.mjs', 'locales/ja.mjs')
 VENDOR_FILES = ('three/build/three.module.min.js', 'three/build/three.core.min.js',

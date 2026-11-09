@@ -12,8 +12,10 @@ original = server.LiveryLabServer
 
 def isolated_server(prepared, workspace, kfps_root, **kwargs):
     from tools.kfps_release_announcement import ReleaseAnnouncement
+    from kfps_livery_lab import host_bridge
 
     session = Path(workspace) / "test-session"
+    host_bridge.HANDOFF_ROOT = Path(workspace) / "test-handoffs"
     return original(prepared, workspace, kfps_root, **kwargs,
                     session_data_root=session, activity_counter=False,
                     release_announcement=ReleaseAnnouncement(session))

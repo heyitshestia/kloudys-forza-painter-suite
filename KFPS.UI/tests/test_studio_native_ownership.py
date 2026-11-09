@@ -46,7 +46,7 @@ class NativeOwnershipTests(unittest.TestCase):
         lock = studio_window.acquire_native_owner(self.url)
         self.addCleanup(lock.unlock)
         ready = {"url": self.url, "reused": True, "host_layout_handoff": True,
-                 "vehicle": {"car_id": 1, "model_code": "FIRST"}}
+                 "vehicle": {"car_id": 1, "model_code": "FIRST"}, "chrome_exposed": False}
         request = {"layout": {"vehicle": {"car_id": 2, "model_code": "SECOND"}}}
         with patch.object(host_bridge.launcher, "_window_module", return_value=studio_window), \
                 patch.object(studio_window, "use_chrome", return_value=False):

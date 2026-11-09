@@ -3,8 +3,41 @@
 const integer = value => typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
 const flag = value => typeof value === 'boolean' ? value : null;
 
-export function componentCatalog(values, fitment) {
+export function componentCatalog(values, fitment, names) {
   const groups = new Map(), duplicates = [];
+  values=Array.isArray(values)?[...values]:[];
+  const fixed=names?.same_build_verified===true&&typeof names?.source==='string'&&names.source.trim()&&Array.isArray(names.fixed_stock_options)&&names.fixed_stock_options.length<=7?names.fixed_stock_options:[];
+  const fixedFamilies=['CarBody','ChassisStiffness','FrontBumper','Hood','RearBumper','RearWing','SideSkirts'];
+  const declaredFamilies=new Set(values.map(row=>row?.part_type));
+  for(const row of fixed) {
+    if(!fixedFamilies.includes(row?.part_type)||declaredFamilies.has(row.part_type)||fixed.filter(r=>r?.part_type===row.part_type).length!==1||
+      ![row.id,row.body_option_id,row.body_parent_id].every(id=>integer(id)!==null&&id>0&&id<2147483648)||
+      row.source_kind!=='database-fixed-stock'||row.fixed_stock!==true||row.stock!==true||row.supported!==true||row.empty!==true||row.declared_instance_count!==0)continue;
+    const parent=['CarBody','RearWing'].includes(row.part_type)?-1:row.body_parent_id;
+    if(row.car_body_id!==parent||row.parent_upgrade_id!==parent||(row.part_type==='CarBody'&&row.id!==row.body_option_id))continue;
+    values.push(row);
+  }
+  const virtual=typeof names?.source==='string'&&names.source.trim()&&Array.isArray(names.non_visual_options)&&names.non_visual_options.length<=128?names.non_visual_options:[];
+  const existing=new Set(values.filter(row=>row?.part_type==='ChassisStiffness').map(row=>row.id)),counts=new Map();
+  for(const row of virtual)if(integer(row?.id)!==null)counts.set(row.id,(counts.get(row.id)||0)+1);
+  for(const row of virtual) {
+    if(row?.part_type!=='ChassisStiffness'||integer(row.id)===null||row.id<=0||row.id>=2147483648||existing.has(row.id)||counts.get(row.id)!==1||
+      row.source_kind!=='database-nonvisual'||row.requires_graphics!==false||row.supported!==true||row.empty!==true||row.declared_instance_count!==0||
+      integer(row.car_body_id)===null||row.car_body_id<=0||row.car_body_id>=2147483648||row.parent_upgrade_id!==row.car_body_id)continue;
+    values.push(row);
+  }
+  const labels=new Map(),ambiguousLabels=new Set();
+  if(typeof names?.source==='string'&&names.source.trim()&&Array.isArray(names.names)&&names.names.length<=4096) {
+    for(const row of names.names) {
+      if(typeof row?.part_type!=='string'||integer(row.id)===null)continue;
+      const key=`${row.part_type}:${row.id}`;
+      if(labels.has(key))ambiguousLabels.add(key);
+      const clean=value=>typeof value==='string'&&value.trim()&&value.length<=240&&!/[\x00-\x1f]/.test(value)?value.trim():'';
+      labels.set(key,{manufacturer:clean(row.manufacturer),product:clean(row.product),category:clean(row.category),
+        name_source:names.source,name_reference_only:names.reference_only===true});
+    }
+    for(const key of ambiguousLabels)labels.delete(key);
+  }
   for (const value of Array.isArray(values) ? values : []) {
     const partType = typeof value?.part_type === 'string' ? value.part_type.trim() : '';
     const id = integer(value?.id);
@@ -17,8 +50,10 @@ export function componentCatalog(values, fitment) {
       level: integer(value.level), stock: value.stock === true,
       car_body_id: integer(value.car_body_id), parent_is_stock: flag(value.parent_is_stock),
       baseline: value.baseline === true,
+      fixed_stock: value.fixed_stock === true && value.source_kind === 'database-fixed-stock',
       available: value.supported === false || value.available === false ? false : flag(value.supported ?? value.available),
       empty: flag(value.empty), declared_instance_count: integer(value.declared_instance_count),
+      ...labels.get(`${partType}:${id}`),
       reason: [typeof value.reason === 'string' ? value.reason : '', ...(Array.isArray(value.issues) ? value.issues.filter(issue => typeof issue === 'string') : [])].filter(Boolean).join(' '),
     });
   }
@@ -69,8 +104,14 @@ export function componentMeshVisible(metadata, selection) {
 }
 
 export function componentLabel(option) {
-  const kind = option.stock ? 'Stock' : option.level !== null ? `Level ${option.level}` : 'Option';
-  return `${kind} (ID ${option.id})${option.empty === true ? ' - empty' : ''}${option.available === false ? ' - unavailable' : ''}`;
+  const kind = componentProductLabel(option) || (option.stock ? 'Stock' : option.level !== null ? `Level ${option.level}` : 'Option');
+  return `${kind} (ID ${option.id})${option.empty === true && !option.fixed_stock ? ' - empty' : ''}${option.available === false ? ' - unavailable' : ''}`;
+}
+
+export function componentProductLabel(option) {
+  const manufacturer=option.manufacturer||'',product=option.product||'';
+  return manufacturer&&product&&!product.toLocaleLowerCase().includes(manufacturer.toLocaleLowerCase())
+    ? `${manufacturer} / ${product}` : product||manufacturer;
 }
 
 export function parentEvidence(option, catalog) {
@@ -113,6 +154,14 @@ export function validateVehicleParts(value,catalog) {
   if(value===undefined)return initialComponentSelection(catalog);
   if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Invalid vehicle_parts map.');
   const selection=initialComponentSelection(catalog);
+  // Older projects store overrides, not every slot. Establish compatible body
+  // defaults first; explicitly saved selections below must never be replaced.
+  if(Object.hasOwn(value,'CarBody')) {
+    const id=value.CarBody,options=catalog.groups.get('CarBody');
+    if(!options||(id!==null&&(integer(id)===null||!options.some(option=>option.id===id&&option.available!==false))))throw Error('Unavailable component selection: CarBody.');
+    selection.set('CarBody',id);
+    reconcileBodySelection(catalog,selection);
+  }
   for(const [partType,id] of Object.entries(value)) {
     const options=catalog.groups.get(partType);
     if(!options|| (id!==null&&(integer(id)===null||!options.some(option=>option.id===id&&option.available!==false))))throw Error(`Unavailable component selection: ${partType}.`);

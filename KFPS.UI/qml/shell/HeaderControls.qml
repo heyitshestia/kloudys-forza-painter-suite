@@ -8,6 +8,8 @@ GlassPanel {
 
     property bool compact: false
     property bool cursorOn: screenshotMode || Theme.reducedMotion
+    readonly property string displayPageTitle: appController.pageTitle
+    readonly property string displayPageSubtitle: appController.pageSubtitle
 
     Timer {
         interval: 540
@@ -57,8 +59,8 @@ GlassPanel {
             Text {
                 Layout.fillWidth: true
                 text: Theme.terminalMode
-                      ? "C:\\KFPS> " + appController.pageTitle.toUpperCase()
-                      : appController.pageTitle
+                      ? "C:\\KFPS> " + root.displayPageTitle.toUpperCase()
+                      : root.displayPageTitle
                 color: Theme.primaryBright
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(root.compact ? 12.5 : 14.5)
@@ -69,8 +71,8 @@ GlassPanel {
             Text {
                 Layout.fillWidth: true
                 text: Theme.terminalMode
-                      ? appController.pageSubtitle + (root.cursorOn ? " _" : "  ")
-                      : appController.pageSubtitle
+                      ? root.displayPageSubtitle + (root.cursorOn ? " _" : "  ")
+                      : root.displayPageSubtitle
                 color: Theme.muted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.px(root.compact ? 9.4 : 10.3)

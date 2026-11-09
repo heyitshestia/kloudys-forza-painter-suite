@@ -43,6 +43,7 @@ from kfps_ui.desktop_service import DesktopService
 from kfps_ui.development_harness import install_development_harness
 from kfps_ui.editor_service import EditorService
 from kfps_ui.full_livery_service import FullLiveryService
+from kfps_ui.garage_service import GarageService
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.help_service import HelpService
 from kfps_ui.json_service import JsonService
@@ -364,6 +365,7 @@ def main(*, workspace_runtime=None):
     supporter.changed.connect(enforce_available_theme)
     cgroup_library = CGroupLibraryService(paths, preview, jsons, logs, supporter=supporter, demo=args.demo)
     full_livery = FullLiveryService(paths, logs, supporter=supporter, demo=args.demo)
+    garage = GarageService(paths, logs, full_livery)
     if community_gallery is not None:
         community_gallery.liveryDownloaded.connect(full_livery.refreshPackages)
     generation = GenerationService(paths, logs)
@@ -384,6 +386,7 @@ def main(*, workspace_runtime=None):
     reports.bind_support_context({
         "transfer": transfer, "generator": generation, "editor": editor,
         "liveries": full_livery, "offline": cgroup_library, "outputs": jsons,
+        "garage": garage,
         "community": community, "updater": updates, "runtime": runtime,
         "upscaler": upscaler,
         "background_remover": background_remover,
@@ -394,7 +397,7 @@ def main(*, workspace_runtime=None):
     shutdown_order = [
         startup_sequence, community_preview, community_gallery,
         upscaler, background_remover, reports, editor, transfer, generation,
-        full_livery, cgroup_library, community, supporter, jsons, runtime,
+        garage, full_livery, cgroup_library, community, supporter, jsons, runtime,
         backup, changelog, announcements, release_announcement, activity,
         version, logs,
     ]
@@ -422,6 +425,13 @@ def main(*, workspace_runtime=None):
                 print(f"KFPS shutdown warning ({type(owner).__name__}): {exc}", file=sys.stderr)
         for service in shutdown_order:
             if service is logs:
+                if workspace_controller is not None:
+                    try:
+                        if not workspace_controller.shutdown_studio_backends():
+                            shutdown_failed = True
+                    except Exception as exc:
+                        shutdown_failed = True
+                        record(logs, 'studio.backend', 'failed', stage='cleanup', error=exc)
                 record(logs, "app.shutdown", "failed" if shutdown_failed else "completed", op=shutdown_diagnostic)
             close = getattr(service, "close", None)
             if callable(close):
@@ -456,6 +466,7 @@ def main(*, workspace_runtime=None):
         "communityService": community,
         "cgroupLibraryService": cgroup_library,
         "fullLiveryService": full_livery,
+        "garageService": garage,
         "generationService": generation,
         "transferService": transfer,
         "editorService": editor,

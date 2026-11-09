@@ -19,6 +19,7 @@ OPERATIONS = {
     "export-package",
     "install-package",
     "prepare-mesh",
+    "prepare-garage",
     "clear-cache",
 }
 

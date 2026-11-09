@@ -59,6 +59,9 @@ const escapeRegex=text=>text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 // Bounded exact templates for trusted model/host diagnostics only. Substituted
 // names and paths are copied verbatim; unknown diagnostics stay intact.
 const diagnosticKeys=new Set([
+  'Garage is missing {0}. Refresh Garage before opening this build.',
+  'Unavailable Garage component: {0} (ID {1}). No stock substitute was applied.',
+  'The car model does not declare Garage component {0} (ID {1}).',
   'Invalid {0}.','{0} must be between {1} and {2}.','Invalid {0}: {1}.',
   'Texture load failed ({0}).','Car mesh load failed ({0}).','Request failed (HTTP {0}).',
   'Unknown component type: {0}','Unavailable component option: {0}',

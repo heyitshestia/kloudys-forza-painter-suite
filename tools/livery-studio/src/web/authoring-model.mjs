@@ -90,6 +90,13 @@ export function removeSelection(project,ids) {
   const removed=new Set(rows.map(p=>p.id)),placements=project.placements.filter(p=>!removed.has(p.id)),used=new Set(placements.map(p=>p.vinylId));
   return pruneAuthoring({...project,placements,vinyls:project.vinyls.filter(v=>used.has(v.id))});
 }
+export function removeVinylSource(project,id) {
+  identifier(id,'source ID');
+  if(!project.vinyls.some(v=>v.id===id))throw Error('Vinyl source is no longer available.');
+  unlocked(project,project.placements.filter(p=>p.vinylId===id).map(p=>p.id));
+  return pruneAuthoring({...project,vinyls:project.vinyls.filter(v=>v.id!==id),
+    placements:project.placements.filter(p=>p.vinylId!==id)});
+}
 function boundsOf(rows,getBounds) {
   if(!rows.length)throw Error('Select at least one placement.');
   if(typeof getBounds!=='function')throw Error('Artwork bounds are required.');

@@ -257,11 +257,20 @@ def select_account(roots: Iterable[Path], *, destination: Path | None = None,
     return next(iter(candidates.values()))
 
 
-def resolve_creator(account: SaveAccount) -> CreatorIdentity:
+def resolve_creator(account: SaveAccount, *, header_paths: Iterable[Path] | None = None) -> CreatorIdentity:
+    """Resolve the newest same-account creator using internal header dates.
+
+    Optional caller-enumerated paths must be complete: invalid/unreadable evidence
+    fails closed and iterator errors (including cancellation) propagate. Default
+    import discovery retains its existing best-effort header filtering.
+    """
     matches: list[tuple[datetime, str, Path, bytes]] = []
-    for path in account.containers.glob("LayerGroup_*/header"):
+    paths = account.containers.glob("LayerGroup_*/header") if header_paths is None else header_paths
+    for path in paths:
         try:
             if path.parent.resolve().parent != account.containers or path.resolve().parent != path.parent.resolve():
+                if header_paths is not None:
+                    raise FH6IdentityError("FH6 creator metadata is redirected.")
                 continue
             raw = _read_bounded(path, 65536)
             header = parse_vinyl_header(raw)
@@ -270,6 +279,8 @@ def resolve_creator(account: SaveAccount) -> CreatorIdentity:
                     and header.asset_id != bytes(16) and 0 < header.layer_count <= 3000):
                 matches.append((header.created, header.creator, path, raw))
         except (OSError, ValueError):
+            if header_paths is not None:
+                raise
             continue
     if not matches:
         raise FH6CreatorNameNotFound("No verified local FH6 creator name was found. " + SAVE_ONE)

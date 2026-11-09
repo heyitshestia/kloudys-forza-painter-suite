@@ -85,7 +85,7 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertIn('"support": "Support KFPS"', controller)
         self.assertIn('if (page === "support") return "heart"', self.read("shell/HeaderControls.qml"))
         self.assertNotIn('if (!supporterService.unlocked)', sidebar)
-        self.assertIn('{ page: "liveries", label: "Liveries", icon: "monitor" }', sidebar)
+        self.assertIn('{ page: "liveries", label: "Garage", icon: "monitor" }', sidebar)
         self.assertNotIn('supporterService.unlocked || demoMode', sidebar)
         self.assertIn('{ page: "support", label: "Support", icon: "heart" }', sidebar)
         self.assertNotIn('supporterService.unlocked && appController.currentPage === "support"', main)

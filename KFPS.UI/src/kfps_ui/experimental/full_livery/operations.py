@@ -129,3 +129,40 @@ def clear_studio_cache(app_root):
         return {'removed_files': 0, 'removed_bytes': 0}
     with module.installation_cache_lease(app_root, create=True):
         return module.prune_cache(app_root, clear=True)
+
+
+def prepare_garage(paths, payload, cancel_event, progress=None):
+    from ...garage_index import validate_vehicle_identity, validate_body_snapshot, resolve_body_vehicle, read_json
+    from tools.livery.vehicle_assets import sha256_file
+    started = time.perf_counter()
+    identity = validate_vehicle_identity(payload.get('identity'))
+    stock = payload.get('stock', False)
+    if type(stock) is not bool or (stock and 'garage_build' in payload):
+        raise ValueError('Stock preview cannot include a fitted build.')
+    snapshot = None if stock else validate_body_snapshot(payload.get('garage_build'))
+    game = str(payload.get('game_folder') or '')
+    asset = resolve_body_vehicle(game, paths.vehicle_index, identity['car_id'],
+                                model_code=identity['model_code'], cancel_event=cancel_event)
+    adapter = studio_module(paths.app_root, 'readonly_prepare')
+    if cancel_event.is_set():
+        raise InterruptedError('Garage build preview cancelled')
+    result = (adapter.prepare_stock(paths.app_root, Path(game), asset,
+                                    cancel_event=cancel_event, progress=progress) if stock else
+              adapter.prepare_garage(paths.app_root, Path(game), asset, snapshot,
+                                     cancel_event=cancel_event, progress=progress))
+    if cancel_event.is_set():
+        raise InterruptedError('Garage build preview cancelled')
+    descriptor = Path(result['readonly_descriptor'])
+    if sha256_file(descriptor) != result.get('readonly_descriptor_sha256'):
+        raise ValueError('The prepared Garage preview changed. Please reopen it.')
+    manifest = read_json(descriptor).get('manifest', {})
+    vehicle = manifest.get('vehicle') or {}
+    if (vehicle.get('car_id') != identity['car_id'] or vehicle.get('model_code') != identity['model_code']
+            or manifest.get('inspection_runtime', {}).get('garage_build') != snapshot):
+        raise ValueError('The prepared Garage preview does not match the selected body build.')
+    preview_id = manifest.get('package_id')
+    if not isinstance(preview_id, str) or not 0 < len(preview_id) <= 200:
+        raise ValueError('The prepared Garage preview identity is missing.')
+    return {**result, 'identity': identity, 'garage_fingerprint': 'stock' if stock else snapshot['fingerprint'],
+            'preview_id': preview_id, 'model_code': asset.model_code,
+            'timings_seconds': {'complete': round(time.perf_counter() - started, 4)}}

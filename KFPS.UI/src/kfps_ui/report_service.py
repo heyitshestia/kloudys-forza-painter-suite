@@ -66,6 +66,10 @@ class ReportService(QObject):
         context["retained_app_log"], context["app_log_writer"] = self.log.diagnostic_snapshot()
         context["workspace_events"] = self.log.workspace_snapshot()
         context["workspace_identity"] = self.log.workspace_identity()
+        garage = self._services.get("garage")
+        if garage is not None:
+            from .garage_index import clean_diagnostics
+            context["garage"] = clean_diagnostics(garage.diagnosticSummary)
         fields = ("status", "running", "lastError", "activeGame", "selectedLayers", "selectedShapes",
                   "candidateCount", "exportedCount", "skippedCount", "viewerReady", "packageAddError",
                   "dependenciesText", "pythonText", "runtimeText", "selectedPresetIndex", "liveLog")

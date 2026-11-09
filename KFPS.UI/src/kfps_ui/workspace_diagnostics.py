@@ -15,7 +15,7 @@ EVENTS = frozenset({
     "workspace.connection", "workspace.surface", "workspace.selection", "workspace.close",
     "workspace.owner", "workspace.shutdown", "handoff.editor", "handoff.studio", "handoff.source",
     "handoff.marker", "session.read", "session.persist", "session.restore", "session.snapshot",
-    "cache.clear", "cache.catalog",
+    "cache.clear", "cache.catalog", "studio.backend",
 })
 OUTCOMES = frozenset({"started", "ready", "completed", "failed", "cancelled", "timeout",
                       "blocked", "fallback", "reused", "discarded", "deferred", "missing", "recovery", "busy"})

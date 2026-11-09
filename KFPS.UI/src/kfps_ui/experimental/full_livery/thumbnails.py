@@ -12,7 +12,11 @@ def source_grid_row(row: dict[str, Any]) -> dict[str, Any]:
     result = dict(row)
     result["thumbnailUrl"] = ""
     source = Path(str(row.get("path") or ""))
-    if source.name.casefold() == "c_livery" and source.is_file():
+    try:
+        result["available"] = source.name.casefold() == "c_livery" and source.is_file()
+    except (OSError, ValueError):
+        result["available"] = False
+    if result["available"]:
         for name in ("bigThumb.webp", "BigThumb.webp"):
             thumbnail = source.parent / name
             try:

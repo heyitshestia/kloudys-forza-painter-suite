@@ -36,6 +36,9 @@ class WorkspaceController(QObject):
         self._bridge = None
         self._studio_native_owner = None
         self._bridge_lock = threading.Lock()
+        self._backend_lock = threading.Lock()
+        self._studio_backends = {}
+        self._backend_shutdown = False
         from kfps_editor.ipc import instance_name
         from kfps_editor.instance_lock import EditorInstanceLock
         try:
@@ -329,7 +332,7 @@ class WorkspaceController(QObject):
         return result
 
     def _prepare_studio(self, request, cancelled, diagnostic):
-        if request.get("vinyl") is not None or request.get("layout") is not None:
+        if any(request.get(kind) is not None for kind in ("vinyl", "layout", "project")):
             self.studioExplicitOpen.emit()
         path = _studio_module_path(self.paths.app_root, "host_bridge.py")
         with self._bridge_lock:
@@ -348,7 +351,7 @@ class WorkspaceController(QObject):
         if self.closed:
             raise RuntimeError("The workspace is closing.")
         result = bridge.launch_from_host(root, request, open_window=False, cancelled=cancelled,
-                                         native_owner=self._studio_native_owner)
+                                         native_owner=self._studio_native_owner, backend_ready=self._remember_studio_backend)
         pending = {"result": result, "done": threading.Event(), "error": "", "cancelled": cancelled,
                    "diagnostic": diagnostic}
         self.studioPrepared.emit(pending)
@@ -409,7 +412,46 @@ class WorkspaceController(QObject):
         except Exception as exc:
             finish(str(exc));self.shell.statusBar().showMessage(str(exc))
 
+    def _remember_studio_backend(self, value):
+        if (not isinstance(value, dict) or value.get('managed') is not True
+                or type(value.get('pid')) is not int or type(value.get('created')) not in (int, float)):
+            return
+        backend = {key: value.get(key) for key in ('pid', 'created', 'workspace', 'managed', 'url')}
+        with self._backend_lock:
+            stopping = self._backend_shutdown
+            if not stopping:
+                self._studio_backends[(backend['pid'], backend['created'])] = backend
+        if stopping:
+            self._stop_studio_backend(backend)
+
+    def _stop_studio_backend(self, backend):
+        diagnostic = operation()
+        record(self.log, 'studio.backend', 'started', op=diagnostic, stage='cleanup')
+        try:
+            result = self._bridge.launcher.stop_workspace_backend(backend, expected_kfps_root=self.paths.app_root)
+            outcome = {'stopped': 'completed', 'gone': 'missing', 'not-owned': 'blocked',
+                       'in-use': 'blocked', 'shared': 'blocked'}.get(result, 'failed')
+            record(self.log, 'studio.backend', outcome, op=diagnostic, stage='cleanup')
+            return outcome != 'failed'
+        except Exception as exc:
+            record(self.log, 'studio.backend', 'failed', op=diagnostic, stage='cleanup', error=exc)
+            return False
+
+    def shutdown_studio_backends(self):
+        """Run after native documents and launch workers have been drained."""
+        with self._backend_lock:
+            self._backend_shutdown = True
+            backends = list(self._studio_backends.values())
+            self._studio_backends.clear()
+        completed = True
+        for backend in backends:
+            if not self._stop_studio_backend(backend):
+                completed = False
+        return completed
+
     def close(self):
+        if self.closed:
+            return
         if self.session:
             self.session.close()
         self.closed = True

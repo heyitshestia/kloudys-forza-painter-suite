@@ -1,4 +1,4 @@
-import {setInspectionMode, inspectionState, focusInspectionSection} from './livery-scene.js';
+import {setInspectionMode, setInspectionHighlight, inspectionState, focusInspectionSection} from './livery-scene.js';
 import {t,localizeStatic,sectionLabel,number,errorText} from './i18n.mjs';
 
 // Match only identical authored positions. Do not weld nearby surfaces or invent UVs.
@@ -42,9 +42,9 @@ export function initInspection({host,message=()=>{},isBusy=()=>false}) {
   if(existing)throw Error('Inspection controls are already mounted.');
   const stop=new AbortController(),signal=stop.signal;
   const root=document.createElement('details');root.dataset.inspectionControls='';root.open=true;
-  root.innerHTML='<summary>Surface inspection</summary><div class="segmented" role="group" aria-label="Surface inspection mode"></div><ul aria-label="Inspection legend"></ul><label class="field">Section close-up<select aria-label="Inspection section"></select></label><button type="button" data-inspection-focus>Frame section</button><p role="status" aria-live="polite"></p>';
+  root.innerHTML='<summary>Surface inspection</summary><div class="segmented" role="group" aria-label="Surface inspection mode"></div><ul aria-label="Inspection legend"></ul><label class="field">Section close-up<select aria-label="Inspection section"></select></label><button type="button" data-inspection-focus>Frame section</button><label class="inspection-highlight"><input type="checkbox" data-inspection-highlight>Highlight section</label><p role="status" aria-live="polite"></p>';
   localizeStatic(root);root.style.cssText='border-top:1px solid var(--line);padding-bottom:8px;min-width:0;color:var(--text)';
-  const modes=root.querySelector('[role=group]'),legend=root.querySelector('ul'),select=root.querySelector('select'),status=root.querySelector('[role=status]');
+  const modes=root.querySelector('[role=group]'),legend=root.querySelector('ul'),select=root.querySelector('select'),status=root.querySelector('[role=status]'),highlight=root.querySelector('[data-inspection-highlight]');
   legend.style.cssText='list-style:none;padding:0;margin:8px 0;font-size:12px;overflow-wrap:anywhere';
   status.style.cssText='font-size:12px;color:var(--muted);overflow-wrap:anywhere';
   const buttons=new Map();let disposed=false,sectionSignature='';
@@ -76,8 +76,11 @@ export function initInspection({host,message=()=>{},isBusy=()=>false}) {
       if(state.sections.includes(selected))select.value=selected;sectionSignature=signature;
     }
     select.disabled=!state.ready||blocked;root.querySelector('[data-inspection-focus]').disabled=!state.ready||blocked||!state.sections.length;
+    highlight.disabled=!state.ready||blocked||!state.sections.length;highlight.checked=state.highlightSection!==null;
+    if(state.highlightSection!==null&&state.sections.includes(state.highlightSection))select.value=state.highlightSection;
     legend.hidden=state.mode==='off';
     status.textContent=!state.ready?t('Preview unavailable'):state.mode==='uv-seams'?t`${number(state.lineSegments)} UV3 edges`+(state.seamUnavailable?t`; ${state.seamUnavailable} meshes unavailable`:''):t(state.mode==='paintability'?'Native masks / active sections':'Normal materials');
+    if(state.ready&&state.highlightSection!==null)status.textContent=t('Highlighted: {0}',sectionLabel(state.highlightSection));
   }
   function setMode(mode){
     if(disposed||isBusy())return false;
@@ -88,8 +91,18 @@ export function initInspection({host,message=()=>{},isBusy=()=>false}) {
     if(disposed||isBusy())return;
     if(!focusInspectionSection(select.value))message(t('No eligible surface is available for this section.'),true);
   },{signal});
+  highlight.addEventListener('change',()=>{
+    if(disposed)return;
+    if(!isBusy())setInspectionHighlight(highlight.checked?select.value:null);
+    refresh();
+  },{signal});
+  select.addEventListener('change',()=>{
+    if(disposed||isBusy())return;
+    if(highlight.checked)setInspectionHighlight(select.value);
+    refresh();
+  },{signal});
   window.addEventListener('kfps-inspection-change',refresh,{signal});
   window.addEventListener('kfps-viewer-error',refresh,{signal});
   host.append(root);refresh();
-  return {setMode,refresh,dispose(){if(disposed)return;disposed=true;stop.abort();setInspectionMode('off');root.remove();}};
+  return {setMode,refresh,dispose(){if(disposed)return;disposed=true;stop.abort();setInspectionHighlight(null);setInspectionMode('off');root.remove();}};
 }

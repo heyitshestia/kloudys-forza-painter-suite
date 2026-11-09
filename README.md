@@ -67,7 +67,7 @@ The native window and Chrome use the same editing workspace. **English, Korean, 
 
 **Put the vinyl on the car.** <sub>Experimental</sub>
 
-Open Studio from **Liveries**, from the Vinyl Editor, or with the standalone `KFPSLiverySudio.exe` launcher.
+Open Studio from **Garage**, from the Vinyl Editor, or with the standalone `KFPSLiverySudio.exe` launcher.
 
 ![Livery Studio with an original pink-and-white layout on a Toyota GR86, placement controls, and section preview](docs/screenshots/repo-page/livery-studio.png)
 
@@ -81,10 +81,15 @@ Open Studio from **Liveries**, from the Vinyl Editor, or with the standalone `KF
 - Switch between **Fast, Balanced, and Sharp** preview quality without changing your artwork or exports.
 - Save named projects, variants, and checkpoints in per-car folders, with undo/redo and recovery.
 - Export individual vinyls and grouped sections. Full-car native export <sub>Experimental</sub>.
+- Find settings in Placement, Design, Car, View and Project tabs. Right-click a source to remove it, or highlight a paint section while inspecting the surface.
 
 Studio has its own native/Chrome setting and supports English, Korean, and Japanese. Both editors can keep working with the main KFPS window closed.
 
-### Saved Liveries
+### Garage
+
+Browse your installed FH6 cars as square stock thumbnails, filter by ownership or available liveries, and open an owned copy's current body build in Preview or Studio. Accounts are discovered locally; choose once, then switch with the remembered dropdown. Manufacturer/product labels use the installed catalogue where available. <sub>Experimental</sub>
+
+Save named build comparisons, link Studio projects, and open compatible local artwork on the current body. Saved Liveries and Packages remain available without selecting an account. [Garage workflow and compatibility](docs/GARAGE.md).
 
 Browse saved FH6 designs with their game thumbnails, inspect them in the shared 3D viewer, and transfer eligible owned designs as `.kfpslivery` packages for the same car. <sub>Experimental</sub>
 

@@ -19,7 +19,7 @@ import threading
 import time
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from .host_bridge import HANDOFF_ID, HandoffError, read_handoff, read_layout_handoff
+from .host_bridge import HANDOFF_ID, HandoffError, read_handoff, read_layout_handoff, read_project_handoff
 from .car_workspace import CarError, CarWorkspace, ID as CAR_JOB_ID, prepared_assets
 from .model import MAX_BODY_BYTES, NativeVinylRenderer, ValidationError, decode_json
 from .prepare import LAB_ROOT, atomic_json, prepare_car, within, workspace_lock, load_baseline
@@ -36,8 +36,8 @@ from .save_codec import section_limit_policy
 from .diagnostics import DiagnosticLog, application_version, request_action, MAX_BODY_BYTES as MAX_DIAGNOSTIC_BYTES
 
 WEB_FILES = ("index.html", "editor.css", "viewer.css", "livery-scene.js", "livery-editor.mjs",
-             "layout-model.mjs", "component-model.mjs", "surface-math.mjs", "surface-edit.mjs", "native-material.mjs",
-             "native-texture-binding.mjs", "wheel-model.mjs", "theme-adapter.mjs", "icons.js", "LICENSE.lucide")
+             "layout-model.mjs", "component-model.mjs", "garage-build.mjs", "surface-math.mjs", "surface-edit.mjs", "native-material.mjs",
+             "native-texture-binding.mjs", "wheel-model.mjs", "theme-adapter.mjs", "studio-bootstrap.mjs", "icons.js", "LICENSE.lucide")
 VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.js",
                 "three/examples/jsm/loaders/GLTFLoader.js", "three/examples/jsm/controls/OrbitControls.js",
                 "three/examples/jsm/utils/BufferGeometryUtils.js", "three/examples/jsm/utils/SkeletonUtils.js",
@@ -45,7 +45,7 @@ VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.j
 OPTIONAL_WEB_FILES = ("authoring-model.mjs", "studio-tools.mjs", "mirror-links.mjs",
                       "recovery-ui.mjs", "inspection-tools.mjs", "action-confirmations.mjs", "confirmation-policy.mjs",
                       "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs",
-                      "preview-quality.mjs", "vinyl-compositing.mjs", "source-edit-monitor.mjs")
+                      "preview-quality.mjs", "vinyl-compositing.mjs", "source-edit-monitor.mjs", "workspace-panels.mjs")
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 MAX_NATIVE_TEXTURE_BYTES = 80 * 1024 * 1024
 # The qualified Studio client consumes validated #vinyl handoffs on startup/hashchange.
@@ -101,6 +101,7 @@ class LiveryLabServer:
         self.prepared = prepared
         self.workspace = Path(workspace).resolve()
         self.token = secrets.token_urlsafe(32)
+        self.chrome_exposed = False
         self.renderer = renderer if renderer is not None else NativeVinylRenderer()
         self.export_service = export_service
         self.render_lock = threading.Lock()
@@ -614,16 +615,43 @@ class LiveryLabServer:
                 if token != self.token:
                     raise CarError(404, "Unknown session.")
             if len(parts) == 2:
-                if not isinstance(value, dict) or set(value) != {"carId"}:
+                if not isinstance(value, dict) or set(value) not in ({"carId"}, {"carId", "layoutId"}, {"carId", "projectId"}):
                     raise CarError(422, "Choose one catalogue car ID.")
+                if "layoutId" in value or "projectId" in value:
+                    kind = 'project' if 'projectId' in value else 'layout'
+                    try:
+                        reader = read_project_handoff if kind == 'project' else read_layout_handoff
+                        handoff = reader(value[kind + 'Id'])
+                    except HandoffError as exc:
+                        raise CarError(exc.status, str(exc)) from None
+                    with self.state_lock:
+                        if self.chrome_exposed or handoff.get("startup_session") != self.url:
+                            raise CarError(409, "Automatic car switching is unavailable for this shared or changed Studio session. Choose the car manually first.")
+                        car = manager.cars.get(value["carId"]) if isinstance(value["carId"], str) else None
+                        vehicle = handoff[kind]["vehicle"]
+                        if not car or any(car[key] != vehicle.get(key) for key in ("car_id", "model_code")):
+                            raise CarError(422, "The incoming artwork does not match the selected car.")
+                        result = manager.start(value["carId"], current_archive,
+                            garage_build=handoff[kind].get("garage_build"), automatic_handoff=True)
+                        if kind == 'project':
+                            manager.records[result['id']]['project_handoff'] = handoff['project']
+                        return self.reply(request, 202, result)
                 return self.reply(request, 202, manager.start(value["carId"], current_archive))
             if len(parts) != 4 or value != {} or not isinstance(value, dict):
                 raise CarError(422, "Expected an empty car action request.")
             if parts[3] == "cancel":
                 return self.reply(request, 200, manager.cancel(parts[2]))
             if parts[3] == "commit":
-                result = manager.commit(parts[2], lambda prepared, root, assets:
-                                        self._activate_car(prepared, root, assets, token))
+                with self.state_lock:
+                    if self.chrome_exposed and manager.records.get(parts[2], {}).get("automatic_handoff"):
+                        raise CarError(409, "Studio was opened in Chrome during preparation. The current car is unchanged; cancel and choose the car manually.")
+                    def activate(prepared, root, assets):
+                        project = manager.records.get(parts[2], {}).get('project_handoff')
+                        if project is not None:
+                            from .project_handoff import validate_prepared_project
+                            validate_prepared_project(project, prepared, assets)
+                        return self._activate_car(prepared, root, assets, token)
+                    result = manager.commit(parts[2], activate)
                 return self.reply(request, 200, result)
             raise CarError(404, "Unknown car selection API.")
 
@@ -659,6 +687,21 @@ class LiveryLabServer:
         except OSError:
             pass
 
+    def _chrome_session_request(self, request, target, token):
+        if target.query or target.fragment or target.path != f"/{token}/api/chrome-session":
+            return self.reply(request, 400, {"error": "Invalid host session request."})
+        if request.command != "POST":
+            return self.reply(request, 405, {"error": "Method not allowed."})
+        if (request.headers.get_all("Content-Length", []) != ["0"]
+                or request.headers.get("Transfer-Encoding") or request.headers.get("Content-Encoding")):
+            return self.reply(request, 400, {"error": "Host session request must have an empty body."})
+        with self.state_lock:
+            if token != self.token:
+                return self.reply(request, 404, {"error": "Unknown session."})
+            # Monotonic for this backend lifetime, including later car-token rotations.
+            self.chrome_exposed = True
+        return self.reply(request, 200, {"chrome_exposed": True})
+
     def handle(self, request):
         try:
             # Each request sees one immutable car binding even if commit rotates the session.
@@ -677,6 +720,8 @@ class LiveryLabServer:
             relative = unquote(target.path[len(token) + 2:])
             request.diagnostic_started = time.monotonic()
             request.diagnostic_action = request_action(request.command, relative)
+            if relative == "api/chrome-session":
+                return self._chrome_session_request(request, target, token)
             if relative == "api/activity-ready":
                 return self._activity_ready_request(request, target, token)
             if relative == "api/release-announcement":
@@ -768,7 +813,7 @@ class LiveryLabServer:
             if relative == "api/cars" or relative == "api/car-switch" or relative.startswith("api/car-switch/"):
                 current_archive = prepared.get("editor_config", {}).get("vehicle", {}).get("archive_name")
                 return self._car_request(request, relative, target, token, current_archive)
-            if relative.startswith(("api/host-vinyl/", "api/host-layout/")):
+            if relative.startswith(("api/host-vinyl/", "api/host-layout/", "api/host-project/")):
                 if request.command != "GET":
                     return self.reply(request, 405, {"error": "Method not allowed."})
                 layout_transfer = relative.startswith("api/host-layout/")
@@ -779,7 +824,7 @@ class LiveryLabServer:
                 if not self.render_lock.acquire(blocking=False):
                     return self.reply(request, 503, {"error": "A vinyl is already rendering. Retry after it completes."})
                 try:
-                    read_transfer = read_layout_handoff if layout_transfer else read_handoff
+                    read_transfer = read_project_handoff if relative.startswith('api/host-project/') else read_layout_handoff if layout_transfer else read_handoff
                     result = read_transfer(identifier, resolve_resource=self.renderer._resource)
                     status = 200
                 except HandoffError as exc:
@@ -840,11 +885,16 @@ class LiveryLabServer:
                                                  **self.language.configuration(),
                                                  "host_vinyl_handoff": HOST_VINYL_HANDOFF_READY,
                                                  "host_layout_handoff": True,
+                                                 "host_project_handoff": True,
+                                                 "host_garage_build": True,
                                                  "host_theme_handoff": True, "ui_theme_persistence": True,
                                                  "ui_theme": self.theme_context.effective(),
                                                  "host_ui_theme": self.theme_context.get(),
                                                  "section_vinyl_export": True, "car_switch": self.car_workspace is not None,
                                                  "source_editor_roundtrip": True,
+                                                 "package_startup": 1,
+                                                 "handoff_car_validation": True,
+                                                 "chrome_exposed": self.chrome_exposed,
                                                  "action_confirmations": {"version": 1, "enabled": True},
                                                  "project_storage": {"enabled": True, "version": 1},
                                                  "vinyl_library": {"enabled": True, "version": 1},

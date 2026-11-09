@@ -73,7 +73,7 @@ def validate_window_url(url):
     if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port
             or parsed.username or parsed.password or parsed.query
             or not re.fullmatch(r"/[A-Za-z0-9_-]{43}/", parsed.path)
-            or (parsed.fragment and not re.fullmatch(r"(?:vinyl|layout)=[a-f0-9]{32}", parsed.fragment))):
+            or (parsed.fragment and not re.fullmatch(r"(?:vinyl|layout|project)=[a-f0-9]{32}", parsed.fragment))):
         raise ValueError("Invalid local Studio window URL.")
     return url
 

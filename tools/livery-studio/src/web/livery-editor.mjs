@@ -148,9 +148,12 @@
 // END FIXED WEB COMMAND SEARCH
 import { studioDiagnostics as diagnostics, projectCounts } from './diagnostics.mjs';
 import {createSourceEditMonitor,sourceEditStatusKey} from './source-edit-monitor.mjs';
-import { sceneReady, updatePaintCanvas, sceneState, sceneDiagnosticMetrics, isSceneReady, currentVehicleParts, validatePartConfiguration, setVehicleParts } from './livery-scene.js';
+import {takePackageStartupHandoff} from './studio-bootstrap.mjs';
+import { sceneReady, updatePaintCanvas, sceneState, sceneDiagnosticMetrics, isSceneReady, currentVehicleParts, validatePartConfiguration, setVehicleParts, garageVehicleParts } from './livery-scene.js';
+import {validateGarageBuild} from './garage-build.mjs';
 import { createSurfaceEditor } from './surface-edit.mjs';
 import { initializeStudioTools } from './studio-tools.mjs';
+import { initializeWorkspacePanels } from './workspace-panels.mjs';
 import * as authoring from './authoring-model.mjs';
 import * as mirror from './mirror-links.mjs';
 import { initRecovery } from './recovery-ui.mjs';
@@ -193,7 +196,7 @@ let externalPicker=null;
 let previewError='';
 let saveWorking=false;
 let activeWebOperation='';
-let selectedIds=[],tools=null,recovery=null,inspection=null,sourceEdit=null,confirmations=null,projectStorage=null;
+let selectedIds=[],tools=null,recovery=null,inspection=null,sourceEdit=null,confirmations=null,projectStorage=null,workspacePanels=null;
 const sourceMonitor=createSourceEditMonitor({
   read:job=>api('source-editor/'+job.id,undefined,5000),
   update:(job,value)=>{
@@ -221,7 +224,7 @@ function message(text, error = false) { if(error)diagnostics.emit('error',{error
 function experimentMessage(text, error = false) {
   text=error?errorText(text):t(text);experimentNotice=text;experimentError=error;
   $('experimentStatus').textContent=text;$('experimentStatus').classList.toggle('error',error);
-  if(error)$('exportDetails').open=true;
+  if(error){$('exportDetails').open=true;workspacePanels?.reveal('exportDetails',{force:true});}
 }
 function snapshot() { return { vinylIds: project.vinyls.map(v => v.id), placements: structuredClone(project.placements), selected,selectedIds:[...selectedIds],authoring:structuredClone(project.authoring||null), vehicle_parts:structuredClone(project.vehicle_parts||{}) }; }
 function current() { return project.placements.find(p => p.id === selected); }
@@ -801,10 +804,10 @@ function handlePreviewVisibility() {
     schedule();
   }
 }
-function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=images) {
+function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=images,layout=project) {
   const {scale,size}=previewQuality(quality);
   let surface = cache.get(name);
-  const placements=project.placements.filter(p=>p.section===name&&p.visible&&p.opacity>0&&rasters.has(p.vinylId));
+  const placements=layout.placements.filter(p=>p.section===name&&p.visible&&p.opacity>0&&rasters.has(p.vinylId));
   if(!placements.length){if(surface)surface.width=surface.height=1;cache.delete(name);return null;}
   if (!surface) { surface = document.createElement('canvas'); [surface.width,surface.height]=size; cache.set(name, surface); }
   const ctx = surface.getContext('2d');
@@ -816,8 +819,8 @@ function drawSection(name,quality=activeQuality,cache=sectionCanvases,rasters=im
   }
   return surface;
 }
-function paintSection(section,quality=activeQuality,cache=sectionCanvases,rasters=images,target=atlas) {
-  const surface = drawSection(section.section,quality,cache,rasters), region = section.paint_region;
+function paintSection(section,quality=activeQuality,cache=sectionCanvases,rasters=images,target=atlas,layout=project) {
+  const surface = drawSection(section.section,quality,cache,rasters,layout), region = section.paint_region;
   const atlas=target,atlasContext=atlas.getContext('2d'),padding=8*previewQuality(quality).scale;
   if(!atlasContext)throw Error('The graphics device could not allocate this preview quality.');
   const [x,y,w,h] = [region[0]*atlas.width,region[1]*atlas.height,(region[2]-region[0])*atlas.width,(region[3]-region[1])*atlas.height];
@@ -904,7 +907,49 @@ function artworkButton(source,detail) {
   const description=document.createElement('span');description.className='art-detail';description.textContent=detail;
   caption.append(name,description);button.append(thumbnail,caption);return button;
 }
+let sourceMenuId=null;
+function openSourceMenu(event,id,button) {
+  event.preventDefault();
+  if(disposed||interactionBusy()||!canPreview()||!flushNumeric()||!project.vinyls.some(v=>v.id===id))return;
+  const menu=$('sourceMenu');if(menu.open)menu.close();sourceMenuId=id;
+  const uses=project.placements.filter(p=>p.vinylId===id),lockedUse=uses.some(p=>locked(p.id));
+  $('deleteSource').disabled=lockedUse;
+  $('deleteSource').title=t(lockedUse?'Unlock all selected placements before editing.':'Delete vinyl source');
+  menu.showModal();
+  const anchor=button.getBoundingClientRect(),pointer=event.type==='contextmenu'&&(event.clientX||event.clientY);
+  menu.style.left=Math.max(8,Math.min(pointer?event.clientX:anchor.left,innerWidth-menu.offsetWidth-8))+'px';
+  menu.style.top=Math.max(8,Math.min(pointer?event.clientY:anchor.bottom,innerHeight-menu.offsetHeight-8))+'px';
+  if(!lockedUse)$('deleteSource').focus({preventScroll:true});
+}
+async function deleteVinylSource(id) {
+  if(disposed||editBlocked()||!flushNumeric())return;
+  const source=project.vinyls.find(v=>v.id===id);if(!source)return;
+  authoring.removeVinylSource(project,id);
+  const uses=project.placements.filter(p=>p.vinylId===id).length;
+  if(uses){
+    const before=fingerprint(),documentId=sourceDocumentId,dialog=$('confirmDeleteSource');
+    $('deleteSourceSummary').textContent=t('Delete "{0}" and its {1} placement(s) across this car?',source.name,number(uses));
+    dialog.returnValue='cancel';setBusy(true);
+    let accepted=false;
+    try{dialog.showModal();accepted=await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='delete'),{once:true}));}
+    finally{if(!disposed)setBusy(false);}
+    if(!accepted||disposed||before!==fingerprint()||documentId!==sourceDocumentId)return;
+  }
+  if(interactionBusy())return;
+  setBusy(true);
+  try{await applyProjectChange(authoring.removeVinylSource(project,id),'Vinyl source deleted.');}
+  finally{if(!disposed)setBusy(false);}
+}
+$('sourceMenu').addEventListener('close',()=>{if(!$('sourceMenu').open)sourceMenuId=null;});
+$('sourceMenu').addEventListener('click',event=>{if(event.target===$('sourceMenu'))$('sourceMenu').close();});
+$('sourceMenu').addEventListener('keydown',event=>event.stopPropagation());
+$('confirmDeleteSource').addEventListener('keydown',event=>event.stopPropagation());
+$('deleteSource').addEventListener('click',()=>{
+  const id=sourceMenuId;$('sourceMenu').close();sourceMenuId=null;
+  deleteVinylSource(id).catch(error=>message(errorText(error),true));
+});
 function refreshSources(blocked) {
+  if($('sourceMenu').open&&(blocked||!project.vinyls.some(v=>v.id===sourceMenuId)))$('sourceMenu').close();
   if(!project.vinyls.some(v=>v.id===pickedSource))pickedSource=current()?.vinylId||project.vinyls[0]?.id||null;
   const picker=$('vinylSource'),signature=JSON.stringify(project.vinyls.map(v=>[v.id,v.name]));
   if(signature!==sourceSignature) {
@@ -916,6 +961,8 @@ function refreshSources(blocked) {
       const option=document.createElement('option');option.value=source.id;option.textContent=source.name;picker.append(option);
       const button=artworkButton(source,t`${source.shapes.length} shapes`);button.className='source-item';button.dataset.source=source.id;button.title=t`Select ${source.name}`;
       button.addEventListener('click',()=>{if(interactionBusy())return;pickedSource=source.id;refreshSources(false);});
+      button.addEventListener('contextmenu',event=>openSourceMenu(event,source.id,button));
+      button.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')openSourceMenu(event,source.id,button);});
       $('sourceList').append(button);sourceButtons.set(source.id,button);
     }
   }
@@ -1068,25 +1115,60 @@ async function completeExternalPicker(kind,cancel=false) {
 async function openFile(file,options={}) {
   requirePreview();
   if(!file) return; if(file.size>32*1024*1024) throw Error('The project exceeds 32 MiB.');
+  const assertCurrent=()=>{
+    if(disposed)throw Error('The editor is closed.');
+    if(options.isCurrent&&!options.isCurrent())throw Error(options.recovery?'The current layout changed. Recovery was not applied.':'The current layout changed. Nothing was opened.');
+  };
+  assertCurrent();
   const next=validateProject(JSON.parse(await file.text()),config.vehicle,config.sections.map(s=>s.section));
+  assertCurrent();
   const parts=validatePartConfiguration(next.vehicle_parts);
   serializeProject(next);
-  const nextImages=new Map();
-  try {for(const vinyl of next.vinyls) nextImages.set(vinyl.id,await raster(vinyl.shapes,activeQuality,nextImages.size+1,{stagedMasks:maskImageCount(nextImages),sections:Math.min(config.sections.length,sectionCanvases.size+previewSectionCount(next))}));}
-  catch(error) {for(const image of nextImages.values())closeVinylPreview(image);throw error;}
-  try {if(disposed)throw Error('The editor is closed.');if(options.isCurrent&&!options.isCurrent())throw Error(options.recovery?'The current layout changed. Recovery was not applied.':'The current layout changed. Nothing was opened.');requirePreview();setVehicleParts(parts);}
-  catch(error){for(const image of nextImages.values())closeVinylPreview(image);throw error;}
-  project=next; for(const image of images.values())closeVinylPreview(image);images.clear();sources.clear();
-  sourceSignature=placementSignature='';
-  for(const vinyl of next.vinyls)sources.set(vinyl.id,vinyl);for(const [key,image] of nextImages) images.set(key,image);
+  // Admit the entire incoming layout, including old/new buffers during staging.
+  // A temporary preview reduction never changes artwork or the saved preference.
+  const capacityOptions={staging:true,sections:previewSectionCount(next),masks:next.vinyls.filter(v=>hasMasks(v.shapes)).length};
+  const levels=['sharp','balanced','fast'];
+  const quality=levels.slice(levels.indexOf(activeQuality)).find(candidate=>qualityCapacity(candidate,next.vinyls.length,capacityOptions).allowed);
+  if(!quality)requireQualityCapacity('fast',next.vinyls.length,capacityOptions);
+  const nextImages=new Map(),nextSections=new Map(),nextAtlas=document.createElement('canvas');
+  const previousParts=currentVehicleParts();
+  let partsChanged=false;
+  try {
+    for(const vinyl of next.vinyls){
+      assertCurrent();
+      nextImages.set(vinyl.id,await raster(vinyl.shapes,quality,0,{prechecked:true}));
+    }
+    assertCurrent();requirePreview();
+    const footprint=requireQualityCapacity(quality,next.vinyls.length,capacityOptions);
+    [nextAtlas.width,nextAtlas.height]=footprint.paint;
+    for(const section of config.sections)paintSection(section,quality,nextSections,nextImages,nextAtlas,next);
+    partsChanged=true;setVehicleParts(parts);
+    updatePaintCanvas(nextAtlas,quality,footprint.canvasGpu);
+  } catch(error){
+    releasePreview(nextImages,nextSections,nextAtlas);
+    if(partsChanged&&!disposed)setVehicleParts(previousParts);
+    throw error;
+  }
+  const adjusted=quality!==activeQuality,oldImages=images,oldSections=sectionCanvases,oldAtlas=atlas;
+  project=next;images=nextImages;sectionCanvases=nextSections;atlas=nextAtlas;atlasContext=atlas.getContext('2d');
+  activeQuality=quality;previewAllocationBlocked=false;
+  [sectionCanvas.width,sectionCanvas.height]=previewQuality(quality).size;
+  $('previewQuality').value=quality;
+  releasePreview(oldImages,oldSections,oldAtlas);
+  sources.clear();sourceSignature=placementSignature='';
+  for(const vinyl of next.vinyls)sources.set(vinyl.id,vinyl);
   selected=next.placements[0]?.id||null;pickedSource=current()?.vinylId||next.vinyls[0]?.id||null; if(current()) $('section').value=current().section;
   retainParts(parts);
   selectedIds=authoring.selectionIds(project,selected?[selected]:[],{expandGroups:true});sourceDocumentId=crypto.randomUUID();
   sourceMonitor.stop();
-  history.reset(); saved=options.recovery||options.unsaved?'':fingerprint();markAll();refresh();
+  history.reset(); saved=options.recovery||options.unsaved?'':fingerprint();
+  dirtySections.clear();metrics.paintUpdates++;refresh();drawSelection();surface?.refresh();
   projectStorage?.adopt(null);
   if(!options.recovery)recovery?.changed({newDocument:true});
-  message(next.vehicle_parts?'Layout and component configuration reopened.':'Layout reopened with the initial component configuration; no component overrides were stored.');
+  if(adjusted){
+    const notice='Preview quality was reduced for this layout to fit available memory. Saved quality preference and exports are unchanged.';
+    qualityStatus(notice);message(notice);
+  }else message(next.vehicle_parts?'Layout and component configuration reopened.':'Layout reopened with the initial component configuration; no component overrides were stored.');
   diagnostics.emit('action',{action:options.recovery?'recovery':'reopen',outcome:'ok',...projectCounts(project,config.sections.length)});
   return true;
 }
@@ -1193,7 +1275,7 @@ async function readCarCatalogue() {
   if(value.current!==null&&!ids.has(value.current))throw Error('The current car is missing from the catalogue.');
   return {cars,current:value.current};
 }
-async function restoreSessionCar(car,isCurrent) {
+async function restoreSessionCar(car,isCurrent,layoutId=null,handoffKind='layout') {
   carWorking=true;carCommitting=false;carCancelRequested=false;setBusy(true);
   try {
     const value=await readCarCatalogue();
@@ -1203,7 +1285,7 @@ async function restoreSessionCar(car,isCurrent) {
     if(matches[0].id===value.current)throw Error('The current car is missing from the catalogue.');
     carCatalogue=value.cars;carCurrent=value.current;carPicked=matches[0].id;
     $('carSearch').value='';renderCars();$('carPicker').showModal();carMessage('Starting car preparation...');
-    carJob=carJobValue(await api('car-switch',{carId:carPicked}));
+    carJob=carJobValue(await api('car-switch',{carId:carPicked,...(layoutId?{[handoffKind==='project'?'projectId':'layoutId']:layoutId}:{})}));
     await followCarJob(isCurrent);
     return navigationAuthorized?'pending':!isCurrent()||carCancelRequested?'cancelled':'failed';
   }finally{
@@ -1215,7 +1297,8 @@ async function confirmCarReplacement(packageArtwork=false) {
   if(!changed())return 'discard';
   const dialog=$('confirmCarSwitch'),original=[];
   if(packageArtwork){
-    for(const [selector,text] of [['h2','Save this layout before opening package artwork?'],['p','Only editable artwork is imported. Body paint and materials are not imported. The source package is unchanged.'],['button[value=discard]','Discard and open'],['button[value=save]','Save and open']]){
+    const garage=packageArtwork==='garage',artwork=packageArtwork==='garage-artwork',fullProject=packageArtwork==='project';
+    for(const [selector,text] of [['h2',fullProject?'Save this layout before opening the Studio project?':artwork?'Save this layout before opening Garage artwork?':garage?'Save this layout before opening the Garage build?':'Save this layout before opening package artwork?'],['p',fullProject?'The Studio project will replace the current layout, including its saved parts and authoring data. The source project is unchanged.':artwork?'The selected artwork and current fitted body will replace this layout. Original files and game saves are unchanged.':garage?'The fitted body will open as a new blank layout. Your current layout will be replaced. Game saves are unchanged.':'Only editable artwork is imported. Body paint and materials are not imported. The source package is unchanged.'],['button[value=discard]','Discard and open'],['button[value=save]','Save and open']]){
       const node=dialog.querySelector(selector);original.push([node,node.textContent]);node.textContent=t(text);
     }
   }
@@ -1252,7 +1335,7 @@ async function followCarJob(isCurrent=()=>true) {
       navigationAuthorized=true;
       // The inbox is independent of the rotating car-session token. Forward
       // only an opaque, allowlisted fragment to the shared host dispatcher.
-      if((/^#(?:vinyl|layout)=[a-f0-9]{32}$/).test(window.location.hash||''))url.hash=window.location.hash;
+      if((/^#(?:vinyl|layout|project)=[a-f0-9]{32}$/).test(window.location.hash||''))url.hash=window.location.hash;
       try{window.location.assign(url.href);}catch(error){navigationAuthorized=false;throw error;}
       return;
     }
@@ -1301,24 +1384,38 @@ function handoffMessage(text,error=false,retry=false) {
   $('hostTransferMessage').classList.toggle('error',error);$('retryHostTransfer').hidden=!retry;
 }
 async function openPackageArtwork(value,isCurrent) {
-  const incoming=value.layout,car=incoming?.vehicle;
+  const kind=value.project?'project':'layout';
+  let incoming=value[kind];
+  const car=incoming?.vehicle;
   if(!car||!Number.isSafeInteger(car.car_id)||car.car_id<=0||typeof car.model_code!=='string'||!car.model_code.trim()
     ||car.model_code.length>160||/[\x00-\x1f]/.test(car.model_code))throw Error('The package has no exact car identity.');
   const different=car.car_id!==config.vehicle.car_id||car.model_code!==config.vehicle.model_code;
+  if(incoming.garage_build!==undefined) {
+    if(config.host_garage_build!==true)throw Error('This Studio needs a restart before opening Garage builds. Save your work, then restart Studio.');
+    validateGarageBuild(incoming.garage_build);
+    if(!different)incoming={...incoming,vehicle_parts:garageVehicleParts(incoming.garage_build)};
+  }
   if(different&&window.__kfpsStudioNativeDownloads!==true)throw Error("In Chrome, save your work and choose this package's car in Studio before opening it. Automatic car switching could interrupt another Studio window.");
   if(different&&config.car_switch!==true)throw Error('This session cannot open the package car. Save your work, then restart Studio.');
+  let layoutId=null;
+  if(different){
+    const base=new URL(window.location.href);base.hash='';
+    layoutId=new RegExp(`^#${kind}=([a-f0-9]{32})$`).exec(window.location.hash||'')?.[1];
+    if(config.chrome_exposed!==false||value.startup_session!==base.href||!layoutId)throw Error('Automatic car switching is unavailable for this shared or changed Studio session. Choose the car manually first.');
+    if(config.handoff_car_validation!==true)throw Error('Save your work, then restart Studio before opening another car.');
+  }
   // Validate before asking to replace anything. The final open also checks the
   // actual prepared car's sections and stages all images before adoption.
   validateProject(incoming,car,different?['Front','Back','Top','Left','Right','Spoiler','FrontWindshield','BackWindshield','TopWindow','LeftWindow','RightWindow']:config.sections.map(s=>s.section));
   serializeProject(incoming);
   if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
-  const choice=await confirmCarReplacement(true);
+  const choice=await confirmCarReplacement(kind==='project'?'project':incoming.garage_build?(incoming.vinyls.length?'garage-artwork':'garage'):true);
   if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
   if(!['save','discard'].includes(choice)){handoffMessage('Package opening cancelled. The current layout is unchanged.',false,true);return false;}
   if(choice==='save'&&!await downloadProject()){handoffMessage('Save cancelled. The current car and layout are unchanged.',false,true);return false;}
   if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
   if(different){
-    const result=await restoreSessionCar(car,isCurrent);
+    const result=await restoreSessionCar(car,isCurrent,layoutId,kind);
     if(result==='missing')throw Error('The exact package car is not installed. Nothing was opened.');
     if(result==='failed')throw Error('The package car could not be prepared. The current layout is retained.');
     if(result==='cancelled')handoffMessage('Package opening cancelled. The current layout is unchanged.',false,true);
@@ -1328,10 +1425,10 @@ async function openPackageArtwork(value,isCurrent) {
 }
 async function importHostVinyl() {
   const hash=window.location?.hash||'';
-  if(!/^#(?:vinyl|layout)/.test(hash)||handoffWorking||disposed)return;
-  const match=/^#(vinyl|layout)=([a-f0-9]{32})$/.exec(hash);
+  if(!/^#(?:vinyl|layout|project)/.test(hash)||handoffWorking||disposed)return;
+  const match=/^#(vinyl|layout|project)=([a-f0-9]{32})$/.exec(hash);
   if(!match){handoffMessage('The incoming artwork link is invalid.',true);return;}
-  const kind=match[1],id=match[2],layoutTransfer=kind==='layout';
+  const kind=match[1],id=match[2],layoutTransfer=kind!=='vinyl';
   const clearFragment=()=>{if(window.location.hash===hash)window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search);};
   if(completedHandoffs.has(id)){clearFragment();return;}
   if(config[`host_${kind}_handoff`]!==true){handoffMessage('This session cannot receive this artwork. Save your work, then restart Studio.',true,true);return;}
@@ -1340,14 +1437,17 @@ async function importHostVinyl() {
   if(!flushNumeric()){handoffMessage('Correct or cancel the numeric draft, then retry the incoming vinyl.',true,true);return;}
   const documentId=sourceDocumentId,revision=fingerprint();
   const isCurrent=()=>!disposed&&sourceDocumentId===documentId&&fingerprint()===revision&&window.location.hash===hash;
-  handoffWorking=true;setBusy(true);handoffMessage(layoutTransfer?'Opening package artwork...':'Importing editor vinyl...');
+  handoffWorking=true;setBusy(true);handoffMessage(kind==='project'?'Opening Studio project...':layoutTransfer?'Opening package artwork...':'Importing editor vinyl...');
   try {
-    const response=await fetch(`./api/host-${kind}/${id}`,{signal:stop.signal});
-    if(!response.ok)throw await responseError(response);
-    if(response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json')throw Error('The incoming vinyl response is not JSON.');
-    const raw=await response.text();
-    if(new TextEncoder().encode(raw).byteLength>(layoutTransfer?32:8)*1024*1024)throw Error('The incoming artwork exceeds its size limit.');
-    const value=JSON.parse(raw);
+    let value=layoutTransfer?takePackageStartupHandoff(id,undefined,kind):null;
+    if(value===null){
+      const response=await fetch(`./api/host-${kind}/${id}`,{signal:stop.signal});
+      if(!response.ok)throw await responseError(response);
+      if(response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json')throw Error('The incoming vinyl response is not JSON.');
+      const raw=await response.text();
+      if(new TextEncoder().encode(raw).byteLength>(layoutTransfer?32:8)*1024*1024)throw Error('The incoming artwork exceeds its size limit.');
+      value=JSON.parse(raw);
+    }
     if(!value||typeof value.name!=='string'||!value.name.trim()||value.name.trim().length>120||/[\x00-\x1f]/.test(value.name))throw Error('The incoming artwork data is invalid.');
     if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
     if(layoutTransfer){if(!await openPackageArtwork(value,isCurrent))return;}
@@ -1356,9 +1456,9 @@ async function importHostVinyl() {
       if(!await importFile(new File([JSON.stringify({shapes:value.shapes})],`${value.name.trim()}.json`,{type:'application/json'}),{isCurrent}))return;
     }
     completedHandoffs.add(id);if(completedHandoffs.size>64)completedHandoffs.delete(completedHandoffs.values().next().value);
-    clearFragment();handoffMessage(layoutTransfer?'Package artwork opened. Body paint and materials were not imported. The source package is unchanged.':t`${value.name.trim()} imported.`);
+    clearFragment();handoffMessage(kind==='project'?'Studio project opened. The saved source is unchanged.':value.layout?.garage_build?(value.layout.vinyls.length?'Garage artwork and body opened. Original files and game saves are unchanged.':'Garage body build opened. Game saves are unchanged.'):layoutTransfer?'Package artwork opened. Body paint and materials were not imported. The source package is unchanged.':t`${value.name.trim()} imported.`);
   } catch(error) {
-    if(!disposed)handoffMessage(errorText(error),true,true);
+    if(!disposed){handoffMessage(errorText(error),true,true);message(errorText(error),true);}
   } finally {
     handoffWorking=false;
     if(!disposed){setBusy(false);if(window.location?.hash&&window.location.hash!==hash)void importHostVinyl();}
@@ -1383,7 +1483,7 @@ async function exportSection() {
     if(disposed)return;
     status.textContent=t`${sectionLabel(section)}: ${value.shapes.length} native shapes exported.`;message(status.textContent);
   } catch(error) {
-    if(!disposed){status.textContent=errorText(error);status.classList.toggle('error',true);$('sectionPanel').open=true;}
+    if(!disposed){status.textContent=errorText(error);status.classList.toggle('error',true);$('sectionPanel').open=true;workspacePanels?.reveal('sectionPanel',{force:true});}
     throw error;
   }
 }
@@ -1634,6 +1734,7 @@ async function initialize() {
   window.addEventListener('beforeunload',event=>{if(!navigationAuthorized&&(changed()||saveWorking)){event.preventDefault();event.returnValue='';}});
   initializeCommandSearch();
   initializeWorkspaceSession();
+  workspacePanels=initializeWorkspacePanels({icon,canLeave:()=>!interactionBusy()&&flushNumeric()});
   markAll();refresh();message('Ready.');await importHostVinyl();if(disposed)return;
   window.__liveryLab={getProject:()=>structuredClone(project),getSelection:()=>[...selectedIds],getMetrics:()=>({...metrics,cachedSources:images.size,
     previewQuality:activeQuality,qualityDimensions:[...previewQuality(activeQuality).size],paintDimensions:[atlas.width,atlas.height],
@@ -1655,7 +1756,7 @@ function viewerFailed(event) {
   surface?.dispose();surface=null;
   if(project){finishDrag(true);finishTransform(true);}
   dirtySections.clear();
-  for(const id of ['confirmOpen','confirmExperiment','confirmCarSwitch','shortcuts'])if($(id).open)$(id).close('cancel');
+  for(const id of ['confirmOpen','confirmExperiment','confirmCarSwitch','shortcuts','sourceMenu','confirmDeleteSource'])if($(id).open)$(id).close('cancel');
   $('previewRecovery').hidden=false;
   $('previewRecoveryMessage').textContent=t`${errorText(previewError)} Your layout is retained. Save it, reload the preview, then reopen the saved layout.`;
   refresh();message('Preview stopped. Save the retained layout before reloading.',true);

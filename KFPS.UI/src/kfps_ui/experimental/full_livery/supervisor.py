@@ -27,6 +27,7 @@ _TIMEOUT_SECONDS = {
     "export-package": 480.0,
     "install-package": 300.0,
     "prepare-mesh": 600.0,
+    "prepare-garage": 600.0,
     "clear-cache": 120.0,
 }
 

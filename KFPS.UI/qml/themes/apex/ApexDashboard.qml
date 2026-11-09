@@ -17,7 +17,7 @@ FocusScope {
     readonly property var categories: ["CREATE", "LIBRARY", "SYSTEM"]
     readonly property var categoryIcons: ["generate", "json", "settings"]
     readonly property var groups: [["create", "editor", "tools"], ["outputs", "liveries", "community"], ["settings", "help", "support", "update", "credits"]]
-    readonly property var names: ({create: "VINYL GENERATOR", editor: "VINYL EDITOR", tools: "IMAGE TOOLS", outputs: "OUTPUTS", liveries: "LIVERIES", community: "COMMUNITY", settings: "SETTINGS", help: "HELP", support: "SUPPORT", update: "UPDATE", credits: "CREDITS"})
+    readonly property var names: ({create: "VINYL GENERATOR", editor: "VINYL EDITOR", tools: "IMAGE TOOLS", outputs: "OUTPUTS", liveries: "GARAGE", community: "COMMUNITY", settings: "SETTINGS", help: "HELP", support: "SUPPORT", update: "UPDATE", credits: "CREDITS"})
     readonly property var entries: {
         var result = []
         if (navigation) for (var i = 0; i < groups[category].length; i++) {

@@ -11,7 +11,7 @@ Item {
     readonly property bool compact: Theme.logical(height) < 730
     readonly property var routes: [
         {page:"create", label:"Create", icon:"generate"}, {page:"outputs", label:"Outputs", icon:"json"},
-        {page:"liveries", label:"Liveries", icon:"monitor"}, {page:"community", label:"Community", icon:"heart"},
+        {page:"liveries", label:"Garage", icon:"monitor"}, {page:"community", label:"Community", icon:"heart"},
         {page:"editor", label:"Editor", icon:"editor"}, {page:"tools", label:"Tools", icon:"tools"},
         {page:"support", label:"Support", icon:"heart"}, {page:"help", label:"Help", icon:"help"},
         {page:"update", label:"Update", icon:"update"}, {page:"settings", label:"Settings", icon:"settings"}

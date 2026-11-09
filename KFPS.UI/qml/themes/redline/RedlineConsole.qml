@@ -9,7 +9,7 @@ Item {
     readonly property Item joinTarget: joinButton
     readonly property var groups: [
         {label:"CREATE",pages:[{page:"create",label:"Create"}]},
-        {label:"LIBRARY",pages:[{page:"outputs",label:"Outputs"},{page:"liveries",label:"Liveries"}]},
+        {label:"LIBRARY",pages:[{page:"outputs",label:"Outputs"},{page:"liveries",label:"Garage"}]},
         {label:"COMMUNITY",pages:[{page:"community",label:"Community"}]},
         {label:"WORKSHOP",pages:[{page:"editor",label:"Editor"},{page:"tools",label:"Tools"}]},
         {label:"SYSTEM",pages:[{page:"settings",label:"Settings"},{page:"help",label:"Help"},{page:"support",label:"Support"},{page:"update",label:"Update"}]}

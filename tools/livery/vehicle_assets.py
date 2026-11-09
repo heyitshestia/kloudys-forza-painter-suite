@@ -5,6 +5,8 @@ import json
 import math
 import os
 import re
+import struct
+import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -15,6 +17,10 @@ from typing import Any
 
 CAR_CLIP_RE = re.compile(r"(?:^|/)carclips_(\d+)\.clipd$", re.IGNORECASE)
 PROJECTION_PREFIX = "LiveryMasks/"
+MAX_INDEX_BYTES = 4 * 1024 * 1024
+MAX_INDEX_ARCHIVES = 4096
+MAX_ARCHIVE_ENTRIES = 8192
+MAX_ARCHIVE_DIRECTORY_BYTES = 2 * 1024 * 1024
 
 
 class VehicleAssetError(RuntimeError):
@@ -45,16 +51,50 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
-def _car_clip_in_archive(archive: Path) -> tuple[int, str] | None:
+def _check_cancel(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Vehicle indexing cancelled.")
+
+
+def _index_archives(cars_dir, cancel_event=None):
+    archives = []
+    for path in cars_dir.glob("*.zip"):
+        _check_cancel(cancel_event)
+        archives.append(path)
+        if len(archives) > MAX_INDEX_ARCHIVES:
+            raise VehicleAssetError("Vehicle archive count exceeds the index limit.")
+    return sorted(archives, key=lambda path: path.name.casefold())
+
+
+def _car_clip_in_archive(archive: Path, cancel_event=None) -> tuple[int, str] | None:
+    _check_cancel(cancel_event)
+    # Preflight the central directory before ZipFile allocates its member list.
+    with archive.open("rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        length = stream.tell()
+        stream.seek(max(0, length - 65557))
+        tail = stream.read(65557)
+    offset = tail.rfind(b"PK\x05\x06")
+    if offset < 0 or len(tail) - offset < 22:
+        raise zipfile.BadZipFile("Vehicle archive has no ordinary ZIP directory.")
+    _, disk, central_disk, disk_count, count, size, start, comment = struct.unpack_from("<4s4H2IH", tail, offset)
+    if (disk or central_disk or disk_count != count or count > MAX_ARCHIVE_ENTRIES
+            or size > MAX_ARCHIVE_DIRECTORY_BYTES or start + size > length - 22
+            or len(tail) - offset != 22 + comment):
+        raise zipfile.BadZipFile("Vehicle archive directory exceeds its limit.")
     with zipfile.ZipFile(archive) as bundle:
+        if len(bundle.infolist()) != count:
+            raise zipfile.BadZipFile("Vehicle archive directory count changed.")
         for name in bundle.namelist():
+            _check_cancel(cancel_event)
             match = CAR_CLIP_RE.search(name.replace("\\", "/"))
             if match:
                 return int(match.group(1)), name
     return None
 
 
-def resolve_fh6_cars_dir(game_folder: Path | str) -> Path:
+def resolve_fh6_cars_dir(game_folder: Path | str, *, cancel_event=None) -> Path:
+    _check_cancel(cancel_event)
     root = Path(game_folder).expanduser()
     # A ZIP beside the game executable is not evidence of a car directory.
     candidates = [
@@ -67,13 +107,17 @@ def resolve_fh6_cars_dir(game_folder: Path | str) -> Path:
         try:
             if not candidate.is_dir():
                 continue
-            for archive in candidate.glob("*.zip"):
+            for archive in _index_archives(candidate, cancel_event):
                 try:
-                    if _car_clip_in_archive(archive) is not None:
+                    if _car_clip_in_archive(archive, cancel_event) is not None:
                         return candidate.resolve()
+                except InterruptedError:
+                    raise
                 except (OSError, zipfile.BadZipFile) as exc:
                     if len(read_errors) < 3:
                         read_errors.append(f"{archive}: {exc}")
+        except InterruptedError:
+            raise
         except OSError as exc:
             if len(read_errors) < 3:
                 read_errors.append(f"{candidate}: {exc}")
@@ -243,26 +287,38 @@ def discover_fh6_game_folder(
     return None
 
 
-def _index_signature(cars_dir: Path) -> dict[str, Any]:
-    archives = list(cars_dir.glob("*.zip"))
+def _index_signature(cars_dir: Path, *, cancel_event=None) -> dict[str, Any]:
+    archives = _index_archives(cars_dir, cancel_event)
+    entries = []
+    for path in archives:
+        _check_cancel(cancel_event)
+        info = path.stat()
+        entries.append([path.name, info.st_size, info.st_mtime_ns])
     return {
         "cars_dir": str(cars_dir.resolve()),
         "archive_count": len(archives),
-        "newest_mtime_ns": max((p.stat().st_mtime_ns for p in archives), default=0),
+        "newest_mtime_ns": max((entry[2] for entry in entries), default=0),
         "total_name_bytes": sum(len(p.name) for p in archives),
+        "archives_sha256": hashlib.sha256(json.dumps(entries, separators=(",", ":")).encode()).hexdigest(),
     }
 
 
-def build_vehicle_asset_index(cars_dir: Path | str) -> dict[int, VehicleAsset]:
-    cars = resolve_fh6_cars_dir(cars_dir)
+def build_vehicle_asset_index(cars_dir: Path | str, *, cancel_event=None) -> dict[int, VehicleAsset]:
+    cars = resolve_fh6_cars_dir(cars_dir, cancel_event=cancel_event)
     index: dict[int, VehicleAsset] = {}
-    for archive in sorted(cars.glob("*.zip"), key=lambda p: p.name.casefold()):
+    for archive in _index_archives(cars, cancel_event):
         try:
-            clip = _car_clip_in_archive(archive)
+            _check_cancel(cancel_event)
+            before = archive.stat()
+            clip = _car_clip_in_archive(archive, cancel_event)
             if clip is None:
                 continue
             car_id, name = clip
             stat = archive.stat()
+            if (stat.st_size, stat.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+                raise VehicleAssetError("Vehicle archive changed while indexing.")
+            if not 0 < car_id < 2**31 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,199}", archive.stem):
+                raise VehicleAssetError("Vehicle archive identity is invalid.")
             index.setdefault(
                 car_id,
                 VehicleAsset(
@@ -275,6 +331,8 @@ def build_vehicle_asset_index(cars_dir: Path | str) -> dict[int, VehicleAsset]:
                     clip_entry=name,
                 ),
             )
+        except InterruptedError:
+            raise
         except (OSError, zipfile.BadZipFile):
             continue
     if not index:
@@ -285,44 +343,77 @@ def build_vehicle_asset_index(cars_dir: Path | str) -> dict[int, VehicleAsset]:
 def load_or_build_vehicle_asset_index(
     game_folder: Path | str,
     cache_path: Path | str | None = None,
+    *,
+    cancel_event=None,
 ) -> dict[int, VehicleAsset]:
-    cars_dir = resolve_fh6_cars_dir(game_folder)
-    signature = _index_signature(cars_dir)
+    """Validate current-install identity; missing/stale indexes rebuild on demand."""
+    cars_dir = resolve_fh6_cars_dir(game_folder, cancel_event=cancel_event)
+    signature = _index_signature(cars_dir, cancel_event=cancel_event)
     cache = Path(cache_path) if cache_path else None
     if cache and cache.is_file():
         try:
-            payload = json.loads(cache.read_text(encoding="utf-8"))
+            _check_cancel(cancel_event)
+            if cache.stat().st_size > MAX_INDEX_BYTES:
+                raise ValueError("Vehicle index size limit")
+            with cache.open("rb") as stream:
+                raw = stream.read(MAX_INDEX_BYTES + 1)
+            if len(raw) > MAX_INDEX_BYTES:
+                raise ValueError("Vehicle index size limit")
+            payload = json.loads(raw)
             if (
                 isinstance(payload, dict)
                 and payload.get("format") == "kfps_fh6_vehicle_asset_index_v1"
                 and payload.get("signature") == signature
                 and isinstance(payload.get("vehicles"), dict)
-                and payload["vehicles"]
+                and 0 < len(payload["vehicles"]) <= MAX_INDEX_ARCHIVES
             ):
-                return {
-                    int(key): VehicleAsset(**value)
-                    for key, value in payload.get("vehicles", {}).items()
-                }
-        except (OSError, ValueError, TypeError):
+                index = {}
+                for key, value in payload["vehicles"].items():
+                    _check_cancel(cancel_event)
+                    asset = VehicleAsset(**value)
+                    if (type(asset.car_id) is not int or not 0 < asset.car_id < 2**31
+                            or key != str(asset.car_id) or not isinstance(asset.model_code, str)
+                            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,199}", asset.model_code)
+                            or asset.archive_name != asset.model_code + ".zip"
+                            or Path(asset.archive_path).resolve() != (cars_dir / asset.archive_name).resolve()):
+                        raise ValueError("Vehicle index identity mismatch")
+                    clip = CAR_CLIP_RE.search(asset.clip_entry.replace("\\", "/"))
+                    info = (cars_dir / asset.archive_name).stat()
+                    if (clip is None or int(clip[1]) != asset.car_id
+                            or type(asset.archive_size) is not int or type(asset.archive_mtime_ns) is not int
+                            or (asset.archive_size, asset.archive_mtime_ns) != (info.st_size, info.st_mtime_ns)):
+                        raise ValueError("Vehicle index source mismatch")
+                    index[asset.car_id] = asset
+                _check_cancel(cancel_event)
+                return index
+        except InterruptedError:
+            raise
+        except (OSError, ValueError, TypeError, AttributeError, RecursionError):
             pass
 
-    result = build_vehicle_asset_index(cars_dir)
+    result = build_vehicle_asset_index(cars_dir, cancel_event=cancel_event)
+    if _index_signature(cars_dir, cancel_event=cancel_event) != signature:
+        raise VehicleAssetError("Vehicle sources changed while building the index.")
     if cache:
+        _check_cancel(cancel_event)
+        encoded = (json.dumps({"format": "kfps_fh6_vehicle_asset_index_v1",
+            "signature": signature,
+            "vehicles": {str(key): asdict(value) for key, value in sorted(result.items())}},
+            indent=2) + "\n").encode("utf-8")
+        if len(encoded) > MAX_INDEX_BYTES:
+            raise VehicleAssetError("Vehicle index exceeds its size limit.")
         cache.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache.with_suffix(cache.suffix + ".tmp")
-        temporary.write_text(
-            json.dumps(
-                {
-                    "format": "kfps_fh6_vehicle_asset_index_v1",
-                    "signature": signature,
-                    "vehicles": {str(key): asdict(value) for key, value in sorted(result.items())},
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(cache)
+        descriptor, name = tempfile.mkstemp(prefix=cache.name + ".", suffix=".tmp", dir=cache.parent)
+        temporary = Path(name)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            _check_cancel(cancel_event)
+            temporary.replace(cache)
+        finally:
+            temporary.unlink(missing_ok=True)
     return result
 
 

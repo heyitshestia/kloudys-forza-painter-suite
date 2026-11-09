@@ -18,6 +18,77 @@ from .readonly_preview import FORMAT, make_display_manifest, ordinary_path, writ
 from .file_io import atomic_stream, io_path
 from .preview_evidence import build_preview_evidence
 from . import saved_atlas_reuse as atlas_reuse
+from .garage_build import validate_build, resolve_build, effective_options
+
+
+def prepare_garage(kfps_root, game_root, asset, garage_build, *, cancel_event=None, progress=None):
+    """A fitted body preview, using shared blank paint, without a synthetic livery."""
+    return _prepare_body(kfps_root, game_root, asset, validate_build(garage_build),
+                         cancel_event=cancel_event, progress=progress)
+
+
+def prepare_stock(kfps_root, game_root, asset, *, cancel_event=None, progress=None):
+    """Use the installed model's stock defaults, without inventing an owned build."""
+    return _prepare_body(kfps_root, game_root, asset, None, cancel_event=cancel_event, progress=progress)
+
+
+def _prepare_body(kfps_root, game_root, asset, build, *, cancel_event=None, progress=None):
+    from tools.livery.portable_mesh_converter import _glb_payloads
+
+    def phase(message):
+        atlas_reuse.check_cancel(cancel_event)
+        if progress:
+            progress(message)
+
+    with installation_cache_lease(kfps_root, create=True):
+        cache = cache_root(kfps_root)
+        key = hashlib.sha256((asset.model_code + ':' + str(asset.archive_mtime_ns)).encode('utf-8')).hexdigest()[:32]
+        root = ordinary_path(cache / 'cars' / key, cache)
+        io_path(root).mkdir(parents=True, exist_ok=True)
+        verify_inventory(root, create=True)
+        admit_artifact(kfps_root, (1024 if not io_path(root / 'prepared.json').exists() else 384) * 1024**2,
+                       protected=[root])
+        with cache_lease(root), workspace_lock(root):
+            try:
+                phase('Preparing fitted Garage body' if build else 'Preparing stock body')
+                prepared = prepare_car(Path(kfps_root), Path(game_root), asset.archive_name, root,
+                                       cancel_event=cancel_event)
+                vehicle = prepared['manifest']['vehicle']
+                if vehicle['car_id'] != asset.car_id or vehicle['model_code'] != asset.model_code:
+                    raise ValueError('Prepared car identity changed.')
+                files = copy.deepcopy(prepared['files'])
+                mesh = within(root / files['mesh'], root)
+                runtime = prepared['manifest']['inspection_runtime']
+                if build:
+                    document, _ = _glb_payloads(mesh)
+                    options = document['scenes'][document.get('scene', 0)]['extras']['kfps_part_options']
+                    options = effective_options(options, runtime.get('fidelity', {}).get('part_names'))
+                    resolve_build(build, options, runtime.get('fidelity', {}).get('body_compatibility'))
+                manifest = copy.deepcopy(prepared['manifest'])
+                manifest['package_id'] = f"garage-body-{asset.car_id}-{build['fingerprint'] if build else 'stock'}"
+                manifest['livery']['title'] = 'Garage body build' if build else 'Stock body'
+                manifest['inspection_runtime'].update(readonly=True, renderer='livery-studio')
+                manifest['inspection_runtime'].pop('garage_build', None)
+                if build:
+                    manifest['inspection_runtime']['garage_build'] = build
+                names = [files['mesh'], files['paint'], files['coverage'], *files['masks'], *files['native_textures'].values()]
+                descriptor = {'format': FORMAT, 'manifest': manifest, 'files': files,
+                              'file_sha256': {name: file_hash(within(root / name, root)) for name in names}}
+                phase('Verifying fitted Garage body')
+                path = write_descriptor(root, descriptor)
+                os.utime(io_path(root), None)
+            finally:
+                seal_inventory(root)
+                enforce_budget(kfps_root, root)
+        usage = prune_cache(kfps_root, protected=[root])
+        if usage['bytes'] > usage['budget_bytes']:
+            raise ValueError('Prepared preview exceeded its cache reservation. Clear the viewer cache before retrying.')
+    phase('Starting shared Studio renderer')
+    contract = runtime['render_contract']
+    return {'readonly_descriptor': str(path), 'readonly_descriptor_sha256': file_hash(path),
+            'mesh_path': str(mesh), 'render_root': str(root / 'render'),
+            'render_contract': contract, 'mesh_cache_hit': bool(prepared['cache']['mesh']),
+            'cache_usage': usage, 'quality_notes': [], 'preview_evidence': build_preview_evidence(prepared, contract)}
 
 
 def save_png_exclusive(image, path):

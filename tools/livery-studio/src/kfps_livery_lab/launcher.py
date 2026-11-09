@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import argparse
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -13,7 +14,7 @@ import sys
 import tempfile
 import time
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 import psutil
 
@@ -221,6 +222,9 @@ def _probe(url, archive):
         raise ValueError("This Studio predates durable theme selection. Start a compatible isolated session.")
     if config.get("source_editor_roundtrip") is not True:
         raise ValueError("This Studio predates source editing. Save your work, then stop and restart Studio.")
+    if (type(config.get("package_startup")) is not int or config["package_startup"] != 1
+            or type(config.get("chrome_exposed")) is not bool):
+        raise IncompatibleStudio("This Studio predates package startup. Save your work, then stop and restart Studio. It has not been stopped automatically.")
     recovery = config.get("recovery")
     if (not isinstance(recovery, dict) or recovery.get("enabled") is not True
             or type(recovery.get("version")) is not int or recovery["version"] != 1):
@@ -253,9 +257,12 @@ def _ready_record(info_path, config, *, managed=False, created=None):
         vehicle = capabilities.get("vehicle")
         return {"url": info["url"], "pid": process.pid, "created": process.create_time(),
                 "workspace": str(info_path.parent), "managed": managed, "reused": True,
+                "chrome_exposed": capabilities.get("chrome_exposed") is not False,
                 "vehicle": {key: vehicle.get(key) for key in ("car_id", "model_code")} if isinstance(vehicle, dict) else None,
                 "host_vinyl_handoff": capabilities.get("host_vinyl_handoff") is True,
                 "host_layout_handoff": capabilities.get("host_layout_handoff") is True,
+                "host_project_handoff": capabilities.get("host_project_handoff") is True,
+                "host_garage_build": capabilities.get("host_garage_build") is True,
                 "host_theme_handoff": capabilities.get("host_theme_handoff") is True,
                 "ui_theme_persistence": capabilities.get("ui_theme_persistence") is True}
     except IncompatibleStudio:
@@ -264,11 +271,73 @@ def _ready_record(info_path, config, *, managed=False, created=None):
         return None
 
 
+def _record_config(config, record):
+    """A session may have an ephemeral car, but never a different installation."""
+    if not record.get("launch_config"):
+        return config
+    try:
+        saved = validate_config(record["launch_config"], config["kfpsRoot"])
+    except (OSError, ValueError, TypeError):
+        raise IncompatibleStudio("The registered Studio configuration is no longer valid. It has not been replaced.") from None
+    if any(saved[key] != config[key] for key in ("kfpsRoot", "gameRoot", "pythonExe")):
+        raise IncompatibleStudio("The registered Studio belongs to a different configuration. It has not been replaced.")
+    if saved.get("template") != config.get("template") and not (
+            saved["archive"] != config["archive"] and "template" not in saved):
+        raise IncompatibleStudio("The registered Studio uses a different export template. It has not been replaced.")
+    return saved
+
+
+def _initial_config(config, vehicle, cancelled):
+    if vehicle is None:
+        return config
+    if (not isinstance(vehicle, dict) or set(vehicle) != {"car_id", "model_code"}
+            or type(vehicle["car_id"]) is not int or not 0 < vehicle["car_id"] <= 0xffffffff
+            or not isinstance(vehicle["model_code"], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,150}", vehicle["model_code"])):
+        raise ValueError("The package has no exact car identity.")
+    source = str(Path(__file__).resolve().parents[1])
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    from kfps_livery_lab.car_workspace import catalogue
+    from kfps_livery_lab.prepare import load_baseline
+    load_baseline(Path(config["kfpsRoot"]))
+    _check_cancel(cancelled)
+    matches = [row for row in catalogue(config["gameRoot"], model_code=vehicle["model_code"]).values()
+               if row["car_id"] == vehicle["car_id"] and row["model_code"] == vehicle["model_code"]]
+    _check_cancel(cancelled)
+    if len(matches) != 1:
+        raise ValueError("The package car is ambiguous in the configured catalogue." if matches else
+                         "The package's exact car was not found in the configured catalogue.")
+    selected = dict(config, archive=matches[0]["archive"])
+    if selected["archive"] != config["archive"]:
+        selected.pop("template", None)
+    return validate_config(selected, config["kfpsRoot"])
+
+
+def _registration_alive(record):
+    pid, created = record.get("pid"), record.get("created")
+    if type(pid) is not int or pid <= 0:
+        return False
+    if created is not None and (type(created) not in (int, float) or not math.isfinite(created)):
+        return False
+    try:
+        process = psutil.Process(pid)
+        if not process.is_running():
+            return False
+        return created is None or abs(process.create_time() - created) <= .01
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return False
+    except psutil.AccessDenied:
+        raise IncompatibleStudio("The registered Studio process could not be verified. It has not been replaced.") from None
+
+
 def _registered(config):
     try:
         record = _read_json(CONTROL / "instance.json", 65536)
+        if not _registration_alive(record):
+            return None
         workspace = _inside(record["workspace"], LAB_ROOT / "runs")
-        return _ready_record(workspace / "server-info.json", config,
+        return _ready_record(workspace / "server-info.json", _record_config(config, record),
                              managed=record.get("managed") is True and workspace == WORKSPACE.resolve(),
                              created=record.get("created"))
     except IncompatibleStudio:
@@ -298,13 +367,13 @@ def _spawn(config):
                                 stdout=stdout, stderr=stderr, close_fds=True, **options)
 
 
-def _terminate_owned(pid, created, config, workspace):
+def _terminate_owned(pid, created, config, workspace, *, include_children=True):
     process = inspect_process(pid, config, workspace, created)
     if process is None:
         return False
     # Converter descendants belong to this verified startup only, not other KFPS jobs.
     try:
-        children = process.children(recursive=True)
+        children = process.children(recursive=True) if include_children else []
     except psutil.NoSuchProcess:
         return True
     except psutil.AccessDenied:
@@ -328,7 +397,7 @@ def _terminate_owned(pid, created, config, workspace):
     return not any(item.is_running() for item in [*children, process])
 
 
-def ensure_ready(*, expected_kfps_root=None, cancelled=None, timeout=120, discover=True):
+def ensure_ready(*, expected_kfps_root=None, cancelled=None, timeout=120, discover=True, initial_vehicle=None):
     _check_cancel(cancelled)
     config = load_config(expected_kfps_root)
     with _launch_lock(timeout, cancelled):
@@ -336,11 +405,18 @@ def ensure_ready(*, expected_kfps_root=None, cancelled=None, timeout=120, discov
         record = _registered(config)
         if record is not None:
             return record
+        existing_config = config
         try:
             pending = _read_json(CONTROL / "instance.json", 65536)
-            if pending.get("status") == "starting" and inspect_process(
-                    pending.get("pid"), config, WORKSPACE, pending.get("created")) is not None:
-                raise RuntimeError("Studio is still preparing in the background. Try again shortly; no second server was started.")
+            if _registration_alive(pending):
+                existing_config = _record_config(config, pending)
+                if (Path(pending.get("workspace", "")).resolve() == WORKSPACE.resolve()
+                        and inspect_process(pending.get("pid"), existing_config, WORKSPACE, pending.get("created")) is not None):
+                    if pending.get("status") == "starting":
+                        raise RuntimeError("Studio is still preparing in the background. Try again shortly; no second server was started.")
+                    raise RuntimeError("The existing Studio is not responding. It has not been replaced or stopped automatically.")
+        except IncompatibleStudio:
+            raise
         except (OSError, ValueError):
             pass
         if discover:
@@ -354,10 +430,12 @@ def ensure_ready(*, expected_kfps_root=None, cancelled=None, timeout=120, discov
         # Do not start over an unresponsive canonical process, or kill it automatically.
         try:
             info = _read_json(WORKSPACE / "server-info.json", 65536)
-            if inspect_process(info.get("pid"), config, WORKSPACE) is not None:
+            if inspect_process(info.get("pid"), existing_config, WORKSPACE) is not None:
                 raise RuntimeError("The existing Studio is older or not responding. Save your work, then use the Studio stop command and restart it. It has not been stopped automatically.")
         except (OSError, ValueError):
             pass
+        _check_cancel(cancelled)
+        config = _initial_config(config, initial_vehicle, cancelled)
         _check_cancel(cancelled)
         child = _spawn(config)
         try:
@@ -376,6 +454,10 @@ def ensure_ready(*, expected_kfps_root=None, cancelled=None, timeout=120, discov
                     raise RuntimeError("Studio could not start. See livery/runs/studio-launch/backend.stderr.log.")
                 record = _ready_record(WORKSPACE / "server-info.json", config, managed=True, created=created)
                 if record is not None and record["pid"] == child.pid:
+                    vehicle = record.get("vehicle")
+                    if initial_vehicle is not None and (not isinstance(vehicle, dict)
+                            or type(vehicle.get("car_id")) is not int or vehicle != initial_vehicle):
+                        raise ValueError("The prepared Studio does not match the package's exact car. Nothing was opened.")
                     record["reused"] = False
                     _atomic_json(CONTROL / "instance.json", dict(record, launch_config=config))
                     return record
@@ -405,6 +487,61 @@ def stop_owned():
             return stopped
         except (OSError, ValueError, KeyError, TypeError):
             return False
+
+
+def stop_workspace_backend(expected, *, expected_kfps_root):
+    """Release an admitted backend after its documents close, never another host."""
+    if (not isinstance(expected, dict) or expected.get('managed') is not True
+            or type(expected.get('pid')) is not int or expected['pid'] <= 0
+            or type(expected.get('created')) not in (int, float)
+            or not math.isfinite(expected['created']) or expected['created'] <= 0
+            or not isinstance(expected.get('workspace'), str)):
+        return 'not-owned'
+    try:
+        if Path(expected['workspace']).resolve() != WORKSPACE.resolve():
+            return 'not-owned'
+        with _launch_lock(5):
+            try:
+                saved = _read_json(CONTROL / 'instance.json', 65536)
+            except FileNotFoundError:
+                return 'gone'
+            if (saved.get('managed') is not True or type(saved.get('pid')) is not int
+                    or saved['pid'] != expected['pid'] or saved.get('created') != expected['created']
+                    or Path(saved.get('workspace', '')).resolve() != WORKSPACE.resolve()):
+                return 'not-owned'
+            if not _registration_alive(saved):
+                return 'gone'
+            # The game setting may have changed since launch. Verify the actual
+            # registered inputs, not the configuration of a hypothetical new server.
+            config = validate_config(saved.get('launch_config'), expected_kfps_root)
+            def ready():
+                return _ready_record(WORKSPACE / 'server-info.json', config,
+                                     managed=True, created=expected['created'])
+            current = ready()
+            if current is None:
+                return 'unavailable'
+            if current.get('chrome_exposed') is not False:
+                return 'shared'
+            window = _window_module()
+            try:
+                with window.native_admission(current['url']):
+                    # Chrome admission uses this same lease; recheck after taking
+                    # it so a just-opened Chrome window cannot be terminated.
+                    current = ready()
+                    if current is None:
+                        return 'unavailable'
+                    if current.get('chrome_exposed') is not False:
+                        return 'shared'
+                    if current.get('pid') != expected['pid'] or current.get('created') != expected['created']:
+                        return 'not-owned'
+                    if not _terminate_owned(expected['pid'], expected['created'], config, saved['workspace'], include_children=False):
+                        return 'failed'
+                    _atomic_json(CONTROL / 'instance.json', {'status': 'stopped'})
+                    return 'stopped'
+            except RuntimeError:
+                return 'in-use'
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError, psutil.Error):
+        return 'unavailable'
 
 
 def chrome_path():
@@ -437,7 +574,7 @@ def window_preflight(expected_kfps_root=None):
 def open_studio_window(url, *, cancelled=None):
     base, separator, fragment = url.partition("#")
     validate_url(base)
-    if separator and not re.fullmatch(r"(?:vinyl|layout)=[a-f0-9]{32}", fragment):
+    if separator and not re.fullmatch(r"(?:vinyl|layout|project)=[a-f0-9]{32}", fragment):
         raise ValueError("Invalid Studio vinyl handoff.")
     if os.environ.get("KFPS_LIVERY_NO_OPEN") == "1":
         return False
@@ -447,7 +584,29 @@ def open_studio_window(url, *, cancelled=None):
     if not window.use_chrome(config["kfpsRoot"]):
         window.open_native(url, config, cancelled=cancelled)
         return True
-    return _open_chrome_window(url)
+    editor_source = str(Path(config["kfpsRoot"]) / "KFPS.Editor/src")
+    if editor_source not in sys.path:
+        sys.path.insert(0, editor_source)
+    # Do not introduce a browser into a backend while a native document owns it.
+    with window.native_admission(url):
+        _check_cancel(cancelled)
+        _mark_chrome_exposed(base)
+        _check_cancel(cancelled)
+        return _open_chrome_window(url)
+
+
+def _mark_chrome_exposed(url):
+    request = Request(validate_url(url) + "api/chrome-session", data=b"", method="POST")
+    opener = build_opener(ProxyHandler({}), _NoRedirect())
+    try:
+        with opener.open(request, timeout=5) as response:
+            body = response.read(1025)
+        value = json.loads(body)
+        if (len(body) > 1024 or not isinstance(value, dict) or set(value) != {"chrome_exposed"}
+                or value["chrome_exposed"] is not True):
+            raise ValueError("Invalid shared-host receipt.")
+    except (OSError, ValueError):
+        raise ValueError("Studio could not confirm shared-host protection. Save your work, then restart Studio. No Chrome window was opened.") from None
 
 
 def _open_chrome_window(url):

@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 
 from studio_release_policy import copy_outer_launchers, validate_packaged_studio
+from garage_release_policy import validate_packaged_garage
 
 
 APP_FOLDER = "KloudysFH6Painter"
@@ -120,6 +121,7 @@ def enforce_release_policy(app_root: Path) -> None:
         preview = "\n".join(f"  {item}" for item in violations[:25])
         raise RuntimeError(f"Release source contains forbidden runtime/personal paths:\n{preview}")
     validate_packaged_studio(app_root)
+    validate_packaged_garage(app_root)
 
 
 def copy_python_runtime(source: Path, destination: Path) -> None:

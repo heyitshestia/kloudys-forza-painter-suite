@@ -1,5 +1,57 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.1
+
+### Meet Garage
+
+- Liveries is now Garage, with My Cars, Saved Liveries and Packages in one place. Your existing libraries, saved locations and workspace tabs carry over.
+- My Cars finds local FH6 accounts automatically. Choose an account on the first visit; KFPS remembers it and keeps a dropdown for switching. Local gamertags appear when they can be matched reliably, with account identifiers as the fallback.
+- Browse the installed car catalogue without choosing an account, including cars you do not own. Square stock thumbnails are back, with separate entries for each owned copy instead of merging different builds together.
+- Search and sort by manufacturer, or put owned cars and cars with liveries first. All cars, Is owned, Has livery and Duplicate models filters are remembered across restarts.
+- Has livery means you have a saved livery or local package for that model. It does not mean a design is currently applied, that you own the car, or that you created the artwork.
+- The catalogue checks for changes when you return to Garage. Refresh also rechecks it, so newly installed cars and updated names or thumbnails can appear without clearing everything. Models come from your selected game installation.
+- Saved Liveries, Packages and normal transfers still work without selecting a Garage account. Choose File remains available for a manually selected local save.
+
+### Your Car, Your Current Build
+
+- Open an owned copy in 3D Preview or Studio with its current fitted body parts: body kit, chassis/cage, front bumper, hood, rear bumper, rear wing and side skirts.
+- Both views use the same body selection. Fixed stock parts now work too, including the NISMO GT-R LM case where Preview previously reported an unavailable body.
+- Unowned catalogue cars can open in either view with stock bodywork. Opening a car alone starts without artwork; Open Artwork in Studio adds compatible local artwork to the selected owned copy's current body.
+- Show Applied Livery finds an exact local match when one is available. It does not guess from filenames or silently substitute another design.
+- Studio's part choices now use manufacturer and product names from the installed catalogue where available. Generic parts keep generic names; unresolved entries keep their IDs rather than an invented brand.
+- Unsupported or conflicting fitted parts produce an error instead of quietly showing a different build. Body selections survive project save and reopen. This does not add wheel or tyre fitting.
+
+### Comparisons And Project Links
+
+- Compare saved part IDs between owned copies, or save a named comparison to revisit later.
+- Link a same-car Studio project to a saved comparison, check whether it is still available, open its folder, or open it directly in Studio.
+- Managed project links follow valid saved revisions. Opening a linked project preserves its groups, placements, body choices and authoring data, without automatically overwriting the original.
+- Removing a comparison removes only that note and its link, not the project file. Automatic Garage change history is not enabled for current native snapshots; named comparisons are available now.
+
+### Studio, Easier To Work In
+
+- Replaced the long stack of hidden settings with Placement, Design, Car, View and Project tabs. Controls keep their existing behavior, and commands reveal the relevant section when needed.
+- Right-click a vinyl source to delete it from the project. Used sources ask for confirmation, locked placements block deletion, and Undo restores the source and its placements. Your original vinyl file is untouched.
+- Added Highlight section beneath Frame section in Surface inspection. Toggle the selected paint section without moving the camera or changing your artwork.
+- Added English, Korean and Japanese text for the new Studio controls.
+
+### Opening, Loading And Closing
+
+- Package launches prepare the requested car before starting its scene, avoiding the long first-car flash and redundant work. Exact-car lookups no longer need to walk the entire car catalogue.
+- Fixed supported extracted packages opening on the right car but without visible vinyls. Artwork preparation respects the available preview budget; a temporary quality fallback does not change your saved preference or exported shapes.
+- Hardened package, project and Garage handoffs against changed files, wrong cars, stale requests and cancelled launches. Save/discard/cancel still protects the document already open in Studio.
+- Closing KFPS now stops the Studio backend it owns after document checks finish. Independent Studio windows and Chrome sessions retain their separate lifetime; cancelling a close keeps the document and backend running.
+- Improved recovery from old or unavailable Studio sessions, and kept launch failures retryable instead of leaving the workspace stuck.
+- Garage restores its local index and reuses unchanged results. Account reading and catalogue work run in the background on entry or refresh, not as an idle scan. Parts and stock thumbnails are cached, with bounded thumbnail storage and no bulk 3D rendering.
+- Extended diagnostics for Garage discovery, cache reuse, fitted-build preparation, handoff status and backend shutdown. These new records use counts and error categories, not account names, save contents or artwork.
+
+### Download And Compatibility
+
+- New KFPS-3.2.1-bundled.zip and a separate KFPS-Updater-1.0.5.exe download. KFPS, Editor and Studio launchers are all included. Garage works from the normal installation without a separate setup step.
+- Save your work and close KFPS, Editor and Studio before updating, including separate Chrome windows connected to Studio. Existing projects, artwork, shortcuts, themes and account choices are preserved.
+- Garage's owned-car features currently support FH6. The other games keep their existing import/export workflows; this update does not include an FM8 import fix.
+- Studio full-design export remains experimental. A package that previews successfully is not necessarily editable: raster decals and some unsupported authorship metadata remain restricted. Wheel rendering and coverage of every car/body-kit combination are still incomplete.
+
 ## 3.2.0
 
 ### One Workspace

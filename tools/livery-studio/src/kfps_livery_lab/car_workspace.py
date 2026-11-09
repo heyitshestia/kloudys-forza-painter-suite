@@ -19,6 +19,7 @@ import psutil
 from .model import decode_json
 from .prepare import LAB_ROOT, PREPARE_FORMAT, atomic_json, file_hash, within
 from .file_io import io_path
+from .garage_build import validate_build, resolve_prepared_build
 
 ID = re.compile(r"[a-f0-9]{32}")
 ARCHIVE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,150}\.zip", re.IGNORECASE)
@@ -35,7 +36,7 @@ class CarError(ValueError):
         self.status = status
 
 
-def catalogue(game_root):
+def catalogue(game_root, *, model_code=None):
     game = Path(game_root).resolve(strict=True)
     root = within(game / "media/Cars", game)
     if root != game / "media/Cars" or not root.is_dir():
@@ -48,6 +49,8 @@ def catalogue(game_root):
             raise CarError(400, "The configured car folder contains too many entries.")
         entries.append(path)
     for path in sorted(entries, key=lambda p: p.name.casefold()):
+        if model_code is not None and path.stem != model_code:
+            continue
         if not ARCHIVE.fullmatch(path.name) or path.is_symlink() or not path.is_file():
             continue
         if path.resolve() != path or getattr(path, "is_junction", lambda: False)():
@@ -176,7 +179,8 @@ class CarWorkspace:
         with self.lock:
             return self._view(self._record(identifier))
 
-    def start(self, car_id, current_archive):
+    def start(self, car_id, current_archive, *, garage_build=None, automatic_handoff=False):
+        build = validate_build(garage_build) if garage_build is not None else None
         with self.lock:
             if self.closed:
                 raise CarError(409, "The Studio is closing.")
@@ -216,11 +220,16 @@ class CarWorkspace:
                 self.owned.remove(root)
             self.owned.append(root)
             record = {"id": identifier, "status": "preparing", "car": car, "root": root,
-                      "cancel": threading.Event()}
+                      "cancel": threading.Event(), "garage_build": build,
+                      "automatic_handoff": automatic_handoff}
             thread = threading.Thread(target=self._run, args=(record,), name="KfpsCarPrepare-" + identifier, daemon=True)
             record["thread"] = thread
             self.records[identifier] = record
-            thread.start()
+            try:
+                thread.start()
+            except (RuntimeError, OSError):
+                record.update(thread=None, status="failed", error_code="containment-failed",
+                              error="Car preparation could not start. Retry; your previous car is unchanged.")
             return self._view(record)
 
     def _check_inactive_owned(self, root, *, allow_missing=False):
@@ -288,8 +297,12 @@ class CarWorkspace:
             atomic_json(root / "prepare-log.json", detail)
 
     def _run(self, record):
+        stage = "preparation"
         try:
             prepared, assets = self._prepare(record)
+            if record.get("garage_build") is not None and not record["cancel"].is_set():
+                stage = "garage-build"
+                resolve_prepared_build(record["garage_build"], prepared, assets)
             with self.lock:
                 if record["cancel"].is_set() or self.closed:
                     record["status"] = "cancelled"
@@ -299,13 +312,14 @@ class CarWorkspace:
             with self.lock:
                 record["status"] = "cancelled" if record["cancel"].is_set() else "failed"
                 if record["status"] == "failed":
-                    code = getattr(exc, "status", "preparation-failed")
+                    code = "garage-build-unavailable" if stage == "garage-build" else getattr(exc, "status", "preparation-failed")
                     messages = {
                         "timeout": "This car took too long to prepare. Try again or choose another car.",
                         "memory-limit": "This car exceeded the preparation memory limit. Choose another car.",
                         "output-limit": "Car preparation produced too much diagnostic output. Choose another car.",
                         "converter-failed": "This car could not be converted. Try again or choose another car.",
                         "containment-failed": "The safe preparation worker could not start. Restart Studio and retry.",
+                        "garage-build-unavailable": "The saved body parts could not be matched to the prepared car. Refresh Garage and retry.",
                     }
                     record["error_code"] = code if code in messages else "preparation-failed"
                     record["error"] = messages.get(code, "This car could not be prepared or verified. Try again or choose another car.") + " Your previous car is unchanged."
@@ -330,6 +344,8 @@ class CarWorkspace:
                 raise CarError(409, "Car preparation is not ready to commit.")
             # Revalidate hashes just before publication; never publish partial/stale files.
             prepared, assets = validate_prepared(record["root"], record["car"])
+            if record.get("garage_build") is not None:
+                resolve_prepared_build(record["garage_build"], prepared, assets)
             url = activate(prepared, record["root"], assets)
             self.active_root = record["root"]
             record["status"] = "committed"
@@ -342,6 +358,9 @@ class CarWorkspace:
             for record in records:
                 record["cancel"].set()
         for record in records:
-            record["thread"].join(timeout=15)
-            if record["thread"].is_alive():
+            thread = record.get("thread")
+            if thread is None:
+                continue
+            thread.join(timeout=15)
+            if thread.is_alive():
                 raise RuntimeError("Car preparation did not shut down.")

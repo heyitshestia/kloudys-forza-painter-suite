@@ -18,7 +18,7 @@ Item {
         var items = [
             { page: "create", label: "Create", icon: "generate" },
             { page: "outputs", label: "Outputs", icon: "json" },
-            { page: "liveries", label: "Liveries", icon: "monitor" },
+            { page: "liveries", label: "Garage", icon: "monitor" },
             { page: "community", label: "Community", icon: "heart" },
             { page: "editor", label: "Editor", icon: "editor" },
             { page: "tools", label: "Tools", icon: "tools" },

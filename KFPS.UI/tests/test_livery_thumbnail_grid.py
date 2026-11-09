@@ -57,6 +57,25 @@ class LiveryThumbnailGridTests(unittest.TestCase):
         self.assertEqual("", source_grid_row({**self.row, "path": str(other)})["thumbnailUrl"])
         self.assertNotIn("thumbnailUrl", self.row)
 
+    def test_availability_is_independent_of_thumbnail_and_export_rights(self):
+        service = self.service([{**self.row, "exportable": False}])
+        self.assertTrue(service.sourceModel.rows[0]["available"])
+        self.assertEqual("", service.sourceModel.rows[0]["thumbnailUrl"])
+        self.source.unlink()
+        service._replace_source_rows([self.row])
+        self.assertFalse(service.sourceModel.rows[0]["available"])
+
+    def test_package_availability_updates_when_local_file_disappears(self):
+        service = self.service()
+        package = self.root / 'local.kfpslivery'
+        package.write_bytes(b'fixture')
+        row = {'path': str(package), 'carId': 1296, 'title': 'Local package'}
+        service._replace_package_rows([row])
+        self.assertTrue(service.packageModel.rows[0]['available'])
+        package.unlink()
+        service._replace_package_rows([row])
+        self.assertFalse(service.packageModel.rows[0]['available'])
+
     def test_changed_thumbnail_refreshes_even_if_artwork_is_unchanged(self):
         self.thumb.write_bytes(b"first")
         first = source_grid_row(self.row)["thumbnailUrl"]

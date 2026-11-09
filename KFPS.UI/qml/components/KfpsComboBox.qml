@@ -10,6 +10,7 @@ ComboBox {
 
     property bool dense: false
     property bool crispText: true
+    property int labelTextFormat: Text.AutoText
     property real minimumWidth: Theme.px(96)
     property string toolTipText: ""
     property bool auditAllowOutsideFeedback: Theme.panelLocatorEnabled
@@ -40,6 +41,7 @@ ComboBox {
 
     contentItem: Text {
         id: fieldText
+        textFormat: root.labelTextFormat
         text: root.displayText
         color: root.enabled ? Theme.text : Theme.subtle
         font: root.font
@@ -203,6 +205,7 @@ ComboBox {
 
         contentItem: Text {
             id: delegateLabel
+            textFormat: root.labelTextFormat
             text: {
                 var role = String(root.textRole || "")
                 if (role.length > 0) {

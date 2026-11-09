@@ -8,8 +8,9 @@ import { placeholderWheelSpecs, placeholderFloorY } from './wheel-model.mjs';
 import { uv3SeamSegments } from './inspection-tools.mjs';
 import {t,errorText} from './i18n.mjs';
 import {previewQuality} from './preview-quality.mjs';
+import {resolveGarageBuild} from './garage-build.mjs';
 import { componentCatalog, initialComponentSelection, selectComponent, componentMeshVisible,
-  inspectUv3, inspectNativeUvChannels, summarizeComponents, fidelityMessages, validateVehicleParts } from './component-model.mjs';
+  inspectUv3, inspectNativeUvChannels, summarizeComponents, fidelityMessages, validateVehicleParts, componentProductLabel } from './component-model.mjs';
 
 // Isolated authoring adaptation of the baseline KFPS inspector. Geometry,
 // section masks remain shared with the baseline. Source/game parity is unverified;
@@ -55,6 +56,7 @@ export function updatePaintCanvas(source,quality='balanced',canvasBytes=0) {
 
 export function isSceneReady() { return modelReady && !viewerDisposed; }
 export function currentVehicleParts() { return partOverrides(); }
+export function garageVehicleParts(value) { return resolveGarageBuild(value, partCatalog); }
 export function sceneState() { return { ...viewerDiagnostics(), ready: isSceneReady() }; }
 
 function partOverrides(selection = selectedPartOptions) {
@@ -163,6 +165,7 @@ function displayColor(value) {
 let selectionAccent = displayColor(getComputedStyle(viewport).getPropertyValue('--editor-selection-border').trim());
 const inspectionUniforms = {
   inspectionMode: {value: 0},
+  inspectionSectionSlot: {value: -1},
   inspectionPaint: {value: new THREE.Color()},
   inspectionGlass: {value: new THREE.Color()},
   inspectionUnsupported: {value: new THREE.Color()},
@@ -170,6 +173,7 @@ const inspectionUniforms = {
 };
 const inspectionDeclarations = `
   uniform float inspectionMode;
+  uniform int inspectionSectionSlot;
   uniform vec3 inspectionPaint;
   uniform vec3 inspectionGlass;
   uniform vec3 inspectionUnsupported;
@@ -395,6 +399,7 @@ function buildInspectionLines() {
 
 export function inspectionState({resources=false}={}) {
   return {mode:inspectionMode,ready:isSceneReady(),disposed:viewerDisposed,
+    highlightSection:renderContract?.sections.find(section=>section.slot_index===inspectionUniforms.inspectionSectionSlot.value)?.section??null,
     sections:(renderContract?.sections||[]).map(section=>section.section),
     unsupportedMeshes:(componentCoverage?.uv3.visible_unmapped||0)+(componentCoverage?.unmapped_visual_surfaces?.filter(item=>item.visible).length||0),
     lineSegments:inspectionLines.reduce((sum,line)=>sum+line.geometry.getAttribute('position').count/2,0),
@@ -414,6 +419,16 @@ export function setInspectionMode(mode) {
   if(mode==='uv-seams')buildInspectionLines();
   requestRender();window.dispatchEvent(new Event('kfps-inspection-change'));
   return true;
+}
+
+export function setInspectionHighlight(name) {
+  if(!isSceneReady())return false;
+  const section=name===null?null:renderContract.sections.find(item=>item.section===name);
+  if(name!==null&&!section)return false;
+  const slot=section?.slot_index??-1;
+  if(inspectionUniforms.inspectionSectionSlot.value===slot)return true;
+  inspectionUniforms.inspectionSectionSlot.value=slot;
+  requestRender();window.dispatchEvent(new Event('kfps-inspection-change'));return true;
 }
 
 // Reuse the normal bounds fitter; native masks choose the close-up, not car-specific guesses.
@@ -531,12 +546,12 @@ function partTypeLabel(value) {
     .replace(/_/g, ' '));
 }
 function componentDisplayLabel(option){
-  const kind=option.stock?t('Stock'):option.level!==null?t`Level ${option.level}`:t('Option');
-  return `${kind} (ID ${option.id})${option.empty===true?t(' - empty'):''}${option.available===false?t(' - unavailable'):''}`;
+  const kind=componentProductLabel(option)||(option.stock?t('Stock'):option.level!==null?t`Level ${option.level}`:t('Option'));
+  return `${kind} (ID ${option.id})${option.empty===true&&!option.fixed_stock?t(' - empty'):''}${option.available===false?t(' - unavailable'):''}`;
 }
 
 function preparePartControls(options) {
-  partCatalog = componentCatalog(options, runtimeFidelity?.body_compatibility);
+  partCatalog = componentCatalog(options, runtimeFidelity?.body_compatibility, runtimeFidelity?.part_names);
   selectedPartOptions = initialComponentSelection(partCatalog);
   partNotes.clear();
   partControls.replaceChildren();
@@ -617,15 +632,16 @@ function refreshComponentCoverage() {
       const option=group.options.find(candidate=>candidate.id===Number(element.value));
       element.disabled=option.available===false||option.compatible===false;
       element.textContent=componentDisplayLabel(option)+(option.compatible===false?t(' - other body'):'');
+      element.title=componentDisplayLabel(option)+(option.name_reference_only?t(' - reference catalogue'):'' );
     }
     if (!selected) { note.textContent = t('No compatible component selected. This part is hidden.'); continue; }
-    const empty = t(selected.empty === true ? 'Declared empty option' : 'Empty or missing: not confirmed');
+    const empty = t(selected.fixed_stock ? 'Stock' : selected.empty === true ? 'Declared empty option' : 'Empty or missing: not confirmed');
     const parent = selected.parent;
     const parentText = parent.id === null ? t('Parent not supplied.') : t`Parent upgrade ${parent.id}; stock parent: ${parent.parent_is_stock===null?t('unknown'):t(String(parent.parent_is_stock))} (${parent.mapped_body_option===null?t('relationship unresolved'):t`mapped to body ${parent.mapped_body_option}; game fitment unverified`}).`;
     const unavailable=group.options.filter(option=>option.available===false).map(option=>`ID ${option.id}: ${errorText(option.reason||'Geometry unavailable')}`).join(' ');
     partDetails.push(t`${partTypeLabel(group.part_type)}: ${selected.mesh_count ? t`${selected.mesh_count} tagged meshes` : empty}; ${selected.shared_unconditional_mesh_count} unconditional shared. ${selected.missing_uv3} without usable UV3. ${parentText}${unavailable ? t` Unavailable: ${unavailable}` : ''}`);
     const notes = [];
-    if (!selected.mesh_count) notes.push(t(selected.empty ? 'No part fitted.' : 'Geometry unavailable.'));
+    if (!selected.mesh_count && !selected.fixed_stock) notes.push(t(selected.empty ? 'No part fitted.' : 'Geometry unavailable.'));
     if (selected.missing_uv3) notes.push(t`${selected.missing_uv3} surfaces cannot be painted.`);
     if (parent.id !== null) notes.push(t(parent.mapped_body_option === null ? 'Body fitment unverified.' : 'Body-linked option.'));
     if (group.options.some(option => option.available === false)) notes.push(t('Some options unavailable.'));
@@ -882,6 +898,7 @@ function sectionAwareMaterial(
       paintRegions: { value: arrays.paintRegions },
       sideFacing: { value: arrays.facings },
       enabledSlots: { value: arrays.present },
+      inspectionKindSlots: { value: arrays.present },
       meshAllowedSlots: { value: allowedSlotArray(allowedSides) },
       meshProjectionSlots: { value: allowedSlotArray(projectionSides) },
       projectionAxis: { value: arrays.projectionAxes },
@@ -920,6 +937,7 @@ function sectionAwareMaterial(
       uniform vec4 paintRegions[${SECTION_COUNT}];
       uniform vec3 sideFacing[${SECTION_COUNT}];
       uniform float enabledSlots[${SECTION_COUNT}];
+      uniform float inspectionKindSlots[${SECTION_COUNT}];
       uniform float meshAllowedSlots[${SECTION_COUNT}];
       uniform float meshProjectionSlots[${SECTION_COUNT}];
       uniform vec4 projectionAxis[${SECTION_COUNT}];
@@ -961,6 +979,7 @@ function sectionAwareMaterial(
   const decalMapping = `
         vec3 normalValue = normalize(worldNormalValue);
         float bestCoverage = 0.0;
+        float inspectionCoverage = 0.0;
         float bestFacing = -1.0;
         int bestSlot = -1;
         vec2 bestAtlasUv = atlasUv;
@@ -969,7 +988,8 @@ function sectionAwareMaterial(
         vec4 directPage2 = texture2D(maskMap2, atlasUv);` : ''}
         for (int slot = 0; slot < ${SECTION_COUNT}; ++slot) {
           if (
-            enabledSlots[slot] < 0.5
+            (enabledSlots[slot] < 0.5 && slot != inspectionSectionSlot)
+            || inspectionKindSlots[slot] < 0.5
             || meshAllowedSlots[slot] < 0.5
             || dot(sideFacing[slot], normalValue) <= 0.0
           ) continue;
@@ -1000,6 +1020,9 @@ function sectionAwareMaterial(
           vec4 page2 = ${directUv ? 'directPage2' : 'texture2D(maskMap2, candidateUv)'};
           float candidate = slotCoverage(slot, page0, page1, page2);
           if (candidate <= 0.5) continue;
+          // Inspection evaluates the chosen mask without changing decal winners.
+          if (slot == inspectionSectionSlot) inspectionCoverage = candidate;
+          if (enabledSlots[slot] < 0.5) continue;
           float facing = dot(sideFacing[slot], normalValue);
           bool better = useDirectUv >= 0.5
             ? candidate > bestCoverage
@@ -1056,9 +1079,13 @@ function sectionAwareMaterial(
         outgoingLight=useDirectUv<0.5?mix(inspectionNeutral,inspectionUnsupported,stripe):bestSlot>=0?eligibleColor:inspectionNeutral*0.45;
         diffuseColor.a=1.0;
       }
+      if(inspectionSectionSlot>=0){
+        if(inspectionCoverage>0.5){outgoingLight=inspectionPaint;diffuseColor.a=1.0;}
+        else if(inspectionMode>0.5 && inspectionMode<1.5)outgoingLight=inspectionNeutral*0.45;
+      }
       #include <opaque_fragment>`);
   };
-  material.customProgramCacheKey = () => `kfps-native-uv-pbr-inspection-v1:${directUv}:${transparent}`;
+  material.customProgramCacheKey = () => `kfps-native-uv-pbr-inspection-v2:${directUv}:${transparent}`;
   return trackMaterial(material);
 }
 
@@ -1276,6 +1303,7 @@ async function loadPackage() {
     phase('materials', 'Preparing car surfaces');
     model = gltf.scene;
     preparePartControls(model.userData?.kfps_part_options);
+    if(runtime.garage_build)selectedPartOptions=validateVehicleParts(garageVehicleParts(runtime.garage_build),partCatalog);
     const uvCache = new Map(), nativeUvCache = new Map();
     componentMeshes = [];
     model.traverse(child => {
@@ -1592,7 +1620,7 @@ function disposeViewer(releaseContext = true) {
   if (!viewerDisposed) {
     viewerDisposed = true;
     clearInspectionLines();
-    inspectionMode='off';inspectionUniforms.inspectionMode.value=0;
+    inspectionMode='off';inspectionUniforms.inspectionMode.value=0;inspectionUniforms.inspectionSectionSlot.value=-1;
     window.clearTimeout(loadTimeout);
     loadAbort.abort();
     if (animationFrameId) cancelAnimationFrame(animationFrameId);

@@ -38,6 +38,7 @@ from .livery_library import LiveryLibraryFilter, source_details
 from .models import DictListModel
 from .qt_utils import safe_file_part
 from .workspace_diagnostics import operation as diagnostic_operation, record
+from .garage_index import log_body_launch
 
 
 class FullLiveryService(QObject):
@@ -50,11 +51,11 @@ class FullLiveryService(QObject):
     SOURCE_ROLES = (
         "title", "path", "carId", "modelCode", "placementCount",
         "modified", "detail", "hasHeader", "exportable", "privacyDetail",
-        "thumbnailUrl", "searchText",
+        "thumbnailUrl", "searchText", "available",
     )
     PACKAGE_ROLES = (
         "title", "path", "carId", "modelCode", "placementCount", "portableMesh",
-        "created", "detail",
+        "created", "detail", "available",
     )
     DECISION_ROLES = ("action", "item", "detail")
 
@@ -106,6 +107,7 @@ class FullLiveryService(QObject):
         self._viewer_quality = 2 if self._settings.get("viewer_vinyl_quality") == "high" else 1
         self._viewer_wheels_visible = self._settings.get("viewer_wheels_visible") is not False
         self._current_manifest: dict[str, Any] = {}
+        self._garage_preview = None
         self._preview_evidence: dict[str, Any] = {}
         self._sources = DictListModel(self.SOURCE_ROLES, self)
         self._source_grid = LiveryLibraryFilter(self)
@@ -369,6 +371,10 @@ class FullLiveryService(QObject):
     def viewerReady(self):
         return self._viewer_ready
 
+    @Property(bool, notify=changed)
+    def hasGaragePreview(self):
+        return self._garage_preview is not None
+
     @Property(int, notify=changed)
     def viewerQuality(self):
         return self._viewer_quality
@@ -422,12 +428,17 @@ class FullLiveryService(QObject):
 
     @Property(str, notify=changed)
     def selectedTitle(self):
+        if self._garage_preview:
+            return "Garage body build"
         return str((self._current_manifest.get("livery") or {}).get("title")
                    or (self._source_privacy.get(self._selected_source) or {}).get("title")
                    or "Select a livery")
 
     @Property(str, notify=changed)
     def selectedVehicle(self):
+        if self._garage_preview:
+            vehicle = self._garage_preview["identity"]
+            return f"{vehicle['model_code']} | car ID {vehicle['car_id']}"
         if not self._current_manifest:
             source = self._source_privacy.get(self._selected_source) or {}
             return f"{source.get('modelCode') or 'Unresolved car'} | car ID {source.get('carId') or '?'}"
@@ -438,6 +449,8 @@ class FullLiveryService(QObject):
 
     @Property(str, notify=changed)
     def selectedCounts(self):
+        if self._garage_preview:
+            return "Fitted body parts / No artwork included"
         if not self._current_manifest:
             count = int((self._source_privacy.get(self._selected_source) or {}).get("placementCount") or 0)
             return f"{count:,} placements"
@@ -526,6 +539,7 @@ class FullLiveryService(QObject):
         grid_rows = []
         details = {}
         cars = {}
+        available_paths = set()
         for row in rows if isinstance(rows, (list, tuple)) else ():
             if not isinstance(row, dict):
                 continue
@@ -539,7 +553,14 @@ class FullLiveryService(QObject):
                            portableMesh=row.get("portableMesh") is True
                            or (type(row.get("portableMesh")) is int and row["portableMesh"] == 1))
             details[path] = display
-            grid_rows.append({**display, "detail": row.get("detail") if isinstance(row.get("detail"), str) else ""})
+            try:
+                available = Path(path).is_file()
+            except (OSError, ValueError):
+                available = False
+            if available:
+                available_paths.add(path)
+            grid_rows.append({**display, "detail": row.get("detail") if isinstance(row.get("detail"), str) else "",
+                              "available": available})
             if display["carId"]:
                 cars[display["carId"]] = display["modelCode"] or "Unresolved car"
         self._package_details = details
@@ -547,7 +568,7 @@ class FullLiveryService(QObject):
             {"label": f"{cars[car_id]} (ID {car_id})", "value": car_id}
             for car_id in sorted(cars)
         ]
-        if self._browsed_package and not self._available_package(self._browsed_package):
+        if self._browsed_package and self._browsed_package not in available_paths:
             removed = self._browsed_package
             self._browsed_package = ""
             if self._selected_package == removed:
@@ -571,6 +592,13 @@ class FullLiveryService(QObject):
 
     @Slot(object)
     def _viewer_preparation_progress(self, event: dict) -> None:
+        if self._garage_preview:
+            if (self._active and event.get("request_serial") == self._mesh_serial
+                    and event.get("garage_fingerprint") == self._garage_preview.get("fingerprint",
+                        (self._garage_preview["snapshot"] or {}).get("fingerprint"))):
+                self._status = str(event.get("message") or "Preparing Garage build")
+                self.changed.emit()
+            return
         if (self._active and event.get("package_path") == self._selected_package
                 and event.get("request_serial") == self._mesh_serial):
             self._status = str(event.get("message") or "Preparing preview")
@@ -630,7 +658,9 @@ class FullLiveryService(QObject):
         # Leaving the page invalidates selection serials. Completion of that old
         # worker releases reopening even if it finished before seeing cancellation.
         resume = self._resume_after_cancel and self._active and not self._tasks.running
-        if str(result.get("kind") or "") == "mesh":
+        if result.get("kind") == "garage-mesh":
+            self._apply_garage_result(result)
+        elif str(result.get("kind") or "") == "mesh":
             self._meshResultReady.emit(result)
         else:
             self._resultReady.emit(result)
@@ -658,7 +688,7 @@ class FullLiveryService(QObject):
         self._viewer_process_memory()
         self._viewer_memory_timer.start()
         self._running = True
-        self._status = "Loading car and livery textures"
+        self._status = "Loading Garage body build" if self._garage_preview else "Loading car and livery textures"
         self._summary = "Waiting for the first complete 3D frame."
         self.changed.emit()
 
@@ -702,8 +732,14 @@ class FullLiveryService(QObject):
         elif kind == "ready" and not self._viewer_ready:
             self._viewer_ready = True
             self._running = self._tasks.running
-            self._status = "Local livery preview ready"
-            self._summary = "Car and livery textures rendered successfully."
+            self._status = "Garage build preview ready" if self._garage_preview else "Local livery preview ready"
+            self._summary = ("Selected fitted body parts rendered successfully. No artwork included." if self._garage_preview
+                             else "Car and livery textures rendered successfully.")
+            if self._garage_preview:
+                if self._garage_preview["snapshot"] is None:
+                    self._status = "Stock car preview ready"
+                    self._summary = "Stock body rendered successfully. No artwork included."
+                log_body_launch(self.log, "preview", "ready", self._garage_preview["snapshot"])
             diagnostics = event.get("diagnostics")
             quality = diagnostics.get("quality") if isinstance(diagnostics, dict) else None
             if isinstance(quality, dict) and quality.get("scale") == 1:
@@ -724,6 +760,8 @@ class FullLiveryService(QObject):
 
     @Slot(str)
     def _inspector_failed(self, message: str) -> None:
+        if self._garage_preview:
+            log_body_launch(self.log, "preview", "unavailable", self._garage_preview["snapshot"])
         self._viewer_url = ""
         self._stop_viewer_memory_guard()
         self._inspector.stop()
@@ -1105,6 +1143,7 @@ class FullLiveryService(QObject):
         self._viewer_url = ""
         self._stop_viewer_memory_guard()
         self._current_manifest = {}
+        self._garage_preview = None
         self._preview_evidence = {}
         self._selected_package = ""
         self._active_source_fingerprint = ""
@@ -1335,8 +1374,107 @@ class FullLiveryService(QObject):
 
     def _cancel_mesh_preparation(self) -> None:
         self._mesh_serial += 1
-        if self._tasks.current_operation == "prepare-mesh":
+        if self._tasks.current_operation in ("prepare-mesh", "prepare-garage"):
             self._tasks.cancel("mesh selection changed")
+
+    @Slot("QVariantMap", "QVariantMap", result=bool)
+    def previewGarageBuild(self, identity, snapshot):
+        return self._preview_body(identity, snapshot, stock=False)
+
+    @Slot("QVariantMap", result=bool)
+    def previewStockCar(self, identity):
+        return self._preview_body(identity, None, stock=True)
+
+    def _preview_body(self, identity, snapshot, *, stock):
+        if self._closed or not self._active or not self._gate.can_preview:
+            return False
+        from .garage_index import validate_vehicle_identity, validate_body_snapshot
+        try:
+            identity = validate_vehicle_identity(identity)
+            snapshot = None if stock else validate_body_snapshot(snapshot)
+            if not self._game_folder:
+                raise ValueError("Choose the local FH6 game folder before opening a Garage build.")
+            if self._tasks.running and self._tasks.current_operation not in (
+                    "prepare-mesh", "prepare-garage", "preview-source", "open-package"):
+                raise ValueError("Finish the current livery task before opening a Garage build.")
+        except (ValueError, TypeError) as exc:
+            self._status, self._summary = "Garage build unavailable", str(exc)
+            log_body_launch(self.log, "preview", "rejected")
+            self.changed.emit()
+            return False
+        self._selection_serial += 1
+        self._cancel_source_preview()
+        self._cancel_mesh_preparation()
+        self._reset_inspector_session()
+        self._selected_source = self._active_source_preview = ""
+        fingerprint = "stock" if stock else snapshot["fingerprint"]
+        self._garage_preview = {"identity": identity, "snapshot": snapshot, "fingerprint": fingerprint}
+        self._running = True
+        self._status = "Preparing stock car" if stock else "Preparing selected Garage body build"
+        self._summary = "Stock body; no artwork included." if stock else "Fitted body parts only; no artwork included."
+        log_body_launch(self.log, "preview", "queued", snapshot)
+        self.changed.emit()
+        accepted = self._tasks.start("prepare-garage",
+            {"game_folder": self._game_folder, "identity": identity,
+             **({"stock": True} if stock else {"garage_build": snapshot})}, kind="garage-mesh",
+            metadata={"request_serial": self._mesh_serial, "garage_fingerprint": fingerprint},
+            supersede=True)
+        if not accepted:
+            log_body_launch(self.log, "preview", "rejected", snapshot)
+            self._garage_preview = None
+            self._running = self._tasks.running
+            self._status, self._summary = "Garage preview unavailable", "The livery worker did not accept the build."
+            self.changed.emit()
+            return False
+        return True
+
+    @Slot(result=bool)
+    def retryGaragePreview(self):
+        current = self._garage_preview
+        if not current or self._running:
+            return False
+        return (self.previewStockCar(current["identity"]) if current["snapshot"] is None else
+                self.previewGarageBuild(current["identity"], current["snapshot"]))
+
+    def _apply_garage_result(self, result):
+        current = self._garage_preview
+        if (self._closed or not self._active or not current or result.get("request_serial") != self._mesh_serial
+                or result.get("garage_fingerprint") != current.get("fingerprint", (current["snapshot"] or {}).get("fingerprint"))):
+            if not self._closed:
+                log_body_launch(self.log, "preview", "stale")
+            return
+        self._running = self._tasks.running
+        if result.get("cancelled") or not result.get("ok"):
+            log_body_launch(self.log, "preview", "cancelled" if result.get("cancelled") else "unavailable", current["snapshot"])
+            self._status = "Garage preview cancelled" if result.get("cancelled") else "Garage build unavailable"
+            self._summary = str(result.get("error") or "The selected body build could not be prepared.")
+            self.changed.emit()
+            return
+        payload = result.get("payload") or {}
+        if (payload.get("identity") != current["identity"]
+                or payload.get("garage_fingerprint") != current.get("fingerprint", (current["snapshot"] or {}).get("fingerprint"))):
+            log_body_launch(self.log, "preview", "rejected", current["snapshot"])
+            self._status, self._summary = "Garage build unavailable", "The prepared preview does not match the selected body build."
+            self.changed.emit()
+            return
+        try:
+            self._running = True
+            self._status, self._summary = "Starting isolated 3D viewer", (
+                "Opening stock body; no artwork included." if current["snapshot"] is None else
+                "Opening fitted body parts; no artwork included.")
+            evidence = payload.get("preview_evidence")
+            self._preview_evidence = evidence if isinstance(evidence, dict) else {}
+            self._inspector.start(package="", mesh=str(payload.get("mesh_path") or ""),
+                render_root=str(payload.get("render_root") or ""), render_contract=payload.get("render_contract") or {},
+                readonly_descriptor=str(payload.get("readonly_descriptor") or ""),
+                readonly_descriptor_sha256=str(payload.get("readonly_descriptor_sha256") or ""),
+                package_id=str(payload.get("preview_id") or ""))
+            log_body_launch(self.log, "preview", "prepared", current["snapshot"])
+        except Exception as exc:
+            log_body_launch(self.log, "preview", "unavailable", current["snapshot"])
+            self._running = False
+            self._status, self._summary = "Garage build unavailable", str(exc)
+        self.changed.emit()
 
     @Slot(object)
     def _apply_result(self, result):
@@ -1577,7 +1715,7 @@ class FullLiveryService(QObject):
 
     @Slot(object)
     def _apply_mesh_result(self, result):
-        if self._closed:
+        if self._closed or self._garage_preview:
             return
         if int(result.get("request_serial") or -1) != self._mesh_serial:
             return

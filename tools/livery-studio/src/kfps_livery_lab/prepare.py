@@ -198,7 +198,7 @@ def _receipt_code(baseline: Path) -> dict:
     # blank authoring path uses neither vector rendering nor external shapes.
     lab = ("prepare.py", "component_coverage.py", "converter_process.py", "converter_provenance.py",
            "file_io.py", "render_adapter.py", "material_preview.py", "material_assets.py",
-           "wheel_fitment.py", "part_fitment.py")
+           "wheel_fitment.py", "part_fitment.py", "part_names.py", "catalogue_cache.py")
     native = ("render_contract.py", "portable_mesh_converter.py", "vehicle_assets.py",
               "projection_alignment.py", "derived_cache.py")
     files = {"lab/" + name: file_hash(Path(__file__).with_name(name)) for name in lab}
@@ -324,6 +324,7 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
     from .material_preview import prepare_material_preview
     from .wheel_fitment import read_reference_record, placeholder_assembly
     from .part_fitment import reference_body_compatibility
+    from .part_names import load_part_names
 
     stat = source.stat()
     source_stamp = _source_stamp(stat)
@@ -385,6 +386,11 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
 
     _check_cancel(cancel_event)
     vehicle = {"car_id": asset.car_id, "model_code": asset.model_code, "archive_name": source.name}
+    from tools.livery.portable_mesh_converter import _glb_payloads
+    wheel_document, _ = _glb_payloads(mesh)
+    part_options = wheel_document['scenes'][wheel_document.get('scene', 0)].get('extras', {}).get('kfps_part_options', [])
+    from .garage_build import has_fixed_stock_body
+    fixed_body = has_fixed_stock_body(wheel_document)
 
     def dynamic_inputs():
         _check_cancel(cancel_event)
@@ -398,23 +404,26 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
                      else "invalid-reference")
         materials = prepare_material_preview(mesh, game_root=game, prepared_root=root)
         _check_cancel(cancel_event)
-        return reference, issue, materials
+        names = load_part_names(game, vehicle, part_options, cancel_event=cancel_event, fixed_body=fixed_body)
+        return reference, issue, materials, names
 
     # Re-run dynamic material/reference verification rather than maintaining a
     # second archive-dependency resolver (including unsupported/missing assets).
-    fitment_reference, reference_issue, native_materials = dynamic_inputs()
+    fitment_reference, reference_issue, native_materials, part_names = dynamic_inputs()
     _check_cancel(cancel_event)
     dependencies = {"signature": _value_hash(signature), "code": code,
                     "source": str(source), "source_stamp": list(source_stamp),
                     "game": str(game), "workspace": str(root), "vehicle": vehicle,
                     "materials": _value_hash(native_materials),
-                    "reference": _value_hash([fitment_reference, reference_issue])}
+                    "reference": _value_hash([fitment_reference, reference_issue]),
+                    "part_names": _value_hash(part_names)}
 
     def check_inputs():
         _check_cancel(cancel_event)
-        reference, issue, materials = dynamic_inputs()
+        reference, issue, materials, names = dynamic_inputs()
         if (_value_hash([reference, issue]) != dependencies["reference"]
-                or _value_hash(materials) != dependencies["materials"]):
+                or _value_hash(materials) != dependencies["materials"]
+                or _value_hash(names) != dependencies["part_names"]):
             raise ValueError("Material or fitment inputs changed during preparation. Retry preparation.")
         if (_source_stamp(source.stat()) != source_stamp or file_hash(source) != source_hash
                 or _source_stamp(source.stat()) != source_stamp or _receipt_code(baseline) != code
@@ -449,8 +458,6 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
                 row["slot"], 2048, 1024, float(metadata.get("xorigin", 0)), float(metadata.get("yorigin", 0))))
         sections.append(item)
     render_metadata = {key: contract[key] for key in ("format", "uv_contract", "assembly", "paint_size", "mask_size", "filters", "sections", "quality_scale", "quality_source")}
-    from tools.livery.portable_mesh_converter import _glb_payloads
-    wheel_document, _ = _glb_payloads(mesh)
     render_metadata["assembly"] = placeholder_assembly(
         render_metadata["assembly"], wheel_document, fitment_reference)
     if reference_issue:
@@ -463,6 +470,11 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
         coverage["limitations"] = [*coverage.get("limitations", []),
                                   "Optional wheel/body reference is unavailable (" + reference_issue + ")."]
     body_compatibility = reference_body_compatibility(wheel_document, fitment_reference)
+    names_compatibility = part_names.get('body_compatibility')
+    if body_compatibility is None:
+        body_compatibility = names_compatibility
+    elif names_compatibility is not None and body_compatibility['parent_map'] != names_compatibility['parent_map']:
+        raise ValueError('The body reference catalogues disagree. No fitted configuration was applied.')
     if body_compatibility is not None:
         coverage["body_compatibility"] = body_compatibility
     if coverage["summary"]["uv_integrity_errors"]:
@@ -479,6 +491,7 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
                                               "materials", "wheels", "limitations")}
     if body_compatibility is not None:
         fidelity["body_compatibility"] = body_compatibility
+    fidelity["part_names"] = part_names
     # Do not describe a projected fallback as a verified native wrap.
     render_metadata["uv_contract"] = {**render_metadata["uv_contract"], "world_projection_fallback": False}
     manifest = {"format": "kfps_livery_lab_preview_v1", "vehicle": vehicle,

@@ -94,6 +94,20 @@ class WorkspaceControllerTests(unittest.TestCase):
         self.assertNotIn('Editor', self.shell.owners)
         self.assertTrue(callable(host.server.workspace_source_returned))
 
+    def test_explicit_project_open_supersedes_deferred_studio_restore(self):
+        session = self.controller._session = Mock()
+        for kind in ("project", "layout", "vinyl"):
+            session.reset_mock()
+            with patch('kfps_ui.workspace_controller._studio_module_path', side_effect=RuntimeError('stop before launch')):
+                with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
+                    self.controller._prepare_studio({kind: {}}, None, 'test')
+            session.explicit_open.assert_called_once_with('Studio')
+        session.reset_mock()
+        with patch('kfps_ui.workspace_controller._studio_module_path', side_effect=RuntimeError('stop before launch')):
+            with self.assertRaises(RuntimeError):
+                self.controller._prepare_studio({}, None, 'test')
+        session.explicit_open.assert_not_called()
+
     def test_other_studio_session_cannot_open_source(self):
         self.studio.page.url = lambda: QUrl('http://127.0.0.1:32101/' + self.token + '/')
         with self.assertRaisesRegex(ValueError, 'another Studio'):
@@ -147,6 +161,37 @@ class WorkspaceControllerTests(unittest.TestCase):
         self.assertIsNone(self.service.workspace_editor)
         self.assertIsNone(self.service.workspace_studio)
         self.assertFalse(self.controller.lock.isLocked())
+
+    def test_backend_cleanup_waits_for_final_shutdown_and_is_idempotent(self):
+        stop = Mock(return_value='stopped')
+        self.controller._bridge = SimpleNamespace(launcher=SimpleNamespace(stop_workspace_backend=stop))
+        backend = {'pid': 123, 'created': 12.0, 'workspace': str(self.directory), 'managed': True, 'url': self.url}
+        self.controller._remember_studio_backend(backend)
+        self.controller._remember_studio_backend(backend)
+        self.controller.close()
+        stop.assert_not_called()
+        self.assertTrue(self.controller.shutdown_studio_backends())
+        self.controller.shutdown_studio_backends()
+        stop.assert_called_once_with(backend, expected_kfps_root=self.directory)
+
+    def test_late_startup_completion_is_stopped_without_installing_a_tab(self):
+        stop = Mock(return_value='stopped')
+        self.controller._bridge = SimpleNamespace(launcher=SimpleNamespace(stop_workspace_backend=stop))
+        self.controller.close()
+        self.controller.shutdown_studio_backends()
+        backend = {'pid': 123, 'created': 12.0, 'workspace': str(self.directory), 'managed': True, 'url': self.url}
+        self.controller._remember_studio_backend(backend)
+        stop.assert_called_once()
+        self.assertEqual({}, self.controller._studio_backends)
+
+    def test_cleanup_failure_does_not_skip_other_backend_and_shared_is_retained(self):
+        stop = Mock(side_effect=[OSError('fixture'), 'shared'])
+        self.controller._bridge = SimpleNamespace(launcher=SimpleNamespace(stop_workspace_backend=stop))
+        for pid in (123, 124):
+            self.controller._remember_studio_backend({'pid': pid, 'created': 12., 'managed': True})
+        self.controller.close()
+        self.assertFalse(self.controller.shutdown_studio_backends())
+        self.assertEqual(2, stop.call_count)
 
     def test_cancelled_studio_request_cannot_install_a_tab(self):
         import threading

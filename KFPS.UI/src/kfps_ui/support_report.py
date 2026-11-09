@@ -166,6 +166,8 @@ def build_support_report(root: Path, context: dict, *, since: float, collect=col
     from .workspace_diagnostics import clean_identity, clean_snapshot
     technical["workspace_events"] = clean_snapshot(context.get("workspace_events"))
     technical["workspace_identity"] = clean_identity(context.get("workspace_identity"))
+    from .garage_index import clean_diagnostics
+    technical["garage"] = clean_diagnostics(context.get("garage"))
     from tools.fabric_editor_diagnostics import read_support_diagnostics
     technical["editor"] = read_support_diagnostics(root)
     technical["locator"] = recent_locator_summary(root, since=0, now=now)

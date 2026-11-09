@@ -16,10 +16,21 @@ Item {
     readonly property bool compactHeight: Theme.logical(height) < 760
     property bool pageActive: true
     property bool showGallery: true
-    property int libraryTab: 0
+    property int libraryTab: garage ? 2 : 0
+    property bool pageReady: false
+    property string garageLaunchTarget: ""
+    readonly property var garage: typeof garageService !== "undefined" ? garageService : null
+    onLibraryTabChanged: {
+        detailsPopup.close()
+        enterMyCars()
+    }
+    function enterMyCars() {
+        if (pageReady && pageActive && showGallery && libraryTab === 2 && garage)
+            garage.enter()
+    }
     readonly property bool galleryHasSelection: libraryTab === 0
                                                ? fullLiveryService.selectedSource.length > 0
-                                               : fullLiveryService.browsedPackage.length > 0
+                                               : libraryTab === 1 && fullLiveryService.browsedPackage.length > 0
     readonly property var galleryDetails: libraryTab === 0 ? fullLiveryService.sourceDetails
                                                           : fullLiveryService.packageDetails
     readonly property bool hasStudioPackageStatus: showGallery && libraryTab === 1
@@ -55,6 +66,9 @@ Item {
     // changes only for a new session, unlike the service's shared status signal.
     readonly property string viewerSessionUrl: fullLiveryService.viewerUrl
     readonly property string viewerThemeJson: JSON.stringify(studioThemeContext())
+    readonly property string garageStatus: garage && garage.busy ? garage.status
+        : garageLaunchTarget === "studio" ? editorService.studioStatus
+        : garageLaunchTarget === "preview" ? fullLiveryService.status : garage ? garage.status : ""
 
     function studioThemeContext() {
         // Qt serializes translucent colors as ARGB; CSS requires explicit RGBA.
@@ -103,6 +117,7 @@ Item {
 
     function returnToGallery() {
         fullLiveryService.showSourceGrid()
+        garageLaunchTarget = ""
         showGallery = true
     }
 
@@ -112,14 +127,18 @@ Item {
     }
 
     Component.onCompleted: {
+        pageReady = true
         if (pageActive)
             fullLiveryService.activate()
+        // Let CachedPageHost apply pageActive before a retained loader can enter.
+        Qt.callLater(root.enterMyCars)
     }
 
     onPageActiveChanged: {
-        if (pageActive)
+        if (pageActive) {
             fullLiveryService.activate()
-        else {
+            enterMyCars()
+        } else {
             root.returnToGallery()
             fullLiveryService.deactivate()
         }
@@ -144,7 +163,9 @@ Item {
 
     function retryPreview() {
         if (fullLiveryService.running) return
-        if (fullLiveryService.selectedSource.length > 0)
+        if (fullLiveryService.hasGaragePreview)
+            fullLiveryService.retryGaragePreview()
+        else if (fullLiveryService.selectedSource.length > 0)
             fullLiveryService.previewSelectedSource()
         else if (fullLiveryService.browsedPackage.length > 0)
             fullLiveryService.previewBrowsedPackage()
@@ -156,8 +177,46 @@ Item {
         if (wide)
             detailsPopup.close()
     }
-    onShowGalleryChanged: detailsPopup.close()
+    onShowGalleryChanged: {
+        detailsPopup.close()
+        enterMyCars()
+    }
 
+    Connections {
+        target: root.garage
+        function onChanged() {
+            if (root.garage.busy) root.garageLaunchTarget = ""
+        }
+        function onPreviewRequested(identity, snapshot) {
+            root.garageLaunchTarget = "preview"
+            if (fullLiveryService.previewGarageBuild(identity, snapshot)) root.showGallery = false
+        }
+        function onStudioRequested(identity, snapshot, name) {
+            root.garageLaunchTarget = "studio"
+            editorService.launchGarageInLiveryStudio(identity, snapshot, name, root.studioThemeContext())
+        }
+        function onStockPreviewRequested(identity) {
+            root.garageLaunchTarget = "preview"
+            if (fullLiveryService.previewStockCar(identity)) root.showGallery = false
+        }
+        function onStockStudioRequested(identity) {
+            root.garageLaunchTarget = "studio"
+            editorService.launchStockInLiveryStudio(identity, root.studioThemeContext())
+        }
+        function onArtworkRequested(identity, snapshot, path, kind, expected) {
+            root.garageLaunchTarget = "studio"
+            editorService.launchGarageArtworkInLiveryStudio(identity, snapshot, path, kind, root.studioThemeContext(), expected)
+        }
+        function onProjectRequested(project) {
+            root.garageLaunchTarget = "studio"
+            editorService.launchLinkedProjectInLiveryStudio(project, root.studioThemeContext())
+        }
+        function onLiveryRequested(path) {
+            root.libraryTab = 0
+            fullLiveryService.resetSourceFilters()
+            fullLiveryService.browseSource(path)
+        }
+    }
     Connections {
         target: root
         function onPageActiveChanged() {
@@ -277,7 +336,7 @@ Item {
                 iconSize: Theme.px(24)
             }
             Text {
-                text: "Liveries"
+                text: "Garage"
                 color: Theme.text
                 font.family: Theme.displayFamily
                 font.pixelSize: Theme.px(20)
@@ -307,12 +366,15 @@ Item {
                 onClicked: editorService.launchLiveryStudio(root.studioThemeContext())
             }
             PrimaryButton {
+                objectName: "garageRefreshButton"
                 dense: true
-                text: fullLiveryService.running ? "Working..." : "Scan Saves"
+                text: root.libraryTab === 2 ? "Refresh" : fullLiveryService.running ? "Working..." : "Scan Saves"
                 iconName: "refresh"
-                enabled: fullLiveryService.featureEnabled && !fullLiveryService.running
-                toolTipText: "Find unique full-car FH6 livery records without changing the save."
-                onClicked: fullLiveryService.scanSaves()
+                enabled: root.libraryTab === 2 ? root.garage && !root.garage.busy && !root.garage.catalogueBusy
+                                             : fullLiveryService.featureEnabled && !fullLiveryService.running
+                toolTipText: root.libraryTab === 2 ? "Refresh the selected garage snapshot."
+                                                  : "Find unique full-car FH6 livery records without changing the save."
+                onClicked: root.libraryTab === 2 ? root.garage.refresh() : fullLiveryService.scanSaves()
             }
             GhostButton {
                 id: moreButton
@@ -329,7 +391,7 @@ Item {
         Text {
             objectName: "liveryLibraryStatus"
             Layout.fillWidth: true
-            text: root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
+            text: root.libraryTab === 2 && root.garage ? root.garageStatus : root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
                   ? editorService.studioStatus : fullLiveryService.status
             textFormat: Text.PlainText
             color: Theme.muted
@@ -339,7 +401,7 @@ Item {
             HoverHandler { id: statusHover }
             PlainToolTip {
                 visible: statusHover.hovered
-                text: root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
+                text: root.libraryTab === 2 && root.garage ? (root.garageLaunchTarget === "preview" ? fullLiveryService.summary : root.garageStatus) : root.hasStudioPackageStatus || (editorService.studioLaunching && editorService.studioStatus.length > 0)
                       ? editorService.studioStatus : fullLiveryService.summary
             }
         }
@@ -370,17 +432,20 @@ Item {
                     TabBar {
                         id: libraryTabs
                         objectName: "liveryLibraryTabs"
-                        Layout.preferredWidth: Theme.px(276)
-                        Layout.maximumWidth: Theme.px(276)
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: Theme.px(240)
+                        Layout.preferredWidth: Theme.px(390)
+                        Layout.maximumWidth: Theme.px(390)
                         currentIndex: root.libraryTab
-                        onCurrentIndexChanged: root.libraryTab = currentIndex
+                        onCurrentIndexChanged: if (root.pageReady) root.libraryTab = currentIndex
                         background: Item {}
-                        LibraryTab { text: "In-game saves" }
-                        LibraryTab { text: "Packages" }
+                        LibraryTab { objectName: "garageSavedLiveriesTab"; text: "Saved Liveries"; onClicked: root.libraryTab = 0 }
+                        LibraryTab { objectName: "garagePackagesTab"; text: "Packages"; onClicked: root.libraryTab = 1 }
+                        LibraryTab { objectName: "garageMyCarsTab"; text: "My Cars"; enabled: root.garage !== null; onClicked: root.libraryTab = 2 }
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: root.libraryTab === 0
+                        text: root.libraryTab === 2 ? (root.garage ? root.garage.visibleCount + " / " + root.garage.browseTotal : "") : root.libraryTab === 0
                               ? fullLiveryService.visibleSourceCount + " / " + fullLiveryService.sourceCount
                               : fullLiveryService.visiblePackageCount + " / " + fullLiveryService.packageCount
                         color: Theme.muted
@@ -390,13 +455,16 @@ Item {
                         HoverHandler { id: countHover }
                         KfpsToolTip {
                             visible: countHover.hovered
-                            text: root.libraryTab === 0
+                            text: root.libraryTab === 2 && root.garage
+                                  ? root.garage.visibleCount + " visible of " + root.garage.browseTotal + " cars"
+                                  : root.libraryTab === 0
                                   ? fullLiveryService.visibleSourceCount + " visible of " + fullLiveryService.sourceCount + " saved liveries"
                                   : fullLiveryService.visiblePackageCount + " visible of " + fullLiveryService.packageCount + " saved packages"
                         }
                     }
                     GhostButton {
                         objectName: "addFullLiveryPackageButton"
+                        visible: root.libraryTab !== 2
                         dense: true
                         text: "Add Package"
                         iconName: "folder"
@@ -615,7 +683,7 @@ Item {
                     GhostButton {
                         objectName: "returnToLiveryGridButton"
                         dense: true
-                        text: "Back to Liveries"
+                        text: root.libraryTab === 2 ? "Back to Garage" : "Back to Liveries"
                         iconName: "chevron-left"
                         toolTipText: "Close the 3D preview and return to the library."
                         onClicked: root.returnToGallery()
@@ -632,6 +700,7 @@ Item {
                     }
                     KfpsComboBox {
                         objectName: "LiveryVinylResolution"
+                        visible: !fullLiveryService.hasGaragePreview
                         dense: true
                         Layout.preferredWidth: Theme.px(130)
                         model: ["Standard", "High"]
@@ -642,7 +711,7 @@ Item {
                         Accessible.name: "Vinyl resolution"
                     }
                     SmallIconButton {
-                        visible: !root.wide
+                        visible: !root.wide && root.libraryTab !== 2
                         iconName: "reports"
                         help: "Preview details and compatibility."
                         onClicked: detailsPopup.open()
@@ -655,6 +724,16 @@ Item {
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.px(120)
                     clip: true
+
+                    Loader {
+                        anchors.fill: parent
+                        active: root.pageActive && root.showGallery && root.libraryTab === 2 && root.garage !== null
+                        sourceComponent: GarageBrowser {
+                            service: root.garage
+                            launchBusy: fullLiveryService.running || editorService.studioLaunching
+                            onBuildRequested: root.garageLaunchTarget = ""
+                        }
+                    }
 
                     LiveryThumbnailGrid {
                         id: liveryGrid
@@ -807,7 +886,8 @@ Item {
                             text: "Retry Preview"
                             iconName: "refresh"
                             enabled: fullLiveryService.featureEnabled
-                                     && ((fullLiveryService.selectedSource.length > 0 && fullLiveryService.gameFolder.length > 0)
+                                     && (fullLiveryService.hasGaragePreview
+                                         || (fullLiveryService.selectedSource.length > 0 && fullLiveryService.gameFolder.length > 0)
                                          || fullLiveryService.browsedPackage.length > 0
                                          || fullLiveryService.selectedPackage.length > 0)
                             toolTipText: "Retry the selected preview without changing the save or replacing artwork."
@@ -817,7 +897,7 @@ Item {
                 }
 
                 RowLayout {
-                    visible: root.showGallery && !root.wide
+                    visible: root.showGallery && !root.wide && root.libraryTab !== 2
                     Layout.fillWidth: true
                     spacing: Theme.px(8)
                     ColumnLayout {
@@ -873,14 +953,14 @@ Item {
             }
 
             Rectangle {
-                visible: root.wide
+                visible: root.wide && root.libraryTab !== 2
                 Layout.fillHeight: true
                 Layout.preferredWidth: Math.max(1, Theme.px(1))
                 color: Theme.divider
             }
             Item {
                 id: detailsHost
-                visible: root.wide
+                visible: root.wide && root.libraryTab !== 2
                 Layout.fillHeight: true
                 Layout.preferredWidth: Theme.px(300)
                 Layout.minimumWidth: Theme.px(300)
@@ -894,7 +974,7 @@ Item {
         parent: root.wide ? detailsHost : detailsPopup.contentItem
         anchors.fill: parent
         anchors.topMargin: root.wide ? 0 : Theme.px(40)
-        visible: root.wide || detailsPopup.visible
+        visible: root.libraryTab !== 2 && (root.wide || detailsPopup.visible)
         viewingPreview: !root.showGallery
         sourceMode: root.showGallery ? root.libraryTab === 0 : fullLiveryService.selectedSource.length > 0
         onPreviewRequested: {

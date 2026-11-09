@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
     if mode == 'session':
         stack.enter_context(patch.object(WorkspaceController, 'configure_session', side_effect=RuntimeError('injected session failure')))
         stack.enter_context(patch.object(WorkspaceController, 'close', wrap('controller.close', WorkspaceController.close)))
+        stack.enter_context(patch.object(WorkspaceController, 'shutdown_studio_backends', wrap('backend.close', WorkspaceController.shutdown_studio_backends)))
     else:
         stack.enter_context(patch.object(QLocalServer, 'listen', return_value=False))
     for name in classes:
@@ -101,7 +102,11 @@ with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
     assert events.index('LogService') > max(events.index(name) for name in expected if name != 'LogService'), events
     assert events[-1] == 'engine.destroyed', events
     if mode != 'qml': assert events.count('workspace.shutdown') == 1, events
-    if mode == 'session': assert events.count('controller.close') == 1, events
+    if mode == 'session':
+        assert events.count('controller.close') == 1, events
+        assert events.count('backend.close') == 1, events
+        assert events.index('backend.close') > max(events.index('workspace.shutdown'), events.index('EditorService')), events
+        assert events.index('backend.close') < events.index('LogService'), events
 print(json.dumps({'mode':mode,'closed':events}))
 '''
         env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",

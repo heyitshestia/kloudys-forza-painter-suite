@@ -120,6 +120,10 @@ def discover_updater_files(root: Path, kind: str):
 def _safe(root: Path, path: Path):
     """Reject links/junctions and nonregular files before opening a known log."""
     relative = path.relative_to(root)
+    if ".." in relative.parts:
+        raise ValueError("unsafe log path")
+    if tuple(part.casefold() for part in relative.parts[:2]) == ("runtime", "garage"):
+        raise ValueError("private application data is not a diagnostic log")
     current = root
     info = current.lstat()
     for part in relative.parts:

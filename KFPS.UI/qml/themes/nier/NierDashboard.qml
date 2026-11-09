@@ -25,7 +25,7 @@ FocusScope {
         return result
     }
     readonly property var selection: entries[selectedIndex] || entries[0] || ({ label: "", page: "", icon: "" })
-    readonly property var names: ({create:"VINYL GENERATION", editor:"VINYL EDITOR", tools:"IMAGE TOOLS", outputs:"VINYL ARCHIVE", liveries:"LIVERY WORKSHOP", community:"COMMUNITY HUB", settings:"SYSTEM CONFIGURATION", help:"REFERENCE MANUAL", support:"SUPPORT KFPS", update:"SOFTWARE UPDATE", credits:"ACKNOWLEDGEMENTS"})
+    readonly property var names: ({create:"VINYL GENERATION", editor:"VINYL EDITOR", tools:"IMAGE TOOLS", outputs:"VINYL ARCHIVE", liveries:"GARAGE", community:"COMMUNITY HUB", settings:"SYSTEM CONFIGURATION", help:"REFERENCE MANUAL", support:"SUPPORT KFPS", update:"SOFTWARE UPDATE", credits:"ACKNOWLEDGEMENTS"})
     parent: navigation ? navigation.parent : null
     anchors.fill: parent
     z: 30

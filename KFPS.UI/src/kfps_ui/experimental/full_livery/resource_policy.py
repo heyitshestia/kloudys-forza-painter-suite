@@ -33,4 +33,4 @@ class LiveryMemoryBudget:
     def worker_limit(self, operation: str) -> int:
         # Only preview preparation adopts the new adaptive budget. Existing
         # package import/export jobs retain their previous limit.
-        return self.worker_bytes if operation in {"prepare-mesh", "preview-source"} else 6 * GIB
+        return self.worker_bytes if operation in {"prepare-mesh", "prepare-garage", "preview-source"} else 6 * GIB

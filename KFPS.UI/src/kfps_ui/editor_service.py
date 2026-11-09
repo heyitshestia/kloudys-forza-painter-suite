@@ -17,6 +17,7 @@ from .lifecycle import discard_queued_events
 from .models import DictListModel
 from .preview_service import PreviewService
 from .editor_launch import launch_editor
+from .garage_index import log_body_launch
 
 PROJECT_SCAN_MAX_BYTES = 150 * 1024 * 1024
 
@@ -125,6 +126,7 @@ class EditorService(QObject):
         self._studio_launching = False
         self._studio_status = ""
         self._studio_package_path = ""
+        self._studio_garage_snapshot = None
         self._running = False
         self._last_error = ""
         self._preview_lock = threading.Lock()
@@ -170,6 +172,7 @@ class EditorService(QObject):
         if self._closed or self._studio_launching:
             return
         self._studio_package_path = ""
+        self._studio_garage_snapshot = None
         self._studio_launching = True
         self._studio_status = "Preparing Livery Studio..."
         self.changed.emit()
@@ -186,6 +189,7 @@ class EditorService(QObject):
         if self._closed or self._studio_launching:
             return
         self._studio_package_path = ""
+        self._studio_garage_snapshot = None
         try:
             candidate = validated_output_file(self.paths, path)
             encoded_theme = json.dumps(theme, allow_nan=False) if theme else ""
@@ -232,6 +236,7 @@ class EditorService(QObject):
         if self._closed or self._studio_launching:
             return
         self._studio_package_path = str(path or "")
+        self._studio_garage_snapshot = None
         try:
             candidate = _validated_livery_package(self.paths, path)
             encoded_theme = json.dumps(theme, allow_nan=False) if theme else ""
@@ -265,6 +270,211 @@ class EditorService(QObject):
             if not self._closed:
                 self.studioLaunchCompleted.emit(False, str(exc))
 
+    @Slot("QVariantMap", "QVariantMap", str)
+    @Slot("QVariantMap", "QVariantMap", str, "QVariantMap")
+    def launchGarageInLiveryStudio(self, identity, snapshot, name, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_package_path = ""
+        self._studio_garage_snapshot = None
+        try:
+            from .garage_index import validate_vehicle_identity, validate_body_snapshot
+            identity = validate_vehicle_identity(identity)
+            snapshot = validate_body_snapshot(snapshot)
+            if not isinstance(name, str) or not 0 < len(name) <= 120 or any(ord(c) < 32 for c in name):
+                raise ValueError("The Garage build name is invalid.")
+            encoded = json.dumps(theme, allow_nan=False) if theme else ""
+            if len(encoded.encode("utf-8")) > 32 * 1024:
+                raise ValueError("Theme context exceeds 32 KiB.")
+            context = json.loads(encoded) if encoded else None
+            self._studio_garage_snapshot = snapshot
+            self._studio_launching = True
+            self._studio_status = "Preparing selected Garage body build for Studio..."
+            log_body_launch(self.log, "studio", "queued", snapshot)
+            self.changed.emit()
+            self._start_thread(target=self._launch_garage_studio_worker,
+                               args=(identity, snapshot, name, context), name="kfps-studio-garage-launch")
+        except Exception as exc:
+            log_body_launch(self.log, "studio", "rejected", self._studio_garage_snapshot)
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_garage_studio_worker(self, identity, snapshot, name, theme):
+        try:
+            from .garage_index import validate_vehicle_identity, validate_body_snapshot, resolve_body_vehicle
+            from .experimental.full_livery.paths import FullLiveryPaths
+            from tools.livery.vehicle_assets import discover_fh6_game_folder
+            if self._cancel_event.is_set():
+                return
+            identity = validate_vehicle_identity(identity)
+            snapshot = validate_body_snapshot(snapshot)
+            paths = FullLiveryPaths.for_app(self.paths)
+            configured = paths.load_settings().get("fh6_game_folder")
+            game = discover_fh6_game_folder(configured or None)
+            resolve_body_vehicle(game, paths.vehicle_index, identity["car_id"],
+                                 model_code=identity["model_code"], cancel_event=self._cancel_event)
+            path = _studio_module_path(self.paths.app_root, "host_bridge.py")
+            spec = importlib.util.spec_from_file_location("_kfps_studio_garage_adapter", path)
+            bridge = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bridge)
+            request = {"name": name, "layout": {"format": "kfps-livery-layout-v1",
+                       "vehicle": identity, "vinyls": [], "placements": [], "garage_build": snapshot}}
+            if theme:
+                request["ui_theme"] = theme
+            request = bridge.validate_request(request)
+            if not self._cancel_event.is_set():
+                self._launch_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
+    def _garage_studio_bridge(self):
+        path = _studio_module_path(self.paths.app_root, "host_bridge.py")
+        spec = importlib.util.spec_from_file_location("_kfps_studio_workflow_adapter", path)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        return bridge
+
+    @staticmethod
+    def _studio_theme_snapshot(theme):
+        encoded = json.dumps(theme, allow_nan=False) if theme else ""
+        if len(encoded.encode("utf-8")) > 32 * 1024:
+            raise ValueError("Theme context exceeds 32 KiB.")
+        return json.loads(encoded) if encoded else None
+
+    def _queue_studio_project(self, request, theme):
+        context = self._studio_theme_snapshot(theme)
+        if context:
+            request['ui_theme'] = context
+        request = self._garage_studio_bridge().validate_request(request)
+        self._studio_launching = True
+        self._studio_status = "Preparing the exact car for Livery Studio..."
+        self.changed.emit()
+        self._start_thread(target=self._launch_project_studio_worker, args=(request,),
+                           name="kfps-studio-project-launch")
+
+    @Slot("QVariantMap")
+    @Slot("QVariantMap", "QVariantMap")
+    def launchStockInLiveryStudio(self, identity, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_garage_workflow = True
+        self._studio_package_path = ""
+        self._studio_garage_snapshot = None
+        try:
+            from .garage_index import validate_vehicle_identity
+            request = self._garage_studio_bridge().request_for_stock(validate_vehicle_identity(identity))
+            self._queue_studio_project(request, theme)
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    @Slot("QVariantMap")
+    @Slot("QVariantMap", "QVariantMap")
+    def launchLinkedProjectInLiveryStudio(self, project_info, theme=None):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_garage_workflow = True
+        self._studio_package_path = ""
+        self._studio_garage_snapshot = None
+        try:
+            from .garage_notes import freeze_project_reference
+            info = freeze_project_reference(project_info)
+            context = self._studio_theme_snapshot(theme)
+            self._studio_launching = True
+            self._studio_status = 'Reading the current linked Studio project...'
+            self.changed.emit()
+            self._start_thread(target=self._launch_linked_project_studio_worker,
+                args=(info, context), name='kfps-studio-linked-project')
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_linked_project_studio_worker(self, info, theme):
+        try:
+            if self._cancel_event.is_set():
+                return
+            from .garage_notes import read_linked_project
+            project = read_linked_project(info, self.paths.app_root, cancel=self._cancel_event)
+            request = {'name': 'Linked Studio project', 'project': project}
+            if theme:
+                request['ui_theme'] = theme
+            request = self._garage_studio_bridge().validate_request(request)
+            if not self._cancel_event.is_set():
+                self._launch_project_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
+    def _resolve_studio_vehicle(self, identity):
+        from .garage_index import resolve_body_vehicle
+        from .experimental.full_livery.paths import FullLiveryPaths
+        from tools.livery.vehicle_assets import discover_fh6_game_folder
+        paths = FullLiveryPaths.for_app(self.paths)
+        configured = paths.load_settings().get("fh6_game_folder")
+        game = discover_fh6_game_folder(configured or None)
+        resolve_body_vehicle(game, paths.vehicle_index, identity["car_id"],
+                             model_code=identity["model_code"], cancel_event=self._cancel_event)
+
+    def _launch_project_studio_worker(self, request):
+        try:
+            if self._cancel_event.is_set():
+                return
+            self._resolve_studio_vehicle(request['project']['vehicle'])
+            if not self._cancel_event.is_set():
+                self._launch_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
+    @Slot("QVariantMap", "QVariantMap", str, str)
+    @Slot("QVariantMap", "QVariantMap", str, str, "QVariantMap")
+    @Slot("QVariantMap", "QVariantMap", str, str, "QVariantMap", str)
+    def launchGarageArtworkInLiveryStudio(self, identity, snapshot, path, kind="package", theme=None, expected=""):
+        if self._closed or self._studio_launching:
+            return
+        self._studio_garage_workflow = True
+        self._studio_package_path = ""
+        self._studio_garage_snapshot = None
+        try:
+            from .garage_index import validate_vehicle_identity, validate_body_snapshot
+            identity = validate_vehicle_identity(identity)
+            snapshot = validate_body_snapshot(snapshot)
+            if not isinstance(expected, str) or expected and not re.fullmatch(r'[a-f0-9]{64}', expected):
+                raise ValueError('The artwork fingerprint is invalid. Refresh Garage and retry.')
+            if kind not in ('package', 'save'):
+                raise ValueError('Choose package or save artwork from the Garage catalogue.')
+            if not isinstance(path, str) or not path or len(path) > 32768:
+                raise ValueError('Choose an existing Garage artwork entry.')
+            candidate = _validated_livery_package(self.paths, path) if kind == 'package' else Path(path).absolute()
+            if kind == 'save' and candidate.name != 'C_livery':
+                raise ValueError('Choose a scanned C_livery artwork entry.')
+            context = self._studio_theme_snapshot(theme)
+            self._studio_package_path = str(candidate) if kind == 'package' else ''
+            self._studio_garage_snapshot = snapshot
+            self._studio_launching = True
+            self._studio_status = 'Validating artwork for the selected Garage body...'
+            self.changed.emit()
+            self._start_thread(target=self._launch_garage_artwork_studio_worker,
+                args=(identity, snapshot, str(candidate), kind, context, expected), name='kfps-studio-garage-artwork')
+        except Exception as exc:
+            self._finish_studio_launch(False, str(exc))
+
+    def _launch_garage_artwork_studio_worker(self, identity, snapshot, path, kind, theme, expected=""):
+        try:
+            if self._cancel_event.is_set():
+                return
+            self._resolve_studio_vehicle(identity)
+            if kind == 'package':
+                path = _validated_livery_package(self.paths, path)
+            bridge = self._garage_studio_bridge()
+            request = bridge.request_for_garage_artwork(identity, snapshot, path, kind, expected=expected)
+            if theme:
+                request['ui_theme'] = theme
+            request = bridge.validate_request(request)
+            if not self._cancel_event.is_set():
+                self._launch_studio_worker(request)
+        except Exception as exc:
+            if not self._closed:
+                self.studioLaunchCompleted.emit(False, str(exc))
+
     def _launch_studio_worker(self, request):
         try:
             if self.workspace_studio is not None:
@@ -289,7 +499,15 @@ class EditorService(QObject):
             return
         self._studio_launching = False
         self._studio_status = message
-        self.log.append(message, "info" if ok else "error")
+        if self._studio_garage_snapshot is not None:
+            log_body_launch(self.log, "studio", "handoff" if ok else "unavailable", self._studio_garage_snapshot)
+            self._studio_garage_snapshot = None
+        if getattr(self, '_studio_garage_workflow', False):
+            self.log.append('Garage Studio: outcome=' + ('handoff' if ok else 'unavailable'),
+                            'info' if ok else 'error', update_status=False)
+            self._studio_garage_workflow = False
+        else:
+            self.log.append(message, "info" if ok else "error")
         self.changed.emit()
 
     def _poll_editor_changes(self):

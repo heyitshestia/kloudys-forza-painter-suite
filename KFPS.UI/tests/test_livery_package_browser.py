@@ -248,12 +248,17 @@ class LiveryPackageBrowserTests(unittest.TestCase):
         self.assertEqual("Beta", s.packageDetails["title"])
         self.assertEqual(original, rows)
 
-    def test_catalog_refresh_checks_only_the_browsed_file_and_clears_it_if_missing(self):
+    def test_catalog_refresh_checks_availability_once_per_file_not_per_filter(self):
         s = self.service
         s.browsePackage(self.rows[0]["path"])
         with patch.object(Path, "is_file", return_value=False) as exists:
             self.refresh(self.rows)
-            exists.assert_called_once_with()
+            self.assertEqual(len(self.rows), exists.call_count)
+            self.assertTrue(all(not row['available'] for row in s.packageModel.rows))
+            exists.reset_mock()
+            s.setPackageSearch('Beta')
+            s.setPackageSort('placements')
+            exists.assert_not_called()
         self.assertEqual(("", {}), (s.browsedPackage, s.packageDetails))
 
     def test_missing_or_malformed_row_collections_are_empty(self):
