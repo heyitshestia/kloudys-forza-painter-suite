@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -110,15 +111,22 @@ class UpdateStatusTests(unittest.TestCase):
         self.service._deadline.setInterval(30)
         self.refresh()
         self.assertFalse(self.service.checkSucceeded)
-        self.service.checkNow()
-        self.service.close()
-        APP.processEvents()
-        self.assertFalse(self.service._poll.isActive())
-        self.assertFalse(self.service._deadline.isActive())
-        requests = len(self.server.requests)
-        self.service.checkNow()
-        APP.processEvents()
-        self.assertEqual(len(self.server.requests), requests)
+        with patch.object(self.service._network, "get", wraps=self.service._network.get) as get:
+            self.service.checkNow()
+            get.assert_called_once()
+            reply = self.service._reply
+            self.assertIsNotNone(reply)
+            self.service.close()
+            self.assertTrue(reply.isFinished())
+            APP.processEvents()
+            self.assertFalse(self.service._poll.isActive())
+            self.assertFalse(self.service._deadline.isActive())
+            # Already-sent requests may arrive late at the threaded server.
+            # Check issuance directly instead of racing its request counter.
+            get.reset_mock()
+            self.service.checkNow()
+            APP.processEvents()
+            get.assert_not_called()
 
 
 if __name__ == "__main__":
