@@ -1,5 +1,10 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.3
+
+- Fixed the Update button doing nothing in the combined KFPS window. The confirmation now opens inside KFPS and correctly hands off to the updater when confirmed.
+- If your Update button is already unresponsive, close KFPS and run `KFPS-Updater.exe` once to install this fix. No reinstall is needed.
+
 ## 3.2.2
 
 - Fixed old or inaccessible car-preview caches making every 3D preview unavailable. Garage and Community previews can now rebuild the affected car without getting blocked by another cached model.

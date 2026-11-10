@@ -1,6 +1,5 @@
 import QtQuick 6.7
-import QtQuick.Controls 6.7
-import QtQuick.Dialogs 6.7
+import QtQuick.Controls
 import QtQuick.Layouts 6.7
 import Kfps.Theme 1.0
 import "../components"
@@ -420,11 +419,70 @@ Item {
         }
     }
 
-    MessageDialog {
+    Dialog {
         id: confirm
+        objectName: "UpdateConfirmation"
+        parent: Overlay.overlay
+        // Qt 6.7 only supports in-scene popups; pin that behavior on newer Qt too.
+        Component.onCompleted: {
+            if ("popupType" in confirm)
+                confirm["popupType"] = Popup.Item
+        }
+        anchors.centerIn: parent
+        width: Math.min(Theme.px(480), parent.width - Theme.px(32))
+        padding: Theme.px(18)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
         title: "Update KFPS?"
-        text: "KFPS will close, run the verified updater, and reopen automatically after a successful update."
-        buttons: MessageDialog.Ok | MessageDialog.Cancel
+        onOpened: cancelUpdate.forceActiveFocus()
         onAccepted: updateService.startUpdate()
+
+        background: Rectangle {
+            color: Theme.backgroundA
+            border.color: Theme.border
+            radius: Theme.corner(6)
+        }
+        header: Label {
+            text: confirm.title
+            padding: Theme.px(18)
+            bottomPadding: 0
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(18)
+            font.weight: Font.DemiBold
+            wrapMode: Text.WordWrap
+        }
+        contentItem: Label {
+            objectName: "UpdateConfirmationText"
+            text: "KFPS will close, run the verified updater, and reopen automatically after a successful update."
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(13)
+            wrapMode: Text.WordWrap
+        }
+        footer: Item {
+            implicitHeight: updateButtons.implicitHeight + Theme.px(18)
+            RowLayout {
+                id: updateButtons
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.px(18)
+                spacing: Theme.px(10)
+                Item { Layout.fillWidth: true }
+                GhostButton {
+                    id: cancelUpdate
+                    objectName: "CancelUpdate"
+                    text: "Cancel"
+                    onClicked: confirm.reject()
+                }
+                PrimaryButton {
+                    objectName: "ConfirmUpdate"
+                    text: "Update"
+                    iconName: "update"
+                    onClicked: confirm.accept()
+                }
+            }
+        }
     }
 }
