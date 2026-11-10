@@ -474,12 +474,14 @@ Item {
                     id: cancelUpdate
                     objectName: "CancelUpdate"
                     text: "Cancel"
+                    toolTipText: "Keep KFPS open without starting the updater."
                     onClicked: confirm.reject()
                 }
                 PrimaryButton {
                     objectName: "ConfirmUpdate"
                     text: "Update"
                     iconName: "update"
+                    toolTipText: "Close KFPS, install the verified update, and reopen after success."
                     onClicked: confirm.accept()
                 }
             }
