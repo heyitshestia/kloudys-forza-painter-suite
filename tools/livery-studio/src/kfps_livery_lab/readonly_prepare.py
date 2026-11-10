@@ -13,7 +13,7 @@ from PIL import Image
 
 from .prepare import file_hash, prepare_car, within, workspace_lock
 from .readonly_cache import (cache_root, cache_lease, installation_cache_lease, prune_cache, verify_inventory,
-                             seal_inventory, admit_artifact, enforce_budget)
+                             seal_inventory, admit_artifact, enforce_budget, prepare_entry, preserve_failed_entry)
 from .readonly_preview import FORMAT, make_display_manifest, ordinary_path, write_descriptor
 from .file_io import atomic_stream, io_path
 from .preview_evidence import build_preview_evidence
@@ -43,12 +43,10 @@ def _prepare_body(kfps_root, game_root, asset, build, *, cancel_event=None, prog
     with installation_cache_lease(kfps_root, create=True):
         cache = cache_root(kfps_root)
         key = hashlib.sha256((asset.model_code + ':' + str(asset.archive_mtime_ns)).encode('utf-8')).hexdigest()[:32]
-        root = ordinary_path(cache / 'cars' / key, cache)
-        io_path(root).mkdir(parents=True, exist_ok=True)
-        verify_inventory(root, create=True)
+        root = prepare_entry(cache, key, kfps_root=kfps_root, progress=phase)
         admit_artifact(kfps_root, (1024 if not io_path(root / 'prepared.json').exists() else 384) * 1024**2,
                        protected=[root])
-        with cache_lease(root), workspace_lock(root):
+        with cache_lease(root), workspace_lock(root), preserve_failed_entry(root):
             try:
                 phase('Preparing fitted Garage body' if build else 'Preparing stock body')
                 prepared = prepare_car(Path(kfps_root), Path(game_root), asset.archive_name, root,
@@ -230,15 +228,13 @@ def prepare_readonly(kfps_root, game_root, asset, package, *, quality_scale=1,
     with installation_cache_lease(kfps_root, create=True):
         cache = cache_root(kfps_root)
         key = hashlib.sha256((asset.model_code + ':' + str(asset.archive_mtime_ns)).encode('utf-8')).hexdigest()[:32]
-        root = ordinary_path(cache / 'cars' / key, cache)
-        io_path(root).mkdir(parents=True, exist_ok=True)
-        verify_inventory(root, create=True)
+        root = prepare_entry(cache, key, kfps_root=kfps_root, progress=phase)
         # Reserve before conversion. The atlas writer's own encoded-size check
         # includes private staging; active/recent handoffs are not evicted.
         reserve = (1024 if not io_path(root / 'prepared.json').exists() else 384) * 1024**2
         admit_artifact(kfps_root, reserve, protected=[root])
         verify_inventory(root)
-        with cache_lease(root), workspace_lock(root):
+        with cache_lease(root), workspace_lock(root), preserve_failed_entry(root):
             try:
                 phase('Preparing Studio geometry, native materials and UV masks')
                 prepared = prepare_car(Path(kfps_root), Path(game_root), asset.archive_name, root,

@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.2
+
+- Fixed old or inaccessible car-preview caches making every 3D preview unavailable. Garage and Community previews can now rebuild the affected car without getting blocked by another cached model.
+- Reopening a recovered car reuses its repaired preview. Your liveries, projects and game saves stay untouched.
+- Cache cleanup leaves unknown or inaccessible files alone and reports what was preserved. Improved access-error messages and recovery logging.
+
 ## 3.2.1
 
 ### Meet Garage

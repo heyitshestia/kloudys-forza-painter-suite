@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import time
 
@@ -15,8 +16,15 @@ from .readonly_preview import ordinary_path
 OWNER_FORMAT = 'kfps-readonly-viewer-cache-v1'
 MAX_CACHE_BYTES = 2 * 1024**3
 MAX_ENTRY_FILES = 4096
+MAX_CACHE_ENTRIES = 64
+MAX_RECOVERY_ENTRIES = 5
 INVENTORY = 'viewer-owned.json'
 LOCK_FILES = {'viewer.lock', 'backend.lock'}
+FAILED_ENTRY = 'viewer-rebuild-required.json'
+
+
+class CacheLimitError(ValueError):
+    pass
 
 
 def file_inventory(root):
@@ -31,9 +39,19 @@ def file_inventory(root):
         info = native.stat()
         if native.is_dir():
             continue
+        if info.st_nlink == 0:
+            raise ValueError('Windows could not access a cached preview file. Its previous copy was preserved.')
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ValueError('Viewer cache contains a redirected or linked file.')
         name = path.relative_to(root).as_posix()
+        # stat can succeed on Windows when opening the payload is denied.
+        # Check readability without hashing or loading large model files.
+        with native.open('rb', buffering=0) as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                raise ValueError('Viewer cache contains a redirected or linked file.')
+            if name not in LOCK_FILES and opened.st_size:
+                stream.read(1)
         if name not in LOCK_FILES | {INVENTORY}:
             result[name] = [info.st_size, info.st_mtime_ns]
     return result
@@ -41,6 +59,8 @@ def file_inventory(root):
 
 def verify_inventory(root, *, create=False):
     root = logical_path(root)
+    if io_path(ordinary_path(root / FAILED_ENTRY, root)).exists():
+        raise ValueError('The previous preview preparation could not read or write its cache. Its files were preserved.')
     actual = file_inventory(root)
     directories = sorted(logical_path(path).relative_to(root).as_posix()
                          for path in io_path(root).rglob('*') if path.is_dir())
@@ -68,6 +88,98 @@ def seal_inventory(root):
     directories = sorted(logical_path(path).relative_to(root).as_posix()
                          for path in io_path(root).rglob('*') if path.is_dir())
     atomic_json(root / INVENTORY, {'format': OWNER_FORMAT, 'files': files, 'directories': directories})
+
+
+@contextmanager
+def preserve_failed_entry(root):
+    """An I/O failure beyond the cheap probe must not select this entry forever."""
+    try:
+        yield
+    except OSError as error:
+        if not isinstance(error, InterruptedError) and _cache_io_failed(root, error):
+            try:
+                marker = ordinary_path(Path(root) / FAILED_ENTRY, root)
+                # Existence is the signal; an interrupted marker is also safe.
+                with io_path(marker).open('xb') as stream:
+                    stream.write(b'{"reason":"cache-io-failure"}')
+            except (OSError, ValueError):
+                pass  # Keep the original error if storage also rejects the marker.
+        raise
+
+
+def _cache_io_failed(root, error):
+    if error.filename:
+        try:
+            if logical_path(error.filename).is_relative_to(logical_path(root)):
+                return True
+        except (OSError, ValueError):
+            pass
+    # Stream errors may omit filename. Only on failure, read the bounded cache
+    # to distinguish a locked middle range from an unavailable external source.
+    try:
+        files = file_inventory(root)
+        remaining = MAX_CACHE_BYTES
+        for name, (size, _) in files.items():
+            if size > remaining:
+                return False
+            remaining -= size
+            path = ordinary_path(Path(root) / name, root)
+            with io_path(path).open('rb') as stream:
+                left = size
+                while left:
+                    block = stream.read(min(left, 1024**2))
+                    if not block:
+                        return True
+                    left -= len(block)
+    except (OSError, ValueError):
+        return True
+    return False
+
+
+def _entry_count(roots):
+    count = 0
+    for root in roots:
+        cars = ordinary_path(Path(root) / 'cars', root)
+        if io_path(cars).exists():
+            for _ in io_path(cars).iterdir():
+                count += 1
+                if count >= MAX_CACHE_ENTRIES:
+                    return count
+    return count
+
+
+def prepare_entry(cache, key, *, kfps_root=None, progress=None):
+    """Reuse a verified entry or rebuild beside it; never adopt damaged content.
+
+    Caller holds the installation lease. Deterministic replacement names survive
+    restarts without a mutable redirect file, and cap retries for a broken disk.
+    """
+    if not re.fullmatch(r'[a-f0-9]{32}', key):
+        raise ValueError('Invalid viewer car cache identity.')
+    cars = ordinary_path(Path(cache) / 'cars', cache)
+    io_path(cars).mkdir(parents=True, exist_ok=True)
+    recovered = False
+    for attempt in range(MAX_RECOVERY_ENTRIES):
+        name = key if attempt == 0 else hashlib.sha256(
+            f'{key}:recovery-v1:{attempt}'.encode('ascii')).hexdigest()[:32]
+        try:
+            entry = ordinary_path(cars / name, cache)
+            native = io_path(entry)
+            if not native.exists():
+                roots = cache_roots(kfps_root) if kfps_root is not None else [cache]
+                if _entry_count(roots) >= MAX_CACHE_ENTRIES:
+                    raise CacheLimitError('The preview cache has reached its entry limit. Review its preserved cache folders.')
+                native.mkdir()
+            verify_inventory(entry, create=True)
+        except CacheLimitError:
+            raise
+        except (OSError, ValueError):
+            recovered = True
+            continue
+        if recovered and progress:
+            progress('Rebuilding an unavailable car preview; the previous cache was preserved.')
+        return entry
+    raise ValueError('This car reached the preview cache recovery limit. Check disk access and review the preserved cache folders.')
 
 
 def _delete_owned(root, names):
@@ -124,6 +236,8 @@ def admit_artifact(kfps_root, reservation_bytes, *, protected=(), protected_outp
     """
     if type(reservation_bytes) is not int or not 0 <= reservation_bytes <= MAX_CACHE_BYTES:
         raise ValueError('Invalid viewer cache reservation.')
+    if shutil.disk_usage(io_path(cache_root(kfps_root))).free < reservation_bytes + 64 * 1024**2:
+        raise ValueError('There is not enough free disk space to rebuild the car preview. Preserved cache files were not removed.')
     result = prune_cache(kfps_root, protected=protected, protected_outputs=protected_outputs,
                          target_bytes=MAX_CACHE_BYTES - reservation_bytes)
     if result['bytes'] + reservation_bytes > MAX_CACHE_BYTES:
@@ -240,8 +354,10 @@ def cache_lease(root, *, wait_seconds=3):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def cache_entries(kfps_root):
+def _scan_cache(kfps_root):
     entries = []
+    preserved = []
+    count = 0
     for root in cache_roots(kfps_root):
         cars = root / 'cars'
         if not io_path(cars).exists():
@@ -249,17 +365,27 @@ def cache_entries(kfps_root):
         ordinary_path(cars, root)
         for native in io_path(cars).iterdir():
             entry = logical_path(native)
-            if not re.fullmatch(r'[a-f0-9]{32}', entry.name):
-                raise ValueError('Unexpected content in the disposable viewer cache.')
-            ordinary_path(entry, root)
-            if not native.is_dir():
-                raise ValueError('Invalid viewer cache directory.')
-            if len(entries) >= 64:
+            count += 1
+            if count > MAX_CACHE_ENTRIES:
                 raise ValueError('Viewer cache has too many car entries.')
-            known = verify_inventory(entry)
-            size = sum(row[0] for row in known.values()) + io_path(entry / INVENTORY).stat().st_size
-            entries.append((native.stat().st_mtime, entry, size, len(known) + 1))
-    return entries
+            try:
+                if not re.fullmatch(r'[a-f0-9]{32}', entry.name):
+                    raise ValueError('Unexpected cache directory name.')
+                ordinary_path(entry, root)
+                if not native.is_dir():
+                    raise ValueError('Invalid viewer cache directory.')
+                known = verify_inventory(entry)
+                size = sum(row[0] for row in known.values()) + io_path(entry / INVENTORY).stat().st_size
+                entries.append((native.stat().st_mtime, entry, size, len(known) + 1))
+            except (OSError, ValueError):
+                # Unverified content is not an eviction candidate. In particular,
+                # do not descend through a link or "repair" its permissions.
+                preserved.append(entry)
+    return entries, preserved
+
+
+def cache_entries(kfps_root):
+    return _scan_cache(kfps_root)[0]
 
 
 def prune_cache(kfps_root, *, protected=(), clear=False, protected_outputs=(), target_bytes=None):
@@ -275,9 +401,7 @@ def prune_cache(kfps_root, *, protected=(), clear=False, protected_outputs=(), t
         lease = cache_lease(entry, wait_seconds=3 if clear else 0)
         try:
             lease.__enter__()
-        except ValueError:
-            if clear:
-                raise
+        except (ValueError, OSError):
             continue
         delete_entry = clear or resolved_path(entry) not in protected and time.time() - touched >= 60
         try:
@@ -293,13 +417,22 @@ def prune_cache(kfps_root, *, protected=(), clear=False, protected_outputs=(), t
             io_path(entry / INVENTORY).unlink()
             for name in LOCK_FILES - {'viewer.lock'}:
                 io_path(entry / name).unlink(missing_ok=True)
+        except (ValueError, OSError):
+            # A cache can change or become inaccessible after the initial scan.
+            # Leave the remaining files alone; other cars are independent.
+            continue
         finally:
             lease.__exit__(None, None, None)
-        io_path(entry / 'viewer.lock').unlink()
-        io_path(entry).rmdir()
+        try:
+            io_path(entry / 'viewer.lock').unlink()
+            io_path(entry).rmdir()
+        except OSError:
+            continue
         total -= size
         remaining -= 1
         removed += size
         files += count
-    total = sum(row[2] for row in cache_entries(kfps_root))
-    return {'bytes': total, 'removed_bytes': removed, 'removed_files': files, 'budget_bytes': MAX_CACHE_BYTES}
+    entries, preserved = _scan_cache(kfps_root)
+    total = sum(row[2] for row in entries)
+    return {'bytes': total, 'removed_bytes': removed, 'removed_files': files,
+            'budget_bytes': MAX_CACHE_BYTES, 'preserved_entries': len(preserved)}

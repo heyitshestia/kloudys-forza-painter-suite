@@ -356,6 +356,19 @@ class ViewerOptimizationTests(unittest.TestCase):
             self.assertEqual("preview-source", start.call_args.args[0])
         self.assertEqual(b"original input", source.read_bytes())
 
+    def test_cache_recovery_is_logged_without_private_paths(self):
+        self.service._record_preview_cache({'cache_usage': {'preserved_entries': 3, 'bytes': 1234}})
+        self.service.log._flush()
+        self.assertIn('preserved 3 unavailable entries', self.service.log.plainText)
+        self.assertIn('1234 bytes', self.service.log.plainText)
+        self.assertNotIn(str(self.root), self.service.log.plainText)
+
+    def test_clear_cache_summary_discloses_preserved_entries(self):
+        self.service._tasks.completed.emit({'kind': 'clear-cache', 'ok': True,
+            'request_serial': self.service._mesh_serial,
+            'payload': {'files': 2, 'bytes': 1234, 'preserved_entries': 3}})
+        self.assertIn('Preserved 3 unavailable', self.service.summary)
+
     def test_late_clear_success_cannot_reopen_after_leaving_the_page(self):
         source = self.root / "C_livery"
         source.touch()

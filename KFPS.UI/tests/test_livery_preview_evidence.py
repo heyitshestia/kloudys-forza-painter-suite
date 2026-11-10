@@ -324,6 +324,7 @@ class ReadonlyPreparationEvidenceTests(unittest.TestCase):
             'cache_lease': lambda *args, **kwargs: nullcontext(),
             'workspace_lock': lambda *args, **kwargs: nullcontext(),
             'cache_root': ROOT / 'runtime/unused-preview-evidence-test',
+            'prepare_entry': ROOT / 'runtime/unused-preview-evidence-test/cars/test',
             'ordinary_path': lambda path, root: path,
             'within': lambda path, root: path,
             'io_path': MagicMock(), 'verify_inventory': None, 'admit_artifact': None,

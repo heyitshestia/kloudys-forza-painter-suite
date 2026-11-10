@@ -1436,6 +1436,14 @@ class FullLiveryService(QObject):
         return (self.previewStockCar(current["identity"]) if current["snapshot"] is None else
                 self.previewGarageBuild(current["identity"], current["snapshot"]))
 
+    def _record_preview_cache(self, payload):
+        usage = payload.get("cache_usage") or {}
+        preserved = int(usage.get("preserved_entries") or 0)
+        if preserved:
+            self.log.append(
+                f"Preview cache: preserved {preserved} unavailable entries without using or deleting them; "
+                f"verified active cache: {int(usage.get('bytes') or 0)} bytes.", "warning")
+
     def _apply_garage_result(self, result):
         current = self._garage_preview
         if (self._closed or not self._active or not current or result.get("request_serial") != self._mesh_serial
@@ -1462,6 +1470,7 @@ class FullLiveryService(QObject):
             self._status, self._summary = "Starting isolated 3D viewer", (
                 "Opening stock body; no artwork included." if current["snapshot"] is None else
                 "Opening fitted body parts; no artwork included.")
+            self._record_preview_cache(payload)
             evidence = payload.get("preview_evidence")
             self._preview_evidence = evidence if isinstance(evidence, dict) else {}
             self._inspector.start(package="", mesh=str(payload.get("mesh_path") or ""),
@@ -1659,6 +1668,9 @@ class FullLiveryService(QObject):
             removed_mib = bytes_removed / (1024 * 1024)
             self._status = "Full-livery cache cleared"
             self._summary = f"Removed {files:,} cached files ({removed_mib:.1f} MiB)."
+            preserved = int(payload.get("preserved_entries") or 0)
+            if preserved:
+                self._summary += f" Preserved {preserved} unavailable preview cache entries; these will not block other previews."
             self.log.append(self._summary)
             reopen_source = str(result.get("reopen_source") or "")
             reopen_package = str(result.get("reopen_package") or "")
@@ -1739,6 +1751,7 @@ class FullLiveryService(QObject):
             self._running = True
             self._status = "Starting isolated 3D viewer"
             self._summary = "Opening the prepared car in a disposable local viewer process."
+            self._record_preview_cache(payload)
             evidence = payload.get("preview_evidence")
             self._preview_evidence = evidence if isinstance(evidence, dict) else {}
             self._inspector.start(

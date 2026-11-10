@@ -785,7 +785,8 @@ def clear_cache(paths: JobPaths, _payload: dict[str, Any], _cancel_event) -> dic
         shutil.rmtree(paths.cache)
     paths.ensure()
     FullLiveryCatalog(paths.catalog_file, paths.quarantine).invalidate_cache()
-    return {"files": files, "bytes": bytes_removed}
+    return {"files": files, "bytes": bytes_removed,
+            "preserved_entries": int(studio.get("preserved_entries", 0))}
 
 
 OPERATIONS = {
