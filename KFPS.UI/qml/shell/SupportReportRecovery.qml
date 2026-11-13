@@ -44,6 +44,7 @@ Popup {
             Layout.fillWidth: true
             text: "Saved reports"
             iconName: "folder"
+            toolTipText: "Open saved support reports for review or manual submission."
             onClicked: { root.close(); reportService.openSupportReports() }
         }
         GhostButton {
@@ -51,6 +52,7 @@ Popup {
             Layout.fillWidth: true
             text: "Open support form"
             iconName: "external"
+            toolTipText: "Open the support form in your browser to load a saved report."
             onClicked: { root.close(); reportService.openSupportWebsite() }
         }
         GhostButton {
@@ -58,6 +60,7 @@ Popup {
             Layout.fillWidth: true
             text: "Open Discord"
             iconName: "community"
+            toolTipText: "Open the KFPS Support Discord server."
             onClicked: { root.close(); reportService.openDiscord() }
         }
     }
