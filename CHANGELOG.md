@@ -1,5 +1,11 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.5
+
+- Fixed Report a problem rejecting its own saved log package when Editor diagnostics contain certain counters or long decimal values. Recreate an affected report after updating; existing saved packages are left untouched.
+- Fixed manually entered KFPS versions disappearing from support posts when private technical details are excluded. Private logs remain excluded when that option is unchecked.
+- Added a specific message for saved reports that fail validation, separate from page-loading or display failures. Expanded native-window, privacy and retry regression coverage.
+
 ## 3.2.4
 
 - Improved Report a problem recovery when its window cannot start, the page fails to load, or the report display stops. Retry, Saved reports and browser recovery remain available, with clearer failure messages and startup diagnostics.

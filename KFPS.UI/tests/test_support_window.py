@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 UI = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(UI / "src"), str(UI.parent / "KFPS.Editor/src")]
@@ -51,6 +51,21 @@ class SupportWindowTests(unittest.TestCase):
     def test_instance_names_are_bound_to_installation(self):
         self.assertEqual(window_name(self.root),window_name(self.root / "."))
         self.assertNotEqual(window_name(self.root),window_name(self.root / "other"))
+
+    def test_validation_failure_is_not_presented_as_a_network_retry(self):
+        from kfps_ui.support_window import ReportWindow
+        window = Mock(closed=False, failed=False, epoch=0)
+        ReportWindow.fail(window, 'handoff-validation')
+        english = window.set_status.call_args.args[0]
+        self.assertIn('could not be validated', english)
+        self.assertIn('Nothing was sent', english)
+        self.assertIn('new report', english)
+        self.assertNotIn('finish loading', english)
+        window.view.hide.assert_called_once()
+        window.timer.stop.assert_called_once()
+        window.logger.warning.assert_called_once_with('review-failed code=%s', 'handoff-validation')
+        ReportWindow.fail(window, 'load-failed')
+        window.set_status.assert_called_once()
 
     def test_regular_report_button_uses_native_review_without_external_browser(self):
         from types import SimpleNamespace

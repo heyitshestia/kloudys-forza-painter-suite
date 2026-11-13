@@ -104,6 +104,37 @@ class FullEditorLogTests(unittest.TestCase):
                 json.loads(file['text'])
         self.assertNotIn('PRIVATE', json.dumps(data))
 
+    def test_generated_keys_and_numeric_values_pass_serialized_privacy_check(self):
+        from kfps_ui.support_report import redact
+        metrics = {'objects': 410, 'frameP50': 16.700000762939453,
+                   'zoom': 1.4562381520517451, 'revision': 1794591043559000,
+                   'ordinary': 12.5, 'enabled': True, 'missing': None,
+                   'samples': [27.199999999720603, -1794591043559000],
+                   'nested': {'shapes': ['PRIVATE_ARTWORK'], 'safe': 7},
+                   'imageData': 'PRIVATE_IMAGE', 'normal': 'safe event'}
+        with patch('kfps_ui.support_context.collect_context', return_value={'metrics': metrics}):
+            _, blob = bundle.collect_retained_log_bundle(self.root, snapshot={'metrics': metrics})
+        data = json.loads(gzip.decompress(blob))
+        generated = [file for file in data['files'] if file['name'] in
+                     {'app-status-0000.log', 'diagnostic-context-0000.log'}]
+        self.assertEqual(len(generated), 2)
+        for file in generated:
+            with self.subTest(file=file['name']):
+                values = json.loads(file['text'])['metrics']
+                self.assertEqual(values['ordinary'], 12.5)
+                self.assertIs(values['enabled'], True)
+                self.assertIsNone(values['missing'])
+                self.assertEqual(values['nested']['safe'], 7)
+                self.assertNotIn('objects', values)
+                self.assertNotIn('shapes', values['nested'])
+                self.assertNotIn('imageData', values)
+                self.assertEqual(values['frameP50'], '16.[identifier removed]')
+                self.assertEqual(values['revision'], '[identifier removed]')
+                self.assertEqual(values['samples'], ['27.[identifier removed]', '-[identifier removed]'])
+                self.assertNotIn('PRIVATE', file['text'])
+                for line in file['text'].splitlines():
+                    self.assertEqual(redact(line, 60000), line)
+
     def test_oversized_session_retains_newest_complete_lines(self):
         _, blob = bundle.collect_retained_log_bundle(self.root,
             session_logs={'app': 'old event\n' * 600000 + 'Newest event\n'})

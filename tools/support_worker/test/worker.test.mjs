@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as directory:
  runtime.mkdir(parents=True)
  (runtime/'desktop.log').write_text('Error: GPU reset\\nsession_token=DO_NOT_SEND\\ndata:image/png;base64,AAAA\\n')
  logger=EditorDiagnostics(root, runtime)
- logger.accept({'schema':1,'page':'a'*32,'seq':1,'metrics':{'frameMax':280},'state':{'layers':355,'editorRevision':2026091101},'events':[{'kind':'long-task','duration':280,'action':'rotate','message':'DO_NOT_SEND'}]})
+ logger.accept({'schema':1,'page':'a'*32,'seq':1,'metrics':{'frameMax':280,'frameP50':16.700000762939453},'state':{'layers':355,'objects':410,'zoom':1.4562381520517451,'editorRevision':2026091101},'events':[{'kind':'long-task','duration':27.199999999720603,'action':'rotate','message':'DO_NOT_SEND'}]})
  logger.close()
  studio=root/'tools/livery-studio/runs/diagnostics'
  studio.mkdir(parents=True)
@@ -128,7 +128,9 @@ with tempfile.TemporaryDirectory() as directory:
   assert.deepEqual(normalizeReport(reviewed), reviewed);
   assert.equal(reviewed.technical.logs.length, 10);
   assert.equal(reviewed.technical.editor.page.metrics.frameMax, 280);
+  assert.equal(reviewed.technical.editor.page.metrics.frameP50, 16.700000762939453);
   assert.equal(reviewed.technical.editor.page.state.layers, 355);
+  assert.equal(reviewed.technical.editor.page.state.objects, 410);
   assert.equal(reviewed.technical.editor.recent[0].action, 'rotate');
   assert.equal(JSON.stringify(reviewed).includes('DO_NOT_SEND'), false);
   const f = fixture();
@@ -180,6 +182,44 @@ test('legacy drafts do not gain empty diagnostic fields that change receipt hash
   assert.deepEqual(normalizeReport(first),first);
 });
 test('excluding technical details removes them entirely', () => { const r=report(); r.include_technical=false; assert.deepEqual(normalizeReport(r).technical,{}); });
+test('public KFPS version survives technical opt-out without restoring private context', () => {
+  const clean=normalizeReport({...report(),include_technical:false,kfps_version:' 3.2.4 '});
+  assert.equal(clean.kfps_version,'3.2.4');
+  assert.deepEqual(clean.technical,{});
+  assert.equal('private_logs' in clean,false);
+  assert.deepEqual(normalizeReport(clean),clean);
+  assert.match(publicSummary(clean,user),/KFPS 3\.2\.4/);
+  assert.match(publicSummary(clean,user),/Technical details were not included\./);
+  const checked=normalizeReport({...report(),kfps_version:'3.2.4'});
+  assert.match(publicSummary(checked,user),/KFPS 3\.2\.4/);
+  assert.match(publicSummary(report(),user),/KFPS 3\.1\.60/);
+});
+test('public KFPS version is optional bounded text using the existing privacy filter', () => {
+  for(const value of [undefined,null,false,42,{},[],'','   ']) {
+    assert.equal('kfps_version' in normalizeReport({...report(),kfps_version:value}),false);
+  }
+  assert.equal(normalizeReport({...report(),kfps_version:'x'.repeat(100)}).kfps_version,'x'.repeat(30));
+  const clean=normalizeReport({...report(),kfps_version:'Password: do-not-publish'});
+  assert.equal(clean.kfps_version,redact('Password: do-not-publish',30));
+  assert.equal(JSON.stringify(clean).includes('do-not-publish'),false);
+});
+test('legacy frozen reports keep exact payloads and receipt hashes on retry without a public KFPS version', async () => {
+  for(const included of [true,false]) {
+    const f=fixture(),legacy=normalizeReport({...report(),include_technical:included});
+    assert.equal('kfps_version' in legacy,false);
+    const frozen=JSON.stringify(legacy);
+    const hash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(frozen))).toString('base64url');
+    assert.equal(JSON.stringify(normalizeReport(JSON.parse(frozen))),frozen);
+    await f.storage.put('report:'+legacy.id,{id:legacy.id,hash,created:Date.now(),private:{state:'sent'},public:{state:'pending'},attempts:1});
+    const response=await request(f.e,JSON.parse(frozen));
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).status,'delivered');
+    assert.equal((await f.storage.get('report:'+legacy.id)).hash,hash);
+    assert.equal(f.calls.filter(c=>c.kind==='private'&&c.options.method==='POST').length,0);
+    const payload=JSON.parse(f.calls.find(c=>c.kind==='public'&&c.options.method==='POST').options.body);
+    assert.match(payload.content,included?/KFPS 3\.1\.60/:/KFPS not supplied/);
+  }
+});
 test('long unbroken log lines are processed in bounded time', () => {const start=performance.now(); redact('x'.repeat(1000000)); assert.ok(performance.now()-start<1000);});
 test('invalid report formats and oversized request streams fail closed', async () => {
   assert.throws(() => normalizeReport({shapes:[]})); assert.throws(() => normalizeReport({...report(), id:'../../bad'}));
@@ -258,11 +298,17 @@ test('checked missing archives never reach either destination or create a receip
   const internal=await f.object.fetch(new Request('https://report.internal/send',{method:'POST',body:JSON.stringify({report:r,user})}));
   assert.equal(internal.status,400);assert.equal(f.calls.length,0);
   assert.equal(await f.storage.get('report:'+r.id),undefined);
-  const explicit=normalizeReport({...r,include_technical:false});
+  const explicit={...normalizeReport({...r,include_technical:false}),kfps_version:'3.2.4'};
   assert.equal((await(await request(f.e,explicit)).json()).status,'delivered');
   const body=f.calls.find(c=>c.kind==='private'&&c.options.method==='POST').options.body;
   assert.equal(body.get('files[1]'),null);
-  assert.deepEqual(JSON.parse(await body.get('files[0]').text()).technical,{});
+  const received=JSON.parse(await body.get('files[0]').text());
+  assert.deepEqual(received.technical,{});
+  assert.equal(received.kfps_version,'3.2.4');
+  assert.equal('private_logs' in received,false);
+  const summary=JSON.parse(f.calls.find(c=>c.kind==='public'&&c.options.method==='POST').options.body).content;
+  assert.match(summary,/KFPS 3\.2\.4/);
+  assert.match(summary,/Technical details were not included\./);
 });
 test('failed private upload cannot publish a summary-only checked report',async()=>{
   const f=fixture(),r=report(),fetch=globalThis.fetch;let observed=0;

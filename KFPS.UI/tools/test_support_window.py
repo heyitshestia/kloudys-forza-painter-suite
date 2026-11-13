@@ -18,13 +18,16 @@ from unittest.mock import patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / "KFPS.UI/src"), str(ROOT / "KFPS.Editor/src"), str(ROOT)]
+sys.path[:0] = [str(ROOT / "KFPS.UI/src"), str(ROOT / "KFPS.Editor/src"),
+                str(ROOT / "KFPS.Editor/web/tests"), str(ROOT)]
 from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from kfps_ui.support_log_bundle import collect_retained_log_bundle
 from kfps_ui.support_report import build_support_report, save_handoff
 from kfps_ui.support_window import ReportWindow, ReportPage
+from tools.fabric_editor_diagnostics import EditorDiagnostics
+from native_window_policy import keep_in_background
 
 
 def main():
@@ -56,7 +59,14 @@ def main():
     (editor / "desktop.log").write_text("Synthetic editor startup failure\n")
     (editor / "desktop.json").write_text(json.dumps({"pid":4294967294,"state":"starting"}))
     (editor / "desktop.lock").write_text("4294967294\nPRIVATE_NAME\nPRIVATE_HOST\n")
+    diagnostics = EditorDiagnostics(fixture, editor)
+    diagnostics.accept({"schema": 1, "page": "a" * 32, "seq": 1,
+                        "metrics": {"frameP50": 16.700000762939453},
+                        "state": {"objects": 410, "zoom": 1.4562381520517451},
+                        "events": [{"kind": "long-task", "duration": 27.199999999720603}]})
+    diagnostics.close()
     report = build_support_report(fixture,{"page":"editor","version":"test","log":""},since=time.time(),collect=lambda:{})
+    assert report["technical"]["editor"]["page"]["state"]["objects"] == 410
     attachment = collect_retained_log_bundle(fixture, snapshot=report["technical"], session_logs={"app":"Synthetic pending app event"})
     report["private_logs"] = attachment[0]
     save_handoff(fixture,report,log_attachment=attachment)
@@ -154,8 +164,6 @@ def main():
         from kfps_editor.windows_lock import acquire_file_lease
         from kfps_editor.host import EditorDesktop
         from kfps_editor.browser_host import BrowserDesktop
-        sys.path.insert(0, str(ROOT / "KFPS.Editor/web/tests"))
-        from native_window_policy import keep_in_background
         editor_host = (EditorDesktop if args.editor_mode == "native" else BrowserDesktop)(
             ROOT, output / "editor-profile", background=True, export_root=output / "exports")
         keep_in_background(editor_host)
@@ -188,6 +196,8 @@ def main():
     origin = f"http://127.0.0.1:{server.server_port}"
     with patch('kfps_ui.support_window.is_korean_display_language',return_value=args.display_language=='ko'):
         window = ReportWindow(fixture,origin=origin,background=True)
+    keep_in_background(window)
+    window.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
     window.open_report(report["id"],confirm=False)
     checks = []
     failure = []
@@ -307,6 +317,8 @@ def main():
         nonlocal phase,window,expected_epoch
         with patch('kfps_ui.support_window.is_korean_display_language',return_value=args.display_language=='ko'):
             window=ReportWindow(fixture,origin=origin,background=True)
+        keep_in_background(window)
+        window.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
         window.open_report(report["id"],confirm=False)
         phase=5
         expected_epoch=0

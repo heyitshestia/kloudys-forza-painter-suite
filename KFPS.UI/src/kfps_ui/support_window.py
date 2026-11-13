@@ -357,6 +357,10 @@ class ReportWindow(QMainWindow):
             self.set_status(
                 "The report display stopped unexpectedly. Your saved report is intact. Retry, or open it in your browser. Nothing is sent automatically.",
                 "신고 화면이 예기치 않게 중단되었습니다. 저장된 보고서는 그대로 있습니다. 다시 시도하거나 브라우저에서 열어 주세요. 자동으로 전송되는 내용은 없습니다.")
+        elif code == "handoff-validation":
+            self.set_status(
+                "The saved report could not be validated. Nothing was sent. Create a new report in KFPS, or open the form in your browser without this attachment.",
+                "저장된 보고서를 검증하지 못했습니다. 아무것도 전송되지 않았습니다. KFPS에서 새 보고서를 만들거나 이 첨부 파일 없이 브라우저에서 신고 양식을 열어 주세요.")
         else:
             self.set_status(
                 "Your report is saved. The review could not finish loading. Retry, or open it in your browser. Nothing is sent automatically.",

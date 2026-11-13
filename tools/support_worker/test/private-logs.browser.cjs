@@ -6,7 +6,7 @@ const {chromium}=require('playwright');
   const output=path.resolve(process.argv[2]);fs.mkdirSync(output,{recursive:true});
   const {readSubmission}=await import(pathToFileURL(path.join(__dirname,'../src/submission.mjs')));
   const {describePrivateLogs,LOG_SCHEMA,APP_LOG_SCHEMA,PACKAGE_SCHEMA}=await import(pathToFileURL(path.join(__dirname,'../public/private-logs.mjs')));
-  const {redact,normalizeReport}=await import(pathToFileURL(path.join(__dirname,'../public/protocol.mjs')));
+  const {redact,normalizeReport,publicSummary}=await import(pathToFileURL(path.join(__dirname,'../public/protocol.mjs')));
   const root=path.join(__dirname,'../public'),allowed=new Set(fs.readdirSync(root));
   const server=http.createServer((req,res)=>{
     const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';
@@ -75,8 +75,22 @@ const {chromium}=require('playwright');
     const excluded=makeReport();await page.goto('about:blank');await page.goto(origin+'/#bundle='+packageFor(excluded).toString('base64url'));
     await page.locator('#replace-report').click();
     await page.waitForFunction(()=>!document.getElementById('download-private-logs').hidden);
-    await page.locator('#include').uncheck();await page.locator('#send').click();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();
+    await page.locator('#version').evaluate(input=>{input.closest('details').open=true;});
+    await page.locator('#version').fill('3.2.4');
+    await page.locator('#include').uncheck();await page.reload();
+    await page.getByText('Signed in as Test Owner',{exact:true}).waitFor();
+    check(await page.locator('#version').inputValue()==='3.2.4'&&!await page.locator('#include').isChecked(),'manual version and technical opt-out survive draft reload');
+    status='retryable';await page.locator('#send').click();await page.locator('#retry').waitFor({state:'visible'});
     check(!posts[2].privateLogs&&!posts[2].report.private_logs,'technical-details opt-out sends no log archive');
+    check(posts[2].report.kfps_version==='3.2.4','actual form submit preserves the manual public KFPS version through the server parser');
+    assert.deepEqual(posts[2].report.technical,{});
+    const summary=publicSummary(posts[2].report,{name:'Test Owner'});
+    check(summary.includes('KFPS 3.2.4')&&summary.includes('Technical details were not included.'),'server summary includes the manual version with technical details excluded');
+    const versionFrozen=JSON.stringify(posts[2].report);
+    await page.reload();await page.locator('#retry').waitFor({state:'visible'});
+    await page.locator('#version').evaluate(input=>{input.value='9.9.9';});
+    status='delivered';await page.locator('#retry').click();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();
+    check(JSON.stringify(posts[3].report)===versionFrozen,'retry preserves the frozen public version instead of rebuilding it from the form');
     await page.goto('about:blank');await page.goto(origin+'/#bundle='+packageFor(makeReport()).toString('base64url'));
     await page.locator('#replace-report').click();
     await page.waitForFunction(()=>!document.getElementById('download-private-logs').hidden);
@@ -98,6 +112,15 @@ const {chromium}=require('playwright');
     await page.locator('#include').check();check(await page.locator('#send').isDisabled(),'checking the box again reinstates the log requirement');
     await page.locator('#include').uncheck();await page.locator('#send').click();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();
     check(posts.length===attempts+1&&!posts.at(-1).privateLogs&&posts.at(-1).report.include_technical===false,'missing-log report can send only after explicit opt-out');
+    const legacy=normalizeReport({...makeReport(),include_technical:false}),legacyFrozen=JSON.stringify(legacy);
+    check(!Object.hasOwn(legacy,'kfps_version'),'legacy payload has no public version field');
+    await page.evaluate(({legacy})=>sessionStorage.setItem('kfps-support-draft-v1',JSON.stringify({
+      draft:{...legacy,technical:{app:{version:'3.2.4'}}},submitted:legacy,saved_at:Date.now(),
+    })),{legacy});
+    status='retryable';await page.reload();await page.locator('#retry').waitFor({state:'visible'});
+    status='delivered';await page.locator('#retry').click();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();
+    check(JSON.stringify(posts.at(-1).report)===legacyFrozen,'restored legacy retry stays byte-identical despite a populated version input');
+    check(!Object.hasOwn(posts.at(-1).report,'kfps_version'),'restored legacy retry does not gain the optional public version field');
     check(errors.length===0,'no JavaScript errors');
     const result={passed:true,checks,realDiscordPosts:0,errors};fs.writeFileSync(path.join(output,'results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
   } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

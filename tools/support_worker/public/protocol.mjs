@@ -93,6 +93,11 @@ export function normalizeReport(input) {
     technical: v.include_technical === false ? {} : normalizeTechnical(v.technical),
     include_technical: v.include_technical !== false,
   };
+  // Never derive a public field for frozen legacy reports: their receipt hashes must stay unchanged.
+  if (typeof v.kfps_version === 'string') {
+    const version = redact(v.kfps_version.trim(), 30).trim();
+    if (version) result.kfps_version = version;
+  }
   if(v.private_logs!==undefined&&result.include_technical) {
     try {result.private_logs=validatePrivateMetadata(v.private_logs);}
     catch(error){throw new InputError(error.message);}
@@ -115,7 +120,7 @@ export function discordText(value, max = 1400) {
 export function publicSummary(report, user) {
   const text = [
     `**${discordText(report.feature)} report**`,
-    `Reporter: ${discordText(user.name, 70)} | KFPS ${discordText(report.technical?.app?.version || 'not supplied', 50)}`,
+    `Reporter: ${discordText(user.name, 70)} | KFPS ${discordText(report.kfps_version || report.technical?.app?.version || 'not supplied', 50)}`,
     '', discordText(report.description, 1050),
     ...(report.expected ? ['', '**Expected:**', discordText(report.expected, 350)] : []),
     '', `Report ID: \`${report.id}\``,

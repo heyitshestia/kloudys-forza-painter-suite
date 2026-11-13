@@ -116,7 +116,7 @@ function populate() {
   $('feature').value = FEATURES.includes(draft.feature) ? draft.feature : 'Other';
   for (const name of ['description','expected','title']) $(name).value = draft[name] || '';
   $('include').checked = draft.include_technical !== false;
-  $('version').value = draft.technical?.app?.version || '';
+  $('version').value = draft.technical?.app?.version ?? draft.kfps_version ?? '';
   $('game').value = draft.technical?.running_games?.[0]?.game || '';
   $('store').value = draft.technical?.running_games?.[0]?.store || 'unknown';
   refreshLabels();
@@ -210,7 +210,7 @@ async function send() {
     if (!submitted) {
       if(!readDraft())return;
       const images=screenshots.metadata();
-      const candidate = normalizeReport({...draft,...(images.length?{screenshots:images,screenshots_public:true}:{})});
+      const candidate = normalizeReport({...draft,kfps_version:$('version').value.trim(),...(images.length?{screenshots:images,screenshots_public:true}:{})});
       // Validate attachments before recording an attempted delivery. A missing
       // local archive must not turn an unsent draft into an unknown receipt.
       privateLogs.attach(candidate,screenshots.body(candidate));

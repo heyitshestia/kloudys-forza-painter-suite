@@ -80,10 +80,14 @@ def _collect_log_bundle(root: Path, *, include_workers, snapshot=None, session_l
             if depth > 16:
                 return "[nested diagnostics omitted]"
             if isinstance(item, dict):
+                # The consumer checks serialized lines. A bare key such as
+                # "objects" is harmless alone, but an artwork property is not.
                 return {key: clean(child, depth + 1,
                                    len(json.dumps(key, ensure_ascii=False).encode("utf-16-le")) // 2 + 2)
                         for key, child in item.items()
-                        if isinstance(key, str) and redact(key, 200) == key}
+                        if isinstance(key, str) and redact(key, 200) == key
+                        and (property_text := json.dumps(key, ensure_ascii=False) + ": null")
+                        == redact(property_text, 60000)}
             if isinstance(item, (list, tuple)):
                 return [clean(child, depth + 1) for child in item]
             if isinstance(item, str):
@@ -100,6 +104,12 @@ def _collect_log_bundle(root: Path, *, include_workers, snapshot=None, session_l
                     omitted += 1
                     return "[oversized log line removed]"
                 return value if redact(quoted, 60000) == quoted else "[sensitive line removed]"
+            if isinstance(item, (int, float)):
+                # Timing decimals and revision counters can match identifier
+                # cleanup too. Keep redacted numbers valid JSON string values.
+                numeric_text = json.dumps(item, allow_nan=False)
+                safe_text = redact(numeric_text, 60000)
+                return item if safe_text == numeric_text else safe_text
             return item
         text = json.dumps(clean(value), ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         size = len(text.encode("utf-8"))

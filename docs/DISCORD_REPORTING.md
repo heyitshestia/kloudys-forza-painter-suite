@@ -63,6 +63,26 @@ English/Korean browser interactions, storage faults, attachment/receipt recovery
 and the existing local Worker runtime. Hardware-specific failures and real service
 permissions still require affected-installation or deployment evidence.
 
+## Generated diagnostics validation in 3.2.5
+
+The generated JSON log summaries must pass the same serialized-line privacy
+checks as retained text logs. Cleanup covers property names and numeric values,
+not just strings: long decimal timing values can match identifier cleanup, and
+an `objects` property is excluded from these untyped summaries. Redacted numeric
+values remain valid JSON strings. Typed Editor diagnostics retain their existing
+allowlisted numeric fields; browser and server attachment checks are not relaxed.
+
+A failed native handoff validation is reported separately from a failed page load.
+Retrying an unchanged invalid package cannot repair it. Generate a new report with
+the corrected collector; old saved packages are not rewritten automatically.
+The original file remains available for diagnosis, and no report is sent on failure.
+
+The manual KFPS version is an optional public `kfps_version` field, independent of
+the private technical-details checkbox. Excluding diagnostics still sends an empty
+technical object and no private log attachment. Older reports keep the technical
+version fallback, and frozen submissions do not gain a field during retry, so
+existing receipt identities remain stable.
+
 ## Data boundaries
 
 Public: Discord display name, post title, affected area, issue description,
