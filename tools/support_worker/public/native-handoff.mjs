@@ -2,7 +2,7 @@ import {MAX_PACKAGE_BYTES} from './private-logs.mjs';
 
 // One bounded, one-way transfer from the app into its trusted review page.
 // No filesystem bridge, localhost server, or network upload is exposed.
-export function nativeHandoff({accept, current, now=()=>Date.now()}) {
+export function nativeHandoff({accept, current, waitingUser=()=>false, now=()=>Date.now()}) {
   let transfer=null, generation=0;
   const fail=text=>{throw Error(text);};
   const active=()=>{
@@ -12,6 +12,9 @@ export function nativeHandoff({accept, current, now=()=>Date.now()}) {
   };
   return Object.freeze({
     status(id) {
+      // The payload is fully received and validated; only the local recovery
+      // choice is pending. Keep "ready" for hosts predating this optional flag.
+      if(waitingUser(id))return {state:'ready',id,waiting_user:true};
       if(current(id))return {state:'ready',id};
       if(transfer?.id===id)return {state:transfer.state,id,error:transfer.error||''};
       return {state:'idle',id};

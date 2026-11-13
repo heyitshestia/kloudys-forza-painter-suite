@@ -3,6 +3,9 @@ import {MAX_SCREENSHOTS_BYTES,describeScreenshot,screenshotName} from '../public
 import {MAX_LOG_BYTES,describePrivateLogs,logFilename} from '../public/private-logs.mjs';
 
 const missingLogs = () => new InputError('Compressed logs are required while technical details are enabled. Reopen Report a Problem in KFPS to prepare them, or turn technical details off to send without logs.');
+const privateLogErrors = new Set(['Invalid private application log attachment.',
+  'Choose the compressed KFPS log attachment.', 'Expanded private logs exceed the safety limit.',
+  'Private logs contain text that has not passed privacy cleanup.']);
 
 function requireLogs(report) {
   if (report.include_technical !== false && (!report.private_logs || report.private_logs.files < 1)) throw missingLogs();
@@ -38,10 +41,14 @@ export async function readSubmission(request) {
   }
   const privateLogs=report.private_logs?form.get('private_logs'):null;
   if(report.private_logs) {
+    let metadata;
     try {
-      const {metadata}=await describePrivateLogs(privateLogs,{redact});
-      if(JSON.stringify(metadata)!==JSON.stringify(report.private_logs))throw Error('Private logs changed. Reattach the original report bundle to retry.');
-    } catch(error) {throw new InputError(error.message);}
+      ({metadata}=await describePrivateLogs(privateLogs,{redact}));
+    } catch(error) {
+      // JSON/decompression errors can contain fragments of the private archive.
+      throw new InputError(privateLogErrors.has(error.message) ? error.message : 'Invalid private application log attachment.');
+    }
+    if(JSON.stringify(metadata)!==JSON.stringify(report.private_logs))throw new InputError('Private logs changed. Reattach the original report bundle to retry.');
   }
   return {report,files,privateLogs};
 }

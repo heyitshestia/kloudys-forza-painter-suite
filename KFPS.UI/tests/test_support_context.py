@@ -193,6 +193,89 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(any(file["name"].startswith("transfer-worker") for file in data["files"]))
         self.assertTrue(any(file["name"].startswith("collection-index") for file in data["files"]))
 
+    def test_context_total_read_budget_keeps_partial_evidence(self):
+        from kfps_ui import support_context as context
+        self.write('KFPS.UI/app.py', 'A' * 1024)
+        self.write('KFPS.UI/workspace.py', 'B' * 1024)
+        with patch.object(context, 'MAX_CONTEXT_BYTES', 1500, create=True):
+            result = context.collect_context(self.root)
+        self.assertIn('sha256_groups', result['installation']['app-entry'])
+        self.assertEqual(result['installation']['workspace-entry']['status'], 'collection_limit')
+
+    def test_linked_release_content_is_not_opened(self):
+        target = self.write('KFPS.UI/content/release-announcement.json', '{}')
+        os.link(target, self.root / 'private-content')
+        original = Path.open
+        opened = []
+        def track(path, *args, **kwargs):
+            opened.append(path)
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'open', track):
+            context = collect_context(self.root)
+        self.assertNotIn(target, opened)
+        self.assertEqual(context['release_announcement']['status'], 'unavailable')
+
+    def test_python_package_parser_accepts_control_cleanup_and_astral_lines(self):
+        import shutil
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node is required for the cross-language contract')
+        self.write('runtime/fabric-editor/desktop.log', 'pass\x00word=PRIVATE\n' + '\U0001f600' * 40000 + '\n')
+        report = build_support_report(self.root, {'page': 'editor'}, since=time.time(), collect=lambda: {})
+        attachment = collect_retained_log_bundle(self.root, snapshot=report['technical'],
+            session_logs={'app': 'password=PRIVATE\nSafe latest event'})
+        report['private_logs'] = attachment[0]
+        path, _ = save_handoff(self.root, report, log_attachment=attachment)
+        result = subprocess.run([node, str(ROOT / 'tools/support_worker/test/validate-collection.mjs'),
+            str(path.parent / 'report.kfps-report.json.gz')], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_long_session_line_survives_python_to_javascript_submission(self):
+        import shutil
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node is required for the cross-language contract')
+        line = 'renderer event ' * 1400 + 'NEWEST_SENTINEL'
+        report = build_support_report(self.root, {'page': 'editor'}, since=time.time(), collect=lambda: {})
+        attachment = collect_retained_log_bundle(self.root, snapshot=report['technical'],
+            session_logs={'app': line + '\npass\x00word=PRIVATE\nLatest safe event'})
+        archive = json.loads(gzip.decompress(attachment[1]))
+        session = next(file for file in archive['files'] if file['name'] == 'app-session-0000.log')
+        self.assertEqual(json.loads(session['text'])['app'][0], line)
+        self.assertEqual(session['omitted_lines'], 0)
+        self.assertFalse(attachment[0]['warnings'])
+        self.assertNotIn('PRIVATE', json.dumps(archive))
+        report['private_logs'] = attachment[0]
+        path, _ = save_handoff(self.root, report, log_attachment=attachment)
+        script = """
+            import assert from 'node:assert/strict';
+            import {readFileSync} from 'node:fs';
+            const {readPackage,describePrivateLogs}=await import(process.argv[1]);
+            const {redact,normalizeReport}=await import(process.argv[2]);
+            const {submissionBody,readSubmission}=await import(process.argv[3]);
+            const expected=JSON.parse(readFileSync(0,'utf8'));
+            const value=await readPackage(new Blob([readFileSync(process.argv[4])]),{redact});
+            const report=normalizeReport({...value.report,description:'Synthetic long-line regression'});
+            const received=await readSubmission(new Request('https://support.example',
+                {method:'POST',body:submissionBody(report,[],value.logs)}));
+            const {bundle}=await describePrivateLogs(received.privateLogs,{redact});
+            const session=bundle.files.find(file=>file.name==='app-session-0000.log');
+            assert.equal(JSON.parse(session.text).app[0],expected);
+            assert.equal(session.omitted_lines,0);
+            assert(!JSON.stringify(bundle).includes('PRIVATE'));
+            assert.deepEqual(Buffer.from(await received.privateLogs.arrayBuffer()),
+                Buffer.from(await value.logs.arrayBuffer()));
+            console.log(JSON.stringify({retainedCharacters:expected.length,privateBytesPreserved:true}));
+        """
+        result = subprocess.run([node, '--input-type=module', '--eval', script,
+            (ROOT / 'tools/support_worker/public/private-logs.mjs').as_uri(),
+            (ROOT / 'tools/support_worker/public/protocol.mjs').as_uri(),
+            (ROOT / 'tools/support_worker/src/submission.mjs').as_uri(),
+            str(path.parent / 'report.kfps-report.json.gz')],
+            input=json.dumps(line), capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'retainedCharacters': len(line), 'privateBytesPreserved': True})
+
 
 if __name__ == "__main__":
     unittest.main()

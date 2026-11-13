@@ -7,7 +7,34 @@ const {chromium}=require('playwright');
   const {default:worker,ReportStore,sign}=await import(pathToFileURL(path.join(__dirname,'../src/worker.mjs')));
   const publicRoot=path.join(__dirname,'../public'),allowed=new Set(fs.readdirSync(publicRoot));
   const env={SESSION_SECRET:'synthetic-browser-test-secret-123456789',DISCORD_CLIENT_ID:'111111111111111111',DISCORD_CLIENT_SECRET:'synthetic',DELIVERY_ENABLED:'1',DISCORD_JOIN_URL:'https://discord.gg/XT8dG8bDKy',PUBLIC_WEBHOOK_URL:'https://discord.com/api/webhooks/222222222222222222/'+'a'.repeat(40),PRIVATE_WEBHOOK_URL:'https://discord.com/api/webhooks/333333333333333333/'+'b'.repeat(40)};
-  const objects=new Map(),errors=[],requests=[],checks=[];
+  const objects=new Map(),errors=[],requests=[],checks=[],unexpectedExternal=[];
+  const evidence={checkpoints:[],http:[],failure:null},started=performance.now();
+  let activePage=null,activeCase='setup';
+  const elapsed=()=>Math.round(performance.now()-started);
+  async function snapshot(page) {
+    try{return await page.evaluate(()=>({readyState:document.readyState,signInBridge:!!window.KFPSReportSignIn,transferBridge:!!window.KFPSReportTransfer,
+      login:{visible:!!document.querySelector('#login')?.getClientRects().length,disabled:document.querySelector('#login')?.disabled,handler:typeof document.querySelector('#login')?.onclick==='function'},
+      identity:document.querySelector('#identity')?.textContent,notice:document.querySelector('#notice')?.textContent,
+      diagnostics:window.KFPSReportSignIn?.diagnostics()||[]}));}
+    catch(error){return {unavailable:error.message};}
+  }
+  async function checkpoint(page,phase){evidence.checkpoints.push({case:activeCase,phase,elapsed_ms:elapsed(),state:await snapshot(page)});}
+  async function ready(page,phase) {
+    await page.waitForFunction(()=>!!window.KFPSReportTransfer&&!!window.KFPSReportSignIn);
+    await checkpoint(page,phase);
+  }
+  async function requestSignIn(page,phase) {
+    await page.waitForFunction(()=>{
+      const bridge=window.KFPSReportSignIn;if(!bridge)return false;
+      if(bridge.request())return true;
+      const last=bridge.diagnostics().filter(e=>e.stage==='start').at(-1);
+      return last&&last.result!=='requested'&&last.result!=='ready'||document.querySelector('#notice').classList.contains('error');
+    });
+    await checkpoint(page,phase);
+    const request=await page.evaluate(()=>window.KFPSReportSignIn.request());
+    assert(request,`Sign-in did not produce a request: ${JSON.stringify(evidence.checkpoints.at(-1))}`);
+    return request;
+  }
   let caseIP='192.0.2.2';
   env.REPORTS={idFromName:id=>id,get:id=>{
     if(!objects.has(id)){
@@ -40,15 +67,30 @@ const {chromium}=require('playwright');
     browser=await chromium.launch({channel:'chrome',headless:true});
     let caseNumber=2;
     for(const locale of ['en-US','ko-KR']) for(const mode of ['blocked','silent','no-host']){
+      activeCase=`${locale}/${mode}`;
       caseIP=`192.0.2.${caseNumber++}`;
       const app=await browser.newContext({locale,viewport:{width:1080,height:840}}),system=await browser.newContext({locale,viewport:{width:1100,height:900}});
+      for(const context of [app,system])await context.route('**/*',route=>{
+        if(new URL(route.request().url()).origin!==env.PUBLIC_ORIGIN){unexpectedExternal.push(route.request().url());return route.abort();}
+        return route.continue();
+      });
+      const recordHttp=(request,event,extra={})=>{
+        const pathname=new URL(request.url()).pathname;
+        if(pathname.startsWith('/api/')||pathname==='/auth/logout')evidence.http.push({case:activeCase,elapsed_ms:elapsed(),event,method:request.method(),path:pathname,...extra});
+      };
+      for(const context of [app,system]){
+        context.on('request',request=>recordHttp(request,'request'));
+        context.on('response',response=>recordHttp(response.request(),'response',{status:response.status()}));
+        context.on('requestfailed',request=>recordHttp(request,'failed',{error:request.failure()?.errorText}));
+      }
       await app.addInitScript(()=>Object.defineProperty(window,'KFPSNativeReport',{value:true}));
       await app.addInitScript(offset=>{const original=Date.now;Date.now=()=>original()+offset;},mode==='blocked'?-2000:mode==='silent'?86400000:-86400000);
       const token=await sign({kind:'session',id:'444444444444444444',name:'Synthetic Browser User',csrf:'browser-csrf',exp:Date.now()+3600000},env.SESSION_SECRET);
       await system.addCookies([{name:'kfps_support',value:token,url:env.PUBLIC_ORIGIN,httpOnly:true,sameSite:'Lax'}]);
       const report=await app.newPage(),approval=await system.newPage();
+      activePage=report;
       for(const page of [report,approval])page.on('pageerror',e=>errors.push(String(e)));
-      await report.goto(env.PUBLIC_ORIGIN);await report.locator('#login').waitFor();
+      await report.goto(env.PUBLIC_ORIGIN);await ready(report,'initial-ready');await report.locator('#login').waitFor();
       await report.locator('#description').fill('My edited description stays in KFPS.');
       if(mode==='blocked') {
         await report.route('**/api/native-auth/start',route=>route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:'Synthetic rate limit'})}));
@@ -59,6 +101,7 @@ const {chromium}=require('playwright');
         await report.unroute('**/api/native-auth/start');
       }
       await report.locator('#login').click();
+      await requestSignIn(report,'initial-sign-in');
       await report.locator('#native-signin').waitFor({state:'visible'});
       const url=await report.locator('#native-link').inputValue(),launch={url,id:new URL(url).searchParams.get('ticket')};
       if(mode!=='no-host')await report.evaluate(({launch,mode})=>window.KFPSReportSignIn.opened(launch.id,mode==='silent'),{launch,mode});
@@ -129,13 +172,16 @@ const {chromium}=require('playwright');
       check(await report.locator('#description').inputValue()==='My edited description stays in KFPS.',`${locale}: browser authorization preserves report text`);
       check(await report.evaluate(()=>window.KFPSReportSignIn.diagnostics().some(e=>e.stage==='session'&&e.result==='authenticated')),`${locale}/${mode}: clock-skewed form records successful authentication`);
       check(report.url()===env.PUBLIC_ORIGIN+'/',`${locale}: the native report never navigates to Discord`);
-      await report.reload();await report.locator('#identity').filter({hasText:'Synthetic Browser User'}).waitFor();
+      await report.reload();await ready(report,'authenticated-reload-ready');await report.locator('#identity').filter({hasText:'Synthetic Browser User'}).waitFor();
       await report.close();const reopened=await app.newPage();await reopened.goto(env.PUBLIC_ORIGIN);
+      activePage=reopened;reopened.on('pageerror',e=>errors.push(String(e)));await ready(reopened,'reopened-ready');
       await reopened.locator('#identity').filter({hasText:'Synthetic Browser User'}).waitFor();
       check(await reopened.locator('#description').inputValue()==='My edited description stays in KFPS.',`${locale}: closing and reopening preserves the edited draft`);
-      await reopened.locator('#logout').click();await reopened.locator('#login').waitFor({state:'visible'});
-      await reopened.locator('#login').click();await reopened.waitForFunction(()=>!!window.KFPSReportSignIn.request());
-      const cancelled=await reopened.evaluate(()=>window.KFPSReportSignIn.request());
+      const logoutNavigation=reopened.waitForEvent('framenavigated',frame=>frame===reopened.mainFrame());
+      await reopened.locator('#logout').click();await logoutNavigation;await ready(reopened,'logout-reload-ready');
+      check(await reopened.locator('#login').isVisible()&&await reopened.locator('#login').isEnabled(),`${locale}/${mode}: logout navigation completes before sign-in becomes actionable`);
+      await reopened.locator('#login').click();
+      const cancelled=await requestSignIn(reopened,'post-logout-sign-in');
       await approval.goto(cancelled.url);await approval.locator('#approval').waitFor({state:'visible'});
       await approval.locator('#deny').click();await reopened.locator('#native-signin').waitFor({state:'hidden'});
       check(await reopened.locator('#login').isVisible(),`${locale}: cancelling browser approval leaves the report usable`);
@@ -144,9 +190,10 @@ const {chromium}=require('playwright');
       await app.close();await system.close();
     }
     check(!requests.some(v=>v.startsWith('/api/reports')),'authorization never submits reports or logs');
+    assert.deepEqual(unexpectedExternal,[]);checks.push('no unexpected external browser requests');
     assert.deepEqual(errors,[]);checks.push('no page or fixture errors');
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:true,checks,realDiscordPosts:0},null,2));
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:true,checks,realDiscordPosts:0,unexpectedExternal,evidence},null,2));
     console.log(JSON.stringify({passed:true,checks}));
-  }catch(error){fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:false,checks,error:String(error),errors},null,2));throw error;}
+  }catch(error){evidence.failure={case:activeCase,elapsed_ms:elapsed(),state:activePage?await snapshot(activePage):null};fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:false,checks,error:String(error),errors,unexpectedExternal,evidence},null,2));throw error;}
   finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

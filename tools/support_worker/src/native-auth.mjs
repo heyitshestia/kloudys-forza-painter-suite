@@ -3,8 +3,17 @@ import {UUID, InputError, readBytesLimited} from '../public/protocol.mjs';
 const TTL = 5 * 60 * 1000;
 const PENDING = 'kfps_native_auth';
 const hash = async text => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), x => x.toString(16).padStart(2, '0')).join('');
-const call = (env, id, action, body = {}) => env.REPORTS.get(env.REPORTS.idFromName(`native-auth:${id}`)).fetch(
+const call = (env, id, action, body = {}) => env.REPORTS.get(env.REPORTS.idFromName(`native-auth:${id.toLowerCase()}`)).fetch(
   new Request(`https://report.internal/native/${action}`, {method: 'POST', body: JSON.stringify(body)}));
+
+export async function clearNativeAuth(request, env, {verify, cookie, setCookie}) {
+  const pending = await verify(cookie(request, PENDING), env.SESSION_SECRET);
+  if (pending?.kind === 'native-auth' && UUID.test(pending.id || '') && typeof pending.secret === 'string') {
+    const response = await call(env, pending.id, 'cancel', {hash: await hash(pending.secret)});
+    if (!response.ok && response.status !== 410) throw new Error('Native sign-in cancellation failed.');
+  }
+  return setCookie(PENDING, '', 0, env);
+}
 
 // The public link identifies an approval request, never its private consumer key.
 export async function nativeAuth(request, env, helpers) {

@@ -117,6 +117,32 @@ class WorkerLogTests(unittest.TestCase):
             _, warnings = self.collect()
         self.assertTrue(any('limit reached' in text for text in warnings))
 
+    def test_updater_bad_entry_does_not_hide_valid_history(self):
+        private = self.write('private.txt', 'PRIVATE')
+        folder = self.root / 'updater/logs'
+        folder.mkdir(parents=True)
+        os.link(private, folder / 'update-20261113-120000.log')
+        good = self.write('updater/logs/update-20261113-120001.log', 'good event')
+        with patch.object(support_logs, 'updater_location', return_value=(self.root, folder.parent)):
+            files, warnings = support_logs.discover_updater_files(self.root, 'logs')
+        self.assertEqual(files, [(self.root, good)])
+        self.assertTrue(warnings)
+
+    def test_updater_local_fallback_without_environment_location(self):
+        good = self.write('runtime/update-reports/update-20261113-120000.json', '{}')
+        with patch.object(support_logs, 'updater_location', return_value=None):
+            files, _ = support_logs.discover_updater_files(self.root, 'reports')
+        self.assertEqual(files, [(self.root, good)])
+
+    def test_expired_discovery_does_not_open_more_directories(self):
+        self.write('runtime/fabric-editor/desktop.log', 'event')
+        with patch.object(support_logs.time, 'monotonic', side_effect=[0] + [10] * 100), \
+             patch.object(support_logs.os, 'scandir', wraps=os.scandir) as scan:
+            files, warnings = support_logs.discover_worker_logs(self.root, now=self.now)
+        self.assertFalse(files)
+        scan.assert_not_called()
+        self.assertTrue(warnings)
+
     def test_real_report_handoff_retains_sources_with_large_korean_logs(self):
         for source, relative, subdir, pattern in support_logs.SOURCES:
             if subdir: continue

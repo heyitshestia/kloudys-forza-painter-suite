@@ -69,7 +69,7 @@ Item {
         RedlineText { text: "REDLINE / " + versionService.displayText; color: Theme.primary; font.family: Theme.monoFamily; font.pixelSize: Theme.px(10) }
         RedlineText { Layout.fillWidth: true; text: generationService.running ? generationService.queueStatus || generationService.status : settings.liveStatusVisible ? announcementService.displayText : ""; color: Theme.subtle; font.pixelSize: Theme.px(11) }
         RedlineButton { compact: true; minimal: true; text: ""; iconName: "heart"; hint: "Credits"; onClicked: appController.navigate("credits") }
-        RedlineButton { id: reportButton; compact: true; minimal: true; text: ""; iconName: "help"; hint: "Report a problem"; enabled: !reportService.supportBusy; onClicked: reportService.openSupportForm(appController.currentPage) }
+        RedlineButton { id: reportButton; compact: true; minimal: true; text: GraphicsInfo.api === GraphicsInfo.Software ? "REPORT" : ""; iconName: "help"; hint: "Report a problem"; enabled: !reportService.supportBusy; onClicked: reportService.openSupportForm(appController.currentPage) }
         RedlineButton { id: joinButton; text: "DISCORD"; compact: true; minimal: true; onClicked: reportService.openDiscord() }
     }
 }

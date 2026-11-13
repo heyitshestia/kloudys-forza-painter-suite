@@ -94,6 +94,114 @@ class FullEditorLogTests(unittest.TestCase):
     def test_missing_logs_do_not_add_empty_attachment(self):
         self.assertIsNone(bundle.collect_editor_log_bundle(self.root))
 
+    def test_generated_diagnostics_remain_json_after_privacy_cleanup(self):
+        _, blob = bundle.collect_retained_log_bundle(self.root,
+            snapshot={'app': {'lastError': 'password=PRIVATE', 'log': 'safe\nC:\\Users\\PRIVATE\\x.txt'}},
+            session_logs={'app': 'safe event\npassword=PRIVATE\n"shapes": ["PRIVATE"]'})
+        data = json.loads(gzip.decompress(blob))
+        for file in data['files']:
+            if file['name'].startswith(('app-', 'diagnostic-context', 'collection-index')):
+                json.loads(file['text'])
+        self.assertNotIn('PRIVATE', json.dumps(data))
+
+    def test_oversized_session_retains_newest_complete_lines(self):
+        _, blob = bundle.collect_retained_log_bundle(self.root,
+            session_logs={'app': 'old event\n' * 600000 + 'Newest event\n'})
+        data = json.loads(gzip.decompress(blob))
+        self.assertIn('Newest event', json.dumps(data))
+        self.assertTrue(data['warnings'])
+
+    def test_generated_session_serialized_line_limits_are_visible_omissions(self):
+        for line in (('event ' * 10000)[:59999], '\U0001f600' * 32000, '\t"' * 18000):
+            with self.subTest(characters=len(line)):
+                metadata, blob = bundle.collect_retained_log_bundle(self.root,
+                    session_logs={'app': line + '\nLatest safe event'})
+                data = json.loads(gzip.decompress(blob))
+                entry = next(file for file in data['files'] if file['name'] == 'app-session-0000.log')
+                self.assertEqual(entry['omitted_lines'], 1)
+                self.assertIn('app-session-0000.log: incomplete or unsupported lines omitted (1).', metadata['warnings'])
+                self.assertEqual(json.loads(entry['text'])['app'],
+                    ['[oversized log line removed]', 'Latest safe event'])
+                self.assertTrue(all(len(value.encode('utf-16-le')) <= 120000 for value in entry['text'].splitlines()))
+
+    def test_fixed_bundle_temporary_hardlink_is_not_overwritten(self):
+        import uuid
+        (self.runtime / 'desktop.log').write_text('event\n')
+        attachment = bundle.collect_editor_log_bundle(self.root)
+        report = {'id': str(uuid.uuid4()), 'private_logs': attachment[0]}
+        folder = self.root / 'runtime/support-reports' / report['id']
+        folder.mkdir(parents=True)
+        private = self.root / 'private.txt'
+        private.write_text('PRIVATE ORIGINAL')
+        os.link(private, folder / '.report-bundle.tmp')
+        path, _ = save_handoff(self.root, report, log_attachment=attachment)
+        self.assertEqual(private.read_text(), 'PRIVATE ORIGINAL')
+        package = json.loads(gzip.decompress((path.parent / 'report.kfps-report.json.gz').read_bytes()))
+        self.assertEqual(package['report'], report)
+
+    def test_package_rejects_mismatched_metadata_or_corrupt_archive(self):
+        (self.runtime / 'desktop.log').write_text('event\n')
+        metadata, blob = bundle.collect_editor_log_bundle(self.root)
+        with self.assertRaises(ValueError):
+            bundle.package_report({'private_logs': {**metadata, 'files': 0}}, (metadata, blob))
+        with self.assertRaises(ValueError):
+            bundle.package_report({'private_logs': metadata}, (metadata, blob[:-3]))
+
+    def test_collection_limits_keep_generated_context_and_inventory(self):
+        (self.runtime / 'desktop.log').write_text('event\n' * 1000)
+        (self.runtime / 'desktop.log.1').write_text('older\n' * 1000)
+        for options in ({'MAX_INPUT_BYTES': 7000}, {'MAX_COLLECTION_SECONDS': -1}):
+            with patch.multiple(bundle, **options):
+                metadata, blob = bundle.collect_retained_log_bundle(self.root)
+            archive = json.loads(gzip.decompress(blob))
+            self.assertTrue(metadata['warnings'])
+            self.assertLessEqual(sum(file['source_bytes'] for file in archive['files']
+                if file['name'].startswith('desktop')), 7000)
+            self.assertTrue(any(file['name'].startswith('collection-index') for file in archive['files']))
+
+    def test_handoff_refits_summary_after_adding_attachment_metadata(self):
+        import hashlib
+        import uuid
+        warnings = [f'transfer-worker-{i:04}.log: could not copy the complete retained log.' for i in range(300)]
+        archive = {'schema': bundle.APP_SCHEMA, 'created_at': '2026-11-13T12:00:00+00:00',
+                   'files': [], 'warnings': warnings}
+        raw = bundle.compact(archive).encode()
+        blob = gzip.compress(raw)
+        metadata = {'schema': bundle.APP_SCHEMA, 'sha256': hashlib.sha256(blob).hexdigest(),
+                    'size': len(blob), 'raw_size': len(raw), 'files': 0, 'warnings': warnings}
+        report = {'schema': 'kfps-support-report/1', 'id': str(uuid.uuid4()),
+                  'technical': {'logs': [{'source': 'app', 'text': 'event ' * 6000}]}, 'private_logs': metadata}
+        path, _ = save_handoff(self.root, report, log_attachment=(metadata, blob))
+        saved = json.loads(path.read_text())
+        self.assertLessEqual(path.stat().st_size, 48 * 1024 + 1)
+        self.assertEqual(saved['private_logs'], metadata)
+        package = json.loads(gzip.decompress((path.parent / 'report.kfps-report.json.gz').read_bytes()))
+        self.assertEqual(saved, package['report'])
+
+    def test_editor_only_limit_warnings_keep_legacy_parser_contract(self):
+        with patch.object(bundle, 'MAX_COLLECTION_SECONDS', -1):
+            metadata, _ = bundle.collect_editor_log_bundle(self.root)
+        self.assertTrue(metadata['warnings'])
+        self.assertTrue(all(message.split(':', 1)[0] in bundle.NAMES for message in metadata['warnings']))
+
+    def test_structured_timestamp_rejects_non_ascii_digits(self):
+        record = self.record()
+        record['utc'] = '\u0662\u0660\u0662\u0666-09-13T12:00:00+00:00'
+        with self.assertRaises(ValueError):
+            bundle.clean_record(record)
+
+    def test_failed_archive_flush_preserves_previous_saved_files(self):
+        import uuid
+        from kfps_ui import support_report
+        (self.runtime / 'desktop.log').write_text('first event\n')
+        attachment = bundle.collect_editor_log_bundle(self.root)
+        report = {'id': str(uuid.uuid4()), 'private_logs': attachment[0]}
+        path, _ = save_handoff(self.root, report, log_attachment=attachment)
+        before = {file.name: file.read_bytes() for file in path.parent.iterdir()}
+        with patch.object(support_report.os, 'fsync', side_effect=OSError('synthetic full disk')), self.assertRaises(OSError):
+            save_handoff(self.root, report, log_attachment=attachment)
+        self.assertEqual(before, {file.name: file.read_bytes() for file in path.parent.iterdir()})
+
     def test_fresh_app_includes_current_session_and_refilters_sensitive_text(self):
         from kfps_ui.support_report import build_support_report
         report = build_support_report(self.root, {"page":"editor", "version":"3.1.78",

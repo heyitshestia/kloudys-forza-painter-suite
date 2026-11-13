@@ -4,8 +4,14 @@
 <body>
 <header><a class="brand" href="/"><img src="/kfps-logo.png" alt=""><span>KFPS <strong data-i18n>Support</strong></span></a><span class="stage" data-i18n>Issue reports</span><div class="language-control"><label for="report-language" data-i18n>Language</label><select id="report-language"><option value="auto" data-i18n>System language</option><option value="en">English</option><option value="ko">한국어</option></select></div><a id="discord" href="https://discord.gg/XT8dG8bDKy" target="_blank" rel="noreferrer">Discord</a></header>
 <main>
-  <div class="heading"><div><p class="eyebrow" data-i18n>REPORT A PROBLEM</p><h1 data-i18n>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button" data-i18n>Sign in with Discord</button><button id="logout" type="button" data-i18n hidden>Sign out</button></div></div>
+  <div class="heading"><div><p class="eyebrow" data-i18n>REPORT A PROBLEM</p><h1 data-i18n>What went wrong?</h1></div><div id="account"><span id="identity">Not signed in</span><button id="login" type="button" data-i18n disabled>Sign in with Discord</button><button id="logout" type="button" data-i18n hidden>Sign out</button></div></div>
   <div id="notice" role="status" aria-live="polite"></div>
+  <section id="incoming-report" class="public-note" hidden aria-labelledby="incoming-title">
+    <h2 id="incoming-title" data-i18n>A saved report is already open</h2>
+    <p data-i18n>Resume the saved report, or replace it with the newly prepared report. Its text and private logs stay together until you choose.</p>
+    <p id="incoming-locked" hidden data-i18n>This report has an unconfirmed submission. Resume it and check delivery before starting another report.</p>
+    <div class="actions"><button id="resume-report" type="button" data-i18n>Resume saved report</button><button id="replace-report" type="button" data-i18n>Replace with new report</button></div>
+  </section>
   <section id="native-signin" class="public-note" hidden data-i18n-aria-label="Browser sign-in">
     <p id="native-signin-text"></p><p><strong id="native-signin-code" class="approval-code"></strong></p>
     <div class="actions"><a id="native-reopen" class="primary" target="_blank" rel="noopener noreferrer">Open in default browser</a><button id="native-cancel" type="button">Cancel</button></div>

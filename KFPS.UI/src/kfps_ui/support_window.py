@@ -5,25 +5,25 @@ import argparse
 import base64
 import json
 import logging
-from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import sys
 import time
 
 from PySide6.QtCore import QLockFile, QTimer, QUrl, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QStyle, QVBoxLayout, QWidget
 from shiboken6 import delete, isValid
 
 from .support_report import FORM_ORIGIN
 from .support_browser import open_browser_url
 from .display_language import is_korean_display_language
-from .support_window_protocol import CHUNK_BYTES, read_source, report_id, window_name
+from .support_window_protocol import CHUNK_BYTES, read_source, report_id, reports_folder, window_name
 from .support_auth_diagnostics import record_signin_events
+from .support_bootstrap import close_logging, setup_logging
 
 
 def origin_of(url: QUrl) -> str:
@@ -65,6 +65,7 @@ class ReportWindow(QMainWindow):
             raise ValueError("Untrusted support form origin.")
         self.korean = is_korean_display_language()
         self.closed = False
+        self.failed = False
         self.identifier = ""
         self.data = b""
         self.metadata = {}
@@ -91,8 +92,21 @@ class ReportWindow(QMainWindow):
         self.retry = QPushButton(self.tr_text("Retry", "다시 시도"), panel)
         self.retry.hide()
         self.retry.clicked.connect(self.reload_review)
+        self.retry.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.browser_button = QPushButton(self.tr_text("Open in browser", "브라우저에서 열기"), panel)
+        self.browser_button.clicked.connect(self.open_browser_review)
+        self.saved_button = QPushButton(self.tr_text("Saved reports", "저장된 보고서"), panel)
+        self.saved_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.saved_button.setEnabled(False)
+        self.saved_button.clicked.connect(self.open_saved_report)
         layout.addWidget(self.status)
-        layout.addWidget(self.retry)
+        recovery = QHBoxLayout()
+        recovery.setContentsMargins(12, 4, 12, 4)
+        recovery.addWidget(self.retry)
+        recovery.addStretch(1)
+        recovery.addWidget(self.saved_button)
+        recovery.addWidget(self.browser_button)
+        layout.addLayout(recovery)
         self.view = QWebEngineView(panel)
         layout.addWidget(self.view, 1)
         self.setCentralWidget(panel)
@@ -159,6 +173,8 @@ class ReportWindow(QMainWindow):
             self.korean = language == "ko"
             self.setWindowTitle(self.tr_text("KFPS - Report a Problem", "KFPS - 문제 신고"))
             self.retry.setText(self.tr_text("Retry", "다시 시도"))
+            self.browser_button.setText(self.tr_text("Open in browser", "브라우저에서 열기"))
+            self.saved_button.setText(self.tr_text("Saved reports", "저장된 보고서"))
             self.status.setText(self.tr_text(*self._status_copy))
         self.launch_auth(value.get("request"))
 
@@ -172,6 +188,7 @@ class ReportWindow(QMainWindow):
                 return False
         data, metadata = read_source(self.root, identifier)
         self.identifier, self.data, self.metadata = identifier, data, metadata
+        self.saved_button.setEnabled(True)
         self.reload_review()
         self.show()
         if not self.background:
@@ -181,10 +198,44 @@ class ReportWindow(QMainWindow):
         return True
 
     def reload_review(self):
+        if self.closed:
+            return
+        self.failed = False
         self.retry.hide()
+        self.status.show()
+        self.set_status("Opening your report...", "보고서를 여는 중입니다...")
+        self.view.show()
         self.view.load(QUrl(self.origin + "/"))
 
+    def open_browser_review(self):
+        if self.closed:
+            return
+        route = open_browser_url(QUrl(self.origin + "/"))
+        self.status.show()
+        if route == "failed":
+            self.set_status("The browser could not open. Your report is still saved; retry or use Saved reports.",
+                            "브라우저를 열지 못했습니다. 보고서는 저장되어 있습니다. 다시 시도하거나 저장된 보고서를 열어 주세요.")
+        else:
+            self.set_status(
+                "In your browser, use Reopen a saved report and choose the file from Saved reports. Edits made in this window do not transfer automatically.",
+                "브라우저에서 저장된 보고서 다시 열기를 선택하고 저장된 보고서 폴더의 파일을 열어 주세요. 이 창에서 수정한 내용은 자동으로 옮겨지지 않습니다.")
+
+    def open_saved_report(self):
+        if self.closed or not self.identifier:
+            return
+        try:
+            folder = reports_folder(self.root)
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+                raise OSError("The saved report folder could not open.")
+        except (OSError, ValueError):
+            self.status.show()
+            self.set_status("The saved report could not be opened. Check access to runtime/support-reports.",
+                            "저장된 보고서를 열지 못했습니다. runtime/support-reports 폴더의 접근 권한을 확인해 주세요.")
+            self.logger.warning("saved-report-open-failed")
+
     def load_started(self):
+        if self.closed or self.failed:
+            return
         self.epoch += 1
         self.inflight = False
         self.auth_inflight = False
@@ -195,7 +246,10 @@ class ReportWindow(QMainWindow):
 
     def load_finished(self, success):
         self.load_timeout.stop()
-        if self.closed or origin_of(self.page.url()) != self.origin:
+        if self.closed or self.failed:
+            return
+        if origin_of(self.page.url()) != self.origin:
+            self.fail("page-origin")
             return
         if not success:
             self.fail("network")
@@ -264,7 +318,7 @@ class ReportWindow(QMainWindow):
             self.timer.stop()
             self.status.hide()
             self.retry.hide()
-            self.logger.info("report-ready bytes=%s", len(self.data))
+            self.logger.info("report-ready bytes=%s waiting_user=%s", len(self.data), value.get("waiting_user") is True)
         elif state == "idle":
             self.inflight = True
             self.run(f"return window.KFPSReportTransfer.begin({json.dumps(self.metadata)});", lambda ok: self.send_chunk(0) if ok is True else self.fail("handoff-start"))
@@ -287,19 +341,36 @@ class ReportWindow(QMainWindow):
             self.fail("handoff-finish")
 
     def fail(self, code):
+        if self.closed or self.failed:
+            return
+        self.failed = True
         self.timer.stop()
         self.load_timeout.stop()
         self.auth_timer.stop()
         self.epoch += 1
         self.inflight = False
+        self.auth_inflight = False
+        self.view.stop()
+        self.view.hide()
         self.status.show()
-        self.set_status(
-            "Your report is saved. The review could not finish loading. Check your connection and retry; nothing has been sent automatically.",
-            "보고서는 저장되어 있습니다. 신고 화면을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요. 자동으로 전송된 내용은 없습니다.")
+        if code == "renderer-terminated":
+            self.set_status(
+                "The report display stopped unexpectedly. Your saved report is intact. Retry, or open it in your browser. Nothing is sent automatically.",
+                "신고 화면이 예기치 않게 중단되었습니다. 저장된 보고서는 그대로 있습니다. 다시 시도하거나 브라우저에서 열어 주세요. 자동으로 전송되는 내용은 없습니다.")
+        else:
+            self.set_status(
+                "Your report is saved. The review could not finish loading. Retry, or open it in your browser. Nothing is sent automatically.",
+                "보고서는 저장되어 있습니다. 신고 화면을 불러오지 못했습니다. 다시 시도하거나 브라우저에서 열어 주세요. 자동으로 전송되는 내용은 없습니다.")
         self.retry.show()
         self.logger.warning("review-failed code=%s", code)
 
     def renderer_failed(self, status, code):
+        if self.closed:
+            return
+        name = getattr(status, "name", "UnknownTerminationStatus")
+        if name not in {"NormalTerminationStatus", "AbnormalTerminationStatus", "CrashedTerminationStatus", "KilledTerminationStatus"}:
+            name = "UnknownTerminationStatus"
+        self.logger.warning("renderer-terminated status=%s exit_code=%s", name, int(code))
         self.fail("renderer-terminated")
 
     def open_external(self, request):
@@ -328,6 +399,7 @@ class ReportWindow(QMainWindow):
         if self.closed:
             return
         self.closed = True
+        self.logger.info("reviewer-shutdown")
         self.epoch += 1
         self.timer.stop()
         self.load_timeout.stop()
@@ -408,6 +480,7 @@ def main(root: Path) -> int:
     lock = None
     server = None
     guard = None
+    handler = None
     logger = logging.getLogger("kfps-report-window")
 
     def cleanup():
@@ -424,13 +497,12 @@ def main(root: Path) -> int:
     try:
         identifier = report_id(args.report_id)
         read_source(root, identifier)
-        log_path = root / "runtime/support-reports/report-window.log"
-        handler = RotatingFileHandler(log_path, maxBytes=1024 * 1024, backupCount=2, encoding="utf-8")
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
+        handler = setup_logging(root)
         from kfps_editor.baseline import verify
-        verify(root)
+        verified = verify(root)
+        if isinstance(verified, dict):
+            logger.info("review-runtime qt=%s webengine=%s chromium=%s", verified.get("qt"),
+                        verified.get("webengine"), verified.get("chromium"))
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
         app = QApplication(sys.argv[:1])
         app.setApplicationName("KFPS Report")
@@ -468,6 +540,4 @@ def main(root: Path) -> int:
         return 1
     finally:
         cleanup()
-        for handler in list(logger.handlers):
-            handler.close()
-            logger.removeHandler(handler)
+        close_logging(handler)

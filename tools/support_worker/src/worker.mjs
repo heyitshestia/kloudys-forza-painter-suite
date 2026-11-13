@@ -1,8 +1,8 @@
-import {InputError, UUID, publicSummary, validWebhook} from '../public/protocol.mjs';
+import {InputError, UUID, publicSummary, validWebhook, readBytesLimited} from '../public/protocol.mjs';
 import {readSubmission,submissionBody} from './submission.mjs';
 import {logFilename} from '../public/private-logs.mjs';
 import {screenshotName} from '../public/screenshots.mjs';
-import {nativeAuth, nativeAuthStore} from './native-auth.mjs';
+import {nativeAuth, nativeAuthStore, clearNativeAuth} from './native-auth.mjs';
 
 const encoder = new TextEncoder();
 const API = 'https://discord.com/api/v10';
@@ -58,6 +58,22 @@ function enabled(env) {
 async function discordFetch(url, options = {}) {
   // workerd supports manual/follow, not redirect:error. Callers reject non-2xx.
   return fetch(url, {...options, redirect: 'manual', signal: AbortSignal.timeout(15000)});
+}
+async function retryDelay(response) {
+  let seconds = 60;
+  const header = response.headers.get('retry-after');
+  if (header) {
+    const value = Number(header);
+    const delay = Number.isFinite(value) ? value : (Date.parse(header) - Date.now()) / 1000;
+    if (Number.isFinite(delay)) seconds = Math.max(seconds, delay);
+  }
+  if (response.status === 429) {
+    try {
+      const value = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(await readBytesLimited(response, 4096)));
+      if (typeof value?.retry_after === 'number' && Number.isFinite(value.retry_after)) seconds = Math.max(seconds, value.retry_after);
+    } catch { /* Keep the bounded header/default wait for malformed upstream bodies. */ }
+  }
+  return Math.min(DAY, Math.ceil(seconds * 1000));
 }
 async function callback(request, env) {
   const url = new URL(request.url), state = url.searchParams.get('state');
@@ -131,7 +147,12 @@ export default {
         if (!user) return json({error: 'Sign in with Discord again. Your draft is still here.'}, 401);
         if (request.method === 'POST') {
           if (request.headers.get('origin') !== env.PUBLIC_ORIGIN || request.headers.get('x-csrf-token') !== user.csrf) return json({error: 'Session check failed. Reload the form.'}, 403);
-          if (path === '/auth/logout') return json({ok: true}, 200, {'Set-Cookie': setCookie('kfps_support', '', 0, env)});
+          if (path === '/auth/logout') {
+            const clear = await clearNativeAuth(request, env, {verify, cookie, setCookie});
+            const response = json({ok: true}, 200, {'Set-Cookie': setCookie('kfps_support', '', 0, env)});
+            response.headers.append('Set-Cookie', clear);
+            return response;
+          }
           if (path !== '/api/reports') return json({error: 'Not found.'}, 404);
           if (!enabled(env)) return json({error: 'Report delivery is temporarily unavailable. Keep your saved report and try later.'}, 503);
           const {report,files,privateLogs} = await readSubmission(request);
@@ -139,12 +160,12 @@ export default {
           if (files.length || privateLogs) {
             const body = submissionBody(report,files,privateLogs);
             body.set('user',JSON.stringify({id:user.id,name:user.name}));
-            return object.fetch(new Request('https://report.internal/send',{method:'POST',body}));
+            return await object.fetch(new Request('https://report.internal/send',{method:'POST',body}));
           }
-          return object.fetch(new Request('https://report.internal/send', {method: 'POST', body: JSON.stringify({report, user: {id: user.id, name: user.name}})}));
+          return await object.fetch(new Request('https://report.internal/send', {method: 'POST', body: JSON.stringify({report, user: {id: user.id, name: user.name}})}));
         }
         const id = path.slice('/api/reports/'.length);
-        if (request.method === 'GET' && UUID.test(id)) return env.REPORTS.get(env.REPORTS.idFromName(user.id)).fetch(new Request(`https://report.internal/status/${id}`));
+        if (request.method === 'GET' && UUID.test(id)) return await env.REPORTS.get(env.REPORTS.idFromName(user.id)).fetch(new Request(`https://report.internal/status/${id.toLowerCase()}`));
         return json({error: 'Method not allowed.'}, 405);
       }
       if (path.startsWith('/api/') || path.startsWith('/auth/')) return json({error: 'Not found.'}, 404);
@@ -218,9 +239,15 @@ export class ReportStore {
       times.push(now);
       record = {id: report.id, hash, created: now, private: {state: 'pending'}, public: {state: 'pending'}, attempts: 0};
       await storage.put({submissions: times, [recordKey]: record});
-      if (await storage.getAlarm() === null) await storage.setAlarm(now + 30 * DAY);
     }
+    if (await storage.getAlarm() === null) await storage.setAlarm(Math.max(Date.now() + 1000, record.created + 30 * DAY));
     if (record.attempts >= 5) { record.private.state === 'pending' ? record.private.state = 'blocked' : record.public.state = 'blocked'; await storage.put(recordKey, record); return json(result(record, this.env)); }
+    if (![this.env.DISCORD_GUILD_ID, this.env.PRIVATE_CHANNEL_ID, this.env.SUPPORT_CHANNEL_ID].every(id => /^\d{17,20}$/.test(id || ''))
+        || this.env.PRIVATE_CHANNEL_ID === this.env.SUPPORT_CHANNEL_ID) {
+      for (const kind of ['private', 'public']) if (record[kind].state !== 'sent') record[kind].state = 'blocked';
+      await storage.put(recordKey, record);
+      return json(result(record, this.env));
+    }
     record.attempts++;
     // Validate destinations before posting. A misplaced webhook must not leak diagnostics.
     for (const [kind, url, channel] of [['private', this.env.PRIVATE_WEBHOOK_URL, this.env.PRIVATE_CHANNEL_ID], ['public', this.env.PUBLIC_WEBHOOK_URL, this.env.SUPPORT_CHANNEL_ID]]) {
@@ -229,7 +256,8 @@ export class ReportStore {
       try {
         const check = await discordFetch(url);
         if (!check.ok) {
-          record.retryAt = Date.now() + 60000;
+          const delay = await retryDelay(check);
+          record.retryAt = Date.now() + delay;
           if ([401,403,404].includes(check.status)) record[kind].state = 'blocked';
           await storage.put(recordKey, record); return json(result(record, this.env));
         }
@@ -264,7 +292,8 @@ export class ReportStore {
         const response = await discordFetch(url.href, {method: 'POST', body, headers});
         if (!response.ok) {
           record[kind].state = response.status === 429 ? 'pending' : response.status >= 500 ? 'uncertain' : 'blocked';
-          record.retryAt = Date.now() + 60000;
+          const delay = await retryDelay(response);
+          record.retryAt = Date.now() + delay;
         } else {
           const message = await response.json();
           if (!/^\d{17,20}$/.test(message.id) || !/^\d{17,20}$/.test(message.channel_id) || (kind === 'private' && message.channel_id !== this.env.PRIVATE_CHANNEL_ID)) throw new Error('unexpected acknowledgment');

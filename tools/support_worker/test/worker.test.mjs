@@ -1,7 +1,8 @@
-import test, {afterEach} from 'node:test';
+import test, {afterEach, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {gzipSync} from 'node:zlib';
 import {NUMBERS, BOOLS, ASSETS, ENUMS, normalizeEditor} from '../public/editor-diagnostics.mjs';
 import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {SCHEMA, normalizeReport, readJsonLimited, validWebhook, publicSummary, redact} from '../public/protocol.mjs';
@@ -11,6 +12,7 @@ import {submissionBody} from '../src/submission.mjs';
 import {logBlob,logMetadata} from './log-fixture.mjs';
 
 const originalFetch = globalThis.fetch;
+beforeEach(() => { globalThis.fetch = async () => { throw new Error('Unmocked outbound request forbidden in backend tests.'); }; });
 afterEach(() => { globalThis.fetch = originalFetch; });
 const secret = 'test-only-not-a-real-secret-1234567890';
 const user = {id: '111111111111111111', name: 'Synthetic Tester'};
@@ -350,4 +352,222 @@ test('partial screenshot delivery requires the same images and skips the deliver
   assert.equal((await upload(f.e,r,[])).status,400);assert.equal(f.calls.length,before);
   assert.equal((await(await upload(f.e,r,[png])).json()).status,'delivered');
   assert.equal(f.calls.filter(c=>c.kind==='private'&&c.options.method==='POST').length,1);
+});
+
+test('malformed private log JSON never appears in the HTTP error response', async () => {
+  const f=fixture(), r=report();
+  for (const raw of ['PRIVATE-ARCHIVE-CONTENT', JSON.stringify({schema:r.private_logs.schema,created_at:'2026-11-13T12:00:00Z',
+    files:[{name:'performance.jsonl',modified_utc:'2026-11-13T12:00:00Z',source_bytes:100,omitted_lines:0,text:'PRIVATE-EVENT-CONTENT'}],warnings:[]})]) {
+    const logs=new Blob([gzipSync(raw)],{type:'application/gzip'});
+    const response=await request(f.e,r,{},logs);
+    assert.equal(response.status,400);
+    const value=await response.json();
+    assert.equal(value.error,'Invalid private application log attachment.');
+    assert.equal(response.headers.get('cache-control'),'no-store');
+  }
+  assert.equal(f.calls.length,0);
+  assert.equal(await f.storage.get('report:'+r.id),undefined);
+});
+
+for (const operation of ['submission','json submission','status']) test(`actor transport failure returns a safe JSON ${operation} response`, async () => {
+  const f=fixture(), r=report();
+  f.e.REPORTS.get=()=>({fetch:async()=>{throw new Error('PRIVATE-TRANSPORT-DETAIL');}});
+  let response;
+  if(operation==='submission') response=await request(f.e,r);
+  else if(operation==='json submission') response=await request(f.e,normalizeReport({...r,include_technical:false}));
+  else {
+    const token=await sign({...user,kind:'session',csrf:'csrf-test',exp:Date.now()+60000},secret);
+    response=await worker.fetch(new Request(f.e.PUBLIC_ORIGIN+'/api/reports/'+r.id,{headers:{Cookie:`kfps_support=${token}`}}),f.e);
+  }
+  assert.equal(response.status,503);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.equal((await response.text()).includes('PRIVATE-TRANSPORT-DETAIL'),false);
+  assert.equal(f.calls.length,0);
+});
+
+test('private and public destinations cannot be configured to the same channel', async () => {
+  const f=fixture();
+  f.e.PRIVATE_CHANNEL_ID=f.e.SUPPORT_CHANNEL_ID;
+  assert.equal((await (await request(f.e,report())).json()).status,'blocked');
+  assert.equal(f.calls.length,0,'configuration is rejected before contacting either destination');
+});
+
+for (const phase of ['preflight','post']) test(`rate-limited ${phase} preserves the upstream retry window across restart`, async () => {
+  const f=fixture(), r=report(), fetch=globalThis.fetch;
+  globalThis.fetch=async(url,options={})=>{
+    if((options.method==='POST')===(phase==='post')) return Response.json({retry_after:300},{status:429,headers:{'Retry-After':'240'}});
+    return fetch(url,options);
+  };
+  const response=await request(f.e,r), value=await response.json();
+  assert.equal(value.status,'retryable');
+  assert(value.retry_after>=299 && value.retry_after<=300,JSON.stringify(value));
+  const stored=await f.storage.get('report:'+r.id), before=f.calls.length;
+  const restarted=new ReportStore(f.ctx,f.e);
+  const retry=await send(restarted,r);
+  assert.equal(retry.status,429);
+  assert((await retry.json()).retry_after>=299);
+  assert.equal((await f.storage.get('report:'+r.id)).attempts,stored.attempts);
+  assert.equal(f.calls.length,before);
+});
+
+test('status lookup uses the same canonical UUID as submission', async () => {
+  const f=fixture(),r=report();
+  await request(f.e,r);
+  const token=await sign({...user,kind:'session',csrf:'csrf-test',exp:Date.now()+60000},secret);
+  const response=await worker.fetch(new Request(f.e.PUBLIC_ORIGIN+'/api/reports/'+r.id.toUpperCase(),{headers:{Cookie:`kfps_support=${token}`}}),f.e);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).status,'delivered');
+});
+
+test('retry after a failed retention alarm write repairs cleanup before delivery', async () => {
+  const f=fixture(),r=report(),setAlarm=f.storage.setAlarm.bind(f.storage);
+  f.storage.setAlarm=async()=>{throw new Error('synthetic alarm write failure');};
+  assert.equal((await request(f.e,r)).status,503);
+  assert.equal(f.calls.length,0);
+  assert.equal(await f.storage.getAlarm(),null);
+  f.storage.setAlarm=setAlarm;
+  const restarted=new ReportStore(f.ctx,f.e);
+  assert.equal((await (await send(restarted,r)).json()).status,'delivered');
+  assert.equal(await f.storage.getAlarm(),(await f.storage.get('report:'+r.id)).created+30*86400000);
+});
+
+test('rate-limit headers and malformed bodies use safe bounded waits without leaking text', async () => {
+  for (const [header,body,minimum,maximum] of [
+    ['180','PRIVATE-NOT-JSON',179,180],
+    [new Date(Date.now()+180000).toUTCString(),'{}',177,180],
+    ['nonsense','{"retry_after":-1}',59,60],
+    ['0','{"retry_after":"PRIVATE"}',59,60],
+    ['0','x'.repeat(4097),59,60],
+    ['999999999','{"retry_after":1e300}',86399,86400],
+  ]) {
+    const f=fixture(),r=report(),fetch=globalThis.fetch;
+    globalThis.fetch=async(url,options={})=>options.method==='POST'
+      ? new Response(body,{status:429,headers:{'Retry-After':header}}) : fetch(url,options);
+    const response=await request(f.e,r),value=await response.json();
+    assert.equal(value.status,'retryable');
+    assert(value.retry_after>=minimum && value.retry_after<=maximum,JSON.stringify(value));
+    assert.equal(JSON.stringify(value).includes('PRIVATE'),false);
+  }
+});
+
+test('reading a delayed rate-limit body does not shorten the requested retry wait', async () => {
+  const f=fixture(),r=report(),fetch=globalThis.fetch,now=Date.now;
+  let clock=now();
+  Date.now=()=>clock;
+  try {
+    globalThis.fetch=async(url,options={})=>{
+      if(options.method!=='POST') return fetch(url,options);
+      let part=0;
+      return new Response(new ReadableStream({pull(controller) {
+        if(part++===0) controller.enqueue(new TextEncoder().encode('{"retry_after":'));
+        else { clock+=10000;controller.enqueue(new TextEncoder().encode('300}'));controller.close(); }
+      }}),{status:429});
+    };
+    const value=await (await request(f.e,r)).json();
+    assert.equal(value.status,'retryable');
+    assert.equal(value.retry_after,300);
+  } finally { Date.now=now; }
+});
+
+test('partial rate-limit retry after restart only sends the unfinished public destination', async () => {
+  const f=fixture(),r=report(),fetch=globalThis.fetch;
+  let limited=true,posts=0;
+  globalThis.fetch=async(url,options={})=>{
+    if(options.method==='POST') {
+      posts++;
+      if(String(url).includes('666666666666666666') && limited) return Response.json({retry_after:180},{status:429});
+    }
+    return fetch(url,options);
+  };
+  assert.equal((await (await request(f.e,r)).json()).status,'retryable');
+  const restarted=new ReportStore(f.ctx,f.e);
+  const waiting=await send(restarted,r);
+  assert.equal(waiting.status,429);assert.equal(posts,2);
+  const state=await f.storage.get('report:'+r.id);state.retryAt=0;await f.storage.put('report:'+r.id,state);
+  limited=false;
+  assert.equal((await (await send(restarted,r)).json()).status,'delivered');
+  assert.equal(posts,3);
+  assert.equal(f.calls.filter(c=>c.kind==='private'&&c.options.method==='POST').length,1);
+});
+
+test('failed acknowledgment persistence remains uncertain and never repeats an accepted post', async () => {
+  const f=fixture(),r=report(),put=f.storage.put.bind(f.storage);
+  let interrupted=false;
+  f.storage.put=async(key,value)=>{
+    if(key==='report:'+r.id && value.private.state==='sent' && !interrupted) {
+      interrupted=true;throw new Error('synthetic receipt persistence interruption');
+    }
+    return put(key,value);
+  };
+  assert.equal((await request(f.e,r)).status,503);
+  assert.equal((await f.storage.get('report:'+r.id)).private.state,'sending');
+  const restarted=new ReportStore(f.ctx,f.e),before=f.calls.length;
+  assert.equal((await (await send(restarted,r)).json()).status,'uncertain');
+  assert.equal(f.calls.length,before);
+  assert.equal(f.calls.filter(c=>c.options.method==='POST').length,1);
+});
+
+test('failing to persist sending state prevents any remote post and permits a safe retry', async () => {
+  const f=fixture(),r=report(),put=f.storage.put.bind(f.storage);
+  f.storage.put=async(key,value)=>{
+    if(key==='report:'+r.id && value.private.state==='sending') throw new Error('synthetic state write failure');
+    return put(key,value);
+  };
+  assert.equal((await request(f.e,r)).status,503);
+  assert.equal(f.calls.filter(c=>c.options.method==='POST').length,0);
+  f.storage.put=put;
+  assert.equal((await (await send(new ReportStore(f.ctx,f.e),r)).json()).status,'delivered');
+  assert.equal(f.calls.filter(c=>c.options.method==='POST').length,2);
+});
+
+test('post 5xx, redirects and malformed acknowledgments never cause automatic duplicate delivery', async () => {
+  for(const [status,body,expected] of [[500,'PRIVATE-UPSTREAM','uncertain'],[302,'','blocked'],[200,'PRIVATE-BAD-ACK','uncertain'],[200,'{"id":"bad"}','uncertain']]) {
+    const f=fixture(),r=report(),fetch=globalThis.fetch;let posts=0;
+    globalThis.fetch=async(url,options={})=>{
+      if(options.method==='POST') { posts++;return new Response(body,{status,headers:{Location:'https://unexpected.example/never-follow'}}); }
+      return fetch(url,options);
+    };
+    const value=await (await request(f.e,r)).json();
+    assert.equal(value.status,expected);assert.equal(JSON.stringify(value).includes('PRIVATE'),false);
+    assert.equal((await (await send(new ReportStore(f.ctx,f.e),r)).json()).status,expected);
+    assert.equal(posts,1);
+    assert(f.calls.every(c=>c.options.redirect==='manual'));
+  }
+});
+
+test('account-scoped status and receipt IDs do not reveal or deduplicate another account', async () => {
+  const f=fixture(),r=report(),second='121212121212121212',other=new ReportStore({storage:new Storage()},f.e);
+  f.e.REPORTS.get=id=>id===user.id?f.object:other;
+  await request(f.e,r);
+  const token=await sign({id:second,name:'Other synthetic account',kind:'session',csrf:'csrf-test',exp:Date.now()+60000},secret);
+  const response=await worker.fetch(new Request(f.e.PUBLIC_ORIGIN+'/api/reports/'+r.id,{headers:{Cookie:`kfps_support=${token}`}}),f.e);
+  assert.equal(response.status,404);
+  const text=await response.text();assert.equal(text.includes(r.description),false);assert.equal(text.includes('public_url'),false);
+  assert.equal((await (await request(f.e,r,{Cookie:`kfps_support=${token}`})).json()).status,'delivered');
+  assert.equal(f.calls.filter(c=>c.options.method==='POST').length,4);
+});
+
+test('authenticated attachment failures enforce byte budgets and consent before creating receipts', async () => {
+  const f=fixture(),{r,png}=await screenshotFixture();
+  for(const metadata of [Array(4).fill(r.screenshots[0]),Array(3).fill({...r.screenshots[0],size:5*1024*1024}),[{...r.screenshots[0],size:5*1024*1024+1}]]) {
+    assert.equal((await upload(f.e,{...r,screenshots:metadata},[png])).status,400);
+  }
+  const opts={'Content-Length':String(19*1024*1024)};
+  assert.equal((await upload(f.e,r,[png],opts)).status,400);
+  const expanded=new Blob([gzipSync('x'.repeat(24*1024*1024+1))],{type:'application/gzip'});
+  const large=await request(f.e,report(),{},expanded);
+  assert.equal(large.status,400);
+  assert.equal((await large.json()).error,'Expanded private logs exceed the safety limit.');
+  assert.equal((await request(f.e,{...report(),include_technical:false})).status,400);
+  assert.equal(f.calls.length,0);
+  assert.equal((await f.storage.list({prefix:'report:'})).size,0);
+});
+
+test('missing origin, missing CSRF, unsupported host and expired session fail before delivery', async () => {
+  const f=fixture(),r=report();
+  for(const extra of [{Origin:''},{'X-CSRF-Token':''},{Origin:'null'}]) assert.equal((await request(f.e,r,extra)).status,403);
+  const token=await sign({...user,kind:'session',csrf:'csrf-test',exp:Date.now()-1},secret);
+  assert.equal((await request(f.e,r,{Cookie:`kfps_support=${token}`})).status,401);
+  assert.equal((await worker.fetch(new Request('https://unexpected.example/api/session'),f.e)).status,400);
+  assert.equal(f.calls.length,0);
 });

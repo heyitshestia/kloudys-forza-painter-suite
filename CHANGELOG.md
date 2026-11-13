@@ -1,5 +1,14 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.4
+
+- Improved Report a problem recovery when its window cannot start, the page fails to load, or the report display stops. Retry, Saved reports and browser recovery remain available, with clearer failure messages and startup diagnostics.
+- Fixed incomplete report drafts, consent choices and matching log attachments being lost during reload, restart or replacement. Opening a newly prepared report now asks whether to resume the saved draft or replace it.
+- Fixed sign-in readiness and sign-out timing problems. Failed local saves no longer allow sending or sign-in navigation to discard the recovery state; signing out still ends the session while preserving unsaved text in the open window.
+- Hardened report receipts, duplicate-send protection, interrupted storage, delivery retries and private/public attachment handling. Confirmed reports retain their support-post link after refresh.
+- Improved diagnostic privacy filtering, bounded log collection and package validation, without silently cutting permitted long log lines.
+- Fixed report recovery controls in the 2049 and Redline layouts, including a visible Report label for Redline when software rendering hides its icon.
+
 ## 3.2.3
 
 - Fixed the Update button doing nothing in the combined KFPS window. The confirmation now opens inside KFPS and correctly hands off to the updater when confirmed.

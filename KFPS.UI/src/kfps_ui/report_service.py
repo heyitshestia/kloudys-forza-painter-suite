@@ -5,7 +5,7 @@ import concurrent.futures
 import json
 import time
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, QUrl
+from PySide6.QtCore import QObject, Property, Signal, Slot, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 
 from .app_paths import AppPaths
@@ -36,6 +36,10 @@ class ReportService(QObject):
         self._services = {}
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="support-report")
         self._future = None
+        self._review_processes = []
+        self._review_timer = QTimer(self)
+        self._review_timer.setInterval(1000)
+        self._review_timer.timeout.connect(self._poll_review_processes)
         self._supportReady.connect(self._apply_support)
 
     @Property(str, notify=changed)
@@ -60,6 +64,14 @@ class ReportService(QObject):
         self._support_busy = True
         self._support_status = "Preparing report..."
         self.changed.emit()
+        try:
+            context = self._snapshot_support(page)
+            self._future = self._executor.submit(self._prepare_support, context)
+            self._future.add_done_callback(self._emit_support)
+        except Exception as error:
+            self._apply_support({"error": redact(error)})
+
+    def _snapshot_support(self, page):
         # Snapshot QObject properties on their owning thread; the worker receives plain data.
         context = {"page": page, "version": self.version.localVersion,
                    "theme": self.active_theme_name(), "log": self.log.plainText, "services": {}}
@@ -83,8 +95,7 @@ class ReportService(QObject):
                 if isinstance(value, (str, bool, int, float)):
                     values[field] = value
             context["services"][name] = values
-        self._future = self._executor.submit(self._prepare_support, context)
-        self._future.add_done_callback(self._emit_support)
+        return context
 
     def _prepare_support(self, context):
         report = build_support_report(self.paths.app_root, context, since=self._started)
@@ -123,18 +134,55 @@ class ReportService(QObject):
         else:
             self._latest = result["path"]
             self._preview = json.dumps(result["report"], indent=2)
-            opened = open_support_handoff(result["handoff"], paths=self.paths)
+            try:
+                opened = open_support_handoff(result["handoff"], paths=self.paths, on_launch=self._watch_review)
+            except Exception as error:
+                self.log.append(f"Report launch failed: {type(error).__name__}", update_status=False)
+                opened = "failed"
             bundle_name = "report.kfps-report.json.gz" if result["report"].get("private_logs") else "report.json"
             self._support_status = {
-                "review": ("KFPS report review opened with logs included. Nothing is sent until you press Send."
+                "review": ("Opening KFPS report review with logs included. Nothing is sent until you press Send."
                            if result["report"].get("private_logs") else
-                           "KFPS report review opened, but log collection failed. Sending with technical details enabled is blocked."),
+                           "Opening KFPS report review, but log collection failed. Sending with technical details enabled is blocked."),
                 "prefilled": "Review opened in your default browser. Nothing is sent until you press Send.",
                 "manual": f"Report saved. The form opened in your default browser. Use Reopen a saved report and choose {bundle_name} from Saved reports.",
-                "failed": "Report saved. The KFPS report window could not open. Run KFPS-Updater.exe to repair the app, or find your report in Saved reports.",
+                "failed": "Report saved. The KFPS report window could not open. Retry, or open the support form in your browser and choose your file from Saved reports.",
             }.get(opened, "Report saved. Your report is available in Saved reports.")
         self.log.append(self._support_status, update_status=False)
         self.changed.emit()
+
+    def _watch_review(self, process):
+        if self._closed:
+            return
+        self._review_processes.append(process)
+        self._review_timer.start()
+
+    def _poll_review_processes(self):
+        if self._closed:
+            return
+        running, crashed = [], False
+        for process in self._review_processes:
+            code = process.poll()
+            if code is None:
+                running.append(process)
+            elif code != 0:
+                crashed = True
+                self.log.append(f"Report reviewer exited unexpectedly: exit_code={code}", update_status=False)
+        self._review_processes = running
+        if not running:
+            self._review_timer.stop()
+        if crashed and not self._support_busy:
+            self._support_status = ("Report saved. The report window closed unexpectedly. Retry, or open the support form "
+                                    "in your browser and choose your file from Saved reports.")
+            self.changed.emit()
+
+    @Slot()
+    def openSupportWebsite(self):
+        from .support_browser import open_browser_url
+        from .support_report import FORM_ORIGIN
+        if open_browser_url(QUrl(FORM_ORIGIN)) == "failed":
+            self._support_status = "Could not open your default browser. Your report remains in Saved reports."
+            self.changed.emit()
 
     @Slot()
     def openDiscord(self):
@@ -142,12 +190,12 @@ class ReportService(QObject):
 
     @Slot()
     def openSupportReports(self):
-        folder = self.paths.runtime_root / "support-reports"
         try:
-            folder.mkdir(parents=True, exist_ok=True)
+            from .support_window_protocol import reports_folder
+            folder = reports_folder(self.paths.app_root, create=True)
             if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
                 raise OSError("The reports folder could not be opened.")
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             self._support_status = "Could not open reports folder: " + redact(exc)
             self.changed.emit()
 
@@ -156,6 +204,8 @@ class ReportService(QObject):
         if self._closed:
             return
         self._closed = True
+        self._review_timer.stop()
+        self._review_processes.clear()
         if self._future is not None:
             self._future.cancel()
         self._executor.shutdown(wait=True, cancel_futures=True)

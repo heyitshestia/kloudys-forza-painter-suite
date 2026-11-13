@@ -1,5 +1,14 @@
 // English source strings are stable keys. Never translate report contents or protocol values.
 export const korean = {
+  'A saved report is already open':'저장된 보고서가 이미 열려 있습니다',
+  'Resume the saved report, or replace it with the newly prepared report. Its text and private logs stay together until you choose.':'저장된 보고서를 이어서 작성하거나 새로 준비된 보고서로 교체하세요. 선택하기 전까지 기존 내용과 비공개 로그가 함께 유지됩니다.',
+  'This report has an unconfirmed submission. Resume it and check delivery before starting another report.':'이 보고서의 전송 결과가 아직 확인되지 않았습니다. 다른 보고서를 시작하기 전에 기존 보고서로 돌아가 전송 상태를 확인하세요.',
+  'Resume saved report':'저장된 보고서 이어서 작성',
+  'Replace with new report':'새 보고서로 교체',
+  'Finish the current report action before opening another report.':'다른 보고서를 열기 전에 현재 작업을 완료하세요.',
+  'Another report window changed the saved draft. Keep this window open and copy your edits before reloading.':'다른 보고서 창에서 저장된 초안을 변경했습니다. 이 창을 닫지 말고 수정한 내용을 복사한 뒤 새로고침하세요.',
+  'Another report replacement is still being saved. Try again shortly.':'다른 보고서 교체 내용을 저장하고 있습니다. 잠시 후 다시 시도하세요.',
+  'Signed out. Your edits could not be saved. Keep this window open and preserve your text before reloading.':'로그아웃했습니다. 수정한 내용을 저장하지 못했습니다. 이 창을 닫지 말고 내용을 따로 보관한 뒤 새로고침하세요.',
   'Starting Discord sign-in...':'Discord 로그인을 시작하는 중입니다...',
   'Authorize in your browser, then return to KFPS. Your report has not been sent.':'브라우저에서 승인한 뒤 KFPS로 돌아와 주세요. 보고서는 아직 전송되지 않았습니다.',
   'This sign-in request expired. Click Sign in with Discord to start again. Your report is still here.':'로그인 요청이 만료되었습니다. Discord 로그인 버튼을 눌러 다시 시작해 주세요. 작성한 보고서는 그대로 유지됩니다.',

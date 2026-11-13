@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from functools import partial
 import json
 import math
 from pathlib import Path
@@ -14,6 +15,8 @@ import psutil
 from .support_logs import _safe, discover_updater_files, read_known_file
 
 MAX_STATE = 2 * 1024 * 1024
+MAX_CONTEXT_BYTES = 16 * 1024 * 1024
+MAX_CONTEXT_SECONDS = 3.0
 IDENTITY_FILES = {
     "app-entry": "KFPS.UI/app.py",
     "workspace-entry": "KFPS.UI/workspace.py",
@@ -73,16 +76,24 @@ def _fields(value, keys):
     return result
 
 
-def _read(root, path, limit=MAX_STATE):
+def _read(root, path, limit=MAX_STATE, *, budget=None):
+    maximum = limit
+    if budget is not None:
+        if budget['remaining'] <= 0 or time.monotonic() > budget['deadline']:
+            return None, {"status": "collection_limit"}
+        maximum = min(limit, budget['remaining'])
     try:
-        info = _safe(root, path)
-        raw, info = read_known_file(root, path, limit)
+        raw, info = read_known_file(root, path, maximum)
+        if budget is not None:
+            budget['remaining'] -= len(raw)
         return raw, {"status": "read", "bytes": info.st_size,
                      "age_seconds": max(0, round(time.time() - info.st_mtime, 1))}
     except FileNotFoundError:
         return None, {"status": "missing"}
     except (OSError, ValueError) as error:
         reason = str(error) if isinstance(error, ValueError) else "unreadable"
+        if reason == "oversized_file" and maximum < limit:
+            return None, {"status": "collection_limit"}
         result = {"status": reason if reason in {"oversized_file", "changed_file", "unsafe_file"} else "unreadable"}
         for key in ("errno", "winerror"):
             if type(getattr(error, key, None)) is int:
@@ -90,8 +101,8 @@ def _read(root, path, limit=MAX_STATE):
         return None, result
 
 
-def _json(root, path):
-    raw, status = _read(root, path)
+def _json(root, path, *, budget=None):
+    raw, status = _read(root, path, budget=budget)
     if raw is None:
         return {}, status
     try:
@@ -130,10 +141,10 @@ def _stored_object(value):
     return value if isinstance(value, dict) else {}
 
 
-def collect_preferences(root: Path):
+def collect_preferences(root: Path, *, budget=None):
     """Describe compatibility-relevant settings, never custom names or bindings."""
     root = Path(root).resolve()
-    ui, status = _json(root, root / "runtime/qml-shell-settings.json")
+    ui, status = _json(root, root / "runtime/qml-shell-settings.json", budget=budget)
     options = {key: ui[key] for key in ("editorUseChrome", "liveryUseChrome",
         "reducedMotion", "ambientMotion", "glassEffects") if type(ui.get(key)) is bool}
     if ui.get("editorGraphics") in ("auto", "opengl", "d3d11"):
@@ -149,7 +160,7 @@ def collect_preferences(root: Path):
     if type(geometry.get("maximized")) is bool:
         options["window"]["maximized"] = geometry["maximized"]
     result = {"app": {**status, "options": options}}
-    preferences, status = _json(root, root / "runtime/fabric-editor/preferences.json")
+    preferences, status = _json(root, root / "runtime/fabric-editor/preferences.json", budget=budget)
     settings = _stored_object(preferences.get("settings"))
     editor = {"theme_selected": bool(isinstance(preferences.get("theme"), str)
         and preferences["theme"]), "saved_setting_count": len(settings)}
@@ -187,6 +198,9 @@ def collect_preferences(root: Path):
 
 def collect_context(root: Path):
     root = Path(root).resolve()
+    budget = {"remaining": MAX_CONTEXT_BYTES, "deadline": time.monotonic() + MAX_CONTEXT_SECONDS}
+    read = partial(_read, budget=budget)
+    read_json = partial(_json, budget=budget)
     runtime = root / "runtime/fabric-editor"
     result = {"schema": "kfps-diagnostic-context/1", "collected_at": time.time(),
               "scope": "this installation; observed state is not proof of lock ownership"}
@@ -194,18 +208,18 @@ def collect_context(root: Path):
         ("editor_state", "desktop.json", ("service", "pid", "state", "error", "started_at", "updated_at")),
         ("editor_startup_error", "desktop-startup-error.json", ("pid", "error")),
     ):
-        value, observation = _json(root, runtime / filename)
+        value, observation = read_json(root, runtime / filename)
         record = {**observation, "fields": _fields(value, fields)}
         if "pid" in value:
             record["process"] = _process(value["pid"], root)
             started = value.get("started_at")
             created = record["process"].get("created_at")
-            if type(started) in (int, float) and math.isfinite(started) and created is not None:
+            if type(started) in (int, float) and abs(started) <= 2**53 - 1 and math.isfinite(started) and created is not None:
                 record["process_started_after_marker"] = created > started + 1
         result[label] = record
     for label, path in (("editor_lock", runtime / "desktop.lock"),
                         ("report_window_lock", root / "runtime/support-reports/window.lock")):
-        raw, observation = _read(root, path, 8192)
+        raw, observation = read(root, path, 8192)
         if raw is not None:
             try:
                 pid = int(raw.splitlines()[0])
@@ -215,10 +229,15 @@ def collect_context(root: Path):
         result[label] = observation
     from tools.fabric_editor_diagnostics import read_support_diagnostics
     result["editor_diagnostics"] = read_support_diagnostics(root)
-    result["preferences"] = collect_preferences(root)
+    result["preferences"] = collect_preferences(root, budget=budget)
     from .support_studio import read_studio_snapshot
     result["studio_diagnostics"] = read_studio_snapshot(root)
     try:
+        # The notice constructor reads its content directly. Gate that fixed
+        # content file with the same link/size policy as other diagnostics.
+        _, observation = read(root, root / "KFPS.UI/content/release-announcement.json", 65536)
+        if observation["status"] not in {"read", "missing"}:
+            raise ValueError("unsafe release content")
         from tools.kfps_release_announcement import ReleaseAnnouncement
         result["release_announcement"] = ReleaseAnnouncement(root).read_status()
     except Exception:
@@ -228,14 +247,14 @@ def collect_context(root: Path):
         result["anonymous_activity"] = usage_status(root)
     except Exception:
         result["anonymous_activity"] = {"status": "state_unavailable"}
-    locator, observation = _json(root, root / "runtime/live-memory/reports/latest.json")
+    locator, observation = read_json(root, root / "runtime/live-memory/reports/latest.json")
     result["locator"] = {**observation,
         **_fields(locator, ("schema", "engine_version", "created_utc", "store_variant")),
         "request": _fields(locator.get("request"), ("game", "purpose", "layer_count")),
         "outcome": _fields(locator.get("outcome"), ("status", "reason", "authoritative", "failure_reason", "refusal_reason"))}
     installation = {}
     for label in ("VERSION", "BUILD_COMMIT"):
-        raw, status = _read(root, root / label, 256)
+        raw, status = read(root, root / label, 256)
         if raw is not None:
             text = raw.decode("utf-8", errors="replace").strip()
             if re.fullmatch(r"[0-9.a-zA-Z_-]{1,80}", text):
@@ -244,12 +263,12 @@ def collect_context(root: Path):
                 status["value_groups"] = [text[i:i+8] for i in range(0, len(text), 8)]
         installation[label.lower()] = status
     for label, relative in IDENTITY_FILES.items():
-        raw, status = _read(root, root / relative, 4 * 1024 * 1024)
+        raw, status = read(root, root / relative, 4 * 1024 * 1024)
         if raw is not None:
             digest = hashlib.sha256(raw).hexdigest()
             status["sha256_groups"] = [digest[i:i+8] for i in range(0, 64, 8)]
         installation[label] = status
-    baseline, baseline_status = _json(root, root / "KFPS.Editor/baseline.json")
+    baseline, baseline_status = read_json(root, root / "KFPS.Editor/baseline.json")
     if baseline.get("schema") == "kfps-editor-baseline/1":
         baseline_status["engine"] = _fields(baseline.get("engine"), ("python", "bits", "pyside", "qt", "webengine", "chromium"))
         records = baseline.get("files")
@@ -285,7 +304,7 @@ def collect_context(root: Path):
     reports, warnings = discover_updater_files(root, "reports")
     result["updater_history"] = {"warnings": warnings, "runs": []}
     for anchor, path in reports:
-        data, status = _json(anchor, path)
+        data, status = read_json(anchor, path)
         fields = ("schema", "updater_version", "started_utc", "finished_utc", "status", "phase", "mode",
                   "from_version", "to_version", "sequence", "files_checked", "files_planned_replaced",
                   "files_planned_removed", "files_replaced", "files_removed", "bytes_downloaded",

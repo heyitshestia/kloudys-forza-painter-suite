@@ -1,8 +1,12 @@
-import test from 'node:test';
+import test, {beforeEach, afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {ReportStore, sign, verify} from '../src/worker.mjs';
 import {nativeAuthStore} from '../src/native-auth.mjs';
 import {nativeSignIn} from '../public/native-signin.mjs';
+
+const originalFetch=globalThis.fetch;
+beforeEach(()=>{globalThis.fetch=async()=>{throw new Error('Unmocked outbound request forbidden in native-auth tests.');};});
+afterEach(()=>{globalThis.fetch=originalFetch;});
 
 class Storage {
   data = new Map();
@@ -107,6 +111,61 @@ test('auth storage never returns a session without its consumer proof', async ()
   const storage = f.stores.get('native-auth:' + first.value.id).storage;
   const response = await nativeAuthStore(storage, 'poll', {hash: 'wrong'}, (value, status) => Response.json(value, {status}));
   assert.equal(response.status, 403);
+});
+
+test('logout revokes the pending native approval so polling cannot sign back in', async () => {
+  const f=fixture(), first=await f.start(), browser=await f.browser();
+  await f.request('/api/native-auth/approve',{cookie:browser,csrf:'browser-only',body:{ticket:first.value.id,code:first.value.code,confirm:true}});
+  const ready=await f.request('/api/native-auth/poll',{cookie:first.cookie});
+  const nativeCookie=ready.headers.get('set-cookie').split(';')[0];
+  const account=await verify(nativeCookie.slice('kfps_support='.length),f.env.SESSION_SECRET);
+  const logout=await f.request('/auth/logout',{cookie:`${nativeCookie}; ${first.cookie}`,csrf:account.csrf});
+  assert.equal(logout.status,200);
+  assert.match(logout.headers.get('set-cookie'),/kfps_native_auth=;[^,]*Max-Age=0/);
+  const retry=await f.request('/api/native-auth/poll',{cookie:first.cookie});
+  assert.deepEqual(await retry.json(),{status:'cancelled'});
+  assert.equal(retry.headers.get('set-cookie'),null);
+  assert.equal((await f.stores.get('native-auth:'+first.value.id).storage.get('native-auth')).session,undefined);
+});
+
+test('native approval resolves a valid uppercase ticket to its original request', async () => {
+  const f=fixture(),first=await f.start(),browser=await f.browser(),ticket=first.value.id.toUpperCase();
+  const info=await f.request('/api/native-auth/approval?ticket='+ticket,{cookie:browser,method:'GET'});
+  assert.equal(info.status,200);
+  assert.equal((await info.json()).code,first.value.code);
+  const approve=await f.request('/api/native-auth/approve',{cookie:browser,csrf:'browser-only',body:{ticket,code:first.value.code,confirm:true}});
+  assert.equal(approve.status,200);
+  assert.deepEqual(await (await f.request('/api/native-auth/poll',{cookie:first.cookie})).json(),{status:'ready'});
+});
+
+test('logout origin and CSRF failures cannot cancel another pending approval', async () => {
+  const f=fixture(),first=await f.start(),browser=await f.browser(),cookie=`${browser}; ${first.cookie}`;
+  for(const options of [{cookie,csrf:'wrong'},{cookie,csrf:'browser-only',origin:'https://evil.example'}]) {
+    assert.equal((await f.request('/auth/logout',options)).status,403);
+    assert.deepEqual(await (await f.request('/api/native-auth/poll',{cookie:first.cookie})).json(),{status:'pending'});
+  }
+});
+
+test('logout works with absent or expired pending authorization while delivery is disabled', async () => {
+  const f=fixture(),first=await f.start(),browser=await f.browser();
+  const state=f.stores.get('native-auth:'+first.value.id).storage;
+  const record=await state.get('native-auth');record.exp=Date.now()-1;await state.put('native-auth',record);
+  f.env.DELIVERY_ENABLED='0';
+  for(const cookie of [browser,`${browser}; ${first.cookie}`]) {
+    const response=await f.request('/auth/logout',{cookie,csrf:'browser-only'});
+    assert.equal(response.status,200);
+    assert.match(response.headers.get('set-cookie'),/kfps_support=;[^,]*Max-Age=0/);
+    assert.match(response.headers.get('set-cookie'),/kfps_native_auth=;[^,]*Max-Age=0/);
+  }
+});
+
+test('logout does not falsely acknowledge failed native authorization cancellation', async () => {
+  const f=fixture(),first=await f.start(),browser=await f.browser(),storage=f.stores.get('native-auth:'+first.value.id).storage;
+  storage.put=async()=>{throw new Error('PRIVATE-STORAGE-DETAIL');};
+  const response=await f.request('/auth/logout',{cookie:`${browser}; ${first.cookie}`,csrf:'browser-only'});
+  assert.equal(response.status,503);
+  assert.equal(response.headers.get('set-cookie'),null);
+  assert.equal((await response.text()).includes('PRIVATE-STORAGE-DETAIL'),false);
 });
 
 test('client launches only the expected default-browser URL and never auto-submits after approval', async () => {

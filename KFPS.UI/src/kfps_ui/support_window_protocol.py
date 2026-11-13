@@ -24,10 +24,22 @@ def window_name(root: Path) -> str:
     return "kfps-report-" + hashlib.sha256(identity).hexdigest()[:32]
 
 
+def reports_folder(root: Path, *, create=False) -> Path:
+    folder = Path(root).resolve()
+    for name in ("runtime", "support-reports"):
+        folder = folder / name
+        if create:
+            folder.mkdir(exist_ok=True)
+        info = folder.lstat()
+        if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError("Linked report folders are not supported.")
+    return folder
+
+
 def read_source(root: Path, value: str) -> tuple[bytes, dict]:
     identifier = report_id(value)
     root = root.resolve()
-    folder = root / "runtime" / "support-reports" / identifier
+    folder = reports_folder(root) / identifier
     for parent in (root / "runtime", folder.parent, folder):
         info = parent.lstat()
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:

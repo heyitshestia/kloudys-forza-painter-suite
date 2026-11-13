@@ -15,6 +15,7 @@ ApplicationWindow {
     visible: false
     color: Theme.backgroundA
     readonly property bool instrumentInterface: Theme.chromeMetric("instrumentInterface", 0) > 0
+    readonly property Item supportReportTarget: instrumentConsole.item ? instrumentConsole.item.reportTarget : sidebar.reportTarget
     readonly property bool dashboardNavigationVisible: Theme.chromeMetric("dashboardNavigation", 0) > 0 && sidebar.dashboardVisible
     title: dashboardNavigationVisible ? "KFPS - Main Menu" : appController.windowTitle
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -456,9 +457,11 @@ ApplicationWindow {
 
     FeatureWelcomeOverlay {
         id: featureWelcome
-        targetItem: instrumentConsole.item ? instrumentConsole.item.reportTarget : sidebar.reportTarget
+        targetItem: window.supportReportTarget
         onUpscalerRequested: appController.navigate("upscaler")
     }
+
+    SupportReportRecovery { targetItem: window.supportReportTarget }
 
     CommunityWelcomeOverlay {
         id: communityWelcome

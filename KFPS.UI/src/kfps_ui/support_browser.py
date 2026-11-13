@@ -67,14 +67,14 @@ def open_browser_url(url: QUrl) -> str:
     return "system-handler" if started else "failed"
 
 
-def open_support_handoff(handoff: str, *, paths=None) -> str:
+def open_support_handoff(handoff: str, *, paths=None, on_launch=None) -> str:
     path = Path(handoff).resolve()
     if not path.is_file():
         return "failed"
     if paths is not None:
         from .support_window_launch import launch_review
         try:
-            return launch_review(paths, path.parent.name)
+            return launch_review(paths, path.parent.name, **({"on_launch": on_launch} if on_launch is not None else {}))
         except (OSError, ValueError, RuntimeError):
             return "failed"
     executable = default_browser_executable()

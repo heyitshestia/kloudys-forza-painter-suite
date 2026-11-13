@@ -9,7 +9,7 @@ import sys
 from .support_window_protocol import report_id
 
 
-def launch_review(paths, identifier: str) -> str:
+def launch_review(paths, identifier: str, *, on_launch=None) -> str:
     identifier = report_id(identifier)
     root = paths.app_root.resolve()
     entry = root / "KFPS.UI" / "report.py"
@@ -24,6 +24,8 @@ def launch_review(paths, identifier: str) -> str:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     # Report contents stay on disk and off command lines, process lists and URLs.
     with open(os.devnull, "wb") as output:
-        subprocess.Popen(command, cwd=root, env=environment, creationflags=flags,
-                         stdin=subprocess.DEVNULL, stdout=output, stderr=output, close_fds=True)
+        process = subprocess.Popen(command, cwd=root, env=environment, creationflags=flags,
+                                   stdin=subprocess.DEVNULL, stdout=output, stderr=output, close_fds=True)
+    if on_launch is not None:
+        on_launch(process)
     return "review"

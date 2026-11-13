@@ -46,3 +46,11 @@ test('already-restored reports need no duplicate transfer',()=>{
   const id=randomUUID(),receiver=nativeHandoff({current:value=>value===id,accept:()=>assert.fail()});
   assert.equal(receiver.status(id).state,'ready');assert.equal(receiver.status(randomUUID()).state,'idle');
 });
+test('staged user choice stays ready for old hosts and advertises waiting_user without a transfer deadline',async()=>{
+  let waiting=false,time=0;const data=Buffer.from('test'),metadata=meta(data);
+  const receiver=nativeHandoff({now:()=>time,current:()=>false,waitingUser:id=>waiting&&id===metadata.id,accept:()=>{waiting=true;}});
+  receiver.begin(metadata);receiver.chunk(0,data.toString('base64'));receiver.finish();
+  assert.equal((await settle(receiver,metadata.id)).waiting_user,true);
+  time=3600000;assert.deepEqual(receiver.status(metadata.id),{state:'ready',id:metadata.id,waiting_user:true});
+  waiting=false;assert.equal(receiver.status(metadata.id).state,'ready');assert(!receiver.status(metadata.id).waiting_user);
+});

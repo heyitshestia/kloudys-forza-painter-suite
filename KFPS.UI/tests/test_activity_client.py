@@ -313,7 +313,8 @@ class ActivityClientTests(unittest.TestCase):
         before = {path.name: path.read_bytes() for path in private.iterdir()}
         attachment = collect_retained_log_bundle(self.root)
         self.assertIsNotNone(attachment)
-        package = json.loads(gzip.decompress(package_report({"activity": self.counter.usage_status()}, attachment)))
+        report = {"activity": self.counter.usage_status(), "private_logs": attachment[0]}
+        package = json.loads(gzip.decompress(package_report(report, attachment)))
         log_json = gzip.decompress(base64.b64decode(package["logs_base64"])).decode("utf-8")
         private_state = json.loads(before["state.json"])
         self.assertNotIn(private_state["seed"], json.dumps(package))

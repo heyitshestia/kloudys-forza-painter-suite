@@ -31,6 +31,38 @@ The historical Worker name is retained intentionally. Renaming or moving it is
 not necessary for promotion and would require coordinating OAuth redirects and
 installed clients. The public form and Discord application have no testing label.
 
+## Recovery in 3.2.4
+
+The native reviewer keeps Retry, Saved reports and Open in browser available when
+its embedded display fails. Opening a browser does not transfer unsaved edits from
+the native window: reopen the saved report package there. Nothing is sent until
+the user explicitly confirms Send.
+
+The application detects an unexpectedly exited reviewer. Startup diagnostics now
+begin before the Qt imports, and renderer failures retain their termination status
+and exit code without recording report contents, sign-in links or credentials.
+The local log is `runtime/support-reports/report-window.log`, with two bounded
+rotations. These diagnostics do not establish a hardware-specific cause by
+themselves, and reporting does not change Editor/Studio graphics settings.
+
+Incomplete drafts and unchecked technical consent retain their local context.
+When a different report arrives, Resume/Replace keeps the draft and its logs paired.
+Concurrent native windows cannot silently overwrite another window's saved draft.
+If local storage fails, sending and sign-in navigation stop; sign-out still revokes
+the session but avoids closing an unsaved draft. Keep that window open and preserve
+the text before reloading. Screenshots still require reattachment after a reload.
+
+The form and service retain the existing report/package schemas. A bounded pending
+log slot protects interrupted replacements; it is not a history of all reports.
+Known delivered receipts cannot become retryable after a temporary status error.
+Private/public destinations are checked before delivery, and upstream error bodies
+are not echoed as private diagnostic fragments.
+
+Regression coverage includes the real native form, controlled renderer failure,
+English/Korean browser interactions, storage faults, attachment/receipt recovery,
+and the existing local Worker runtime. Hardware-specific failures and real service
+permissions still require affected-installation or deployment evidence.
+
 ## Data boundaries
 
 Public: Discord display name, post title, affected area, issue description,

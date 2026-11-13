@@ -8,6 +8,7 @@ import math
 import os
 import platform
 import re
+import stat
 import sys
 import tempfile
 import time
@@ -28,6 +29,10 @@ FEATURES = {
     "editor": "Editor", "liveries": "Liveries", "community": "Community",
     "update": "Updater",
 }
+SERVICE_NAMES = ("transfer", "generator", "editor", "liveries", "offline", "outputs",
+                 "community", "updater", "runtime", "upscaler", "background_remover")
+PAGE_NAMES = {*FEATURES, "background-remover", "upscaler", "other", "support", "help",
+              "settings", "dashboard", "json", "library", "images", "tools", "reports", "credits"}
 _SECRET_LINE = re.compile(
     r"(?im)^.*\b(?:authorization|cookie|password|secret|bearer|api[ _-]?key|"
     r"activation[ _-]?key|access[ _-]?token|refresh[ _-]?token|session[ _-]?token|"
@@ -47,7 +52,12 @@ _ERROR = re.compile(r"\b(?:error|failed|failure|refused|exception|unavailable|de
 
 
 def redact(value: object, limit: int = 1600) -> str:
-    text = str(value or "")[:60000]
+    text = str(value or "")
+    if len(text) > 60000:
+        # Never truncate inside a credential, path, payload or sensitive line.
+        text = text[:60000].rsplit("\n", 1)[0] if "\n" in text[:60000] else "[oversized log line removed]"
+    text = "".join(c for c in text if c in "\n\t\r" or (ord(c) >= 32 and ord(c) != 127))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _SECRET_LINE.sub("[sensitive line removed]", text)
     text = _PAYLOAD_LINE.sub("[artwork data removed]", text)
     text = _BLOB.sub("[encoded data removed]", text)
@@ -61,7 +71,17 @@ def redact(value: object, limit: int = 1600) -> str:
     text = "\n".join("[file reference removed]" if _FILE.search(line) else line for line in text.split("\n"))
     # Remove control characters but retain layout in reviewed text.
     text = "".join(c for c in text if c in "\n\t" or (ord(c) >= 32 and ord(c) != 127))
-    return text[:limit]
+    # The consumer counts UTF-16 code units, including two per astral character.
+    return text[:limit].encode("utf-16-le", errors="replace")[:max(0, limit) * 2].decode("utf-16-le", errors="ignore")
+
+
+def recent_text(value: object, *, characters=60000, lines=65) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value[-characters:]
+    if len(value) > characters:
+        text = text.partition("\n")[2]
+    return "\n".join(text.splitlines()[-lines:])
 
 
 def _small_mapping(value: object, keys: tuple[str, ...]) -> dict:
@@ -72,7 +92,7 @@ def _small_mapping(value: object, keys: tuple[str, ...]) -> dict:
         item = value.get(key)
         if isinstance(item, str):
             result[key] = redact(item, 700)
-        elif isinstance(item, (bool, int)) or (isinstance(item, float) and math.isfinite(item)):
+        elif type(item) in (bool, int, float) and abs(item) <= 2**53 - 1 and math.isfinite(item):
             result[key] = item
     return result
 
@@ -90,7 +110,7 @@ def recent_locator_summary(root: Path, *, since: float, now: float) -> dict:
         created = datetime.fromisoformat(str(report.get("created_utc", "")).replace("Z", "+00:00")).timestamp()
         if not since <= created <= now + 5:
             return {}
-    except (OSError, ValueError, TypeError, RecursionError):
+    except (OSError, ValueError, TypeError, RecursionError, OverflowError):
         return {}
     return {
         "engine_version": redact(report.get("engine_version"), 100),
@@ -133,19 +153,25 @@ def collect_technical() -> dict:
 def build_support_report(root: Path, context: dict, *, since: float, collect=collect_technical) -> dict:
     now = time.time()
     page = str(context.get("page") or "other")
+    if page not in PAGE_NAMES:
+        page = "other"
     feature = FEATURES.get(page, "Other")
     states = {}
     logs = []
-    for name, values in context.get("services", {}).items():
+    services = context.get("services")
+    services = services if isinstance(services, dict) else {}
+    for name in SERVICE_NAMES:
+        values = services.get(name)
+        if not isinstance(values, dict):
+            continue
         states[name] = _small_mapping(values, (
             "status", "running", "lastError", "activeGame", "selectedLayers", "selectedShapes",
             "candidateCount", "exportedCount", "skippedCount", "viewerReady", "packageAddError",
             "dependenciesText", "pythonText", "runtimeText", "selectedPresetIndex",
         ))
         if values.get("liveLog"):
-            lines = str(values["liveLog"]).splitlines()[-45:]
-            logs.append({"source": name, "text": redact("\n".join(lines), 4500)})
-    logs.append({"source": "app", "text": redact("\n".join(str(context.get("log") or "").splitlines()[-65:]), 6500)})
+            logs.append({"source": name, "text": redact(recent_text(values["liveLog"], lines=45), 4500)})
+    logs.append({"source": "app", "text": redact(recent_text(context.get("log")), 6500)})
     current_name = {"create": "generator", "generate": "generator", "outputs": "transfer",
                     "liveries": "liveries", "community": "community", "editor": "editor", "update": "updater",
                     "background-remover": "background_remover"}.get(page)
@@ -183,26 +209,50 @@ def build_support_report(root: Path, context: dict, *, since: float, collect=col
         "feature": feature, "title": redact(last_error or f"{feature} issue", 100),
         "description": redact(last_error, 1600), "technical": technical,
     }
-    # Retain the newest lines from every source instead of dropping all logs.
-    while len(json.dumps(report).encode()) > MAX_REPORT_BYTES and any(entry["text"] for entry in technical["logs"]):
-        entry = max(technical["logs"], key=lambda item: len(json.dumps(item["text"]).encode()))
+    _fit_report(report)
+    return report
+
+
+def _fit_report(report: dict) -> None:
+    # Recheck after metadata is attached too: warnings can be larger than logs.
+    technical = report.get("technical", {})
+    logs = technical.get("logs", [])
+    while len(json.dumps(report, allow_nan=False).encode()) > MAX_REPORT_BYTES and any(entry["text"] for entry in logs):
+        entry = max(logs, key=lambda item: len(json.dumps(item["text"]).encode()))
         text = entry["text"]
         entry["text"] = text[len(text) // 2:] if len(text) > 128 else ""
         entry["truncated"] = True
         technical["collection_warning"] = "Log excerpts shortened to keep the report within its size limit."
     if len(json.dumps(report).encode()) > MAX_REPORT_BYTES:
         raise ValueError("The support report exceeds its size limit.")
-    return report
 
 
-def atomic_text(path: Path, text: str) -> None:
+def _output_path(path: Path) -> None:
+    # Inspect lexical ancestors before mkdir/resolve can hide a junction.
+    for current in (*reversed(path.parents), path):
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        if (stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
+                or (current != path and not stat.S_ISDIR(info.st_mode))
+                or (current == path and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1))):
+            raise ValueError("Unsafe support report output path.")
+
+
+def _atomic_bytes(path: Path, data: bytes) -> None:
+    _output_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _output_path(path)
     fd, temporary = tempfile.mkstemp(prefix=".report-", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         for attempt in range(4):
             try:
+                _output_path(path)
                 os.replace(temporary, path)
                 return
             except PermissionError:
@@ -214,6 +264,10 @@ def atomic_text(path: Path, text: str) -> None:
             os.unlink(temporary)
 
 
+def atomic_text(path: Path, text: str) -> None:
+    _atomic_bytes(path, text.encode("utf-8"))
+
+
 def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN, log_attachment=None) -> tuple[Path, Path]:
     url = urlsplit(origin)
     if origin != FORM_ORIGIN and not (url.scheme == "http" and url.hostname in {"127.0.0.1", "localhost"}):
@@ -221,12 +275,17 @@ def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN, log_att
     if url.username or url.password or url.query or url.fragment or url.path not in {"", "/"}:
         raise ValueError("Invalid support form address.")
     report_id = str(uuid.UUID(report["id"]))
-    payload = json.dumps(report, ensure_ascii=True, separators=(",", ":"))
+    _fit_report(report)
+    payload = json.dumps(report, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
     if len(payload.encode()) > MAX_REPORT_BYTES:
         raise ValueError("The support report exceeds its size limit.")
     folder = root / "runtime" / "support-reports" / report_id
     json_path = folder / "report.json"
     handoff = folder / "open-report.html"
+    bundle_path = folder / "report.kfps-report.json.gz"
+    latest = root / "runtime" / "support-reports" / "latest.json"
+    for target in (json_path, handoff, bundle_path, latest):
+        _output_path(target)
     encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     destination = origin.rstrip("/") + "/#draft=" + encoded
     if log_attachment is not None:
@@ -234,17 +293,7 @@ def save_handoff(root: Path, report: dict, *, origin: str = FORM_ORIGIN, log_att
         package = package_report(report, log_attachment)
         # A local bundle is always available; large handoffs use explicit file
         # selection instead of relying on browser-specific maximum URL lengths.
-        folder.mkdir(parents=True, exist_ok=True)
-        bundle_path = folder / "report.kfps-report.json.gz"
-        temporary = folder / ".report-bundle.tmp"
-        try:
-            with temporary.open("wb") as stream:
-                stream.write(package)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, bundle_path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        _atomic_bytes(bundle_path, package)
         if len(package) <= 750 * 1024:
             destination = origin.rstrip("/") + "/#bundle=" + base64.urlsafe_b64encode(package).decode().rstrip("=")
     # All injected data is JSON-escaped; only the reviewed, sanitized report is carried.

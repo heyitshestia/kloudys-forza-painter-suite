@@ -32,23 +32,32 @@ SOURCES = (
 
 def read_known_file(root: Path, path: Path, limit: int):
     """Snapshot one ordinary file; retry transient rotation/sharing races only."""
+    if type(limit) is not int or limit < 0:
+        raise ValueError("invalid read limit")
     for attempt in range(3):
+        checked = False
         try:
             before = _safe(root, path)
+            checked = True
             if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
                 raise ValueError("unsafe_file")
             with path.open("rb") as stream:
                 opened = os.fstat(stream.fileno())
-                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino) or opened.st_nlink != 1:
+                current = _safe(root, path)
+                if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                        or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+                        or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
                     raise ValueError("changed_file")
                 if opened.st_size > limit:
                     raise ValueError("oversized_file")
                 raw = stream.read(opened.st_size)
-                if len(raw) != opened.st_size:
+                after = os.fstat(stream.fileno())
+                if (len(raw) != opened.st_size or after.st_size < opened.st_size or after.st_nlink != 1
+                        or (after.st_size == opened.st_size and after.st_mtime_ns != opened.st_mtime_ns)):
                     raise ValueError("changed_file")
             return raw, opened
         except (OSError, ValueError) as error:
-            retry = (str(error) == "changed_file" or isinstance(error, FileNotFoundError)
+            retry = (str(error) == "changed_file" or (checked and isinstance(error, FileNotFoundError))
                      or getattr(error, "winerror", 0) in (32, 33))
             if not retry or attempt == 2:
                 raise
@@ -65,56 +74,57 @@ def updater_location(root: Path):
 
 
 def discover_updater_files(root: Path, kind: str):
-    location = updater_location(root)
-    if location is None:
-        return [], ["Updater diagnostic location unavailable."]
-    anchor, state = location
-    folder = state / ("logs" if kind == "logs" else "reports")
-    suffix = "log" if kind == "logs" else "json"
-    entries, warnings = [], []
+    if kind not in {"logs", "reports"}:
+        raise ValueError("unsupported diagnostic kind")
+    warnings = set()
     try:
-        if not stat.S_ISDIR(_safe(anchor, folder).st_mode):
-            raise ValueError("unsafe_folder")
-        with os.scandir(folder) as children:
-            for count, child in enumerate(children):
-                if count >= MAX_ENTRIES:
-                    warnings.append("Log discovery limit reached; some logs were not checked.")
-                    break
-                if re.fullmatch(r"update-" + RUN_NAME + r"\." + suffix, child.name):
-                    path = Path(child.path)
-                    info = _safe(anchor, path)
-                    entries.append((info.st_mtime, path))
-        entries.sort(key=lambda item: (item[0], str(item[1])), reverse=True)
-        if len(entries) > 40:
-            warnings.append("Retained log file limit reached; some logs were not included.")
-    except FileNotFoundError:
-        pass
-    except (OSError, ValueError):
-        warnings.append("Some log folders could not be read or were linked.")
-    if kind != "logs" and not entries:
-        # The updater also leaves a local report copy. It is useful when its
-        # external state folder has been cleared or is no longer accessible.
-        anchor = Path(root).resolve()
-        folder = anchor / "runtime/update-reports"
+        location = updater_location(root)
+    except (OSError, ValueError, ImportError):
+        location = None
+    if location is None:
+        warnings.add("Updater diagnostic location unavailable.")
+    suffix = "log" if kind == "logs" else "json"
+    entries = []
+    deadline = time.monotonic() + 1.5
+
+    def scan(anchor, folder):
         try:
-            _safe(anchor, folder)
+            if time.monotonic() > deadline:
+                warnings.add("Log discovery limit reached; some logs were not checked.")
+                return
+            if not stat.S_ISDIR(_safe(anchor, folder).st_mode):
+                raise ValueError("unsafe_folder")
             with os.scandir(folder) as children:
                 for count, child in enumerate(children):
-                    if count >= MAX_ENTRIES:
-                        warnings.append("Log discovery limit reached; some logs were not checked.")
+                    if count >= MAX_ENTRIES or time.monotonic() > deadline:
+                        warnings.add("Log discovery limit reached; some logs were not checked.")
                         break
-                    if re.fullmatch(r"update-" + RUN_NAME + r"\.json", child.name):
-                        path = Path(child.path)
+                    if not re.fullmatch(r"update-" + RUN_NAME + r"\." + suffix, child.name):
+                        continue
+                    path = Path(child.path)
+                    try:
                         info = _safe(anchor, path)
-                        entries.append((info.st_mtime, path))
-            entries.sort(key=lambda item: (item[0], str(item[1])), reverse=True)
-            if len(entries) > 40:
-                warnings.append("Retained log file limit reached; some logs were not included.")
+                        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                            raise ValueError("unsafe_file")
+                        entries.append((info.st_mtime, anchor, path))
+                        entries.sort(key=lambda item: (item[0], str(item[2])), reverse=True)
+                        if len(entries) > 40:
+                            warnings.add("Retained log file limit reached; some logs were not included.")
+                            del entries[40:]
+                    except (OSError, ValueError):
+                        warnings.add("Some log entries could not be read or were linked.")
         except FileNotFoundError:
             pass
         except (OSError, ValueError):
-            warnings.append("Some log folders could not be read or were linked.")
-    return [(anchor, path) for _, path in entries[:40]], warnings
+            warnings.add("Some log folders could not be read or were linked.")
+
+    if location is not None:
+        anchor, state = location
+        scan(anchor, state / kind)
+    if kind == "reports" and not entries:
+        anchor = Path(root).resolve()
+        scan(anchor, anchor / "runtime/update-reports")
+    return [(anchor, path) for _, anchor, path in entries], sorted(warnings)
 
 
 def _safe(root: Path, path: Path):
@@ -126,6 +136,8 @@ def _safe(root: Path, path: Path):
         raise ValueError("private application data is not a diagnostic log")
     current = root
     info = current.lstat()
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise ValueError("linked log path")
     for part in relative.parts:
         current /= part
         info = current.lstat()
@@ -143,6 +155,9 @@ def discover_worker_logs(root: Path, *, now: float, retained=False):
 
     def scan(folder, pattern, directories=False):
         try:
+            if time.monotonic() > deadline:
+                warnings.add("Log discovery limit reached; some logs were not checked.")
+                return
             if not stat.S_ISDIR(_safe(root, folder).st_mode):
                 return
             with os.scandir(folder) as children:
@@ -167,6 +182,9 @@ def discover_worker_logs(root: Path, *, now: float, retained=False):
             warnings.add("Some log folders could not be read or were linked.")
 
     for source, relative, subdir, pattern in SOURCES:
+        if time.monotonic() > deadline:
+            warnings.add("Log discovery limit reached; some logs were not checked.")
+            break
         folder = root / relative
         candidates = []
         folders = [folder]
@@ -174,6 +192,9 @@ def discover_worker_logs(root: Path, *, now: float, retained=False):
             folders = [path / "reports" if source == "generator-worker" else path
                        for path, _ in scan(folder, r"[^/\\]+" if source == "generator-worker" else subdir, True)]
         for directory in folders:
+            if time.monotonic() > deadline:
+                warnings.add("Log discovery limit reached; some logs were not checked.")
+                break
             for path, info in scan(directory, pattern):
                 if info.st_size and (retained or now - MAX_AGE <= info.st_mtime <= now + 5):
                     candidates.append((info.st_mtime, path))

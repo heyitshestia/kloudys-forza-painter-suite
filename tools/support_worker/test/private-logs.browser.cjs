@@ -73,10 +73,12 @@ const {chromium}=require('playwright');
     check(!stored,'successful delivery removes temporary browser log copy');
     await page.reload();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();check(posts.length===2,'receipt reload does not resend logs');
     const excluded=makeReport();await page.goto('about:blank');await page.goto(origin+'/#bundle='+packageFor(excluded).toString('base64url'));
+    await page.locator('#replace-report').click();
     await page.waitForFunction(()=>!document.getElementById('download-private-logs').hidden);
     await page.locator('#include').uncheck();await page.locator('#send').click();await page.getByRole('heading',{name:'Report sent',exact:true}).waitFor();
     check(!posts[2].privateLogs&&!posts[2].report.private_logs,'technical-details opt-out sends no log archive');
     await page.goto('about:blank');await page.goto(origin+'/#bundle='+packageFor(makeReport()).toString('base64url'));
+    await page.locator('#replace-report').click();
     await page.waitForFunction(()=>!document.getElementById('download-private-logs').hidden);
     await page.evaluate(()=>new Promise(resolve=>{
       const r=indexedDB.open('kfps-private-report-logs-v1');r.onsuccess=()=>{const db=r.result,t=db.transaction('bundle','readwrite'),s=t.objectStore('bundle'),q=s.get('current');

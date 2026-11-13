@@ -104,6 +104,38 @@ class SupportReportTests(unittest.TestCase):
             with self.assertRaises(PermissionError): support.atomic_text(path, "broken")
         self.assertEqual(path.read_text(), "new"); self.assertEqual(list(self.root.glob("*.tmp")), [])
 
+    def test_redaction_cleans_controls_before_matching_sensitive_text(self):
+        for text in ('pass\x00word=PRIVATE', 'gh\x00p_PRIVATE', 'https:\x00//private.test',
+                     'user@pri\x00vate.test', 'C:\x00\\Users\\PRIVATE\\file.txt'):
+            cleaned = support.redact(text)
+            self.assertNotIn('PRIVATE', cleaned)
+            self.assertEqual(support.redact(cleaned), cleaned)
+        self.assertNotIn('PRIVATE', support.redact('PRIVATE ' + 'event ' * 10001 + ' password=x'))
+
+    def test_report_context_ignores_unknown_services_and_invalid_numbers(self):
+        from kfps_ui.app_controller import AppController
+        for page in AppController.PAGES:
+            self.assertEqual(self.build(page=page)['technical']['app']['page'], page)
+        report = self.build(page='PRIVATE_PAGE', services={
+            'PRIVATE_SERVICE': {'status': 'PRIVATE'}, 'transfer': None,
+            'generator': {'selectedShapes': 10**400, 'status': 'working'}})
+        self.assertNotIn('PRIVATE', json.dumps(report))
+        self.assertNotIn('selectedShapes', report['technical']['states']['generator'])
+
+    def test_handoff_rejects_linked_output_directory_before_writing(self):
+        import stat
+        folder = self.root / 'runtime/support-reports'
+        folder.mkdir(parents=True)
+        original = Path.lstat
+        def linked(path, *args, **kwargs):
+            info = original(path, *args, **kwargs)
+            if path == folder:
+                return SimpleNamespace(st_mode=stat.S_IFDIR, st_file_attributes=0x400)
+            return info
+        with patch.object(Path, 'lstat', linked), self.assertRaises(ValueError):
+            support.save_handoff(self.root, self.build())
+        self.assertEqual(list(folder.iterdir()), [])
+
     def service(self):
         paths = AppPaths(self.root, UI, UI / "qml", UI / "assets", self.root / "runtime", Path(sys.executable))
         log = LogService(); service = ReportService(paths, log, SimpleNamespace(localVersion="3.1.60"))
