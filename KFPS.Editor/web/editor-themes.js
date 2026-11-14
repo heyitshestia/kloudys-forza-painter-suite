@@ -44,7 +44,8 @@
       });
       try {
         return await Promise.race([aborted, (async () => {
-          const response = await fetcher(url, { cache: "no-store", ...options, signal: controller.signal });
+          const response = await fetcher(url, { cache: "no-store", ...options,
+            headers: { ...headers, ...options.headers }, signal: controller.signal });
           try {
             controller.signal.throwIfAborted();
             const data = await response.json().catch(() => ({}));

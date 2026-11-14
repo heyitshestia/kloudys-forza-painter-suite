@@ -52,6 +52,7 @@ function editorSessionToken() {
 const EDITOR_MUTATION_HEADERS = Object.freeze({
   "X-KFPS-Editor-Session": editorSessionToken(),
 });
+const editorPrivatePreviews = KfpsEditorPrivatePreviews.create({ headers: EDITOR_MUTATION_HEADERS });
 const SHORTCUTS_KEY = "kloudyFabricShortcuts";
 const OVERLAY_LAYER_MODE_KEY = "kloudyFabricOverlayLayerMode";
 const AUTOSAVE_KEY = "kloudyFabricAutosave";
@@ -2299,9 +2300,11 @@ function trianglePixelPoints(vertices, indices, offset, bounds, scale) {
 }
 
 function addTrianglePath(ctx, points) {
-  ctx.moveTo(points[0].x, points[0].y);
-  ctx.lineTo(points[1].x, points[1].y);
-  ctx.lineTo(points[2].x, points[2].y);
+  const [p0, p1, p2] = points;
+  const reverse = KfpsEditorCatalog.triangleHasNegativeWinding(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(reverse ? p2.x : p1.x, reverse ? p2.y : p1.y);
+  ctx.lineTo(reverse ? p1.x : p2.x, reverse ? p1.y : p2.y);
   ctx.closePath();
 }
 
@@ -2576,10 +2579,35 @@ function legacyToFh6Shape(shape, legacyOffset = { x: 0, y: 0 }) {
   };
 }
 
-function normalizeInputShape(shape, index, legacyOffset = { x: 0, y: 0 }) {
+function validateStrictInputShapes(shapes) {
+  const fail = () => { throw new Error(KfpsI18n.t("Some saved layers are invalid. The current canvas and recovery checkpoint were kept.")); };
+  const finite = value => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1e12;
+  const flag = value => typeof value === "boolean" || value === 0 || value === 1;
+  for (const shape of shapes) {
+    if (!shape || typeof shape !== "object" || Array.isArray(shape)
+      || !Number.isInteger(shape.type) || shape.type <= 0 || shape.type > 0xffffffff) fail();
+    const legacy = LEGACY_RECTANGLE_TYPES.has(shape.type) || LEGACY_ELLIPSE_TYPES.has(shape.type);
+    if (!legacy && shape.type <= 1000000) fail();
+    // Four required coordinates/scales are shared by native and legacy JSON.
+    // Optional rotation, skew and mask defaults remain backwards compatible.
+    const data = shape.data;
+    if (!Array.isArray(data) || data.length < 4 || data.length > 64
+      || Array.from(data).some(value => !finite(value)) || data[2] === 0 || data[3] === 0
+      || (data.length > 6 && data[6] !== 0 && data[6] !== 1)) fail();
+    // Admission must survive the same native-unit rounding used by Save/Recover.
+    const divisor = legacy ? (LEGACY_RECTANGLE_TYPES.has(shape.type) ? RECTANGLE_DIVISOR : ELLIPSE_DIVISOR) : 1;
+    if (round(data[2] / divisor) === 0 || round(data[3] / divisor) === 0) fail();
+    if (shape.color !== undefined && (!Array.isArray(shape.color) || ![3, 4].includes(shape.color.length)
+      || Array.from(shape.color).some(value => !finite(value) || value < 0 || value > 255))) fail();
+    if (shape.mask !== undefined && !flag(shape.mask)) fail();
+    if (shape.type_word !== undefined && (!Number.isInteger(shape.type_word) || shape.type_word < 0 || shape.type_word > 0xffff)) fail();
+  }
+}
+
+function normalizeInputShape(shape, index, legacyOffset = { x: 0, y: 0 }, strict = false) {
   if (!shape || typeof shape !== "object") return null;
   const color = normalizeColor(shape.color);
-  if (index === 0 && Number(shape.type) === 1 && color[3] <= 0) return null;
+  if (!strict && index === 0 && Number(shape.type) === 1 && color[3] <= 0) return null;
   const type = Number(shape.type);
   if (LEGACY_RECTANGLE_TYPES.has(type) || LEGACY_ELLIPSE_TYPES.has(type)) {
     return legacyToFh6Shape(shape, legacyOffset);
@@ -6273,17 +6301,18 @@ function setJsonBrowserPreview(entry = null) {
     image.hidden = true;
     empty.hidden = false;
     empty.textContent = KfpsI18n.t("No preview selected");
-    image.removeAttribute("src");
+    editorPrivatePreviews.clear(image);
     return;
   }
   empty.hidden = true;
   image.hidden = false;
-  image.src = `${entry.preview_url}${entry.preview_url.includes("?") ? "&" : "?"}t=${encodeURIComponent(String(entry.mtime || Date.now()))}`;
+  editorPrivatePreviews.set(image, `${entry.preview_url}${entry.preview_url.includes("?") ? "&" : "?"}t=${encodeURIComponent(String(entry.mtime || Date.now()))}`);
 }
 
 function renderJsonBrowserGroups() {
   const container = $("jsonBrowserGroups");
   if (!container) return;
+  editorPrivatePreviews.clear(container);
   container.innerHTML = "";
   if (!jsonBrowserState.groups.length) {
     const empty = document.createElement("p");
@@ -6308,7 +6337,7 @@ function renderJsonBrowserGroups() {
     thumb.loading = "lazy";
     thumb.alt = KfpsI18n.t("{0} preview", group.title || group.key || "JSON");
     if (previewEntry?.preview_url) {
-      thumb.src = previewEntry.preview_url;
+      editorPrivatePreviews.set(thumb, previewEntry.preview_url);
     } else {
       thumb.hidden = true;
     }
@@ -6397,7 +6426,7 @@ async function refreshJsonBrowser() {
   try {
     const source = $("jsonBrowserSource")?.value || "generated";
     jsonBrowserState.source = source;
-    const response = await fetch(`${JSON_BROWSER_API}?source=${encodeURIComponent(source)}`, { cache: "no-store", signal: request.signal });
+    const response = await fetch(`${JSON_BROWSER_API}?source=${encodeURIComponent(source)}`, { headers: EDITOR_MUTATION_HEADERS, cache: "no-store", signal: request.signal });
     const data = await response.json();
     if (jsonBrowserState.request !== request) return;
     if (!response.ok) throw new Error(KfpsI18n.error(data.error || KfpsI18n.t("HTTP {0}", response.status)));
@@ -6577,7 +6606,7 @@ async function refreshProjectBrowser() {
   const timeout = setTimeout(() => request.abort(), 15000);
   try {
     const response = await fetch(autosaves ? `${EDITOR_AUTOSAVE_API}?history=1` : PROJECT_BROWSER_API,
-      { cache: "no-store", signal: request.signal });
+      { headers: EDITOR_MUTATION_HEADERS, cache: "no-store", signal: request.signal });
     const data = await response.json();
     if (projectBrowserState.request !== request) return;
     if (!response.ok) throw new Error(KfpsI18n.error(data.error || KfpsI18n.t("HTTP {0}", response.status)));
@@ -6847,19 +6876,17 @@ function presentAcceptedDocument(callback) {
 }
 
 async function loadPayload(payload, options = {}) {
-  const generation = options.generation ?? beginDocumentLoad();
-  if (generation !== documentGeneration) return false;
+  if (options.generation !== undefined && options.generation !== documentGeneration) return false;
   let phaseStarted = performance.now();
   const strict = options.strict ?? (recoveryRestoreDepth > 0);
-  const shapes = Array.isArray(payload.shapes) ? payload.shapes : null;
+  const shapes = Array.isArray(payload?.shapes) ? payload.shapes : null;
   if (!shapes) throw new Error(KfpsI18n.t("JSON must contain a shapes list."));
+  if (strict) validateStrictInputShapes(shapes);
   const emptyProject = strict && shapes.length === 0;
   if (!shapes.length && !emptyProject) throw new Error(KfpsI18n.t("JSON shapes list is empty."));
   const hasLegacyGeometry = shapes.some((shape) => LEGACY_RECTANGLE_TYPES.has(Number(shape?.type)) || LEGACY_ELLIPSE_TYPES.has(Number(shape?.type)));
   const legacyOffset = hasLegacyGeometry ? computeLegacyOffset(shapes) : { x: 0, y: 0 };
-  const normalized = assignUniqueEditorIds(
-    shapes.map((shape, index) => normalizeInputShape(shape, index, legacyOffset)).filter(Boolean),
-  );
+  let normalized = shapes.map((shape, index) => normalizeInputShape(shape, index, legacyOffset, strict)).filter(Boolean);
   if (strict && normalized.length !== shapes.length) {
     throw new Error(KfpsI18n.t("Some saved layers are invalid. The current canvas and recovery checkpoint were kept."));
   }
@@ -6867,6 +6894,10 @@ async function loadPayload(payload, options = {}) {
   if (normalized.length > MAX_VINYL_LAYERS) {
     throw new Error(KfpsI18n.t("This design has {0} editable layers. The editor supports up to {1} layers per vinyl.", normalized.length, MAX_VINYL_LAYERS));
   }
+  const generation = options.generation ?? beginDocumentLoad();
+  const previousNextEditorObjectId = nextEditorObjectId;
+  normalized = assignUniqueEditorIds(normalized);
+  const assignedNextEditorObjectId = nextEditorObjectId;
   setBusy(KfpsI18n.t("Building {0} editable layer(s)...", normalized.length));
   await nextFrame();
   let completed = 0;
@@ -6905,6 +6936,9 @@ async function loadPayload(payload, options = {}) {
   }
   phaseStarted = documentPhase("document-build", phaseStarted, generation, { layers: builtObjects.length });
   try {
+    // Transform decomposition can cross a rounding boundary. Check the actual
+    // saved representation before installing the candidate document or recovery.
+    if (strict) validateStrictInputShapes(builtObjects.map(object => objectToShape(object)));
     await editorRenderer.prewarmHybridMeshesForObjects(builtObjects);
     if (generation !== documentGeneration) {
       builtObjects.forEach(discardFabricObject);
@@ -6912,6 +6946,9 @@ async function loadPayload(payload, options = {}) {
     }
   } catch (error) {
     builtObjects.forEach(discardFabricObject);
+    if (generation === documentGeneration && nextEditorObjectId === assignedNextEditorObjectId) {
+      nextEditorObjectId = previousNextEditorObjectId;
+    }
     throw error;
   }
   phaseStarted = documentPhase("document-prewarm", phaseStarted, generation);
@@ -9045,12 +9082,14 @@ function saveProjectAs() {
 }
 
 async function loadProjectPayload(payload, displayName = "project", options = {}) {
+  if (options.generation !== undefined && options.generation !== documentGeneration) return false;
+  if (!Array.isArray(payload?.shapes)) throw new Error(KfpsI18n.t("Project JSON must contain a shapes list."));
+  validateStrictInputShapes(payload.shapes);
   const generation = options.generation ?? beginDocumentLoad();
   if (generation !== documentGeneration) return false;
   setBusy(KfpsI18n.t("Loading project: {0}", displayName));
   await nextFrame();
   if (generation !== documentGeneration) return false;
-  if (!Array.isArray(payload.shapes)) throw new Error(KfpsI18n.t("Project JSON must contain a shapes list."));
   const projectName = cleanProjectBaseName(payload.name || displayName, "project");
   let restored = false;
   let identity = null;
@@ -12222,7 +12261,7 @@ function bindEnterToApply(ids) {
 
 async function readStartupHelpConfirmed() {
   try {
-    const response = await fetch(STARTUP_HELP_CONFIRMED_API, { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    const response = await fetch(STARTUP_HELP_CONFIRMED_API, { headers: EDITOR_MUTATION_HEADERS, cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (response.ok) {
       const data = await response.json();
       return data.confirmed === true;
@@ -12459,10 +12498,11 @@ async function recoverAutosavePayload(payload) {
     setStatus(KfpsI18n.t("Autosave recovery failed: temp save has no shapes list."));
     return false;
   }
-  const generation = beginDocumentLoad();
   let restored = false;
   let identity = null;
   try {
+    validateStrictInputShapes(payload.shapes);
+    const generation = beginDocumentLoad();
     if (!await loadPayload({
       shapes: payload.shapes,
       editor_collapsed_groups: payload.editor_collapsed_groups || [],
@@ -12832,6 +12872,7 @@ function bindUi() {
 
   editorAssetLibrary = KfpsEditorAssets.install({
     headers: EDITOR_MUTATION_HEADERS, prompt: requestTextInput, confirm: requestConfirmation,
+    previews: editorPrivatePreviews,
     notify: setStatus, download: downloadText,
     hasSelection: () => selectedVinylObjects().length > 0,
     selection: captureAssetSelection,
@@ -12870,6 +12911,7 @@ function bindUi() {
   });
   $("openJsonBrowser")?.addEventListener("click", openJsonBrowser);
   $("closeJsonBrowser")?.addEventListener("click", () => $("jsonBrowserDialog")?.close());
+  $("jsonBrowserDialog")?.addEventListener("close", () => editorPrivatePreviews.clear($("jsonBrowserDialog")));
   $("refreshJsonBrowser")?.addEventListener("click", refreshJsonBrowser);
   $("jsonBrowserSource")?.addEventListener("change", refreshJsonBrowser);
   $("selectJsonBrowserEntry")?.addEventListener("click", importSelectedBrowserJson);

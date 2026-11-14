@@ -14,7 +14,8 @@ class SupportDiagnosticInventoryTests(unittest.TestCase):
         source = (ROOT / "tools/support_worker/public/editor-diagnostics.mjs").read_text(encoding="utf-8")
         actual = manifest.support_diagnostic_assets(source)
         self.assertEqual(set(actual), set(manifest.diagnostic_assets()))
-        self.assertEqual(actual[-3:], ["locales/ja.js", "release-announcement.js", "activity-client.js"])
+        self.assertEqual(actual[-4:], ["locales/ja.js", "release-announcement.js", "activity-client.js",
+                                      "editor-private-previews.js"])
 
     def test_static_extensions_preserve_order(self):
         source = 'export const ASSETS = ["index.html"];'

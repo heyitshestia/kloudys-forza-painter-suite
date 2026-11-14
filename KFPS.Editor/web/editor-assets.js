@@ -11,6 +11,7 @@
     async function request(query = "", body = null) {
       const response = await fetch(API + query, {
         method: body ? "POST" : "GET", cache: "no-store", signal: AbortSignal.timeout(15000),
+        headers: options.headers,
         ...(body ? { headers: { ...options.headers, "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
       });
       const result = await response.json();
@@ -56,6 +57,7 @@
       const list = byId("assetGrid");
       const query = byId("assetSearch").value.trim().toLocaleLowerCase();
       const filtered = entries.filter(entry => entry.name.toLocaleLowerCase().includes(query));
+      options.previews.clear(list);
       list.replaceChildren();
       for (const entry of filtered.slice(0, limit)) {
         const card = document.createElement("article");
@@ -66,11 +68,11 @@
         preview.title = KfpsI18n.t("Insert {0}", entry.name);
         preview.setAttribute("aria-label", KfpsI18n.t("Insert {0}", entry.name));
         const image = document.createElement("img");
-        image.src = entry.preview_url;
         image.alt = entry.name;
         image.loading = "lazy";
         image.decoding = "async";
         image.addEventListener("error", () => { preview.textContent = KfpsI18n.t("Preview unavailable"); });
+        options.previews.set(image, entry.preview_url);
         preview.append(image);
         const name = document.createElement("strong");
         name.textContent = entry.name;

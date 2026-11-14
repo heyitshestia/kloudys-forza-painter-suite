@@ -3,7 +3,7 @@ async (page) => {
   const name = 'Chrome qualification ' + path.basename(output);
   const state = await page.evaluate(() => ({
     shapes: JSON.stringify(snapshotShapes()),
-    portable: JSON.stringify(vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false }))),
+    portable: JSON.stringify(vinylObjects().map(object => objectToShape(object, { includeEditorMeta: false, includeGroups: true }))),
     reference: JSON.stringify(editorReference.sourceOverlayProjectState()),
     count: vinylObjects().length,
   }));
@@ -19,8 +19,8 @@ async (page) => {
   check(JSON.stringify(saved.shapes) === state.shapes, 'Disk project changed exact shapes');
   await page.locator('#exportJson').click();
   await page.waitForFunction(() => !exportSaveInProgress && !editorCommands.busy);
-  const exportedPath = fs.readdirSync(processInfo.exportRoot, { recursive: true }).find(file => file.endsWith('.json'));
-  check(exportedPath, 'No on-disk portable export');
+  const exportedPath = path.join(name, name + '.fh6-import.json');
+  check(fs.existsSync(path.join(processInfo.exportRoot, exportedPath)), 'No on-disk portable export for the saved project');
   const exported = JSON.parse(fs.readFileSync(path.join(processInfo.exportRoot, exportedPath), 'utf8'));
   check(JSON.stringify(exported.shapes) === state.portable, 'Portable export changed artwork or contains helpers');
   await page.locator('#workspaceFileMenu').click();

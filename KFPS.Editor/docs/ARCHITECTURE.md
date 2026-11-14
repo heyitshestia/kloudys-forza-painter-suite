@@ -203,6 +203,14 @@ Static resources and generated/game-export libraries remain installation-owned.
 Session authorization is per server, not per Python module. Runtime isolation is
 not multi-user security against other processes running under the same account.
 
+All `/api/fabric-editor/` GET routes except bootstrap health require the same
+session header, loopback Host, same-origin Origin and fetch-site checks as writes.
+Persistence workers and UI readers send the header explicitly. Private thumbnails
+use `editor-private-previews.js`: authenticated same-origin fetches with four
+concurrent requests, lazy visibility, stale-request cancellation and blob URL
+cleanup. Session tokens never appear in thumbnail URLs. Static shape images and
+the Editor bootstrap remain public within the local server's asset allow-list.
+
 Updater retirement is an exact file list from the immutable application snapshot.
 It must not name current files, profile data or a directory tree for broad deletion.
 Update/repair/rollback operate on program files without reverting newer recovery,

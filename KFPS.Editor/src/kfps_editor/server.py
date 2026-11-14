@@ -1087,14 +1087,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _send_png(self, body: bytes, status: int = 200, etag: str | None = None) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", "image/png")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "private, no-cache" if etag else "no-store")
-        if etag:
-            self.send_header("ETag", etag)
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "private, no-cache" if etag else "no-store")
+            if etag:
+                self.send_header("ETag", etag)
+            self.end_headers()
+            self.wfile.write(body)
+        except ConnectionError:
+            # Switching or closing a browser cancels obsolete preview requests.
+            return
 
     def _preview_etag(self, path: Path, preview_path: Path | None = None) -> str:
         stat = path.stat()
@@ -1113,7 +1117,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _mutation_authorized(self) -> bool:
         expected = str(getattr(self.server, "editor_session_token", ""))
         supplied = str(self.headers.get(EDITOR_MUTATION_HEADER) or "")
-        if not expected or not hmac.compare_digest(supplied, expected):
+        if not expected or not supplied.isascii() or not hmac.compare_digest(supplied, expected):
             return False
         port = int(self.server.server_address[1])
         allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -1150,10 +1154,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         paths = self.server.paths
         parsed = urlparse(self.path)
+        # Health is used before a client receives its session. Every other API
+        # read can expose local work or preferences, including image previews.
+        if (parsed.path.startswith("/api/fabric-editor/")
+                and parsed.path != EDITOR_HEALTH_API
+                and not self._mutation_authorized()):
+            self._send_json({"error": "editor session authorization failed"}, status=403)
+            return
         if parsed.path == "/api/fabric-editor/studio-source-context":
-            if not self._mutation_authorized():
-                self._send_json({"error": "editor session authorization failed"}, status=403)
-                return
             try:
                 if parsed.query or parsed.fragment:
                     raise ValueError("Invalid Studio source context request.")
@@ -1165,15 +1173,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"error": "Studio source context is unavailable."}, status=getattr(exc, "status", 400))
             return
         if parsed.path == EDITOR_DIAGNOSTICS_API:
-            if not self._mutation_authorized():
-                self._send_json({"error": "editor session authorization failed"}, status=403)
-                return
             self._send_json(self.server.diagnostics().snapshot())
             return
         if parsed.path == "/api/fabric-editor/update-status":
-            if not self._mutation_authorized():
-                self._send_json({"error": "editor session authorization failed"}, status=403)
-                return
             self._send_json(self.server.update_status)
             return
         if parsed.path == EDITOR_HEALTH_API:

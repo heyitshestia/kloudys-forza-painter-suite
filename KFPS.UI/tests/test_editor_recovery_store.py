@@ -248,7 +248,7 @@ class RecoveryStoreTests(unittest.TestCase):
         with patch.object(fabric_server, "EDITOR_AUTOSAVE_MARKER", self.marker), RunningEditorServer() as server:
             base = f"{server}{fabric_server.EDITOR_AUTOSAVE_API}"
             def get(query):
-                with urllib.request.urlopen(base + query) as response:
+                with server.open(base + query) as response:
                     self.assertIn("no-store", response.headers["Cache-Control"])
                     return json.load(response)
             for revision in (10, 20):
@@ -278,9 +278,9 @@ class RecoveryStoreTests(unittest.TestCase):
                 self.assertTrue(json.load(response)["ok"])
             payload = self.payload(3, {"sha256": identity, "size": len(body)})
             self.assertTrue(post_json(server, fabric_server.EDITOR_AUTOSAVE_API, payload)[1]["applied"])
-            with urllib.request.urlopen(f"{server}{fabric_server.EDITOR_AUTOSAVE_API}?compact=1") as response:
+            with server.open(f"{fabric_server.EDITOR_AUTOSAVE_API}?compact=1") as response:
                 self.assertEqual(payload, json.load(response)["payload"])
-            with urllib.request.urlopen(f"{server}{fabric_server.EDITOR_AUTOSAVE_API}") as response:
+            with server.open(fabric_server.EDITOR_AUTOSAVE_API) as response:
                 self.assertEqual("original", json.load(response)["payload"]["editor_source_overlay"]["data_url"])
 
 

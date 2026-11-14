@@ -35,7 +35,7 @@ async page => {
       await refreshProjectBrowser();
       const entry = projectBrowserState.entries.find(item => item.title === currentProjectName);
       if (!entry) throw new Error("Actual saved project missing");
-      const saved = await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json();
+      const saved = await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json();
       if (saved.payload.shapes[0].data[0] !== capturedX) throw new Error("Saved artifact does not match captured revision");
       await loadProjectPayload(saved.payload, entry.title);
       if (revisionX() !== capturedX || documentDirty) throw new Error("Saved artifact reopen failed");

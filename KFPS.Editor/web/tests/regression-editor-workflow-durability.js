@@ -80,7 +80,7 @@ async (page, options = {}) => {
     await refreshProjectBrowser();
     const entry = projectBrowserState.entries.find(entry => entry.title === currentProjectName);
     window.__durableProjectId = entry.id;
-    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
   });
   // Hold only the acknowledgment of a real committed save, then use new controls.
   await page.evaluate(() => {
@@ -108,7 +108,7 @@ async (page, options = {}) => {
   check(await page.evaluate(() => documentDirty), 'Save acknowledgment erased newer grouping/colour edit');
   check(await page.evaluate(async before => {
     await flushPendingAutosave();
-    const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`)).json()).payload;
+    const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
     const recovered = await readAutosavePayload();
     return JSON.stringify(saved.shapes) === JSON.stringify(before.shapes)
       && JSON.stringify(recovered.shapes) === JSON.stringify(snapshotShapes());
@@ -123,7 +123,7 @@ async (page, options = {}) => {
     await page.locator('#messageDialog').waitFor({ state: 'visible' }); await idle();
     check(await snapshot() === newer && await page.evaluate(() => documentDirty), 'Failed write changed or marked unsaved work clean');
     check(await page.evaluate(async before => {
-      const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`)).json()).payload;
+      const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
       return JSON.stringify(saved.shapes) === JSON.stringify(before.shapes) && !$('saveProject').disabled;
     }, diskBefore), 'Failed write damaged the saved project or left Save disabled');
   } finally {
@@ -132,7 +132,7 @@ async (page, options = {}) => {
   await page.locator('#saveProject').click();
   await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);
   await page.evaluate(async () => {
-    const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`)).json()).payload;
+    const saved = (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(__durableProjectId)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
     await loadProjectPayload(saved, 'Durable group workflow');
   });
   check(await snapshot() === newer, 'Save retry/reopen lost grouped or coloured shapes');

@@ -65,7 +65,7 @@ async (page, options = {}) => {
           const before = JSON.stringify(snapshotShapes());
           await saveProject();
           if (documentDirty) throw new Error("Sustained save left an unchanged document dirty");
-          const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent("Performance Soak.fabric-project.json")}`, { cache: "no-store" });
+          const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent("Performance Soak.fabric-project.json")}`, { cache: "no-store", headers: EDITOR_MUTATION_HEADERS });
           const data = await response.json();
           if (!response.ok || JSON.stringify(data.payload?.shapes) !== before) throw new Error("Sustained project save changed artwork");
         }, minute);
@@ -97,7 +97,7 @@ async (page, options = {}) => {
     const before = JSON.stringify(snapshotShapes());
     await saveProject();
     await flushPendingAutosave();
-    const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent("Performance Soak.fabric-project.json")}`, { cache: "no-store" });
+    const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent("Performance Soak.fabric-project.json")}`, { cache: "no-store", headers: EDITOR_MUTATION_HEADERS });
     const data = await response.json();
     if (!response.ok) throw new Error("Final project readback failed");
     await loadProjectPayload(data.payload, "Performance Soak");

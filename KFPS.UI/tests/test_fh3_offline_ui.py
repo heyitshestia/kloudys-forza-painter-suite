@@ -21,7 +21,7 @@ def native(root, evidence, width, height):
 
     sys.path[:0] = [str(UI / "src"), str(UI / "tests"), str(ROOT)]
     from PySide6.QtCore import QObject, QPointF, Qt, QTimer
-    from PySide6.QtQml import QQmlEngine
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
     from PySide6.QtGui import QFontDatabase
     from PySide6.QtWidgets import QFileDialog
     from PySide6.QtTest import QTest
@@ -66,8 +66,44 @@ def native(root, evidence, width, height):
                 QTest.qWait(20)
             assert predicate(), label
 
+        previous_bounds = None
+
+        def outputs_ready():
+            nonlocal previous_bounds
+            host = window.findChild(QObject, "CachedPageHost")
+            if host is None:
+                previous_bounds = None
+                return False
+            query = QQmlExpression(QQmlEngine.contextForObject(host), host,
+                                  "currentPage === 'outputs' && currentLoader.status === 1 && !!currentLoader.item")
+            loaded, _ = query.evaluate()
+            if query.hasError() or not loaded:
+                previous_bounds = None
+                return False
+            controls = window.findChild(QObject, "OfflineLibraryControls")
+            target = window.findChild(QObject, "OfflineLibraryGame" if controls and controls.property("visible")
+                                      else "OutputTransferToggle")
+            if (controls is None or target is None or not window.isExposed()
+                    or target.window() != window or not target.property("visible")
+                    or not target.property("enabled") or target.width() <= 0 or target.height() <= 0):
+                previous_bounds = None
+                return False
+            origin = target.mapToScene(QPointF(0, 0))
+            center = target.mapToScene(QPointF(target.width() / 2, target.height() / 2))
+            bounds = (target.objectName(), origin.x(), origin.y(), target.width(), target.height(),
+                      center.x(), center.y(), window.width(), window.height())
+            ready = (bounds == previous_bounds and 0 <= center.x() < window.width()
+                     and 0 <= center.y() < window.height())
+            previous_bounds = bounds
+            return ready
+
         def finish(code, error=""):
             result.update(passed=code == 0, error=error)
+            if code:
+                try:
+                    result["failure_screenshot_saved"] = window.grabWindow().save(str(evidence / "failure.png"))
+                except RuntimeError as capture_error:
+                    result["failure_screenshot_error"] = str(capture_error)
             (evidence / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             app.exit(code)
 
@@ -164,7 +200,14 @@ def native(root, evidence, width, height):
             except Exception:
                 finish(1, traceback.format_exc())
 
-        QTimer.singleShot(1200, step)
+        def start():
+            try:
+                wait_for(outputs_ready, "Outputs controls did not become ready")
+                step()
+            except Exception:
+                finish(1, traceback.format_exc())
+
+        QTimer.singleShot(0, start)
         QTimer.singleShot(25000, lambda: finish(1, "UI test timeout"))
 
     module.install_development_harness = install

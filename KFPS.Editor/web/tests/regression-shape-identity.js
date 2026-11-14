@@ -54,7 +54,7 @@ async (page) => {
       // Disk readback and project rehydration use the normal server APIs.
       const saved = await saveProjectToAppFolder(currentProjectName,
         editableProjectPayload(currentProjectName), true);
-      const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(saved.id)}`);
+      const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(saved.id)}`, { headers: EDITOR_MUTATION_HEADERS });
       if (!response.ok) throw new Error(`Project readback failed: ${family}`);
       const readback = await response.json();
       await loadProjectPayload(readback.payload, currentProjectName);
@@ -107,7 +107,7 @@ async (page) => {
   if (!response.ok()) throw new Error(`Export button HTTP ${response.status()}`);
   const saved = await response.json();
   const words = await page.evaluate(async (id) => {
-    const response = await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(id)}`);
+    const response = await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(id)}`, { headers: EDITOR_MUTATION_HEADERS });
     if (!response.ok) throw new Error("Export button disk readback failed");
     const readback = await response.json();
     return readback.payload.shapes.map((shape) => shape.type_word);

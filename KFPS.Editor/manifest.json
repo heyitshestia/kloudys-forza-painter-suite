@@ -36,6 +36,7 @@
     {"path":"editor-pixel-core.js","role":"module","owner":"O09","diagnostic":true},
     {"path":"editor-pixel-worker.js","role":"worker","owner":"O09","diagnostic":true,"localize_errors":true},
     {"path":"editor-assets.js","role":"module","owner":"O14","diagnostic":true,"localize":true},
+    {"path":"editor-private-previews.js","role":"module","owner":"O14","diagnostic":true},
     {"path":"editor-i18n.js","role":"module","owner":"O16","diagnostic":true},
     {"path":"vendor/fabric.min.js","role":"vendor","owner":"O04","diagnostic":true},
     {"path":"locales/en.js","role":"catalog","owner":"O16","diagnostic":true},

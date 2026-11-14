@@ -27,7 +27,7 @@ async page => {
   check(await page.evaluate(() => selectedVinylObjects().length) === generated + 1, "Mixed selection did not include manual and generated layers");
   await saveAsset("Mixed original");
   await h.select(page, "Human alternate"); await saveAsset("Legacy ordinary");
-  const entries = await page.evaluate(async () => (await (await fetch("/api/fabric-editor/assets")).json()).entries);
+  const entries = await page.evaluate(async () => (await (await fetch("/api/fabric-editor/assets", { headers: EDITOR_MUTATION_HEADERS })).json()).entries);
   const id = entries.find(e => e.name === "Generated original").id;
   const card = page.locator(`[data-asset-id="${id}"]`);
   await card.locator("summary").click(); await card.getByRole("button", { name: "Rename", exact: true }).click();
@@ -50,9 +50,9 @@ async page => {
   check(await page.locator(".editorAsset").count() === 4, "Portable asset did not import independently");
   check(await h.snapshot(page) === original, "Preparing/saving/renaming/exporting assets mutated live originals");
   const assets = await page.evaluate(async () => {
-    const entries = (await (await fetch("/api/fabric-editor/assets")).json()).entries;
+    const entries = (await (await fetch("/api/fabric-editor/assets", { headers: EDITOR_MUTATION_HEADERS })).json()).entries;
     return Promise.all(entries.map(async entry => ({ entry,
-      payload: await (await fetch(`/api/fabric-editor/assets?id=${entry.id}`)).json() })));
+      payload: await (await fetch(`/api/fabric-editor/assets?id=${entry.id}`, { headers: EDITOR_MUTATION_HEADERS })).json() })));
   });
   await page.locator("#saveProjectAs").click(); await prompt("Generated assets checkpoint");
   await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);

@@ -200,7 +200,7 @@ async (page, options = {}) => {
     await page.locator('#textPromptInput').press('Enter');
     await page.waitForFunction(() => !projectSaveInProgress && !documentDirty);
     await page.locator('#resizeFromCenter').check();
-    await page.waitForFunction(async () => (await (await fetch('/api/fabric-editor/preferences')).json()).settings.kloudyFabricCenteredResize === '1');
+    await page.waitForFunction(async () => (await (await fetch('/api/fabric-editor/preferences', { headers: EDITOR_MUTATION_HEADERS })).json()).settings.kloudyFabricCenteredResize === '1');
     await page.screenshot({ path: path.join(output, 'centered-resize-en.png') });
     check(trace.rows.every(row => row.after.visible >= 2700), 'Dense visibility lost');
     return { cases: results.length, results, rows: trace.rows, layers: 3000, reference: [5888,2816], exactUndoRedo: true };

@@ -58,7 +58,7 @@ async (page,options={}) => {
   await page.evaluate(() => undo());
   const guides = await page.evaluate(async () => { await saveProject(); return JSON.stringify(savedGuideState()); });
   await page.evaluate(async () => {
-    const { payload, receipt } = await (await fetch(`${PROJECT_FILE_API}?id=Guide%20controls%20audit.fabric-project.json`)).json();
+    const { payload, receipt } = await (await fetch(`${PROJECT_FILE_API}?id=Guide%20controls%20audit.fabric-project.json`, { headers: EDITOR_MUTATION_HEADERS })).json();
     await loadProjectPayload(payload, 'Guide controls audit', { receipt });
   });
   check(await page.evaluate(expected => JSON.stringify(savedGuideState()) === expected, guides), 'Guide project reopen differs');

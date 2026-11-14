@@ -65,6 +65,10 @@
     return alphas;
   }
 
+  function triangleHasNegativeWinding(ax, ay, bx, by, cx, cy) {
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0;
+  }
+
   function create({ VINYL_TYPE_BASES, VINYL_RESOURCE_BASES, format, KfpsI18n,
     fetcher = (...args) => fetch(...args), requestTimeoutMs = 30000 }) {
     const resourceCache = new Map();
@@ -232,13 +236,16 @@
         let omitted = false;
         for (let i = 0; i + 2 < indices.length; i += 3) {
           const p0 = vertices[indices[i]];
-          const p1 = vertices[indices[i + 1]];
-          const p2 = vertices[indices[i + 2]];
+          let p1 = vertices[indices[i + 1]];
+          let p2 = vertices[indices[i + 2]];
           if (!p0 || !p1 || !p2) continue;
           if (indices.slice(i, i + 3).every(index => alphas[index] === 0)) {
             omitted = true;
             continue;
           }
+          // Native triangles are independent fills. A combined nonzero path
+          // must use one winding so overlapping triangles cannot cancel.
+          if (triangleHasNegativeWinding(p0.X, p0.Y, p1.X, p1.Y, p2.X, p2.Y)) [p1, p2] = [p2, p1];
           chunks.push(`M ${format(p0.X)} ${format(p0.Y)} L ${format(p1.X)} ${format(p1.Y)} L ${format(p2.X)} ${format(p2.Y)} Z`);
         }
         if (omitted && vertices.length) {
@@ -405,5 +412,5 @@
       payloads,
     };
   }
-  return { create, decodeVertexAlphas, fontGlyphSlots, forzaGlyphResource };
+  return { create, decodeVertexAlphas, triangleHasNegativeWinding, fontGlyphSlots, forzaGlyphResource };
 });

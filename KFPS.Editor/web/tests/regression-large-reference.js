@@ -73,7 +73,7 @@ async page => {
       currentProjectName = `Large Reference ${width}`;
       await saveProject();
       assert(!documentDirty, "Large reference save failed");
-      const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(`${currentProjectName}.fabric-project.json`)}`, { cache: "no-store" });
+      const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(`${currentProjectName}.fabric-project.json`)}`, { cache: "no-store", headers: EDITOR_MUTATION_HEADERS });
       const saved = await response.json();
       assert(response.ok && saved.payload.editor_source_overlay.data_url === originalUrl, "Saved original reference changed");
       const before = JSON.stringify(editorReference.sourceOverlayProjectState());

@@ -15,7 +15,8 @@ from PySide6.QtGui import QImage
 
 def gallery_stub(**values):
     defaults = dict(policyMode="legacy_supporter", policyReady=True, restrictedAccess=False,
-                    claimsEnabled=False, claimsView=False, authenticated=True, username="Viewer", changed=Mock())
+                    claimsEnabled=False, claimsView=False, authenticated=True, username="Viewer", changed=Mock(),
+                    _schedule_states={})
     defaults.update(values)
     return SimpleNamespace(**defaults)
 

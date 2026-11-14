@@ -1,6 +1,6 @@
 async page => {
   const before = await page.evaluate(async () => {
-    const listing = await (await fetch("/api/fabric-editor/assets")).json();
+    const listing = await (await fetch("/api/fabric-editor/assets", { headers: EDITOR_MUTATION_HEADERS })).json();
     const entry = listing.entries.find(item => item.name === "Mixed asset");
     if (listing.entries.length !== 46 || !entry) throw new Error("Asset library did not survive process restart");
     if (editorSettings.getItem("kloudyFabricFavorites") !== "[1048677,1048678]" || !document.getElementById("overlapCycle").checked) throw new Error("Favorites or overlap preference did not survive process restart");

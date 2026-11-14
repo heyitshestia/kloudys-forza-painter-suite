@@ -21,8 +21,9 @@ function extract(name) {
   assert.ok(end>match.index);
   return source.slice(match.index,end+2);
 }
-const names = ["isDocumentDirty","confirmWorkspaceReplacement","recoverAutosavePayload","loadSelectedProject","loadProjectPayload","saveProject"];
-const functions = names.map(extract).join("\n");
+const names = ["round","validateStrictInputShapes","isDocumentDirty","confirmWorkspaceReplacement","recoverAutosavePayload","loadSelectedProject","loadProjectPayload","saveProject"];
+const legacyTypes = source.slice(source.indexOf("const LEGACY_RECTANGLE_TYPES ="), source.indexOf("\n", source.indexOf("const ELLIPSE_DIVISOR =")));
+const functions = legacyTypes + "\n" + names.map(extract).join("\n");
 function world({verify=true,reference=true,saveMode="normal",exists=true,readFails=false}={}) {
   let disk=clone(initial), diskExists=exists, requests=0, history=0;
   const calls=[], errors=[], statuses=[], autosaves=[], prompts=[];
@@ -114,6 +115,15 @@ function world({verify=true,reference=true,saveMode="normal",exists=true,readFai
 const cases=[];
 async function check(label,fn){await fn();cases.push(label);}
 (async()=>{
+  await check("actual strict validator rejects malformed recovery and project before geometry acceptance",async()=>{
+    const w=world(), malformed={...clone(initial),shapes:[{...clone(initial.shapes[0]),data:[]}]};
+    const before={identity:w.c.documentIdentity,generation:w.c.documentGeneration,history:w.c.history,shapes:w.c.shapes};
+    assert.equal(await w.recover(malformed),false);
+    await assert.rejects(w.c.loadProjectPayload(malformed),/saved layers are invalid/);
+    assert.equal(w.c.documentIdentity,before.identity);assert.equal(w.c.documentGeneration,before.generation);
+    assert.equal(w.c.history,before.history);assert.equal(w.c.shapes,before.shapes);
+    assert.equal(w.autosaves.length,0);
+  });
   await check("reproduce premature idle and stale dirty prediction using actual recovery and picker functions",async()=>{
     const w=world({verify:"deferred"}), pending=w.recover();await tick();
     assert.equal(w.c.recoveryRestoreDepth,0);assert.equal(w.c.editorCommands.busy,false);

@@ -36,7 +36,7 @@ sys.addaudithook(audit)
 spec = importlib.util.spec_from_file_location("garage_test_app", Path.cwd() / "KFPS.UI/app.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-from PySide6.QtCore import QPointF, QTimer, QUrl
+from PySide6.QtCore import QObject, QPointF, QTimer, QUrl
 from PySide6.QtQml import QQmlExpression, qmlContext, QQmlNetworkAccessManagerFactory
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtWidgets import QFileDialog
@@ -262,8 +262,42 @@ def run(app, engine, shutdown):
                 if garage.busy: return
                 assert garage.projectLinked, garage.projectStatus
                 js(find('garageCheckProject'), 'clicked()')
+                held['comparison_before_cancel'] = (garage.savedComparisonId,
+                    garage.notes.path.read_bytes(), linked_project.read_bytes())
+                panel = find('GarageBrowserLoader').property('item')
+                dialog = window.findChild(QObject, 'garageRemoveComparisonDialog')
+                assert dialog is not None
+                panel_width = panel.property('width')
+                try:
+                    for value in (0, 180, 320, panel_width):
+                        panel.setProperty('width', value)
+                        assert js(dialog, 'implicitHeight') >= 0
+                        assert not qml_errors, qml_errors
+                finally:
+                    panel.setProperty('width', panel_width)
+                js(find('garageRemoveComparison'), 'clicked()')
             elif stage[0] == 4:
                 if garage.busy: return
+                dialog = window.findChild(QObject, 'garageRemoveComparisonDialog')
+                assert dialog is not None
+                if not js(dialog, 'opened'): return
+                assert js(dialog, """(function() {
+                    const label = contentItem.children[0];
+                    const ok = footer.standardButton(Dialog.Ok);
+                    const cancel = footer.standardButton(Dialog.Cancel);
+                    return width > 0 && height > 0 && label.width > 0
+                        && label.width <= contentItem.width + 0.5
+                        && label.implicitHeight <= contentItem.height + 0.5
+                        && ok.width > 0 && cancel.width > 0 && ok.height > 0 && cancel.height > 0
+                        && ok.x + ok.width <= cancel.x + 0.5
+                        && ok.height <= footer.height + 0.5 && cancel.height <= footer.height + 0.5
+                        && contentItem.y + contentItem.height <= footer.y + 0.5;
+                })()""")
+                assert window.grabWindow().save(str(profile / 'comparison-dialog.png'))
+                js(dialog, 'footer.standardButton(Dialog.Cancel).clicked()')
+                assert held['comparison_before_cancel'] == (garage.savedComparisonId,
+                    garage.notes.path.read_bytes(), linked_project.read_bytes())
+                assert garage.projectLinked
                 assert 'matches' in garage.projectStatus, garage.projectStatus
                 assert garage.differences[0]['after'] == '70'
                 js(find("garageOpenLivery"), "clicked()")
@@ -273,6 +307,9 @@ def run(app, engine, shutdown):
                 js(page, "libraryTab = 1")
                 js(page, "libraryTab = 2")
             elif stage[0] == 5:
+                assert held['comparison_before_cancel'] == (garage.savedComparisonId,
+                    garage.notes.path.read_bytes(), linked_project.read_bytes())
+                assert garage.projectLinked
                 from kfps_ui.experimental.full_livery.feature_gate import FullLiveryFeatureGate
                 liveries._gate = FullLiveryFeatureGate('candidate', 'offscreen test')
                 liveries._game_folder = str(profile / 'game')
@@ -534,7 +571,9 @@ class GarageUITests(unittest.TestCase):
                     location = root / name.lower()
                     location.mkdir()
                     env[name] = str(location)
-                result = subprocess.run([sys.executable, "-I", "-B", "-c", SCRIPT, str(root), theme, str(width), str(height),
+                script_path = root / "workflow.py"
+                script_path.write_text(SCRIPT, encoding="utf-8")
+                result = subprocess.run([sys.executable, "-I", "-B", str(script_path), str(root), theme, str(width), str(height),
                                          os.environ.get("KFPS_GARAGE_REAL_CATALOGUE", "")],
                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=35,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -543,7 +582,7 @@ class GarageUITests(unittest.TestCase):
                     label = theme.replace(" ", "-") + (f"-{width}x{height}" if width == 960 else "")
                     target = Path(evidence) / label
                     target.mkdir(parents=True, exist_ok=True)
-                    for name in ("garage.png", "catalogue.png", "installed-catalogue.png", "first-use.png", "discovery-failure.png", "failure.png", "result.json"):
+                    for name in ("garage.png", "catalogue.png", "comparison-dialog.png", "installed-catalogue.png", "first-use.png", "discovery-failure.png", "failure.png", "result.json"):
                         if (root / name).is_file():
                             shutil.copy2(root / name, target / name)
                         elif (target / name).is_file():

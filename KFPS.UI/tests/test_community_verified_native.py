@@ -5,6 +5,7 @@ This is UI/client integration, not worker authorization qualification.
 from __future__ import annotations
 
 import hashlib
+import faulthandler
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ import sys
 import unittest
 
 UI = Path(__file__).resolve().parents[1]
-RUN = UI.parent / "runtime/community-tests/free-access-client-20261019"
+RUN = Path(os.environ.get("KFPS_COMMUNITY_TEST_ROOT", UI.parent / "runtime/community-tests/free-access-client-20261019"))
 sys.path[:0] = [str(UI / "src"), str(UI / "tests"), str(UI.parent)]
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
@@ -30,7 +31,11 @@ def source_hashes():
 
 
 def native():
-    from PySide6.QtCore import QObject, Property, Signal, Slot, Qt, QUrl, QPoint, QPointF, qInstallMessageHandler
+    def trace(stage):
+        print("[community-native] " + stage, file=sys.stderr, flush=True)
+
+    trace("startup")
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject, Property, Signal, Slot, Qt, QUrl, QPoint, QPointF, qInstallMessageHandler
     from PySide6.QtGui import QColor, QFontDatabase
     from PySide6.QtQml import QQmlEngine, QQmlExpression
     from PySide6.QtQuick import QQuickView
@@ -40,6 +45,7 @@ def native():
 
     QQuickStyle.setStyle("Basic")
     app = QApplication.instance() or QApplication([])
+    trace("application-ready")
     for name in ("segoeui.ttf", "segoeuib.ttf", "seguisb.ttf", "consola.ttf", "tahoma.ttf", "malgun.ttf", "meiryo.ttc"):
         font = Path(os.environ.get("SystemRoot", "C:/Windows")) / "Fonts" / name
         if font.is_file():
@@ -65,8 +71,16 @@ def native():
 
     class VerifiedUiTests(unittest.TestCase):
         def setUp(self):
+            trace(self._testMethodName + ": setup")
+            self.addCleanup(trace, self._testMethodName + ": cleanup-complete")
+            self.messages = []
+            self.addCleanup(self.check_messages)
             self.fixture = PolicyServiceTests("runTest")
+            # This fixture is called manually, so the running test must own its
+            # cleanups and report their failures as well as setup/body failures.
+            self.fixture.addCleanup = self.addCleanup
             self.fixture.setUp()
+            trace("fixture-ready")
             self.service = self.fixture.service
             from kfps_ui.community_validation import inspect_upload
             payload = json.loads(self.fixture.peer.raw)
@@ -83,15 +97,14 @@ def native():
                            preview_sha256=digest, thumbnail_sha256=digest, shape_count=inspected.shape_count,
                            content_sha256=hashlib.sha256(self.fixture.peer.raw).hexdigest())
             self.gallery = self.fixture.make_gallery()
-            self.messages = []
+            trace("gallery-ready")
             self.old_handler = qInstallMessageHandler(lambda kind, context, message: self.messages.append(message))
+            self.addCleanup(qInstallMessageHandler, self.old_handler)
             self.view = None
+            self.addCleanup(self.close_view)
             self.open_view()
 
-        def tearDown(self):
-            self.close_view()
-            qInstallMessageHandler(self.old_handler)
-            self.fixture.tearDown()
+        def check_messages(self):
             errors = [m for m in self.messages if any(term in m for term in (
                 "ReferenceError", "TypeError", "Binding loop", "Cannot assign", "Unable to assign", "is not a type"))]
             self.assertEqual(errors, [])
@@ -122,14 +135,20 @@ def native():
             self.view.show()
             QTest.qWait(80)
             self.wait()
+            trace("view-ready")
 
         def close_view(self):
             if self.view:
+                trace("view-close")
                 self.view.close()
                 self.view.setSource(QUrl())
                 self.view.deleteLater()
-                app.processEvents()
+                # This harness pumps events without app.exec(); processEvents()
+                # alone does not guarantee deferred view/engine destruction.
+                QCoreApplication.sendPostedEvents(self.view, QEvent.DeferredDelete)
                 self.view = None
+                app.processEvents()
+                trace("view-closed")
 
         def wait(self):
             self.assertTrue(settle(lambda: not self.service.busy and not self.gallery.busy
@@ -431,11 +450,22 @@ class NativeHarnessTests(unittest.TestCase):
         env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QUICK_BACKEND": "software",
                "TEMP": str(RUN / "temp"), "TMP": str(RUN / "temp")}
         Path(env["TEMP"]).mkdir(parents=True, exist_ok=True)
-        result = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--native"],
-                                env=env, capture_output=True, text=True, encoding="utf-8", timeout=180,
-                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            result = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--native"],
+                                    env=env, capture_output=True, text=True, encoding="utf-8", timeout=180,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired as exc:
+            output = b"\n".join(part if isinstance(part, bytes) else str(part).encode("utf-8")
+                                for part in (exc.stdout, exc.stderr) if part)
+            self.fail("Native Community workflow timed out:\n" + output.decode("utf-8", errors="replace"))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
-    raise SystemExit(native()) if "--native" in sys.argv else unittest.main()
+    if "--native" in sys.argv:
+        faulthandler.dump_traceback_later(45, repeat=True)
+        try:
+            raise SystemExit(native())
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+    unittest.main()

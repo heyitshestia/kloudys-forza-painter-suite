@@ -37,9 +37,9 @@ async (page, options = {}) => {
     await page.locator("#textPromptInput").press("Enter");
     await page.waitForFunction(() => !projectSaveInProgress && currentProjectName === "Timeout retry");
     const disk = await page.evaluate(async () => {
-      const listing = await (await fetch(PROJECT_BROWSER_API)).json();
+      const listing = await (await fetch(PROJECT_BROWSER_API, { headers: EDITOR_MUTATION_HEADERS })).json();
       const entry = listing.entries.find(item => item.title === "Timeout retry");
-      return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+      return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
     });
     if (JSON.stringify(disk.shapes) !== expected) throw new Error("Retry did not save the exact document to disk");
     return { timeoutMs: elapsed, retrySavedToDisk: true, dirtyStatePreserved: true, layers: disk.shapes.length, handmadeFixture: Boolean(options.project) };

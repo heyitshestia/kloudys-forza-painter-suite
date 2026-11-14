@@ -117,7 +117,7 @@ class ProjectStoreTests(unittest.TestCase):
              RunningEditorServer() as url:
             _, result = post_json(url, fabric_server.PROJECT_SAVE_API,
                                   {"name": "Fixture", "payload": {"shapes": []}, "request_id": "a" * 32})
-            with urllib.request.urlopen(f"{url}{fabric_server.PROJECT_RECEIPT_API}?request_id={'a' * 32}") as response:
+            with url.open(f"{fabric_server.PROJECT_RECEIPT_API}?request_id={'a' * 32}") as response:
                 self.assertEqual(result["receipt"], json.load(response)["receipt"])
-            with urllib.request.urlopen(f"{url}{fabric_server.PROJECT_FILE_API}?id={self.target}") as response:
+            with url.open(f"{fabric_server.PROJECT_FILE_API}?id={self.target}") as response:
                 self.assertEqual(result["receipt"]["fingerprint"], json.load(response)["receipt"]["fingerprint"])

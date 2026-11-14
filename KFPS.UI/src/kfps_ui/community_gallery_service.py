@@ -7,6 +7,7 @@ import json
 import logging
 import tempfile
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,7 @@ class CommunityGalleryService(QObject):
     renderClosed = Signal()
     liveryDownloaded = Signal()
     _completed = Signal(int, object)
+    _image_completed = Signal(str, object)
 
     def __init__(self, repo, community, settings, parent=None):
         super().__init__(parent)
@@ -77,6 +79,15 @@ class CommunityGalleryService(QObject):
         self.creator_model = DictListModel(["artwork"], self)
         self._rows, self._creator_rows, self._records = [], [], {}
         self._image_sources, self._image_pending, self._image_ready = {}, set(), {}
+        self._image_generations = dict(catalog=0, creator=0, selected=0)
+        self._image_waiting, self._image_jobs = OrderedDict(), {}
+        self._image_limit = 4
+        self._image_executor = ThreadPoolExecutor(max_workers=self._image_limit, thread_name_prefix="community-images")
+        self._image_completed.connect(self._finish_image, Qt.QueuedConnection)
+        self._schedule_states = {}
+        self._schedule_refresh_pending = False
+        self._view_active = False
+        self._view_generation = 0
         self._filters = dict(kind="All", game="All", category="All", classification="All", sort="Newest", search="", supporters=False, creator="")
         self._scope, self._selected, self._creator = "Featured", {}, {}
         self._creator_name, self._page, self._creator_page = "", 0, 0
@@ -84,8 +95,9 @@ class CommunityGalleryService(QObject):
         self._catalog_loading, self._creator_loading = False, False
         self._catalog_generation, self._creator_generation = 0, 0
         self._epoch, self._job_id, self._jobs, self._active = 0, 0, {}, 0
+        self._futures = {}
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="community-gallery")
-        self._completed.connect(self._finish)
+        self._completed.connect(self._finish, Qt.QueuedConnection)
         self._closed, self._message, self._error = False, "", False
         self._pending, self._ignored = None, []
         self._render_session, self._render_id = None, ""
@@ -196,7 +208,7 @@ class CommunityGalleryService(QObject):
     @Property(str, notify=changed)
     def defaultEnd(self): return datetime.fromtimestamp(time.time() + 3660).astimezone().isoformat(timespec="minutes")
 
-    def _call(self, function, callback, *, quiet=False):
+    def _call(self, function, callback, *, quiet=False, scope=None):
         if self._closed: return
         self._job_id += 1
         ident, epoch = self._job_id, self._epoch
@@ -205,6 +217,7 @@ class CommunityGalleryService(QObject):
             self._active += 1
             self._message, self._error = "", False
         future = self._executor.submit(function)
+        self._futures[ident] = (future, scope)
         def done(result):
             try: value = result.result()
             except Exception as exc: value = exc
@@ -212,13 +225,24 @@ class CommunityGalleryService(QObject):
         future.add_done_callback(done)
         self.changed.emit()
 
+    def _cancel_calls(self, scope):
+        for ident, (future, owner) in list(self._futures.items()):
+            if owner != scope: continue
+            job = self._jobs.pop(ident, None)
+            if job is not None and not job[2]:
+                self._active = max(0, self._active - 1)
+            future.cancel()
+
     @Slot(int, object)
     def _finish(self, ident, value):
+        self._futures.pop(ident, None)
         job = self._jobs.pop(ident, None)
         if job is None: return
         epoch, callback, quiet, snapshot = job
         if not quiet: self._active = max(0, self._active - 1)
-        if epoch != self._epoch or self._closed or snapshot != self.community.accessSnapshot(): return
+        if epoch != self._epoch or self._closed or snapshot != self.community.accessSnapshot():
+            self.changed.emit()
+            return
         if isinstance(value, Exception):
             logging.warning("Community gallery operation failed: %s", value)
             if not quiet: self._message, self._error = str(value), True
@@ -227,6 +251,7 @@ class CommunityGalleryService(QObject):
             callback(None)
         else:
             callback(value)
+        self._refresh_schedule()
         self.changed.emit()
 
     def _account_changed(self):
@@ -237,6 +262,10 @@ class CommunityGalleryService(QObject):
             self._fingerprint = fingerprint
             self._epoch += 1
             self._catalog_loading = self._creator_loading = False
+            self._cancel_calls("creator")
+            self._invalidate_images()
+            self._schedule_states.clear()
+            self._schedule_refresh_pending = False
             self.closeRender()
             self.images.clear()
             self._image_sources.clear(); self._image_pending.clear(); self._image_ready.clear()
@@ -306,13 +335,15 @@ class CommunityGalleryService(QObject):
     @Slot()
     def refresh(self):
         if self._closed: return
+        self._cancel_calls("catalog")
+        self._invalidate_images("catalog")
         self._catalog_generation += 1
         generation = self._catalog_generation
         self._catalog_loading = True
         client = self.community.sessionClient()
         path = self._path(1)
         self._call(lambda: client.json(path, authenticated=bool(client.token)),
-                   lambda value: self._apply_page(value, generation, False, False))
+                   lambda value: self._apply_page(value, generation, False, False), scope="catalog")
 
     @Slot()
     def loadMore(self):
@@ -321,7 +352,7 @@ class CommunityGalleryService(QObject):
         client, generation = self.community.sessionClient(), self._catalog_generation
         path = self._path(self._page + 1)
         self._call(lambda: client.json(path, authenticated=bool(client.token)),
-                   lambda value: self._apply_page(value, generation, True, False), quiet=True)
+                   lambda value: self._apply_page(value, generation, True, False), quiet=True, scope="catalog")
 
     def _apply_page(self, value, generation, append, creator):
         if generation != (self._creator_generation if creator else self._catalog_generation): return
@@ -332,7 +363,7 @@ class CommunityGalleryService(QObject):
         model = self.creator_model if creator else self.artwork_model
         if not append: rows.clear()
         known = {row["id"] for row in rows}
-        new = [self._row(item) for item in value.get("items", []) if item.get("id") not in known]
+        new = [self._row(item, "creator" if creator else "catalog") for item in value.get("items", []) if item.get("id") not in known]
         rows.extend(new)
         if append: model.append_many([{"artwork": row} for row in new])
         else: model.replace([{"artwork": row} for row in rows])
@@ -345,17 +376,20 @@ class CommunityGalleryService(QObject):
             if not append:
                 ident = self._selected.get("id")
                 row = next((row for row in rows if row["id"] == ident), rows[0] if rows else {})
-                self._selected = row
                 if row: self.select(row["id"])
+                else:
+                    self._invalidate_images("selected")
+                    self._selected = {}
+                    self.closeRender()
 
-    def _image_url(self, record, kind, path, digest=""):
+    def _image_url(self, record, kind, path, digest="", scope="catalog"):
         if not path:
             return ""
-        key = f"{self._epoch}/{record['id']}/{kind}/{digest or record.get('current_revision', 1)}"
-        self._image_sources[key] = (path, digest, record["id"], kind)
+        key = f"{self._epoch}/{scope}/{self._image_generations[scope]}/{record['id']}/{kind}/{digest or record.get('current_revision', 1)}"
+        self._image_sources[key] = (path, digest, record["id"], kind, scope)
         return f"image://community-gallery/{key}?ready={self._image_ready.get(key, 0)}"
 
-    def _row(self, record):
+    def _row(self, record, scope="catalog"):
         ident = str(record["id"])
         self._records[ident] = dict(record)
         creator = record.get("creator", {})
@@ -377,19 +411,54 @@ class CommunityGalleryService(QObject):
             sample=False, warning=record.get("schema_warning", ""), starts=starts, ends=ends, window="", photoUrls=[])
         if starts and ends:
             values = [datetime.fromisoformat(v.replace("Z", "+00:00")) for v in (starts, ends)]
+            now = time.time()
+            reached = tuple(value.timestamp() <= now for value in values)
+            # Rendering an updated image must not consume a timer transition.
+            if self._schedule_states.get(ident, (None,))[0] != (starts, ends):
+                self._schedule_states[ident] = ((starts, ends), reached)
             row["window"] = " - ".join(v.astimezone().strftime("%d %b %Y, %H:%M %Z") for v in values)
-            if values[0].timestamp() > time.time(): row["state"] = "upcoming"
-            if values[1].timestamp() <= time.time(): row["state"] = "expired"
-        row["previewUrl"] = self._image_url(record, "thumbnail", record.get("thumbnail_url", ""), record.get("thumbnail_sha256", ""))
+            if not reached[0]: row["state"] = "upcoming"
+            if reached[1]: row["state"] = "expired"
+            if row["state"] == "expired":
+                row.update(downloadable=False, canViewMedia=False, canInteract=False)
+        else:
+            self._schedule_states.pop(ident, None)
+        row["previewUrl"] = self._image_url(record, "thumbnail", record.get("thumbnail_url", ""), record.get("thumbnail_sha256", ""), scope)
         return row
+
+    def _invalidate_images(self, scope=None):
+        for owner in self._image_generations:
+            if scope is None or owner == scope:
+                self._image_generations[owner] += 1
+        for key, source in list(self._image_sources.items()):
+            if scope is not None and source[4] != scope: continue
+            self._image_sources.pop(key, None)
+            self._image_pending.discard(key)
+            self._image_waiting.pop(key, None)
+            self._image_ready.pop(key, None)
+            job = self._image_jobs.get(key)
+            if job is not None: job[0].cancel()
 
     @Slot(str)
     def _request_image(self, key):
-        if key not in self._image_sources or key in self._image_pending: return
-        path, digest, ident, kind = self._image_sources[key]
-        if not path: return
+        if self._closed or key not in self._image_sources or key in self._image_pending: return
         self._image_pending.add(key)
+        self._image_waiting[key] = None
+        self._drain_images()
+
+    def _drain_images(self):
+        # Keep only a bounded number of submitted jobs, including obsolete running
+        # requests. Waiting keys are lazy demand for the current view, not futures.
+        while (not self._closed and self._view_active and self._image_waiting
+               and len(self._image_jobs) < self._image_limit):
+            key, _ = self._image_waiting.popitem(last=False)
+            if key in self._image_sources: self._start_image(key)
+
+    def _start_image(self, key):
+        path, digest, ident, kind, scope = self._image_sources[key]
+        if not path: return
         client = self.community.sessionClient()
+        snapshot = self.community.accessSnapshot()
         def fetch():
             raw, _ = client.binary(path, authenticated=bool(client.token), maximum=2 * 1024 * 1024)
             if digest and hashlib.sha256(raw).hexdigest() != digest:
@@ -398,30 +467,54 @@ class CommunityGalleryService(QObject):
             if image.isNull() or image.width() > 2048 or image.height() > 2048:
                 raise ValueError("The artwork image is invalid.")
             return image.scaled(640, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation) if kind == "thumbnail" else image
-        def ready(image):
-            self._image_pending.discard(key)
-            if image is None: return
-            self.images.put(key, image)
+        future = self._image_executor.submit(fetch)
+        self._image_jobs[key] = (future, snapshot, self._view_generation)
+        def done(result):
+            try: value = result.result()
+            except Exception as exc: value = exc
+            if not self._closed: self._image_completed.emit(key, value)
+        future.add_done_callback(done)
+
+    @Slot(str, object)
+    def _finish_image(self, key, value):
+        job = self._image_jobs.pop(key, None)
+        self._image_pending.discard(key)
+        try:
+            if (job is None or self._closed or key not in self._image_sources
+                    or job[1] != self.community.accessSnapshot()): return
+            if not self._view_active or job[2] != self._view_generation:
+                # Retain valid demand, not a result from an earlier visible session.
+                self._image_pending.add(key)
+                self._image_waiting[key] = None
+                return
+            if isinstance(value, Exception):
+                logging.warning("Community gallery image failed: %s", value)
+                if isinstance(value, CommunityApiError) and value.status in {401, 403, 409, 426}:
+                    self.community.refreshAccount()
+                return
+            self.images.put(key, value)
             self._image_ready[key] = self._image_ready.get(key, 0) + 1
-            self._update_views(ident)
-        self._call(fetch, ready, quiet=True)
+            self._update_views(self._image_sources[key][2])
+            self.changed.emit()
+        finally:
+            self._drain_images()
 
     def _update_views(self, ident):
-        for rows, model in ((self._rows, self.artwork_model), (self._creator_rows, self.creator_model)):
+        for rows, model, scope in ((self._rows, self.artwork_model, "catalog"), (self._creator_rows, self.creator_model, "creator")):
             for index, row in enumerate(rows):
                 if row["id"] == ident:
-                    rows[index] = self._row(self._records[ident])
+                    rows[index] = self._row(self._records[ident], scope)
                     model.set_row_value(index, "artwork", rows[index])
         if self._selected.get("id") == ident:
-            self._selected = self._row(self._records[ident])
+            self._selected = self._row(self._records[ident], "selected")
             self._selected_media()
 
     def _selected_media(self):
         if not self._selected: return
         record = self._records[self._selected["id"]]
         if self._selected.get("canViewMedia"):
-            self._selected["previewUrl"] = self._image_url(record, "preview", record.get("preview_url", ""), record.get("preview_sha256", ""))
-            self._selected["photoUrls"] = [self._image_url(record, f"photo{index}", path)
+            self._selected["previewUrl"] = self._image_url(record, "preview", record.get("preview_url", ""), record.get("preview_sha256", ""), "selected")
+            self._selected["photoUrls"] = [self._image_url(record, f"photo{index}", path, "", "selected")
                 for index, path in enumerate(record.get("photo_urls", []))] if self.authenticated else []
             if self._selected["kind"] == "livery" and not (record.get("cover_is_first_photo") and self._selected["photoUrls"]):
                 self._selected["photoUrls"].insert(0, self._selected["previewUrl"])
@@ -430,7 +523,8 @@ class CommunityGalleryService(QObject):
     def select(self, ident):
         if ident not in self._records: return
         if ident != self._render_id: self.closeRender()
-        self._selected = self._row(self._records[ident])
+        self._invalidate_images("selected")
+        self._selected = self._row(self._records[ident], "selected")
         self._selected_media()
         self.changed.emit()
 
@@ -458,6 +552,9 @@ class CommunityGalleryService(QObject):
 
     @Slot(str)
     def viewCreator(self, name):
+        if self._closed: return
+        self._cancel_calls("creator")
+        self._invalidate_images("creator")
         self._creator_name = name
         self._creator_generation += 1
         generation = self._creator_generation
@@ -478,7 +575,7 @@ class CommunityGalleryService(QObject):
                 followers=creator.get("followers", 0), followed=creator.get("followed", False),
                 ignored=creator.get("ignored", False), own=name == self.username, artworkCount=catalog.get("total", 0))
             self._apply_page(catalog, generation, False, True)
-        self._call(fetch, done)
+        self._call(fetch, done, scope="creator")
 
     @Slot()
     def loadMoreCreator(self):
@@ -487,7 +584,7 @@ class CommunityGalleryService(QObject):
         client, generation = self.community.sessionClient(), self._creator_generation
         path = self._path(self._creator_page + 1, self._creator_name)
         self._call(lambda: client.json(path, authenticated=bool(client.token)),
-                   lambda value: self._apply_page(value, generation, True, True), quiet=True)
+                   lambda value: self._apply_page(value, generation, True, True), quiet=True, scope="creator")
 
     @Slot(str, result=bool)
     def inspectCreatorArtwork(self, ident):
@@ -582,19 +679,54 @@ class CommunityGalleryService(QObject):
 
     def _notice(self, english, korean): self._message = korean if self.language == "ko" else english
 
+    @Slot(bool)
+    def setViewActive(self, active):
+        if self._closed or self._view_active == active: return
+        self._view_active = active
+        if active:
+            self._tick()
+            self._drain_images()
+        else:
+            self._view_generation += 1
+            for future, _, _ in list(self._image_jobs.values()):
+                future.cancel()
+
+    def _refresh_schedule(self):
+        if (self._closed or not self._view_active or not self._schedule_refresh_pending
+                or self._catalog_loading or self._creator_loading): return
+        self._schedule_refresh_pending = False
+        self.refresh()
+        self.community.refreshAccount()
+        if self._creator_name: self.viewCreator(self._creator_name)
+
     def _tick(self):
-        self.clockChanged.emit()
+        if self._closed: return
         now = time.time()
-        changed = any(row.get("ends") and datetime.fromisoformat(row["ends"].replace("Z", "+00:00")).timestamp() <= now
-                      or row.get("state") == "upcoming" and datetime.fromisoformat(row["starts"].replace("Z", "+00:00")).timestamp() <= now
-                      for row in self._rows + self._creator_rows)
-        if changed and not self._catalog_loading:
-            self.closeRender(); self.images.clear(); self._image_ready.clear()
-            self._selected = {}
-            self._rows.clear(); self.artwork_model.replace([])
-            self.refresh()
-            self.community.refreshAccount()
-            if self._creator_name: self.viewCreator(self._creator_name)
+        if self._render_session is not None:
+            ends = self._records.get(self._render_id, {}).get("ends_at")
+            if ends and datetime.fromisoformat(ends.replace("Z", "+00:00")).timestamp() <= now:
+                self.closeRender()
+        if not self._view_active: return
+        self.clockChanged.emit()
+        changed = set()
+        for row in self._rows + self._creator_rows + ([self._selected] if self._selected else []):
+            schedule = self._schedule_states.get(row["id"])
+            if schedule is None: continue
+            window, previous = schedule
+            reached = tuple(old or datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() <= now
+                            for old, value in zip(previous, window))
+            if reached != previous:
+                self._schedule_states[row["id"]] = (window, reached)
+                changed.add(row["id"])
+        if changed:
+            self.closeRender()
+            self._invalidate_images("selected")
+            self.images.clear()
+            self._image_ready.clear()
+            for ident in changed: self._update_views(ident)
+            self._schedule_refresh_pending = True
+            self.changed.emit()
+        self._refresh_schedule()
 
     @Slot()
     def chooseFile(self):
@@ -763,6 +895,8 @@ class CommunityGalleryService(QObject):
         generation = self._render_generation
         def ready(raw):
             if raw is None or generation != self._render_generation or self._selected.get('id') != ident: return
+            ends = record.get('ends_at')
+            if ends and datetime.fromisoformat(ends.replace('Z', '+00:00')).timestamp() <= time.time(): return
             from .community_preview_livery import PreviewLiverySession
             self._render_session = PreviewLiverySession(self.repo, self.root / 'render', raw)
             self._render_id = ident
@@ -780,8 +914,13 @@ class CommunityGalleryService(QObject):
             session.close()
 
     def close(self):
+        if self._closed: return
         self._closed = True
         self.timer.stop()
         self.closeRender()
+        self._invalidate_images()
         self._executor.shutdown(wait=True, cancel_futures=True)
+        self._image_executor.shutdown(wait=True, cancel_futures=True)
+        self._image_jobs.clear()
+        self._jobs.clear(); self._futures.clear(); self._active = 0
         self.images.clear()

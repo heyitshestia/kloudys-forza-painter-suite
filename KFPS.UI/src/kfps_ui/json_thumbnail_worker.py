@@ -7,11 +7,15 @@ import sys
 import time
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
+
 from .app_paths import AppPaths
+from .json_index import StartupJsonIndexBuilder, write_index_cache_payload
 from .preview_service import PreviewService
 
 
 SOURCE_NAMES = ["generated", "editor", "exported", "library"]
+THUMBNAIL_RESULTS_VERSION = 1
 
 
 def worker_environment(paths: AppPaths) -> dict:
@@ -91,11 +95,39 @@ def _load_payload(cache_file: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def _write_payload(cache_file: Path, payload: dict) -> None:
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    tmp.replace(cache_file)
+def thumbnail_results_file(cache_file: Path) -> Path:
+    return cache_file.with_name(cache_file.name + ".thumbnails.v1.json")
+
+
+def thumbnail_file_revision(path: Path) -> dict:
+    try:
+        stat = path.stat()
+        if not path.is_file():
+            return {}
+    except OSError:
+        return {}
+    return {"mtimeNs": stat.st_mtime_ns, "size": stat.st_size,
+            "ctimeNs": stat.st_ctime_ns, "fileId": stat.st_ino}
+
+
+def thumbnail_preview_missing(url: str) -> bool:
+    value = QUrl(str(url or ""))
+    return value.isLocalFile() and not Path(value.toLocalFile()).is_file()
+
+
+def _thumbnail_cleanup_snapshot(preview, path, source):
+    target_for = getattr(preview, "_cache_target", None)
+    if not callable(target_for):
+        return []
+    cache_root = preview.cache.resolve()
+    if cache_root.parent != preview.paths.runtime_root.resolve() or cache_root.name != "qml-json-previews":
+        raise RuntimeError("Refusing to clear an unexpected thumbnail cache path.")
+    namespace = source if source in {"generated", "editor"} else "general"
+    target = target_for(path, namespace)
+    targets = (target, preview._forced_marker(target))
+    if any(item.is_symlink() or item.resolve().parent != cache_root for item in targets):
+        raise RuntimeError("Refusing to clear an unexpected thumbnail target.")
+    return [(item, thumbnail_file_revision(item)) for item in targets]
 
 
 def _ordered_source_items(sources: dict, preferred_source: int | str | None = None):
@@ -122,64 +154,106 @@ def warm_thumbnail_cache(
     preferred_source: int | str | None = None,
     force: bool = False,
 ) -> int:
+    """Render a snapshot and publish preview results, never inventory changes."""
     cache_file = cache_file or _cache_file(paths)
     payload = _load_payload(cache_file)
+    return _render_thumbnail_payload(
+        payload, thumbnail_results_file(cache_file), preview or PreviewService(paths),
+        max_seconds=max_seconds, max_items=max_items, preferred_source=preferred_source, force=force,
+    )
+
+
+def _render_thumbnail_payload(payload, result_file, preview, *, max_seconds=0.0,
+                              max_items=0, preferred_source=None, force=False, clear_cache=False):
     sources = payload.get("sources") if isinstance(payload, dict) else None
     if not isinstance(sources, dict):
         return 0
-    preview = preview or PreviewService(paths)
     started = time.monotonic()
     updated = 0
+    results = {"version": THUMBNAIL_RESULTS_VERSION, "sources": {}}
+    jobs = []
     for source_key, source_payload in _ordered_source_items(sources, preferred_source=preferred_source):
         try:
             source_name = SOURCE_NAMES[int(source_key)]
         except (TypeError, ValueError, IndexError):
-            source_name = ""
+            continue
         rows = source_payload.get("rows") if isinstance(source_payload, dict) else None
         if not isinstance(rows, list):
             continue
+        result_rows = []
+        results["sources"][str(source_key)] = {"root": source_payload.get("root"), "rows": result_rows}
         for row in rows:
             if not isinstance(row, dict):
                 continue
             path = Path(str(row.get("path") or ""))
-            needs_preview = bool(force) or not bool(row.get("previewUrl"))
+            needs_preview = bool(force) or not bool(row.get("previewUrl")) or thumbnail_preview_missing(row.get("previewUrl"))
             if not needs_preview and source_name == "generated":
                 checker = getattr(preview, "generated_preview_needs_persistence", None)
                 needs_preview = bool(callable(checker) and checker(path))
             if not needs_preview:
                 continue
-            if max_items and updated >= max_items:
-                _write_payload(cache_file, payload)
-                return updated
-            if max_seconds and time.monotonic() - started >= max_seconds:
-                _write_payload(cache_file, payload)
-                return updated
-            if not path.is_file():
+            revision = thumbnail_file_revision(path)
+            if not revision or any(row.get(key, revision[key]) != revision[key] for key in ("mtimeNs", "size")):
                 continue
             try:
-                renderer = getattr(preview, "regenerate_preview_for_json", None) if force else None
-                if not callable(renderer):
-                    renderer = preview.preview_for_json
-                preview_url = str(renderer(path, source_name) or "")
-            except Exception:
-                preview_url = ""
-            if preview_url:
-                row["previewUrl"] = preview_url
-                updated += 1
-                if updated % 25 == 0:
-                    _write_payload(cache_file, payload)
-    if updated:
-        _write_payload(cache_file, payload)
+                cleanup = _thumbnail_cleanup_snapshot(preview, path, source_name) if clear_cache else []
+            except OSError:
+                continue
+            if thumbnail_file_revision(path) != revision:
+                continue
+            result = {"path": str(path), **revision, "previewUrl": ""}
+            if force:
+                result_rows.append(result)
+            jobs.append((path, source_name, revision, result_rows, result, cleanup))
+    # Publish bounded invalidations before deleting managed previews, so a killed
+    # regeneration cannot leave the owner pointing at missing cache files.
+    write_index_cache_payload(result_file, results)
+    if clear_cache:
+        results["removed"] = 0
+    for path, source_name, revision, result_rows, result, cleanup in jobs:
+        if max_items and updated >= max_items:
+            break
+        if max_seconds and time.monotonic() - started >= max_seconds:
+            break
+        if thumbnail_file_revision(path) != revision:
+            continue
+        # Do not delete or replace previews repaired after this job's snapshot.
+        if any(item.is_symlink() or thumbnail_file_revision(item) != captured for item, captured in cleanup):
+            continue
+        for item, captured in cleanup:
+            if captured:
+                try:
+                    item.unlink()
+                    results["removed"] += 1
+                except OSError:
+                    pass
+        try:
+            renderer = getattr(preview, "regenerate_preview_for_json", None) if force else None
+            if not callable(renderer):
+                renderer = preview.preview_for_json
+            preview_url = str(renderer(path, source_name) or "")
+        except Exception:
+            preview_url = ""
+        if preview_url and thumbnail_file_revision(path) == revision:
+            result["previewUrl"] = preview_url
+            if not force:
+                result_rows.append(result)
+            updated += 1
+            if updated % 25 == 0:
+                write_index_cache_payload(result_file, results)
+    write_index_cache_payload(result_file, results)
     return updated
 
 
 def regenerate_thumbnail_cache(paths: AppPaths, cache_file: Path | None = None, preview=None) -> tuple[int, int, int]:
     cache_file = cache_file or _cache_file(paths)
     preview = preview or PreviewService(paths)
-    removed = int(preview.clear_cached_thumbnails())
-    from .json_service import build_startup_json_index_cache
-    indexed = int(build_startup_json_index_cache(paths, preview=preview, include_existing_previews=False))
-    rendered = int(warm_thumbnail_cache(paths, cache_file=cache_file, preview=preview, force=True))
+    # Standalone regeneration still discovers every source, but this snapshot is
+    # read-only: only JsonService may publish inventory while the app is running.
+    payload, indexed = StartupJsonIndexBuilder(paths, preview=preview, include_existing_previews=False).build_payload()
+    result_file = thumbnail_results_file(cache_file)
+    rendered = _render_thumbnail_payload(payload, result_file, preview, force=True, clear_cache=True)
+    removed = int(_load_payload(result_file).get("removed") or 0)
     return rendered, removed, indexed
 
 

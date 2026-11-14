@@ -9,7 +9,7 @@ from kfps_ui.app_paths import AppPaths
 from kfps_ui.generation_service import GenerationService
 from kfps_ui.json_metadata import json_mask_summary, payload_mask_count, shape_uses_mask
 from kfps_ui.json_service import JsonService, build_startup_json_index_cache
-from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command
+from kfps_ui.json_thumbnail_worker import regenerate_thumbnail_cache, warm_thumbnail_cache, worker_command, thumbnail_results_file, thumbnail_file_revision
 from kfps_ui.log_service import LogService
 from kfps_ui.preview_service import PreviewService, _stable_renderer_stamp
 from kfps_ui.qt_utils import file_url
@@ -742,18 +742,19 @@ class ServiceTests(unittest.TestCase):
  def test_startup_index_cache_preserves_existing_preview_urls(self):
   class ExistingPreview:
    def existing_preview_for_json(self,path,source=""):
-    return "file:///startup-preview.png"
+    return preview_url
    def preview_for_json(self,path,source=""):
     raise AssertionError("startup index must not render previews")
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);target=app_root/"imgs"/"generated"/"Startup"/"finals"/"Startup.9v2.json";target.parent.mkdir(parents=True)
    target.write_text(json.dumps({"metadata":{"display_name":"Startup Vinyl","layers":9},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
    paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
+   preview_url=PreviewService(paths).preview_for_json(target,"generated")
    self.assertEqual(1,build_startup_json_index_cache(paths,preview=ExistingPreview()))
    svc=JsonService(paths,ExistingPreview(),DummyDesktop(target),DummyLog())
    try:
     self.assertEqual(1,svc.outputCount)
-    self.assertEqual("file:///startup-preview.png",svc.fileModel.row(0)["previewUrl"])
+    self.assertEqual(preview_url,svc.fileModel.row(0)["previewUrl"])
    finally:
     shutdown_json_service(svc)
  def test_startup_thumbnail_worker_fills_missing_preview_urls(self):
@@ -762,7 +763,7 @@ class ServiceTests(unittest.TestCase):
     self.calls=[]
    def preview_for_json(self,path,source=""):
     self.calls.append((Path(path).name,source))
-    return "file:///rendered-cache.png"
+    return PreviewService(paths).preview_for_json(path,source)
   with tempfile.TemporaryDirectory() as td:
    app_root=Path(td);target=app_root/"imgs"/"generated"/"Warm"/"finals"/"Warm.11v2.json";target.parent.mkdir(parents=True)
    target.write_text(json.dumps({"metadata":{"display_name":"Warm Vinyl","layers":11},"shapes":[{"type":1048677,"data":[0,0,1,1,0],"color":[255,255,255,255]}]}),encoding="utf-8")
@@ -770,15 +771,16 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(1,build_startup_json_index_cache(paths,preview=DummyPreview()))
    preview=RenderingPreview()
    self.assertEqual(1,warm_thumbnail_cache(paths,preview=preview,max_items=1))
-   payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   preview_url=file_url(PreviewService(paths)._generated_preview_target(target))
+   payload=json.loads(thumbnail_results_file(paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
    row=payload["sources"]["0"]["rows"][0]
-   self.assertEqual("file:///rendered-cache.png",row["previewUrl"])
+   self.assertEqual(preview_url,row["previewUrl"])
    self.assertEqual([("Warm.11v2.json","generated")],preview.calls)
    svc=JsonService(paths,DummyPreview(),DummyDesktop(target),DummyLog())
    try:
-    self.assertEqual("file:///rendered-cache.png",svc.fileModel.row(0)["previewUrl"])
+    self.assertEqual(preview_url,svc.fileModel.row(0)["previewUrl"])
     refreshed=svc._build_source_index(0,paths.generated_root,svc._source_cache_key(0))
-    self.assertEqual("file:///rendered-cache.png",refreshed["rows"][0]["previewUrl"])
+    self.assertEqual(preview_url,refreshed["rows"][0]["previewUrl"])
    finally:
     shutdown_json_service(svc)
  def test_open_json_model_merges_thumbnail_urls_from_cache(self):
@@ -791,14 +793,14 @@ class ServiceTests(unittest.TestCase):
    try:
     svc.setSource(2)
     self.assertEqual("",svc.fileModel.row(0)["previewUrl"])
-    payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
-    payload["sources"]["2"]["rows"][0]["previewUrl"]="file:///late-preview.png"
-    (paths.runtime_root/"json-browser-index.v1.json").write_text(json.dumps(payload),encoding="utf-8")
+    preview_url=PreviewService(paths).regenerate_preview_for_json(target,"exported")
+    payload={"version":1,"sources":{"2":{"root":svc._source_cache_key(2),"rows":[{"path":str(target),**thumbnail_file_revision(target),"previewUrl":preview_url}]}}}
+    thumbnail_results_file(paths.runtime_root/"json-browser-index.v1.json").write_text(json.dumps(payload),encoding="utf-8")
     self.assertEqual(1,svc._merge_preview_urls_from_cache(force=True))
-    self.assertEqual("file:///late-preview.png",svc.fileModel.row(0)["previewUrl"])
+    self.assertEqual(preview_url,svc.fileModel.row(0)["previewUrl"])
     explorer_row=next(row for row in svc.explorerModel.rows if row.get("path")==str(target))
-    self.assertEqual("file:///late-preview.png",explorer_row["previewUrl"])
-    self.assertEqual("file:///late-preview.png",svc.previewUrl)
+    self.assertEqual(preview_url,explorer_row["previewUrl"])
+    self.assertEqual(preview_url,svc.previewUrl)
    finally:
     shutdown_json_service(svc)
 
@@ -838,14 +840,14 @@ class ServiceTests(unittest.TestCase):
    self.assertEqual(2,build_startup_json_index_cache(paths,preview=DummyPreview()))
    preview=RenderingPreview()
    self.assertEqual(1,warm_thumbnail_cache(paths,preview=preview,max_items=1,preferred_source=3))
-   cached=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
-   self.assertEqual("",cached["sources"]["2"]["rows"][0]["previewUrl"])
+   cached=json.loads(thumbnail_results_file(paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   self.assertEqual([],cached["sources"]["2"]["rows"])
    self.assertEqual("file:///library.png",cached["sources"]["3"]["rows"][0]["previewUrl"])
    self.assertEqual(["library"],preview.calls)
- def test_regenerate_thumbnail_cache_clears_only_runtime_cache_and_rebuilds_every_source(self):
-  class RebuildPreview:
-   def __init__(self):self.cleared=False;self.calls=[]
-   def clear_cached_thumbnails(self):self.cleared=True;return 2
+ def test_regenerate_thumbnail_cache_clears_only_snapshot_targets_and_rebuilds_every_source(self):
+  class RebuildPreview(PreviewService):
+   def __init__(self,paths):super().__init__(paths);self.calls=[]
+   def clear_cached_thumbnails(self):raise AssertionError("regeneration must not clear the whole cache")
    def existing_preview_for_json(self,path,source=""):raise AssertionError("forced rebuild searched stale previews")
    def regenerate_preview_for_json(self,path,source=""):
     self.calls.append((Path(path).name,source));return f"file:///{source}-rebuilt.png"
@@ -858,12 +860,13 @@ class ServiceTests(unittest.TestCase):
    paths=AppPaths(app_root,UI,UI/"qml",UI/"assets",app_root/"runtime",app_root/"python/python.exe")
    cache=paths.runtime_root/"qml-json-previews";cache.mkdir(parents=True);(cache/"old.png").write_bytes(b"old")
    outside=paths.runtime_root/"keep.txt";outside.write_text("keep",encoding="utf-8")
-   self.assertEqual(1,PreviewService(paths).clear_cached_thumbnails())
-   self.assertFalse(cache.exists());self.assertTrue(nearby.exists());self.assertTrue(outside.exists())
-   preview=RebuildPreview();rendered,removed,indexed=regenerate_thumbnail_cache(paths,preview=preview)
-   self.assertEqual((2,2,2),(rendered,removed,indexed));self.assertTrue(preview.cleared)
+   seed=PreviewService(paths)
+   seed.regenerate_preview_for_json(target,"exported");seed.regenerate_preview_for_json(library,"library")
+   preview=RebuildPreview(paths);rendered,removed,indexed=regenerate_thumbnail_cache(paths,preview=preview)
+   self.assertEqual((2,4,2),(rendered,removed,indexed))
+   self.assertEqual(b"old",(cache/"old.png").read_bytes());self.assertTrue(nearby.exists());self.assertTrue(outside.exists())
    self.assertEqual([("Rebuild.json","exported"),("Cloud.json","library")],preview.calls)
-   payload=json.loads((paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
+   payload=json.loads(thumbnail_results_file(paths.runtime_root/"json-browser-index.v1.json").read_text(encoding="utf-8"))
    self.assertEqual("file:///exported-rebuilt.png",payload["sources"]["2"]["rows"][0]["previewUrl"])
    self.assertEqual("file:///library-rebuilt.png",payload["sources"]["3"]["rows"][0]["previewUrl"])
  def test_regenerate_thumbnail_cache_force_renders_more_than_900_library_jsons(self):

@@ -25,7 +25,7 @@ class EditorPreferencesTests(unittest.TestCase):
                     self.assertEqual(original, marker.read_bytes())
                 for expected in ("1", "0"):
                     with RunningEditorServer() as server:
-                        with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                        with server.open("/api/fabric-editor/preferences") as response:
                             self.assertEqual(json.load(response)["settings"], {
                                 key: expected, "kloudyFabricFavorites": "[101,102]"})
                         post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "0"}})
@@ -46,7 +46,7 @@ class EditorPreferencesTests(unittest.TestCase):
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "modernization-1"}})
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {"kloudyFabricLanguage": "ko"}})
                 with RunningEditorServer() as server:
-                    with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                    with server.open("/api/fabric-editor/preferences") as response:
                         settings = json.load(response)["settings"]
                 self.assertEqual(settings, {key: "modernization-1", "kloudyFabricLanguage": "ko",
                                             "kloudyFabricFavorites": "[101,102]"})
@@ -61,7 +61,7 @@ class EditorPreferencesTests(unittest.TestCase):
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {
                         "kloudyFabricLanguageNoticeAcknowledged": "1"}})
                 with RunningEditorServer() as server:
-                    with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                    with server.open("/api/fabric-editor/preferences") as response:
                         settings = json.load(response)["settings"]
                 self.assertEqual(settings, {"kloudyFabricFavorites": "[101,102]",
                                            "kloudyFabricLanguage": "ko",
@@ -77,7 +77,7 @@ class EditorPreferencesTests(unittest.TestCase):
                         self.assertEqual(theme + "-custom", fabric_server._theme_id_from_name(theme))
                     post_json(server, "/api/fabric-editor/themes", {"name": "My matte", "base": "blackout", "values": {"--text": "#eeeeee"}})
                 with RunningEditorServer() as server:
-                    with urllib.request.urlopen(f"{server}/api/fabric-editor/themes") as response:
+                    with server.open("/api/fabric-editor/themes") as response:
                         themes = json.load(response)["themes"]
                     self.assertTrue({"blackout", "whiteout"}.issubset({theme["id"] for theme in themes if theme["builtin"]}))
                     self.assertEqual("blackout", next(theme["base"] for theme in themes if theme["name"] == "My matte"))
@@ -91,7 +91,7 @@ class EditorPreferencesTests(unittest.TestCase):
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {"kloudyFabricFavorites": "[1,2]"}})
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {key: "1"}})
                 with RunningEditorServer() as server:
-                    with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                    with server.open("/api/fabric-editor/preferences") as response:
                         settings = json.load(response)["settings"]
                 self.assertEqual({"kloudyFabricFavorites": "[1,2]", key: "1"}, settings)
 
@@ -101,7 +101,7 @@ class EditorPreferencesTests(unittest.TestCase):
             marker.write_text("{broken settings", encoding="utf-8")
             with patch.object(fabric_server, "EDITOR_PREFS_MARKER", marker), RunningEditorServer() as server:
                 with self.assertRaises(urllib.error.HTTPError):
-                    urllib.request.urlopen(f"{server}/api/fabric-editor/preferences")
+                    server.open("/api/fabric-editor/preferences")
                 with self.assertRaises(urllib.error.HTTPError):
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {"kloudyFabricLastColor": "#000000"}})
                 self.assertEqual("{broken settings", marker.read_text())
@@ -115,7 +115,7 @@ class EditorPreferencesTests(unittest.TestCase):
                     post_json(server, "/api/fabric-editor/preferences", {"settings": {"kloudyFabricLastColor": "#123456"}})
                     post_json(server, "/api/fabric-editor/preferences", {"theme": "dark"})
                 with RunningEditorServer() as server:
-                    with urllib.request.urlopen(f"{server}/api/fabric-editor/preferences") as response:
+                    with server.open("/api/fabric-editor/preferences") as response:
                         data = json.load(response)
                     self.assertEqual("[1,2]", data["settings"]["kloudyFabricFavorites"])
                     self.assertEqual("#123456", data["settings"]["kloudyFabricLastColor"])

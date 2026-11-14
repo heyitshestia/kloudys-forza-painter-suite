@@ -41,7 +41,7 @@ async (page, options) => {
       if (documentDirty) throw new Error("Soak project save failed");
       // Save starts a clean-session checkpoint independently of its project ACK.
       await flushPendingAutosave();
-      const response = await fetch(`${PROJECT_FILE_API}?id=Storage%20soak.fabric-project.json`);
+      const response = await fetch(`${PROJECT_FILE_API}?id=Storage%20soak.fabric-project.json`, { headers: EDITOR_MUTATION_HEADERS });
       if (!response.ok) throw new Error("Soak saved project read failed");
       const { payload } = await response.json();
       if (JSON.stringify(payload.shapes) !== JSON.stringify(snapshotShapes()) || payload.editor_source_overlay.data_url !== editorReference.source.dataUrl) throw new Error("Soak saved project changed data");

@@ -5,7 +5,7 @@ async page => page.evaluate(async () => {
   editorTheme.applyEditorTheme('blackout', { persist: false });
   await KfpsEditorPreferences.flush();
   const after = editorSettings.getItem('kloudyFabricTheme');
-  const stored = await (await fetch(EDITOR_PREFS_API)).json();
+  const stored = await (await fetch(EDITOR_PREFS_API, { headers: EDITOR_MUTATION_HEADERS })).json();
   if (before !== after || stored.settings.kloudyFabricTheme !== before) {
     throw new Error(`A non-persistent render changed the saved theme: ${JSON.stringify({ before, after, stored })}`);
   }

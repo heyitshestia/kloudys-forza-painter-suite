@@ -27,7 +27,7 @@ from kfps_ui.community_service import CommunityService
 from test_community_access import capability, contribution, policy
 
 APP = QCoreApplication.instance() or QCoreApplication([])
-RUN_ROOT = UI.parent / "runtime/community-tests/free-access-client-20261019"
+RUN_ROOT = Path(os.environ.get("KFPS_COMMUNITY_TEST_ROOT", UI.parent / "runtime/community-tests/free-access-client-20261019"))
 
 
 def settle(predicate, timeout=5):
@@ -168,13 +168,19 @@ class PolicyServiceTests(unittest.TestCase):
     def setUp(self):
         RUN_ROOT.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=RUN_ROOT)
+        self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         self.peer = WirePeer()
+        self.addCleanup(self.peer.close)
         self.endpoint = patch.dict(os.environ, {"KFPS_COMMUNITY_API_URL": self.peer.url})
         self.endpoint.start()
+        self.addCleanup(self.endpoint.stop)
+        self.gallery = None
         paths = AppPaths(app_root=root, ui_root=UI, qml_root=UI / "qml", asset_root=UI / "assets",
                          runtime_root=root / "runtime", bundled_python=UI.parent / "python/python.exe")
         self.service = CommunityService(paths, SimpleNamespace(openFolder=lambda _: None), SimpleNamespace(append=lambda *args: None))
+        self.addCleanup(self.service.close)
+        self.addCleanup(self.peer.release_session.set)
         self.service._activation_timer.stop()
         self.service._supporter_timer.stop()
         self.service._token = "account-a"
@@ -182,16 +188,10 @@ class PolicyServiceTests(unittest.TestCase):
         self.service._local_supporter_state = "no_key"
         self.service.activate()
         self.assertTrue(settle(lambda: self.service.connected and not self.service.busy), self.service.errorMessage)
-        self.gallery = None
 
     def tearDown(self):
         self.peer.release_session.set()
-        if self.gallery:
-            self.gallery.close()
-        self.service.close()
-        self.peer.close()
-        self.endpoint.stop()
-        self.temp.cleanup()
+        self.doCleanups()
 
     def refresh(self):
         self.service.refreshAccount()
@@ -199,6 +199,7 @@ class PolicyServiceTests(unittest.TestCase):
 
     def make_gallery(self):
         self.gallery = CommunityGalleryService(UI.parent, self.service, SimpleNamespace(communityLanguage="en"))
+        self.addCleanup(self.gallery.close)
         self.gallery.timer.stop()
         self.gallery.filter("scope", "My uploads")
         self.assertTrue(settle(lambda: not self.gallery.busy))

@@ -27,6 +27,10 @@ Item {
         return "Snapshot: " + (isNaN(date.getTime()) ? scanned : date.toISOString().slice(0, 16).replace("T", " ") + " UTC")
     }
     function fieldLabel(name) { return name.replace(/([a-z])([A-Z])/g, "$1 $2") }
+    function prepareForUnload() {
+        // Cancel buffered tile creation before the Loader invalidates our context.
+        cars.model = null
+    }
     function positionSelection() {
         for (let i = 0; i < root.service.visibleCount; ++i) {
             if (root.service.cars.get(i).instanceId === root.service.selectedId) {
@@ -641,6 +645,9 @@ Item {
         id: removeComparison
         objectName: "garageRemoveComparisonDialog"
         title: "Remove Saved Comparison?"
+        // Measure wrapping without feeding the popup's geometry back into its height.
+        readonly property real messageWrapWidth: Math.max(0,
+            Math.min(root.width - Theme.px(24), Theme.px(360)) - leftPadding - rightPadding)
         modal: true
         anchors.centerIn: parent
         width: Math.min(root.width - Theme.px(24), Theme.px(360))
@@ -650,7 +657,7 @@ Item {
             implicitHeight: removalMessage.implicitHeight
             CopyText {
                 id: removalMessage
-                width: removeComparison.availableWidth
+                width: removeComparison.messageWrapWidth
                 color: removeComparison.palette.windowText
                 text: "Only this comparison and its project link will be removed. The project file will not be changed."
             }

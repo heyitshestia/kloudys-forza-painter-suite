@@ -79,7 +79,7 @@ async (page, options = {}) => {
   await page.unroute('**/api/fabric-editor/preferences');
   await page.locator('#editorUpdateIndicator').focus(); await page.keyboard.press('Enter');
   await page.waitForFunction(() => !document.getElementById('editorUpdateIndicator').disabled);
-  check(await page.evaluate(async key => (await (await fetch(EDITOR_PREFS_API)).json()).settings[key], key) === '3.1.990', 'Acknowledgement not in real preference store');
+  check(await page.evaluate(async key => (await (await fetch(EDITOR_PREFS_API, { headers: EDITOR_MUTATION_HEADERS })).json()).settings[key], key) === '3.1.990', 'Acknowledgement not in real preference store');
   status.latestVersion = '3.1.991'; await refresh(); check(await blinking(), 'Next update did not blink');
   await page.unroute('**/api/fabric-editor/update-status');
   await page.route('**/api/fabric-editor/update-status', route => route.fulfill({ status: 503, json: {} }));

@@ -37,7 +37,14 @@ from .json_metadata import (
     metadata_count_value,
     metadata_for_json,
 )
-from .json_thumbnail_worker import worker_command, worker_environment
+from .json_thumbnail_worker import (
+    THUMBNAIL_RESULTS_VERSION,
+    thumbnail_file_revision,
+    thumbnail_preview_missing,
+    thumbnail_results_file,
+    worker_command,
+    worker_environment,
+)
 from .log_service import LogService
 from .lifecycle import discard_queued_events
 from .models import DictListModel
@@ -140,7 +147,7 @@ class JsonService(QObject):
         self._preview_running = False
         self._previewReady.connect(self._apply_preview_result)
         self._indexReady.connect(self._apply_source_index_result)
-        self._ensure_logo(); self._load_index_cache(); self._load_source(force=False); self.refreshRecent(); self._call_later(150, self.warmIndex); self._call_later(1800, self._schedule_thumbnail_warm)
+        self._ensure_logo(); self._load_index_cache(); self._merge_preview_urls_from_cache(force=True); self._load_source(force=False); self.refreshRecent(); self._call_later(150, self.warmIndex); self._call_later(1800, self._schedule_thumbnail_warm)
 
     def _call_later(self, delay_ms, callback):
         if self._closed:
@@ -981,6 +988,7 @@ class JsonService(QObject):
             old_rows = list(self._all_file_rows) if source == self._source else []
             index["backgroundFresh"] = True
             self._source_index_cache[source] = index
+            self._merge_preview_urls_from_cache(force=True)
             self._index_status = f"Indexed {self._source_label(source)} ({len(index.get('rows', []))} JSONs)"
             if source == self._source:
                 new_rows = index.get("rows", [])
@@ -1026,10 +1034,6 @@ class JsonService(QObject):
                 loaded += len(index.get("rows", []))
         if loaded:
             self._index_status = f"Loaded cached output index ({loaded} JSONs)"
-        try:
-            self._thumbnail_cache_mtime_ns = cache_file.stat().st_mtime_ns
-        except OSError:
-            self._thumbnail_cache_mtime_ns = 0
 
     def _source_index_from_cache(self, source, payload):
         if not isinstance(payload, dict):
@@ -1238,6 +1242,8 @@ class JsonService(QObject):
         self._preview_queue.clear()
         self._preview_queued.clear()
         self._preview_empty.clear()
+        for source in range(len(self._source_roots())):
+            self._request_source_scan(source, force=True)
         self._thumbnail_regenerating = True
         self._set_thumbnail_status("Clearing and replacing every local thumbnail...", True)
         self._start_thumbnail_worker(regenerate=True)
@@ -1262,6 +1268,7 @@ class JsonService(QObject):
             if not self._thumbnail_poll_timer.isActive():
                 self._thumbnail_poll_timer.start()
             return
+        self._merge_preview_urls_from_cache(force=True)
         cache_file = self._index_cache_file()
         if not regenerate and not cache_file.is_file():
             self._set_thumbnail_status("Thumbnail cache is waiting for the output index.", False)
@@ -1313,14 +1320,7 @@ class JsonService(QObject):
         return self._cache_source_has_missing_preview_urls(None)
 
     def _cache_source_has_missing_preview_urls(self, wanted_source):
-        try:
-            payload = json.loads(self._index_cache_file().read_text(encoding="utf-8"))
-        except Exception:
-            return False
-        sources = payload.get("sources") if isinstance(payload, dict) else None
-        if not isinstance(sources, dict):
-            return False
-        for source_key, source in sources.items():
+        for source_key, source in self._source_index_cache.items():
             if wanted_source is not None and str(source_key) != str(int(wanted_source)):
                 continue
             rows = source.get("rows") if isinstance(source, dict) else None
@@ -1330,7 +1330,7 @@ class JsonService(QObject):
                 if not isinstance(row, dict):
                     continue
                 path = Path(str(row.get("path") or ""))
-                if row.get("previewUrl"):
+                if row.get("previewUrl") and not thumbnail_preview_missing(row["previewUrl"]):
                     if str(source_key) != "0":
                         continue
                     checker = getattr(self.preview, "generated_preview_needs_persistence", None)
@@ -1386,7 +1386,6 @@ class JsonService(QObject):
             return
         if self._thumbnail_regenerating:
             self._thumbnail_regenerating = False
-            self._reload_regenerated_thumbnail_index()
             indexed = max(count, int(summary.get("indexed") or count))
             failed = max(0, int(summary.get("failed") or (indexed - count)))
             if indexed == 0:
@@ -1414,63 +1413,67 @@ class JsonService(QObject):
             return
         self._thumbnail_poll_timer.stop()
 
-    def _reload_regenerated_thumbnail_index(self):
-        self._source_index_cache.clear()
-        self._thumbnail_cache_mtime_ns = 0
-        self._load_index_cache()
-        self._load_source(force=False)
-        self._refresh_recent_from_cache()
-        self._preview_url = ""
-        if self._selected_path:
-            for row in self._all_file_rows:
-                if self._same_path(row.get("path"), self._selected_path):
-                    self._preview_url = str(row.get("previewUrl") or "")
-                    break
-        self.changed.emit()
-
     def _merge_preview_urls_from_cache(self, force=False):
-        cache_file = self._index_cache_file()
+        if force:
+            missing = {}
+            for cached in self._source_index_cache.values():
+                for row in cached.get("rows", []):
+                    if thumbnail_preview_missing(row.get("previewUrl")):
+                        row["previewUrl"] = ""
+                        missing[self._preview_key(row.get("path"))] = ""
+            self._apply_thumbnail_preview_urls(missing)
+        cache_file = thumbnail_results_file(self._index_cache_file())
         try:
             stat = cache_file.stat()
         except OSError:
             return 0
         if not force and self._thumbnail_cache_mtime_ns == stat.st_mtime_ns:
             return 0
-        self._thumbnail_cache_mtime_ns = stat.st_mtime_ns
         try:
             payload = json.loads(cache_file.read_text(encoding="utf-8"))
         except Exception:
             return 0
+        if not isinstance(payload, dict) or payload.get("version") != THUMBNAIL_RESULTS_VERSION:
+            return 0
         sources = payload.get("sources") if isinstance(payload, dict) else None
         if not isinstance(sources, dict):
             return 0
+        self._thumbnail_cache_mtime_ns = stat.st_mtime_ns
         previews_by_key = {}
         for source, cached in self._source_index_cache.items():
             source_payload = sources.get(str(source))
             rows = source_payload.get("rows") if isinstance(source_payload, dict) else None
-            if not isinstance(rows, list):
+            if not isinstance(rows, list) or source_payload.get("root") != cached.get("root"):
                 continue
             rows_by_key = cached.get("rowsByKey", {})
             for raw in rows:
                 if not isinstance(raw, dict):
                     continue
                 preview_url = str(raw.get("previewUrl") or "")
-                if not preview_url:
+                if thumbnail_preview_missing(preview_url):
                     continue
                 path = Path(str(raw.get("path") or ""))
                 key = self._preview_key(path)
                 row = rows_by_key.get(key)
                 if not row or row.get("previewUrl") == preview_url:
                     continue
-                if int(raw.get("mtimeNs") or -1) != int(row.get("mtimeNs") or -2):
+                if not preview_url:
+                    current_url = QUrl(str(row.get("previewUrl") or ""))
+                    if not current_url.isLocalFile() or Path(current_url.toLocalFile()).is_file():
+                        continue
+                if raw.get("mtimeNs") != row.get("mtimeNs") or raw.get("size") != row.get("size"):
                     continue
-                if int(raw.get("size") or -1) != int(row.get("size") or -2):
+                revision = thumbnail_file_revision(path)
+                if not revision or any(raw.get(name) != value for name, value in revision.items()):
                     continue
                 row["previewUrl"] = preview_url
                 previews_by_key[key] = preview_url
-                self._preview_empty.discard(key)
+        return self._apply_thumbnail_preview_urls(previews_by_key)
+
+    def _apply_thumbnail_preview_urls(self, previews_by_key):
         if not previews_by_key:
             return 0
+        self._preview_empty.difference_update(previews_by_key)
         for row in self._all_file_rows:
             key = self._preview_key(row.get("path"))
             if key in previews_by_key:
@@ -1478,7 +1481,7 @@ class JsonService(QObject):
         for index, row in enumerate(self._visible_file_rows):
             key = self._preview_key(row.get("path"))
             preview_url = previews_by_key.get(key)
-            if preview_url:
+            if key in previews_by_key:
                 row["previewUrl"] = preview_url
                 self._file_model.set_row_value(index, "previewUrl", preview_url)
         for key, preview_url in previews_by_key.items():
@@ -1488,6 +1491,7 @@ class JsonService(QObject):
             if selected_key in previews_by_key:
                 self._preview_url = previews_by_key[selected_key]
         self.changed.emit()
+        self._schedule_index_cache_save()
         return len(previews_by_key)
 
     def _ensure_logo(self):
@@ -2820,10 +2824,13 @@ class JsonService(QObject):
         if not path.is_file():
             return
         key = self._preview_key(path)
-        if key in self._preview_empty:
-            return
         source_name, row = self._source_name_for_preview_path(path)
         if row and row.get("previewUrl"):
+            if not thumbnail_preview_missing(row["previewUrl"]):
+                return
+            row["previewUrl"] = ""
+            self._apply_thumbnail_preview_urls({key: ""})
+        if key in self._preview_empty:
             return
         self._enqueue_preview_path(path, source_name, priority=False, start=True, check_existing=True)
 

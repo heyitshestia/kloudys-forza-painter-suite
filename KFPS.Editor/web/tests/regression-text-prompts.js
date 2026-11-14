@@ -19,10 +19,10 @@ async (page, options = {}) => {
     await idle();
   };
   const project = name => page.evaluate(async name => {
-    const listing = await (await fetch(PROJECT_BROWSER_API)).json();
+    const listing = await (await fetch(PROJECT_BROWSER_API, { headers: EDITOR_MUTATION_HEADERS })).json();
     const entry = listing.entries.find(item => item.title === name);
     if (!entry) return null;
-    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
   }, name);
   await page.evaluate(async () => {
     KfpsEditorPreferences.setItem("kloudyFabricProjectSharingAcknowledged", "1");
@@ -44,10 +44,10 @@ async (page, options = {}) => {
   const state = await page.evaluate(() => ({ name: currentProjectName, dirty: documentDirty, status: document.getElementById("status").textContent }));
   check(state.name === "Enter Save As" && !state.dirty, `Save As + Enter did not save: ${JSON.stringify(state)}`);
   const saved = await page.evaluate(async () => {
-    const listing = await (await fetch(PROJECT_BROWSER_API)).json();
+    const listing = await (await fetch(PROJECT_BROWSER_API, { headers: EDITOR_MUTATION_HEADERS })).json();
     const entry = listing.entries.find(item => item.title === "Enter Save As");
     if (!entry) throw new Error("Saved project is absent from the real project folder");
-    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
   });
   check(saved.shapes.length === count, "Saved project must contain every layer");
 
@@ -133,7 +133,7 @@ async (page, options = {}) => {
   const exported = await page.evaluate(async () => {
     await refreshJsonBrowser();
     const entry = selectedJsonBrowserEntry();
-    return (await (await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+    return (await (await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
   });
   check(exported.shapes.length === count && exported.shapes.every(shape => Object.keys(shape).every(key => !key.startsWith("editor_"))), "Enter-exported JSON must contain every flat layer without editor metadata");
   await enterName("#saveProject", "Enter First Save");
@@ -160,7 +160,7 @@ async (page, options = {}) => {
   check(await page.locator("#themeAdjustDialog").isVisible(), "IME composition Enter must not prematurely save the theme");
   await page.locator("#themeAdjustName").press("Enter");
   await page.locator("#themeAdjustDialog").waitFor({ state: "hidden" });
-  check(await page.evaluate(async () => (await (await fetch(EDITOR_THEMES_API)).json()).themes.some(theme => theme.name === "Enter Theme")), "Theme-name Enter must write a real theme file");
+  check(await page.evaluate(async () => (await (await fetch(EDITOR_THEMES_API, { headers: EDITOR_MUTATION_HEADERS })).json()).themes.some(theme => theme.name === "Enter Theme")), "Theme-name Enter must write a real theme file");
   await page.locator('[data-tool-mode="text"]').click();
   await page.locator("#textVinylInput").fill("First line");
   await page.locator("#textVinylInput").press("End");

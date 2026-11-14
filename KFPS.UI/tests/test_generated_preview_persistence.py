@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from kfps_ui.app_paths import AppPaths
-from kfps_ui.json_thumbnail_worker import warm_thumbnail_cache
+from kfps_ui.json_thumbnail_worker import warm_thumbnail_cache, thumbnail_results_file
 from kfps_ui.preview_service import PreviewService
 
 
@@ -79,7 +79,7 @@ class GeneratedPreviewPersistenceTests(unittest.TestCase):
 
             self.assertEqual(1, warm_thumbnail_cache(paths, cache_file=cache_file, preview=service))
             self.assertTrue(expected.is_file())
-            migrated = json.loads(cache_file.read_text(encoding="utf-8"))
+            migrated = json.loads(thumbnail_results_file(cache_file).read_text(encoding="utf-8"))
             self.assertIn("Vinyl.preview.500v2.png", migrated["sources"]["0"]["rows"][0]["previewUrl"])
 
 

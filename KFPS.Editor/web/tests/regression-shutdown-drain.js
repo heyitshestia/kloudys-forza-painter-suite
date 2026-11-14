@@ -16,7 +16,7 @@ async (page, options = {}) => page.evaluate(async ({ characterize }) => {
   window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
   release(); await first;
   if (typeof editorShutdownPromise !== 'undefined' && editorShutdownPromise) await editorShutdownPromise;
-  const response = await fetch('/api/fabric-editor/autosave', { cache: 'no-store' });
+  const response = await fetch('/api/fabric-editor/autosave', { cache: 'no-store', headers: EDITOR_MUTATION_HEADERS });
   const stored = await response.json();
   const result = { held, latestStored: JSON.stringify(stored.payload?.shapes || stored.shapes) === expected,
     workerDisposed: editorPersistence.disposed, pendingJobs: editorPersistence.pending.size };

@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -40,6 +41,25 @@ class RunningEditorServer:
     def __str__(self):
         return self.url
 
+    def open(self, path_or_request, *, timeout=3):
+        if isinstance(path_or_request, urllib.request.Request):
+            request = urllib.request.Request(
+                path_or_request.full_url,
+                data=path_or_request.data,
+                headers=dict(path_or_request.header_items()),
+                method=path_or_request.get_method(),
+            )
+        else:
+            request = urllib.request.Request(urllib.parse.urljoin(self.url + "/", str(path_or_request)))
+        target = urllib.parse.urlsplit(request.full_url)
+        local = urllib.parse.urlsplit(self.url)
+        if (target.scheme, target.netloc) != (local.scheme, local.netloc):
+            raise ValueError("Authenticated test requests must target this Editor server")
+        header = fabric_server.EDITOR_MUTATION_HEADER
+        if not any(name.lower() == header.lower() for name, _ in request.header_items()):
+            request.add_unredirected_header(header, self.httpd.editor_session_token)
+        return urllib.request.urlopen(request, timeout=timeout)
+
     def __exit__(self, exc_type, exc, traceback):
         self.httpd.shutdown()
         self.httpd.server_close()
@@ -64,6 +84,33 @@ def post_json(base_url: str, path: str, payload: dict, token=True):
 
 
 class FabricEditorServerTests(unittest.TestCase):
+    def test_authenticated_open_accepts_paths_urls_and_request_objects(self):
+        with RunningEditorServer() as server:
+            endpoint = "/api/fabric-editor/update-status"
+            request = urllib.request.Request(f"{server}{endpoint}", headers={"Accept": "application/json"})
+            for target in (endpoint, f"{server}{endpoint}", request):
+                with server.open(target, timeout=3) as response:
+                    self.assertEqual(200, response.status)
+                    self.assertFalse(json.load(response)["available"])
+            self.assertEqual([("Accept", "application/json")], request.header_items())
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                urllib.request.urlopen(f"{server}{endpoint}", timeout=3)
+            self.assertEqual(403, denied.exception.code)
+            denied.exception.close()
+
+    def test_authenticated_open_preserves_wrong_tokens_and_refuses_other_origins(self):
+        with RunningEditorServer() as server:
+            request = urllib.request.Request(f"{server}/api/fabric-editor/update-status", headers={
+                fabric_server.EDITOR_MUTATION_HEADER: "wrong-test-token",
+            })
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                server.open(request)
+            self.assertEqual(403, denied.exception.code)
+            denied.exception.close()
+            for target in ("https://not-local.example/private", "//not-local.example/private"):
+                with self.assertRaises(ValueError):
+                    server.open(target)
+
     def test_update_status_is_authenticated_and_read_only(self):
         with RunningEditorServer() as server:
             endpoint = f"{server}/api/fabric-editor/update-status"
@@ -187,7 +234,7 @@ class FabricEditorServerTests(unittest.TestCase):
                     self.assertFalse(store(20)["applied"])
                 with RunningEditorServer() as server:
                     self.assertFalse(store(20)["applied"])
-                    with urllib.request.urlopen(f"{server}{fabric_server.EDITOR_AUTOSAVE_API}") as response:
+                    with server.open(fabric_server.EDITOR_AUTOSAVE_API) as response:
                         self.assertFalse(json.load(response)["exists"])
                     self.assertTrue(store(22)["applied"])
                     self.assertEqual(22, json.loads(marker.read_text())["recovery_revision"])

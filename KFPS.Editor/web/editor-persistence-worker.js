@@ -206,7 +206,7 @@ async function readRecovery(config) {
   const candidates = [];
   const errors = [];
   const sources = await Promise.allSettled([
-    browserRead(), requestJson("/api/fabric-editor/autosave?compact=1", { cache: "no-store" }, 5000, config.maxBytes + 1024 * 1024),
+    browserRead(), requestJson("/api/fabric-editor/autosave?compact=1", { headers: config.headers, cache: "no-store" }, 5000, config.maxBytes + 1024 * 1024),
   ]);
   let clearedRevision = 0;
   let highestRevision = 0;
@@ -224,7 +224,7 @@ async function readRecovery(config) {
     if (data.payload) {
       candidates.unshift({ payload: data.payload, fallback: data.fallback, loadBlob: async reference => {
           const response = await fetch(`/api/fabric-editor/recovery-reference?sha256=${reference.sha256}`,
-            { cache: "no-store", signal: AbortSignal.timeout(30000) });
+            { headers: config.headers, cache: "no-store", signal: AbortSignal.timeout(30000) });
           if (!response.ok) throw failure("Recovery reference is missing.");
           return response.blob();
       } });
@@ -249,10 +249,10 @@ function validRevision(value) {
   return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
-async function recoveryHead() {
+async function recoveryHead(config) {
   const sources = await Promise.allSettled([
     browserRead({ metadataOnly: true }),
-    requestJson("/api/fabric-editor/autosave?head=1", { cache: "no-store" }, 5000),
+    requestJson("/api/fabric-editor/autosave?head=1", { headers: config.headers, cache: "no-store" }, 5000),
   ]);
   if (sources.every(source => source.status === "rejected")) {
     throw failure("Recovery storage could not be checked. Restart the editor before editing.", "recovery_head_unavailable");
@@ -269,7 +269,7 @@ async function execute(message, reference) {
   if (operation === "recovery") return saveRecovery(payload, reference, config);
   if (operation === "browserRecovery") return saveRecovery(payload, reference, config, true);
   if (operation === "readRecovery") return readRecovery(config);
-  if (operation === "recoveryHead") return recoveryHead();
+  if (operation === "recoveryHead") return recoveryHead(config);
   if (operation === "parseFile") {
     if (message.file.size > config.maxBytes) throw failure("File exceeds the editor input limit. Choose a smaller file.", "input_too_large");
     return JSON.parse(await message.file.text());
@@ -281,7 +281,7 @@ async function execute(message, reference) {
     return JSON.parse(message.text);
   }
   if (operation === "fetchJSON") {
-    const response = await fetch(message.url, { cache: "no-store", signal: AbortSignal.timeout(30000) });
+    const response = await fetch(message.url, { headers: config.headers, cache: "no-store", signal: AbortSignal.timeout(30000) });
     // Compact UTF-8 server serialization keeps the document budget independent
     // of the small API envelope. Never trust Content-Length as the sole bound.
     const data = await boundedResponseJSON(response, response.ok ? config.maxBytes + 1024 * 1024 : 2 * 1024 * 1024);

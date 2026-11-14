@@ -23,9 +23,9 @@ async (page, options = {}) => {
   await page.waitForFunction(() => !projectSaveInProgress);
   check(await page.evaluate(() => currentProjectName === "Restart Enter Proof" && !documentDirty), "Save As + Enter must continue working in a fresh process");
   const persisted = await page.evaluate(async () => {
-    const entries = (await (await fetch(PROJECT_BROWSER_API)).json()).entries;
+    const entries = (await (await fetch(PROJECT_BROWSER_API, { headers: EDITOR_MUTATION_HEADERS })).json()).entries;
     const entry = entries.find(entry => entry.title === "Restart Enter Proof");
-    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json()).payload;
+    return (await (await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json()).payload;
   });
   check(persisted.shapes.length === count, "Restart Save As must write every layer to disk");
   return { freshProcessReopen: true, savedAgainWithEnter: true, groups: true, layers: count, renamedLayerLabelPreserved };

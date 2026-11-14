@@ -12,7 +12,7 @@ async (page) => {
   const checkpoint = async () => page.evaluate(async () => {
     await flushPendingAutosave();
     if (editorRecovery.backupPromise) await editorRecovery.backupPromise;
-    return (await (await fetch(`${EDITOR_AUTOSAVE_API}?history=1`)).json()).entries;
+    return (await (await fetch(`${EDITOR_AUTOSAVE_API}?history=1`, { headers: EDITOR_MUTATION_HEADERS })).json()).entries;
   });
   const initial = await h.setup(page, output, { layers: 2400 });
   const png = await page.evaluate(() => {

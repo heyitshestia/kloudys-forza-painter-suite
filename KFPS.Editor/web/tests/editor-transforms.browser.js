@@ -339,7 +339,7 @@ async (page) => {
   await page.waitForFunction(() => !projectSaveInProgress && Boolean(currentProjectName) && !documentDirty);
   await page.evaluate(() => flushPendingAutosave());
   const saved = await page.evaluate(async () => {
-    const listing = await (await fetch(PROJECT_BROWSER_API)).json();
+    const listing = await (await fetch(PROJECT_BROWSER_API, { headers: EDITOR_MUTATION_HEADERS })).json();
     return { listing, title: currentProjectName };
   });
   const entries = saved.listing.entries || saved.listing.projects || [];

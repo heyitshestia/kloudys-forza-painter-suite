@@ -726,8 +726,23 @@ Item {
                     clip: true
 
                     Loader {
+                        id: garageLoader
+                        objectName: "GarageBrowserLoader"
                         anchors.fill: parent
-                        active: root.pageActive && root.showGallery && root.libraryTab === 2 && root.garage !== null
+                        readonly property bool requested: root.pageActive && root.showGallery && root.libraryTab === 2 && root.garage !== null
+                        active: false
+                        visible: requested
+                        function releaseIfHidden() {
+                            if (requested) return
+                            if (item) item.prepareForUnload()
+                            active = false
+                        }
+                        onRequestedChanged: {
+                            if (requested) active = true
+                            // Finish the current signal/creation stack before releasing its context.
+                            else Qt.callLater(releaseIfHidden)
+                        }
+                        Component.onCompleted: active = requested
                         sourceComponent: GarageBrowser {
                             service: root.garage
                             launchBusy: fullLiveryService.running || editorService.studioLaunching

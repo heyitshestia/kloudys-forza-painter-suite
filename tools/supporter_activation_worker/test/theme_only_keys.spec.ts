@@ -338,13 +338,13 @@ describe("Community binding and bounded protocol", () => {
     const headerCases: Record<string, string>[] = [{ "Content-Type": "text/plain" }, { "Content-Type": "application/json", "Content-Length": "8193" }];
     for (const headers of headerCases) {
       const response = await SELF.fetch(`https://activation.test/v1/${route}`, { method: "POST", headers, body: JSON.stringify(body) });
-      expect(response.status).toBe(headers["Content-Type"] === "text/plain" ? 415 : 400);
+      expect(response.status).toBe(headers["Content-Type"] === "text/plain" ? 415 : 413);
     }
     const oversized = `${JSON.stringify(body)}${" ".repeat(8193)}`;
     const response = await SELF.fetch(`https://activation.test/v1/${route}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: oversized,
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(413);
     expect(await row()).toEqual(before);
   });
 });

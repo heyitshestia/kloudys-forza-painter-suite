@@ -74,7 +74,7 @@ async (page, options) => {
         await saveProject();
         const before = JSON.stringify(editorReference.sourceOverlayProjectState());
         const shapes = JSON.stringify(snapshotShapes());
-        const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(`Storage ${size}.fabric-project.json`)}`, { cache: "no-store" });
+        const response = await fetch(`${PROJECT_FILE_API}?id=${encodeURIComponent(`Storage ${size}.fabric-project.json`)}`, { cache: "no-store", headers: EDITOR_MUTATION_HEADERS });
         const data = await response.json();
         await loadProjectPayload(data.payload, `Storage ${size}`);
         if (before !== JSON.stringify(editorReference.sourceOverlayProjectState()) || shapes !== JSON.stringify(snapshotShapes())) throw new Error("Saved project did not reopen exactly");

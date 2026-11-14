@@ -9,6 +9,8 @@ declare global {
       ACTIVATION_PRIVATE_KEY_PEM: string;
       ADMIN_HMAC_SECRET: string;
       ACTIVATION_KEY_ID: string;
+      KOFI_VERIFICATION_TOKEN: string;
+      KOFI_INBOX_PUBLIC_KEY_PEM: string;
     }
   }
 }

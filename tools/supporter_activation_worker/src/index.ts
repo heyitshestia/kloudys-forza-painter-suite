@@ -81,12 +81,31 @@ function hasExactKeys(value: Record<string, unknown>, expected: string[]): boole
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
+class RequestBodyTooLargeError extends Error {}
+
 async function readBody(request: Request, maximum: number): Promise<string> {
-  const declared = Number(request.headers.get("content-length") || "0");
-  if (declared > maximum) throw new Error("request body too large");
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > maximum) throw new Error("request body too large");
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const reader = request.body?.getReader();
+  try {
+    const declared = Number(request.headers.get("content-length") || "0");
+    if (declared > maximum) throw new RequestBodyTooLargeError("request body too large");
+    if (!reader) return "";
+    const bytes = new Uint8Array(maximum);
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > maximum - length) throw new RequestBodyTooLargeError("request body too large");
+      bytes.set(value, length);
+      length += value.byteLength;
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
+  } catch (error) {
+    // A failing or stalled producer must not delay rejection or mask its cause.
+    if (reader) void reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    reader?.releaseLock();
+  }
 }
 
 function parseKeyProofRequest(value: Record<string, unknown>): KeyProofRequest {
@@ -148,7 +167,8 @@ async function handleActivate(request: Request, env: Env): Promise<Response> {
   let activation: ActivationRequest;
   try {
     activation = parseActivationRequest(await readBody(request, MAX_PUBLIC_BODY));
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "request_too_large");
     return errorResponse(400, "invalid_request");
   }
 
@@ -181,7 +201,8 @@ async function handleDeactivate(request: Request, env: Env): Promise<Response> {
   let activation: ActivationRequest;
   try {
     activation = parseActivationRequest(await readBody(request, MAX_PUBLIC_BODY));
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "request_too_large");
     return errorResponse(400, "invalid_request");
   }
   const now = new Date().toISOString();
@@ -203,7 +224,8 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
   let activation: ActivationRequest;
   try {
     activation = parseActivationRequest(await readBody(request, MAX_PUBLIC_BODY));
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "request_too_large");
     return errorResponse(400, "invalid_request");
   }
 
@@ -234,7 +256,8 @@ async function handleCommunityEntitlement(request: Request, env: Env): Promise<R
   let entitlementRequest: CommunityEntitlementRequest;
   try {
     entitlementRequest = parseCommunityEntitlementRequest(await readBody(request, MAX_PUBLIC_BODY));
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "request_too_large");
     return errorResponse(400, "invalid_request");
   }
 
@@ -315,7 +338,8 @@ async function handleKofiWebhook(request: Request, env: Env): Promise<Response> 
   try {
     rawBody = await readBody(request, MAX_KOFI_BODY);
     payload = parseKofiPayload(rawBody, contentType);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "request_too_large");
     return errorResponse(400, "invalid_webhook");
   }
   if (!validKofiToken(payload, env.KOFI_VERIFICATION_TOKEN || "")) {

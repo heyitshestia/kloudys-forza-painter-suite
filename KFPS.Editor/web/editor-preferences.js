@@ -82,7 +82,7 @@ window.KfpsEditorPreferences = (() => {
     });
     if (localOnly) return;
     try {
-      const response = await fetch("/api/fabric-editor/preferences", { cache: "no-store", signal: AbortSignal.timeout(5000) });
+      const response = await fetch("/api/fabric-editor/preferences", { headers: { "X-KFPS-Editor-Session": token() }, cache: "no-store", signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error(tr("HTTP {0}", response.status));
       const result = await response.json();
       const stored = result.settings || {};

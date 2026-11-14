@@ -14,6 +14,12 @@ Item {
     function ui(en, ko) { return root.language === "ko" ? ko : en }
     function openCreator(name) { preview.viewCreator(name); creatorDialog.open() }
     function openArtworkImage() { imageDialog.photoIndex = 0; imageDialog.open() }
+    function syncViewActive(active) {
+        if (root.liveMode && typeof preview !== "undefined" && preview
+                && typeof preview.setViewActive === "function")
+            preview.setViewActive(active)
+    }
+    Component.onCompleted: syncViewActive(visible)
 
         ColumnLayout {
             anchors.fill: parent; spacing: Theme.px(6)
@@ -187,10 +193,11 @@ Item {
         function onRenderClosed() { renderDialog.close() }
     }
     onVisibleChanged: {
+        root.syncViewActive(visible)
         if (!visible) { imageDialog.close(); renderDialog.close(); preview.closeRender() }
         else if (root.liveMode) preview.refreshAccess()
     }
-    Component.onDestruction: preview.closeRender()
+    Component.onDestruction: { root.syncViewActive(false); preview.closeRender() }
     PreviewDialog {
         id: reportDialog; parent: Overlay.overlay; anchors.centerIn: parent; modal: true; width: 520
         title: root.ui("Report artwork", "작품 신고"); standardButtons: Dialog.Cancel | Dialog.Ok

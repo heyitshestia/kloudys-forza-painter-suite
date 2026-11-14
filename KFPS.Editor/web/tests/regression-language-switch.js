@@ -66,7 +66,7 @@ async (page, options = {}) => {
     await closeDialogs();
     await save('Localization '+language+' 한국어 日本語');
     const saved=await page.evaluate(async()=>({name:currentProjectName,
-      status:(await fetch(PROJECT_BROWSER_API+'?name='+encodeURIComponent(currentProjectName))).status}));
+      status:(await fetch(PROJECT_BROWSER_API+'?name='+encodeURIComponent(currentProjectName), { headers: EDITOR_MUTATION_HEADERS })).status}));
     assert.equal(saved.status,200);
     await page.evaluate(()=>KfpsEditorPreferences.flush());
     await page.screenshot({path:path.join(output,'language-'+language+'.png')});

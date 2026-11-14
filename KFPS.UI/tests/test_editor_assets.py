@@ -22,7 +22,7 @@ def save(server, **overrides):
 
 
 def get(server, query=""):
-    with urllib.request.urlopen(f"{server}{API}{query}") as response:
+    with server.open(f"{API}{query}") as response:
         return json.load(response)
 
 
@@ -118,7 +118,7 @@ class EditorAssetTests(unittest.TestCase):
             entry = save(server)
             with patch.object(fabric_server, "render_editor_asset_preview", return_value=b"png-preview") as render:
                 for _ in range(2):
-                    with urllib.request.urlopen(str(server) + entry["preview_url"]) as response:
+                    with server.open(entry["preview_url"]) as response:
                         self.assertEqual(b"png-preview", response.read())
                 self.assertEqual(1, render.call_count)
             with patch.object(fabric_server, "EDITOR_ASSET_MAX_BYTES", 10):
@@ -130,18 +130,18 @@ class EditorAssetTests(unittest.TestCase):
             entry = save(server)
             url = str(server) + entry["preview_url"]
             with patch.object(fabric_server, "render_editor_asset_preview", return_value=b"preview") as render:
-                with urllib.request.urlopen(url) as response:
+                with server.open(url) as response:
                     etag = response.headers["ETag"]
                     self.assertEqual("private, no-cache", response.headers["Cache-Control"])
                     self.assertEqual(b"preview", response.read())
                 server.httpd.asset_previews.clear()
                 request = urllib.request.Request(url, headers={"If-None-Match": etag})
                 with self.assertRaises(urllib.error.HTTPError) as unchanged:
-                    urllib.request.urlopen(request)
+                    server.open(request)
                 self.assertEqual(304, unchanged.exception.code)
                 self.assertEqual(1, render.call_count)
                 post_json(server, API, {"action": "rename", "id": entry["id"], "revision": 1, "name": "Changed asset"})
-                with urllib.request.urlopen(request) as changed:
+                with server.open(request) as changed:
                     self.assertNotEqual(etag, changed.headers["ETag"])
                     changed.read()
                 self.assertEqual(2, render.call_count)
@@ -175,22 +175,22 @@ class EditorAssetTests(unittest.TestCase):
                 patch.object(fabric_server, "_render_json_preview", return_value=b"preview") as render, \
                 RunningEditorServer() as server:
             url = str(server) + fabric_server.JSON_PREVIEW_API + "?id=source.json"
-            with urllib.request.urlopen(url) as response:
+            with server.open(url) as response:
                 etag = response.headers["ETag"]
                 self.assertEqual(b"preview", response.read())
             request = urllib.request.Request(url, headers={"If-None-Match": etag})
             with self.assertRaises(urllib.error.HTTPError) as unchanged:
-                urllib.request.urlopen(request)
+                server.open(request)
             self.assertEqual(304, unchanged.exception.code)
             self.assertEqual(1, render.call_count)
             source.write_text(json.dumps({"shapes": [SHAPE, SHAPE]}), encoding="utf-8")
-            with urllib.request.urlopen(request) as changed:
+            with server.open(request) as changed:
                 self.assertNotEqual(etag, changed.headers["ETag"])
                 changed.read()
             self.assertEqual(2, render.call_count)
             source.unlink()
             with self.assertRaises(urllib.error.HTTPError) as missing:
-                urllib.request.urlopen(request)
+                server.open(request)
             self.assertEqual(400, missing.exception.code)
             self.assertEqual(2, render.call_count)
 
@@ -209,6 +209,6 @@ class EditorAssetTests(unittest.TestCase):
         with RunningEditorServer() as server, patch.object(fabric_server, "render_editor_asset_preview", return_value=b"preview"):
             for index in range(35):
                 entry = save(server, name=f"Asset {index}")
-                with urllib.request.urlopen(str(server) + entry["preview_url"]) as response:
+                with server.open(entry["preview_url"]) as response:
                     response.read()
             self.assertEqual(32, len(server.httpd.asset_previews))

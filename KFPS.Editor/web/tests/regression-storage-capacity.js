@@ -42,7 +42,7 @@ async (page, options) => {
     if (documentDirty) throw new Error("Near-limit save failed");
     const saveMs = performance.now() - before;
     const expected = await capacityDigest({ shapes: snapshotShapes(), reference: editorReference.source.dataUrl });
-    const response = await fetch(`${PROJECT_FILE_API}?id=Capacity%20boundary.fabric-project.json`);
+    const response = await fetch(`${PROJECT_FILE_API}?id=Capacity%20boundary.fabric-project.json`, { headers: EDITOR_MUTATION_HEADERS });
     const { payload } = await response.json();
     if (await capacityDigest({ shapes: payload.shapes, reference: payload.editor_source_overlay.data_url }) !== expected) throw new Error("Near-limit saved file changed data");
     await loadProjectPayload(payload, "Capacity boundary");
@@ -65,7 +65,7 @@ async (page, options) => {
     if (!documentDirty) throw new Error("Rejected save marked document clean");
     await flushPendingAutosave();
     if (editorRecovery.status.state !== "failed" || editorRecovery.retryScheduled) throw new Error("Over-limit recovery claimed success or kept retrying");
-    const project = await (await fetch(`${PROJECT_FILE_API}?id=Capacity%20boundary.fabric-project.json`)).json();
+    const project = await (await fetch(`${PROJECT_FILE_API}?id=Capacity%20boundary.fabric-project.json`, { headers: EDITOR_MUTATION_HEADERS })).json();
     const recovery = await readAutosavePayload();
     if (await capacityDigest({ shapes: project.payload.shapes, reference: project.payload.editor_source_overlay.data_url }) !== saved.expected) throw new Error("Rejected save changed previous file");
     if (await capacityDigest({ shapes: recovery.shapes, reference: recovery.editor_source_overlay.data_url }) !== saved.recoveryHash) throw new Error("Rejected recovery changed previous file");

@@ -47,7 +47,7 @@ async (page,options={})=> {
       check(await page.evaluate(async count=> {
         const entry=selectedJsonBrowserEntry();
         if(!entry)return false;
-        const {payload}=await (await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(entry.id)}`)).json();
+        const {payload}=await (await fetch(`${JSON_FILE_API}?id=${encodeURIComponent(entry.id)}`, { headers: EDITOR_MUTATION_HEADERS })).json();
         return payload.shapes.length===count&&payload.shapes.every(shape=>Object.keys(shape).every(key=>!key.startsWith('editor_')));
       },initial.layers),'Dense flat export is missing layers or includes editor-only groups');
       await trace.run(`${order}/new-canvas`,async()=> {

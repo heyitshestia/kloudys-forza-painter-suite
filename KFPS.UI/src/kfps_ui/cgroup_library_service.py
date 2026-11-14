@@ -780,12 +780,17 @@ class CGroupLibraryService(QObject):
         if source_paths:
             self._save_cached_roots(self._roots_for_sources(source_paths, game_key), game_key)
         candidates = []
+        issues: list[str] = []
         for path in source_paths:
             if self._cancel_event.is_set():
                 raise concurrent.futures.CancelledError()
-            candidates.append(
-                describe_source(path, expected_layers=None, inspect=True, inspect_locked=False, game=game_key)
-            )
+            try:
+                candidate = describe_source(
+                    path, expected_layers=None, inspect=True, inspect_locked=False, game=game_key
+                )
+            except OSError as exc:
+                candidate = {"file": str(path), "decode": {"ok": False, "error": str(exc)}}
+            candidates.append(candidate)
         candidates.sort(key=lambda item: (item.get("_sort_mtime") or 0.0, item.get("file") or ""), reverse=True)
 
         library_root = self._library_root(game_key)
@@ -807,6 +812,12 @@ class CGroupLibraryService(QObject):
             source_path = Path(str(source.get("file") or ""))
             if not source_path.is_file():
                 skipped += 1
+                issues.append(f"{source_path}: source is no longer available; previous export retained")
+                continue
+            fingerprint = self._file_fingerprint(source_path)
+            if not fingerprint or fingerprint != source.get("fingerprint"):
+                skipped += 1
+                issues.append(f"{source_path}: source changed during scan; previous export retained")
                 continue
             ownership = assess_offline_source(adapter, source_path)
             if not ownership.allowed:
@@ -816,8 +827,8 @@ class CGroupLibraryService(QObject):
             decode = source.get("decode") or {}
             if not decode.get("ok"):
                 skipped += 1
+                issues.append(f"{source_path}: {decode.get('error') or 'decode failed'}; previous export retained")
                 continue
-            fingerprint = str(source.get("fingerprint") or self._file_fingerprint(source_path))
 
             try:
                 decoded = decode_forza_source(
@@ -825,23 +836,38 @@ class CGroupLibraryService(QObject):
                     allow_locked=False,
                     game=adapter.shape_schema.canonical_game,
                 )
-            except DecodeError:
+            except (DecodeError, OSError) as exc:
                 skipped += 1
+                issues.append(f"{source_path}: {exc}; previous export retained")
+                continue
+
+            # Structural warnings mean the export may omit artwork. Identity
+            # warnings are informational and do not imply an incomplete decode.
+            report = decoded.report
+            if report.get("warnings") or any(report.get(key) for key in (
+                "incomplete_counted_groups", "missing_counted_children",
+                "skipped_counted_children", "unrecognized_byte_count"
+            )):
+                skipped += 1
+                issues.append(f"{source_path}: incomplete or uncertain decode; previous export retained")
                 continue
 
             layers = len(decoded.layers)
             if not adapter.accepts_decoded_source(decoded.source_kind, layers):
                 skipped += 1
                 continue
+            metadata = self._read_layer_group_metadata(source_path)
+            if self._file_fingerprint(source_path) != fingerprint:
+                skipped += 1
+                issues.append(f"{source_path}: source changed during scan; previous export retained")
+                continue
             if adapter.save_discovery.ignored_design_kind == "fm8_liveries":
-                report = decoded.report
                 grouped = int(report.get("group_nodes") or 0)
                 if grouped:
                     fm8_grouped_sources += 1
                 fm8_group_transforms += int(report.get("non_identity_group_transforms") or 0)
                 fm8_pre_group_records += int(report.get("fm8_pre_group_transform_records") or 0)
                 fm8_legacy_shape_records += int(report.get("fm8_legacy_shape_records") or 0)
-            metadata = self._read_layer_group_metadata(source_path)
             title = metadata.get("title") or source.get("folder_name") or source_path.parent.name or "Forza LayerGroup"
             metadata["layers"] = layers
             metadata["layer_count"] = layers
@@ -856,10 +882,8 @@ class CGroupLibraryService(QObject):
                 source_key_text = str(source_path.resolve())
             except OSError:
                 source_key_text = str(source_path)
-            active_source_keys.add(self._source_path_key(source_path))
             source_key = hashlib.sha1(source_key_text.encode("utf-8", errors="ignore")).hexdigest()[:8]
             entry_name = safe_file_part(f"{display_stem}-{layers}layers-{source_key}-{fingerprint}", "forza-layergroup")
-            active_entry_names.add(entry_name)
             entry_root = library_root / entry_name
             output_json = entry_root / f"{entry_name}.json"
             report_path = entry_root / f"{entry_name}.report.json"
@@ -900,6 +924,9 @@ class CGroupLibraryService(QObject):
             self._write_text_if_changed(manifest_path, json.dumps(manifest_payload, indent=2))
             self._write_preview(output_json)
             exported.append(str(output_json.resolve()))
+            # Only a complete, stable, published replacement authorizes pruning.
+            active_source_keys.add(self._source_path_key(source_path))
+            active_entry_names.add(entry_name)
 
         self._prune_non_layergroup_library_entries(
             library_root,
@@ -934,6 +961,7 @@ class CGroupLibraryService(QObject):
             "fm8_pre_group_records": fm8_pre_group_records,
             "fm8_legacy_shape_records": fm8_legacy_shape_records,
             "outputs": exported,
+            "issues": issues,
             "message": (
                 f"{game_label} save scan complete: scanned {len(candidates)} candidate(s), "
                 f"exported {len(exported)}, skipped {skipped}"
@@ -941,6 +969,7 @@ class CGroupLibraryService(QObject):
                 + (f", ignored {ignored_designs} design(s)" if ignored_designs else "")
                 + fm8_message
                 + "."
+                + (" First issue: " + issues[0] if issues else "")
             ),
         }
 

@@ -6,7 +6,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT / "KFPS.Editor/src"), str(ROOT)]
@@ -25,7 +25,9 @@ class PreferencesCompatibilityTests(unittest.TestCase):
                 worker = threading.Thread(target=server.serve_forever)
                 worker.start()
                 try:
-                    with urlopen(f"http://127.0.0.1:{server.server_address[1]}/api/fabric-editor/preferences", timeout=5) as response:
+                    request = Request(f"http://127.0.0.1:{server.server_address[1]}/api/fabric-editor/preferences",
+                        headers={"X-KFPS-Editor-Session": server.editor_session_token})
+                    with urlopen(request, timeout=5) as response:
                         result = json.load(response)
                     self.assertEqual(result["settings"], {"kloudyFabricLanguage": "ja"})
                     self.assertEqual(paths.preferences.read_bytes(), original)

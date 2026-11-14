@@ -58,6 +58,9 @@ LIVERY_SECTION_NAMES = [
 ]
 LIVERY_EMPTY_SLOT_SIZE = 23
 LIVERY_POPULATED_REMNANT_SIZE = 18
+MAX_FORZA_BLOCK_BYTES = 64 * 1024 * 1024
+MAX_FORZA_PAYLOAD_BYTES = 128 * 1024 * 1024
+FORZA_INFLATE_CHUNK_BYTES = 64 * 1024
 
 
 class DecodeError(RuntimeError):
@@ -189,7 +192,7 @@ def unwrap_forza_container_bytes(raw: bytes, path: Path) -> bytes:
     if len(raw) < 8:
         raise DecodeError(f"{path} is too short for a Forza container")
     pos = 0
-    payloads: list[bytes] = []
+    payload = bytearray()
     while pos < len(raw):
         if pos + 8 > len(raw):
             raise DecodeError(f"{path} has a truncated Forza container block at 0x{pos:x}")
@@ -197,24 +200,48 @@ def unwrap_forza_container_bytes(raw: bytes, path: Path) -> bytes:
         pos += 8
         remaining = len(raw) - pos
         if compressed_len <= 0 or compressed_len > remaining:
-            expected = len(raw) - 8 if not payloads else remaining
+            expected = remaining
             raise DecodeError(
                 f"{path} compressed length header does not match file size "
                 f"({compressed_len} != {expected})"
             )
-        compressed = raw[pos : pos + compressed_len]
-        pos += compressed_len
+        if payload_len > MAX_FORZA_BLOCK_BYTES:
+            raise DecodeError(f"{path} decoded block exceeds the {MAX_FORZA_BLOCK_BYTES}-byte limit")
+        if payload_len > MAX_FORZA_PAYLOAD_BYTES - len(payload):
+            raise DecodeError(f"{path} decoded total exceeds the {MAX_FORZA_PAYLOAD_BYTES}-byte limit")
+        block_end = pos + compressed_len
+        block_start = len(payload)
+        decompressor = zlib.decompressobj()
+        pending = b""
         try:
-            payload = zlib.decompress(compressed)
+            while not decompressor.eof:
+                if not pending and pos < block_end:
+                    chunk_end = min(pos + FORZA_INFLATE_CHUNK_BYTES, block_end)
+                    pending = raw[pos:chunk_end]
+                    pos = chunk_end
+                # One extra byte detects a forged length without expanding the
+                # rest. Never pass zero (unbounded), and never use flush().
+                remaining_output = payload_len - (len(payload) - block_start)
+                chunk = decompressor.decompress(
+                    pending, min(FORZA_INFLATE_CHUNK_BYTES, remaining_output + 1)
+                )
+                pending = decompressor.unconsumed_tail
+                if len(chunk) > remaining_output:
+                    raise DecodeError(f"{path} decompressed length exceeds declared payload length {payload_len}")
+                payload.extend(chunk)
+                if not chunk and not pending and pos == block_end and not decompressor.eof:
+                    raise DecodeError(f"{path} has a truncated zlib payload")
         except zlib.error as exc:
             raise DecodeError(f"{path} zlib payload could not be decompressed: {exc}") from exc
-        if payload_len != len(payload):
+        if decompressor.unused_data or pos != block_end:
+            raise DecodeError(f"{path} has trailing data inside a compressed block")
+        decoded_len = len(payload) - block_start
+        if payload_len != decoded_len:
             raise DecodeError(
                 f"{path} decompressed length header does not match payload "
-                f"({payload_len} != {len(payload)})"
+                f"({payload_len} != {decoded_len})"
             )
-        payloads.append(payload)
-    return b"".join(payloads)
+    return bytes(payload)
 
 
 def probe_forza_source_kind(
@@ -1981,9 +2008,11 @@ def cgroup_tree_stats(root: GroupNode) -> dict[str, Any]:
         "max_group_depth": 0,
         "incomplete_counted_groups": 0,
         "missing_counted_children": 0,
+        "skipped_counted_children": 0,
     }
 
     def walk(node: GroupNode, depth: int) -> None:
+        stats["skipped_counted_children"] += node.skipped_children
         if node.expected_children is not None:
             missing = node.expected_children - len(node.items) - node.skipped_children
             if missing > 0:

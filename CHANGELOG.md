@@ -1,5 +1,15 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.6
+
+- Fixed missing or incomplete Racing Icons in the Vinyl Editor. This corrects their display without changing shape IDs, saved artwork or exported geometry.
+- Hardened project loading and recovery so malformed artwork cannot replace the current document, selection or undo history. Invalid geometry is rejected before the live document changes.
+- Incomplete or interrupted save scans now preserve the last complete exported library. Added bounded handling of malformed compressed save data.
+- Fixed thumbnail completion races that could overwrite newer library information. Community image loading now limits concurrent work, ignores stale results and pauses demand from hidden views.
+- Improved Community expiry refreshes and local Editor preview access checks, with matching browser, desktop and background-preview support.
+- Fixed Garage tab-switching lifecycle problems and comparison-removal dialog sizing. Inactive Garage content is released without leaving pending car tiles attached to a destroyed view; cancelling comparison removal preserves linked projects.
+- Expanded regression coverage for project preservation, private previews, Community refreshes, save scanning, thumbnail races and Garage navigation.
+
 ## 3.2.5
 
 - Fixed Report a problem rejecting its own saved log package when Editor diagnostics contain certain counters or long decimal values. Recreate an affected report after updating; existing saved packages are left untouched.
