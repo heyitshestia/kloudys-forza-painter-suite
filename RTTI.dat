@@ -1,7 +1,61 @@
 {
   "format": "kfps_fh6_rtti_registry_v1",
-  "updated_utc": "2026-09-13T13:38:41.660Z",
+  "updated_utc": "2026-11-14T20:26:17.739Z",
   "profiles": [
+    {
+      "game": "fh6",
+      "module_size": 188731392,
+      "descriptor_offset": 166743504,
+      "vtable_offsets": [
+        109848624
+      ],
+      "update_code": "66670777342217",
+      "base_class_count": 4,
+      "game_build": "",
+      "created_utc": "2026-11-14T20:26:17Z",
+      "calibrator_version": "4.0.0",
+      "evidence": {
+        "workflow": "six_step_template_calibration",
+        "confidence": "high",
+        "scan_count": 6,
+        "distinct_counts": [
+          3000,
+          2997,
+          2994,
+          2991,
+          2988,
+          2985
+        ]
+      },
+      "profile_id": "fh6-6ababbd3442120aa5680"
+    },
+    {
+      "game": "fh6",
+      "module_size": 188641280,
+      "descriptor_offset": 166721808,
+      "vtable_offsets": [
+        109770800
+      ],
+      "update_code": "26229365286799",
+      "base_class_count": 4,
+      "game_build": "3.483.970.0",
+      "created_utc": "2026-11-14T11:27:49Z",
+      "calibrator_version": "4.0.0",
+      "evidence": {
+        "workflow": "six_step_template_calibration",
+        "confidence": "high",
+        "scan_count": 6,
+        "distinct_counts": [
+          3000,
+          2997,
+          2994,
+          2991,
+          2988,
+          2985
+        ]
+      },
+      "profile_id": "fh6-e2d22c9e2a399328a4b2"
+    },
     {
       "game": "fh6",
       "module_size": 188420096,
