@@ -5,7 +5,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm"), crypto = require("node:crypto");
 const root = process.env.KFPS_TEST_APP_ROOT || path.resolve(__dirname,"../../..");
 const web = path.join(root,"KFPS.Editor/web");
-const source = fs.readFileSync(path.join(web,"editor.js"),"utf8");
+const sourcePath = process.env.KFPS_TEST_EDITOR_SOURCE || path.join(web,"editor.js");
+const source = fs.readFileSync(sourcePath,"utf8");
 const projectsPath = path.join(web,"editor-projects.js");
 const {create} = require(projectsPath);
 const sha = value => crypto.createHash("sha256").update(value).digest("hex");
@@ -25,12 +26,18 @@ const names = ["round","validateStrictInputShapes","isDocumentDirty","confirmWor
 const legacyTypes = source.slice(source.indexOf("const LEGACY_RECTANGLE_TYPES ="), source.indexOf("\n", source.indexOf("const ELLIPSE_DIVISOR =")));
 const functions = legacyTypes + "\n" + names.map(extract).join("\n");
 function world({verify=true,reference=true,saveMode="normal",exists=true,readFails=false}={}) {
-  let disk=clone(initial), diskExists=exists, requests=0, history=0;
+  let requests=0, history=0;
+  const targetId = projectName => projectName+".fabric-project.json";
+  const disks = new Map(exists ? [[targetId(name),clone(initial)]] : []);
   const calls=[], errors=[], statuses=[], autosaves=[], prompts=[];
   const verifyGate=deferred(), saveGate=deferred(), readGate=deferred();
   const confirmation=deferred();
   const elements = new Map();
-  const receipt = () => ({target_id:name+".fabric-project.json",fingerprint:sha(JSON.stringify(disk)),bytes:Buffer.byteLength(JSON.stringify(disk)),write_stage:"read"});
+  const receiptFor = id => {
+    const body=JSON.stringify(disks.get(id)||initial);
+    return {target_id:id,fingerprint:sha(body),bytes:Buffer.byteLength(body),write_stage:"read"};
+  };
+  const receipt = () => receiptFor(targetId(name));
   const nodes = id => {
     if(!elements.has(id))elements.set(id,{disabled:false,open:id==="projectBrowserDialog",close(){this.open=false;}});
     return elements.get(id);
@@ -50,6 +57,7 @@ function world({verify=true,reference=true,saveMode="normal",exists=true,readFai
     setStatus:value=>statuses.push(value),setProjectBrowserStatus:value=>statuses.push(value),
     nextFrame:async()=>{},flushPendingNudgeHistory:()=>{},ensureHistoryBaseline:()=>{},
     presentAcceptedDocument:callback=>callback(),renderHistoryList:()=>{},showCornerNotice:()=>{},
+    recordEditorDiagnostic:()=>{},
     showError:(title,error)=>errors.push({title,message:String(error?.message||error)}),
     updateDocumentState:()=>{c.documentDirty=c.isDocumentDirty();},
     snapshotEditorState:()=>c.history,autosavePayloadFromState:state=>({state,documentIdentity:c.documentIdentity}),
@@ -73,12 +81,14 @@ function world({verify=true,reference=true,saveMode="normal",exists=true,readFai
       return {current:verify};
     }
     assert.equal(operation,"saveProject");
+    const id=data.expected_fingerprint&&data.target_id||targetId(data.name);
+    const diskExists=disks.has(id);
     if(diskExists&&!data.overwrite)throw Object.assign(Error("exists"),{code:"project_exists"});
-    if(diskExists&&data.expected_fingerprint!==receipt().fingerprint)throw Object.assign(Error("conflict"),{code:"project_conflict"});
+    if(diskExists&&data.expected_fingerprint!==receiptFor(id).fingerprint)throw Object.assign(Error("conflict"),{code:"project_conflict"});
     if(saveMode==="deferred")await saveGate.promise;
     if(saveMode==="failure")throw Error("transport failed");
-    disk=clone(data.payload);diskExists=true;
-    const result={status:"committed",title:data.name,receipt:{...receipt(),request_id:data.request_id,write_stage:"committed"}};
+    disks.set(id,clone(data.payload));
+    const result={status:"committed",title:data.name,receipt:{...receiptFor(id),request_id:data.request_id,write_stage:"committed"}};
     c.committed=result;
     if(saveMode==="lost")throw Error("reply lost after commit");
     return result;
@@ -101,16 +111,18 @@ function world({verify=true,reference=true,saveMode="normal",exists=true,readFai
   c.readEditorDocument=async()=>{
     if(readFails===true)throw Error("read failed");
     if(readFails==="deferred")await readGate.promise;
-    return {payload:clone(disk),receipt:receipt()};
+    return {payload:clone(disks.get(targetId(name))||initial),receipt:receipt()};
   };
   const sandbox=vm.createContext(c);
   vm.runInContext(functions,sandbox);
   const payload=(saved=true,validReceipt=true)=>({...clone(initial),editor_session:{project_name:name,saved,receipt:validReceipt?receipt():null}});
   const recover=async(p=payload())=>{c.recoveryAutosavePayload=p;return c.recoverAutosavePayload(p);};
   const edit=()=>{c.shapes[0].data[0]+=.25;c.history={revision:++history};c.documentDirty=c.isDocumentDirty();};
-  const load=()=>c.loadProjectPayload(clone(disk),name,{receipt:receipt()});
+  const load=()=>c.loadProjectPayload(clone(disks.get(targetId(name))||initial),name,{receipt:receipt()});
   return {c,calls,errors,statuses,autosaves,prompts,verifyGate,saveGate,readGate,confirmation,payload,recover,edit,load,
-    disk:()=>clone(disk),receipt,externalEdit:()=>{disk.shapes[0].data[0]+=7;}};
+    disk:(projectName=name)=>clone(disks.get(targetId(projectName))),receipt,
+    removeProject:projectName=>disks.delete(targetId(projectName)),
+    externalEdit:()=>{disks.get(targetId(name)).shapes[0].data[0]+=7;}};
 }
 const cases=[];
 async function check(label,fn){await fn();cases.push(label);}
@@ -162,6 +174,64 @@ async function check(label,fn){await fn();cases.push(label);}
       if(mutation==="document")assert.equal(w.c.editorProjects.association,null);
     });
   }
+  const receiptRaceFailures=[];
+  for(const operation of ["saveAs","save"])for(const returnToRecovered of [false,true]){
+    const label=`delayed recovery verification preserves completed ${operation}, returnToRecovered=${returnToRecovered}`;
+    try {
+      await check(label,async()=>{
+        const w=world({verify:"deferred"}), checkpoint=w.payload(), original=w.disk();
+        const pending=w.recover(checkpoint);await tick();
+        assert.equal(w.calls.filter(call=>call.operation==="fetchJSON").length,1,"Recovery must reach receipt verification");
+        const identity=w.c.documentIdentity, recoveredHistory=w.c.history;
+        const projectName=operation==="saveAs"?"Receipt race B":name;
+        // The receipt was checked before its reply was delayed. A removed target
+        // lets an ordinary, still-unassociated Save create a new revision of A.
+        if(operation==="save")assert.equal(w.removeProject(name),true);
+        w.edit();w.c.promptName=projectName;
+        await w.c.saveProject({saveAs:operation==="saveAs"});
+        assert.equal(w.errors.length,0,"Intervening save must really commit");
+        assert.equal(w.c.documentDirty,false);
+        const savedReceipt=w.c.editorProjects.association, savedHistory=w.c.savedHistoryState;
+        const savedOverlay=w.c.savedOverlayRevision;
+        assert.equal(savedReceipt.target_id,projectName+".fabric-project.json");
+        assert.notEqual(savedReceipt.fingerprint,checkpoint.editor_session.receipt.fingerprint);
+        if(returnToRecovered){
+          // Model undo to the accepted recovery history, not a new document.
+          w.c.history=recoveredHistory;w.c.shapes=clone(checkpoint.shapes);
+          w.c.documentDirty=w.c.isDocumentDirty();
+          assert.equal(w.c.documentDirty,true);
+        }
+        w.verifyGate.resolve({current:true});assert.equal(await pending,true);
+        const observed={
+          sameDocument:w.c.documentIdentity===identity,
+          projectName:w.c.currentProjectName,
+          retainedReceipt:w.c.editorProjects.association===savedReceipt,
+          retainedSavedHistory:w.c.savedHistoryState===savedHistory,
+          retainedSavedOverlay:w.c.savedOverlayRevision===savedOverlay,
+          dirty:w.c.documentDirty,
+        };
+        w.edit();const nextShapes=clone(w.c.shapes);
+        await w.c.saveProject();
+        const writes=w.calls.filter(call=>call.operation==="saveProject");
+        Object.assign(observed,{
+          writes:writes.length,
+          nextTarget:writes.at(-1).data.target_id,
+          nextFingerprint:writes.at(-1).data.expected_fingerprint,
+          saveErrors:w.errors.length,
+          nextSaveClean:!w.c.documentDirty,
+          exactDestination:JSON.stringify(w.disk(projectName).shapes)===JSON.stringify(nextShapes),
+          originalPreserved:operation!=="saveAs"||JSON.stringify(w.disk())===JSON.stringify(original),
+        });
+        assert.deepEqual(observed,{
+          sameDocument:true,projectName,retainedReceipt:true,retainedSavedHistory:true,retainedSavedOverlay:true,
+          dirty:returnToRecovered,writes:2,nextTarget:projectName+".fabric-project.json",
+          nextFingerprint:savedReceipt.fingerprint,saveErrors:0,nextSaveClean:true,
+          exactDestination:true,originalPreserved:true,
+        });
+      });
+    } catch(error){receiptRaceFailures.push(`${label}\n${error.stack||error}`);}
+  }
+  assert.equal(receiptRaceFailures.length,0,receiptRaceFailures.join("\n\n"));
   for(const accept of [false,true]){
     await check(`dirty picker confirmation accept=${accept}`,async()=>{
       const w=world({verify:false});await w.recover();const identity=w.c.documentIdentity;
@@ -216,7 +286,7 @@ async function check(label,fn){await fn();cases.push(label);}
       assert.equal(w.disk().shapes[0].data[0],.25);
     });
   }
-  console.log(JSON.stringify({passed:true,cases:cases.length,caseNames:cases,sourceRoot:root,
+  console.log(JSON.stringify({passed:true,cases:cases.length,caseNames:cases,sourceRoot:root,editorSource:sourcePath,
     editorSha256:sha(source),projectsSha256:sha(fs.readFileSync(projectsPath)),
     actualFunctions:names,controlledBoundaries:["Fabric geometry acceptance","reference image I/O","persistence transport","user confirmation"],
     browserLaunches:0,filesystemWrites:0},null,2));

@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.7
+
+- Fixed the Vinyl Editor repeatedly offering to recover unsaved work in Chrome mode after a successful project save. Both desktop modes now resume the previous session automatically while retaining recovery backups.
+- Recovery messages now distinguish verified saved sessions, unsaved work and unconfirmed save status. Failed recovery keeps its backup and shows a retryable error instead of silently closing the dialog.
+- Fixed a delayed recovery check overwriting a newer Save As destination. Subsequent saves keep the correct project target, and stale recovery prompts no longer reopen over newer work or after dismissal.
+- Expanded saved-session, restart, save-timeout, retry and recovery regression coverage, including English, Korean and Japanese recovery messages.
+
 ## 3.2.6
 
 - Fixed missing or incomplete Racing Icons in the Vinyl Editor. This corrects their display without changing shape IDs, saved artwork or exported geometry.

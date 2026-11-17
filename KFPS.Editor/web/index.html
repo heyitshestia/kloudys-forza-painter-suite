@@ -844,15 +844,16 @@
     </div>
   </dialog>
 
-  <dialog id="autosaveRecoveryDialog" class="startupHelpDialog">
+  <dialog id="autosaveRecoveryDialog" class="startupHelpDialog" aria-labelledby="autosaveRecoveryTitle" aria-describedby="autosaveRecoveryDescription">
     <div class="helpHeader startupHelpHeader">
-      <h2>Recover Unsaved Editor Work?</h2>
+      <h2 id="autosaveRecoveryTitle">Resume Previous Session?</h2>
     </div>
     <div class="helpBody startupHelpBody">
       <section>
-        <h3>Temporary Save Found</h3>
+        <h3 id="autosaveRecoveryHeading">Save Status Unconfirmed</h3>
         <p id="autosaveRecoverySummary">The editor found an unsaved local recovery file.</p>
-        <p>This is only a safety backup from the app folder/browser. Use <b>Save</b> once recovered if you want a real project file.</p>
+        <p id="autosaveRecoveryDescription">This recovery copy is available, but its saved project could not be verified. Recover it and check your work before saving.</p>
+        <p id="autosaveRecoveryError" role="alert" hidden></p>
       </section>
       <section class="startupConfirmBox">
         <button id="recoverAutosave" type="button" title="Restore the newest temporary recovery copy.">Recover Work</button>

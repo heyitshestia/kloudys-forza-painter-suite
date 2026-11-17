@@ -134,6 +134,16 @@ reads and six ordinary/eight total requests at most. Two slots remain available
 for recovery protection. Streamed server responses are byte-bounded too. These
 bounds do not claim a maximum for decoded images or the whole editor process.
 
+Session continuation uses the shared desktop bridge in Chrome and the Qt
+transport in WebEngine. Successful saves retain recovery checkpoints; their
+presence alone is not evidence of unsaved work. Restoration rechecks the project
+receipt before marking the document clean and cannot replace an association
+established by a newer Save or Save As. Plain-browser and failed-restoration
+prompts distinguish verified saved, explicitly unsaved and unverified sessions.
+Pending reads and prompt verification must not supersede newer document edits.
+Failed manual restoration leaves the dialog and error available for retry;
+neither automatic nor manual failure discards the original checkpoint.
+
 `desktop.log` is the separate raw startup/Chromium stream. Before launch, when no
 writer holds it, retention keeps a maximum 2 MiB newest tail and one prior tail.
 An active inherited append handle is never renamed or truncated. No recurring log

@@ -22,6 +22,7 @@ async (page, options = {}) => {
       : self.auditOriginalFetch(url, options);
   });
   try {
+    if (!await page.locator("#saveProjectAs").isVisible()) await page.locator("#workspaceFileMenu").click();
     await page.locator("#saveProjectAs").click();
     await page.locator("#textPromptInput").fill("Timeout retry");
     const started = Date.now();
@@ -32,6 +33,7 @@ async (page, options = {}) => {
     if (!await page.evaluate(() => !projectSaveInProgress && documentDirty && !document.getElementById("saveProjectAs").disabled)) throw new Error("Failed save lost dirty state or left controls disabled");
     await worker.evaluate(() => { self.fetch = self.auditOriginalFetch; });
     await page.locator("#messageDialogClose").click();
+    if (!await page.locator("#saveProjectAs").isVisible()) await page.locator("#workspaceFileMenu").click();
     await page.locator("#saveProjectAs").click();
     await page.locator("#textPromptInput").fill("Timeout retry");
     await page.locator("#textPromptInput").press("Enter");

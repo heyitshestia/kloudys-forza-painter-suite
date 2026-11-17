@@ -12493,16 +12493,22 @@ async function readAutosavePayload() {
     .sort((left, right) => recoveryRevision(right) - recoveryRevision(left))[0] || null;
 }
 
-async function recoverAutosavePayload(payload) {
-  if (!payload || !Array.isArray(payload.shapes)) {
-    setStatus(KfpsI18n.t("Autosave recovery failed: temp save has no shapes list."));
+async function recoverAutosavePayload(payload, { onFailure = () => {} } = {}) {
+  const fail = message => {
+    setStatus(message);
+    onFailure(message);
+    recordEditorDiagnostic("command", { action: "load", state: "failed" });
     return false;
+  };
+  if (!payload || !Array.isArray(payload.shapes)) {
+    return fail(KfpsI18n.t("Autosave recovery failed: temp save has no shapes list."));
   }
   let restored = false;
   let identity = null;
+  let generation = documentGeneration;
   try {
     validateStrictInputShapes(payload.shapes);
-    const generation = beginDocumentLoad();
+    generation = beginDocumentLoad();
     if (!await loadPayload({
       shapes: payload.shapes,
       editor_collapsed_groups: payload.editor_collapsed_groups || [],
@@ -12513,6 +12519,8 @@ async function recoverAutosavePayload(payload) {
     identity = documentIdentity;
     restored = true;
     const loadedHistory = currentHistoryState();
+    const recoveredName = currentProjectName;
+    const recoveredAssociation = editorProjects.association;
     let referenceError = null;
     let referenceRestored = false;
     try {
@@ -12530,8 +12538,9 @@ async function recoverAutosavePayload(payload) {
     const receipt = payload.editor_session?.receipt;
     const verified = await editorProjects.verify(receipt);
     if (identity !== documentIdentity) return false;
-    if (verified) editorProjects.associate(receipt, currentProjectName);
-    if (verified && payload.editor_session?.saved === true && currentProjectName && !referenceError && referenceRestored !== false
+    const associationUnchanged = currentProjectName === recoveredName && editorProjects.association === recoveredAssociation;
+    if (verified && associationUnchanged) editorProjects.associate(receipt, recoveredName);
+    if (verified && associationUnchanged && payload.editor_session?.saved === true && currentProjectName && !referenceError && referenceRestored !== false
       && recoveredState === currentHistoryState() && recoveredOverlay === overlayRevision && !nudgeHistoryPending) {
       savedHistoryState = recoveredState;
       savedOverlayRevision = recoveredOverlay;
@@ -12555,14 +12564,54 @@ async function recoverAutosavePayload(payload) {
     }
     return true;
   } catch (err) {
-    if (identity !== null && identity !== documentIdentity) return false;
+    if (generation !== documentGeneration || (identity !== null && identity !== documentIdentity)) return false;
     clearBusy();
     updateDocumentState();
-    setStatus(KfpsI18n.t("Autosave recovery failed: {0}", KfpsI18n.error(err.message)));
-    return false;
+    return fail(KfpsI18n.t("Autosave recovery failed: {0}", KfpsI18n.error(err.message || String(err))));
   } finally {
     if (restored && identity === documentIdentity) writeAutosavePayload(autosavePayloadFromState(currentHistoryState() || snapshotEditorState()));
   }
+}
+
+async function showAutosaveRecovery(payload, failure = "", { requireOpen = false } = {}) {
+  const dialog = $("autosaveRecoveryDialog");
+  if (!dialog || (requireOpen && !dialog.open)) return false;
+  const generation = documentGeneration;
+  const commit = contentCommitId;
+  const association = editorProjects.association;
+  const current = () => generation === documentGeneration && recoveryAutosavePayload === payload
+    && commit === contentCommitId && !nudgeHistoryPending && association === editorProjects.association
+    && (!requireOpen || dialog.open);
+  const saved = payload.editor_session?.saved === true && Boolean(payload.editor_session?.project_name)
+    && await editorProjects.verify(payload.editor_session.receipt);
+  if (!current()) return true;
+  const unsaved = payload.editor_session?.saved === false;
+  setText("autosaveRecoveryTitle", saved ? KfpsI18n.t("Resume Saved Session?")
+    : unsaved ? KfpsI18n.t("Recover Unsaved Editor Work?") : KfpsI18n.t("Resume Previous Session?"));
+  setText("autosaveRecoveryHeading", saved ? KfpsI18n.t("Saved Project Verified")
+    : unsaved ? KfpsI18n.t("Temporary Save Found") : KfpsI18n.t("Save Status Unconfirmed"));
+  setText("autosaveRecoverySummary", KfpsI18n.t("Found: {0}", autosaveSummary(payload)));
+  setText("autosaveRecoveryDescription", saved
+    ? KfpsI18n.t("The project file matches its last confirmed save. This recovery copy can resume that session.")
+    : unsaved ? KfpsI18n.t("This recovery copy contains work not confirmed as saved to a project. Save the project after recovery.")
+      : KfpsI18n.t("This recovery copy is available, but its saved project could not be verified. Recover it and check your work before saving."));
+  setText("recoverAutosave", saved ? KfpsI18n.t("Resume Session") : KfpsI18n.t("Recover Work"));
+  const error = $("autosaveRecoveryError");
+  if (error) {
+    error.hidden = !failure;
+    error.textContent = failure ? KfpsI18n.t("Restoration did not finish: {0} Your recovery copy has been kept.", failure) : "";
+  }
+  requestAnimationFrame(() => {
+    if (!current()) return;
+    try {
+      if (!dialog.open) dialog.showModal();
+    } catch (_err) {
+      setTimeout(() => {
+        if (current() && !dialog.open) dialog.showModal();
+      }, 250);
+    }
+  });
+  return true;
 }
 
 async function maybeShowAutosaveRecovery() {
@@ -12571,28 +12620,26 @@ async function maybeShowAutosaveRecovery() {
     return false;
   }
   const generation = documentGeneration;
+  const commit = contentCommitId;
+  const association = editorProjects.association;
   const payload = await readAutosavePayload();
-  if (generation !== documentGeneration) return true;
+  if (generation !== documentGeneration || commit !== contentCommitId || nudgeHistoryPending
+    || association !== editorProjects.association) return true;
   if (recoveryReadWarning) showCornerNotice(KfpsI18n.t("Recovery notice"), recoveryReadWarning);
   if (!payload || !Array.isArray(payload.shapes)) return false;
   if (!payload.shapes.length && !payload.editor_source_overlay && !payload.editor_guides?.guides?.length
     && !payload.editor_session?.project_name) return false;
   recoveryAutosavePayload = payload;
-  if (window.qt?.webChannelTransport && await recoverAutosavePayload(payload)) return true;
-  const summary = $("autosaveRecoverySummary");
-  if (summary) summary.textContent = KfpsI18n.t("Found: {0}", autosaveSummary(payload));
-  const dialog = $("autosaveRecoveryDialog");
-  if (!dialog) return false;
-  requestAnimationFrame(() => {
-    try {
-      if (!dialog.open) dialog.showModal();
-    } catch (_err) {
-      setTimeout(() => {
-        if (!dialog.open) dialog.showModal();
-      }, 250);
-    }
-  });
-  return true;
+  const bridge = window.KfpsDesktopBridge;
+  const desktop = window.qt?.webChannelTransport
+    || (typeof bridge?.completed === "function" && typeof bridge?.progress === "function");
+  let failure = "";
+  if (desktop) {
+    if (await recoverAutosavePayload(payload, { onFailure: message => { failure = message; } })) return true;
+    // A superseded load must not reopen an obsolete recovery prompt.
+    if (!failure) return true;
+  }
+  return showAutosaveRecovery(payload, failure);
 }
 
 const EDITOR_TOUR_STEPS = [
@@ -13030,8 +13077,18 @@ function bindUi() {
     setStatus(KfpsI18n.t("Tick \"I have read and understood this\" before opening the editor."));
   });
   $("recoverAutosave")?.addEventListener("click", async () => {
-    $("autosaveRecoveryDialog")?.close();
-    await recoverAutosavePayload(recoveryAutosavePayload);
+    const payload = recoveryAutosavePayload;
+    if (!payload || $("recoverAutosave").disabled) return;
+    const buttons = [$("recoverAutosave"), $("dismissAutosave"), $("discardAutosave")].filter(Boolean);
+    buttons.forEach(button => { button.disabled = true; });
+    let failure = "";
+    try {
+      if (await recoverAutosavePayload(payload, { onFailure: message => { failure = message; } })) {
+        $("autosaveRecoveryDialog")?.close();
+      } else if (failure) {
+        await showAutosaveRecovery(payload, failure, { requireOpen: true });
+      }
+    } finally { buttons.forEach(button => { button.disabled = false; }); }
   });
   $("dismissAutosave")?.addEventListener("click", () => {
     $("autosaveRecoveryDialog")?.close();

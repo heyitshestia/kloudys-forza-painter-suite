@@ -10,7 +10,7 @@ async (page, options = {}) => {
     await page.evaluate(async () => {
       const recover = recoverAutosavePayload, harness = isTextVinylHarnessRun;
       try {
-        recoverAutosavePayload = async () => false;
+        recoverAutosavePayload = async (_payload, { onFailure }) => { onFailure("Injected automatic restore failure"); return false; };
         isTextVinylHarnessRun = () => false;
         await maybeShowAutosaveRecovery();
       } finally { recoverAutosavePayload = recover; isTextVinylHarnessRun = harness; }
