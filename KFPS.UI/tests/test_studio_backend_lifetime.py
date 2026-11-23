@@ -106,7 +106,7 @@ class ChromeOwnershipTests(unittest.TestCase):
 
     def process(self, args, *, pid=123, created=42):
         process = Mock()
-        process.info = {'name': 'chrome.exe'}
+        process.name.return_value = 'chrome.exe'
         process.pid = pid
         process.cmdline.return_value = [str(self.chrome), *args]
         process.exe.return_value = str(self.chrome)
@@ -161,20 +161,35 @@ class ChromeOwnershipTests(unittest.TestCase):
         for info in ({}, {'name': None}, {'name': ''}):
             with self.subTest(info=info):
                 process = self.process([f'--user-data-dir={self.profile}'])
-                process.info = info
+                process.name.return_value = info.get('name')
                 self.assertIsNone(self.probe([process]).alive())
 
     def test_stale_non_chrome_identity_cannot_authorize_shutdown(self):
         stale = self.process([])
-        stale.info = {'name': 'unrelated.exe'}
+        stale.name.return_value = 'unrelated.exe'
         stale.is_running.return_value = False
         self.assertIsNone(self.probe([stale]).alive())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows process snapshot')
+    def test_snapshot_reads_only_browser_candidates_and_verifies_identity(self):
+        import win32ts
         replacement = self.process([f'--user-data-dir={self.profile}'])
-        with patch.object(psutil, 'process_iter') as iterate:
-            iterate.return_value = iter([replacement])
+        rows = [(0, 0, '', None), (1, os.getpid(), 'python.exe', None),
+                (1, 99, 'unrelated.exe', None), (1, 123, 'CHROME.EXE', None)]
+        with patch.object(win32ts, 'WTSEnumerateProcesses', return_value=rows), \
+                patch.object(psutil, 'Process', return_value=replacement) as open_process:
             probe = self.module.ChromeOwnership(self.profile, self.chrome)
             self.assertTrue(probe.alive())
-            iterate.cache_clear.assert_called_once()
+            open_process.assert_called_once_with(123)
+            replacement.cmdline.assert_called_once()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows process snapshot')
+    def test_failed_or_partial_snapshot_is_unknown(self):
+        import win32ts
+        for rows in ([], [(1, 88, 'unrelated.exe', None)],
+                     [(1, os.getpid(), 'python.exe', None), (1, 88, '', None)]):
+            with self.subTest(rows=rows), patch.object(win32ts, 'WTSEnumerateProcesses', return_value=rows):
+                self.assertIsNone(self.module.ChromeOwnership(self.profile, self.chrome).alive())
 
 
 @unittest.skipUnless(os.name == 'nt', 'Windows OS lease contract')

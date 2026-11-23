@@ -48,11 +48,32 @@ class ChromeOwnership:
         self.processes = processes or self._fresh_processes
         self.cached = None
 
-    @staticmethod
-    def _fresh_processes():
-        # Windows process names are cached; a recycled PID must get a fresh name.
+    def _fresh_processes(self):
+        if os.name == 'nt':
+            import pywintypes
+            import win32ts
+            try:
+                rows = win32ts.WTSEnumerateProcesses()
+            except pywintypes.error as error:
+                raise OSError('Could not enumerate browser candidates') from error
+            # One Windows snapshot, then inspect only potential browser owners.
+            # A psutil image query per unrelated process can exhaust the freshness budget.
+            if not rows or not any(pid == os.getpid() for _, pid, _, _ in rows):
+                raise OSError('Incomplete process snapshot')
+            for _, pid, name, _ in rows:
+                if not pid:  # Windows Idle Process has no executable.
+                    continue
+                if not name:
+                    raise OSError('Incomplete executable name')
+                if name.casefold() == self.executable.name.casefold():
+                    try:
+                        yield psutil.Process(pid)
+                    except psutil.NoSuchProcess:
+                        continue
+            return
+        # Do not reuse a previous process object across snapshots.
         psutil.process_iter.cache_clear()
-        return psutil.process_iter(['name'])
+        yield from psutil.process_iter()
 
     def _matches(self, process):
         arguments = process.cmdline()
@@ -85,7 +106,7 @@ class ChromeOwnership:
                     if not process.is_running():
                         unknown = True
                         continue
-                    name = process.info.get('name')
+                    name = process.name()
                     if not isinstance(name, str) or not name:
                         unknown = True
                         continue
@@ -98,7 +119,7 @@ class ChromeOwnership:
                     continue
                 except (psutil.AccessDenied, OSError, ValueError):
                     unknown = True
-        except psutil.Error:
+        except (psutil.Error, OSError, ImportError):
             unknown = True
         return None if unknown else False
 
