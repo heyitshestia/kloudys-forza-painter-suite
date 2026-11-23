@@ -183,7 +183,12 @@ class ProjectStore:
             if name not in keep:
                 path = directory / name
                 if self.safe.check(path, directory=False, missing=True) is not None:
-                    path.unlink()
+                    try:
+                        path.unlink()
+                    except PermissionError:
+                        # An obsolete revision can still be open in another
+                        # reader. Retain its ownership record and retry later.
+                        continue
                 db.execute("DELETE FROM files WHERE car_key=? AND name=?", (car["key"], name))
 
     def _publish(self, path, raw, temporary):

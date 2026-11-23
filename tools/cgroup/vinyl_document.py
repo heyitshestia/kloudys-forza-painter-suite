@@ -58,6 +58,48 @@ def _linear(sx, sy, angle, skew):
     return cosine * sx, (cosine * skew - sine) * sy, sine * sx, (sine * skew + cosine) * sy
 
 
+def group_paths(shapes):
+    """Validate shared group metadata without changing geometry or drawing order."""
+    paths, identities = [], {}
+    for index, shape in enumerate(shapes):
+        path = _group_path(shape, index)
+        parent = None
+        for key, name in path:
+            value = (parent, name)
+            if key in identities and identities[key] != value:
+                raise ValueError("The vinyl has conflicting group parents or names.")
+            identities[key] = value
+            parent = key
+        paths.append(path)
+    return paths
+
+
+def _build_group_tree(records):
+    """Common ordered hierarchy; each native container keeps its own framing."""
+    root = _Group()
+    stack, previous, opened, split, count = [root], (), set(), set(), 0
+    for layer, path in records:
+        shared = 0
+        while shared < min(len(path), len(previous)) and path[shared] == previous[shared]:
+            shared += 1
+        del stack[shared + 1:]
+        for key, _ in path[shared:]:
+            if key in opened:
+                split.add(key)
+            opened.add(key)
+            child = _Group()
+            stack[-1].children.append(child)
+            stack.append(child)
+            count += 1
+        stack[-1].children.append(layer)
+        count += int(layer.mask)
+        if count > MAX_GROUPS:
+            raise ValueError("The vinyl has too many native groups for safe export.")
+        previous = path
+    warnings = [f"Split {len(split)} interleaved editor group(s) to preserve drawing order."] if split else []
+    return root, warnings
+
+
 def _validate_masks(shape: dict, data: list, index: int) -> None:
     explicit = [shape[key] for key in ("mask", "is_mask", "isMask") if key in shape]
     values = explicit + ([data[6]] if len(data) > 6 else [])
@@ -244,34 +286,7 @@ def encode_vinyl_document(document: dict, target_game: str = "fh6") -> tuple[byt
     if not early and not any(path for _, path in records):
         payload = build_flat_payload(expected)
     else:
-        root = _Group()
-        stack = [root]
-        previous = ()
-        opened = set()
-        split = set()
-        count = 0
-        for layer, path in records:
-            shared = 0
-            while shared < min(len(path), len(previous)) and path[shared] == previous[shared]:
-                shared += 1
-            del stack[shared + 1:]
-            for key, _ in path[shared:]:
-                if key in opened:
-                    split.add(key)
-                opened.add(key)
-                child = _Group()
-                stack[-1].children.append(child)
-                stack.append(child)
-                count += 1
-            # Mask groups make terminal/nested masks explicit, without ambiguous
-            # trailing controls accidentally applying to a different sibling.
-            stack[-1].children.append(layer)
-            count += int(layer.mask)
-            if count > MAX_GROUPS:
-                raise ValueError("The vinyl has too many native groups for safe export.")
-            previous = path
-        if split:
-            warnings.append(f"Split {len(split)} interleaved editor group(s) to preserve drawing order.")
+        root, warnings = _build_group_tree(records)
         if not early:
             _materialize_masks(root)
         if len(root.children) > 2040:

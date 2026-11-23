@@ -65,6 +65,10 @@ The native window and Chrome use the same editing workspace. **English, Korean, 
 
 ## Livery Studio
 
+[Illustrated Garage and Livery Studio manual](docs/garage-studio-guide/index.html):
+open the HTML guide locally for searchable workflows, real screenshots and the
+alphabetical button reference.
+
 **Put the vinyl on the car.** <sub>Experimental</sub>
 
 Open Studio from **Garage**, from the Vinyl Editor, or with the standalone `KFPSLiverySudio.exe` launcher.
@@ -80,10 +84,14 @@ Open Studio from **Garage**, from the Vinyl Editor, or with the standalone `KFPS
 - Recolour a selection or the whole layout. Send a source vinyl to the 2D editor and bring the edits back.
 - Switch between **Fast, Balanced, and Sharp** preview quality without changing your artwork or exports.
 - Save named projects, variants, and checkpoints in per-car folders, with undo/redo and recovery.
-- Export individual vinyls and grouped sections. Full-car native export <sub>Experimental</sub>.
+- Export individual vinyls, a single section, or a full-car livery package <sub>Experimental</sub>.
 - Find settings in Placement, Design, Car, View and Project tabs. Right-click a source to remove it, or highlight a paint section while inspecting the surface.
 
 Studio has its own native/Chrome setting and supports English, Korean, and Japanese. Both editors can keep working with the main KFPS window closed.
+
+**First design?** Click **Tour** in Studio for an eight-step walkthrough. To take a whole design into FH6, open your own matching car package from **Garage > Packages** in Studio. Place your artwork, then **Save project** to keep an editable copy, including any preview parts. Restore the stock preview and choose **Project > Export livery package**. Give the design a name; no manual ZIP step is needed.
+
+Exporting does not install anything. Close FH6, add the `.kfpslivery` under **Garage > Packages > Add Package**, open its preview and choose **Install in FH6 Save**. Load the new design from **My Designs** in FH6. The package keeps the template paint; fit any body parts and check panel edges in-game.
 
 ### Garage
 

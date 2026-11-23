@@ -724,7 +724,26 @@ def export_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> di
     return {"manifest": manifest, "path": manifest["package_path"]}
 
 
+def resolve_install_destination(_paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[str, Any]:
+    from tools.livery.fh6_save_installer import _select_destination_account, destination_snapshot
+
+    if cancel_event.is_set():
+        raise InterruptedError("Destination check was cancelled.")
+    configured = str(payload.get("save_root") or "").strip()
+    account = _select_destination_account(_scan_roots(configured), destination=configured or None)
+    expected = destination_snapshot(account)
+    if cancel_event.is_set():
+        raise InterruptedError("Destination check was cancelled.")
+    return {"account": str(account.directory), "containers": str(account.containers),
+            "user_id": str(account.user_id), "expected_destination": expected}
+
+
 def install_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> dict[str, Any]:
+    from tools.livery.fh6_save_installer import FullLiveryInstallError, validate_destination_snapshot
+
+    expected = validate_destination_snapshot(payload.get("expected_destination"))
+    if payload.get("save_root") != expected["containers"]:
+        raise FullLiveryInstallError("The install destination does not match its confirmation. Check it again.")
     package = Path(str(payload.get("package") or "")).resolve()
     game_folder = str(payload.get("game_folder") or "")
     manifest = validate_full_livery_package(package, game_folder=game_folder, verify_previews=False)
@@ -742,6 +761,7 @@ def install_package(paths: JobPaths, payload: dict[str, Any], cancel_event) -> d
         package,
         scan_roots=_scan_roots(str(payload.get("save_root") or "")),
         destination=str(payload.get("save_root") or "").strip() or None,
+        expected_destination=expected,
         backup_root=paths.recovery / "install-backups",
         expected_model_code=asset.model_code,
         cancel_event=cancel_event,
@@ -798,6 +818,7 @@ OPERATIONS = {
     "add-package": add_package,
     "migrate-package": migrate_package,
     "export-package": export_package,
+    "resolve-install-destination": resolve_install_destination,
     "install-package": install_package,
     "prepare-mesh": prepare_mesh,
     "prepare-garage": prepare_garage,

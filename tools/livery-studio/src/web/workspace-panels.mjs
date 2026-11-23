@@ -37,7 +37,7 @@ export function initializeWorkspacePanels({canLeave=()=>true,icon=()=>{}}={}) {
       });
     }
   }
-  function show(name,{focus=false,force=false}={}){
+  function show(name,{focus=false,force=false,persist=true}={}){
     if(disposed||!panels.has(name))return false;
     if(active!==name&&!force&&!canLeave())return false;
     if(active!==name){
@@ -49,7 +49,7 @@ export function initializeWorkspacePanels({canLeave=()=>true,icon=()=>{}}={}) {
         tabs.get(key).tabIndex=key===name?0:-1;
       }
       body.scrollTop=scroll.get(name)||0;
-      try{sessionStorage.setItem('kfps.studio.inspector.v1',name);}catch{}
+      if(persist)try{sessionStorage.setItem('kfps.studio.inspector.v1',name);}catch{}
     }
     if(focus)tabs.get(name).focus({preventScroll:true});
     return true;
@@ -127,5 +127,20 @@ export function initializeWorkspacePanels({canLeave=()=>true,icon=()=>{}}={}) {
     nav.remove();body.remove();host.classList.remove('tabbed-inspector');
   }
   window.addEventListener('pagehide',dispose,{once:true,signal});
-  return {show,reveal,dispose};
+  function captureView(){
+    let preference;
+    try{preference=sessionStorage.getItem('kfps.studio.inspector.v1');}catch{}
+    return {active,scroll:new Map(scroll).set(active,body.scrollTop),preference};
+  }
+  function restoreView(state){
+    if(disposed||!state||!panels.has(state.active))return;
+    show(state.active,{force:true,persist:false});
+    scroll.clear();for(const [name,top] of state.scroll)scroll.set(name,top);
+    body.scrollTop=scroll.get(state.active)||0;
+    try{
+      if(state.preference===null)sessionStorage.removeItem('kfps.studio.inspector.v1');
+      else if(state.preference!==undefined)sessionStorage.setItem('kfps.studio.inspector.v1',state.preference);
+    }catch{}
+  }
+  return {show,reveal,captureView,restoreView,dispose};
 }

@@ -180,6 +180,16 @@ class DesktopService(QObject):
     def openReports(self):
         self._open_or_create(self.paths.runtime_root / "bug-reports")
 
+    @Slot(result=str)
+    def openGarageManual(self):
+        from tools.kfps_user_manual import open_manual
+        try:
+            open_manual(self.paths.app_root, "garage")
+        except OSError as exc:
+            self.log.append(f"Could not open Garage manual: {exc}", "error")
+            return "Could not open the manual. See docs/garage-studio-guide/index.html in your KFPS folder."
+        return ""
+
     @Slot(str)
     def openUrl(self, url):
         try:

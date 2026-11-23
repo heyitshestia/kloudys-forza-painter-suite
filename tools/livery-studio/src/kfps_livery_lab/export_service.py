@@ -1,9 +1,13 @@
-"""Read-only template loading and in-memory, explicitly experimental ZIP output."""
+"""Build artwork exports without modifying the source template or game saves."""
 from datetime import datetime, timezone
+import copy
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import stat
+import tempfile
 import zipfile
 
 from .model import ValidationError
@@ -14,7 +18,7 @@ class ExportService:
     def __init__(self, path, vehicle, sections):
         self.vehicle=vehicle
         self.sections=tuple(sections)
-        path=Path(path).resolve(strict=True)
+        path=Path(path).absolute()
         if path.suffix.lower()==".kfpslivery":
             with zipfile.ZipFile(io.BytesIO(self._read_local(path,256*1024*1024))) as archive:
                 names=archive.namelist()
@@ -23,8 +27,11 @@ class ExportService:
                 header=self._member(archive,"source/fh6/header",65536)
         else:
             if path.name!="C_livery":raise ValidationError("Choose a C_livery export or .kfpslivery package.")
-            header_path=path.parent/"header"
-            raw=self._read_local(path,MAX_PAYLOAD);header=self._read_local(header_path,65536)
+            from .package_handoff import _read_save_pair
+            try:
+                raw,header=_read_save_pair(path)
+            except OSError:
+                raise ValidationError('The template artwork or header is missing or unreadable. Retry with a saved copy.') from None
         self.template=SaveTemplate.read(raw,vehicle["car_id"])
         from tools.livery.fh6_save_installer import parse_fh6_header
         self.header=parse_fh6_header(header)
@@ -32,7 +39,10 @@ class ExportService:
                 or self.header.record_kind not in ("saved","base")):
             raise ValidationError("Template header identity or saved-record kind does not match.")
         from tools.cgroup.forza_source_decoder import clivery_to_layers, layers_to_kfps_json_layers
-        layers,report=clivery_to_layers(self.template.payload)
+        flat,flat_report=clivery_to_layers(self.template.payload)
+        layers,report=clivery_to_layers(self.template.payload,preserve_groups=True)
+        if report['warnings'] or flat_report['warnings'] or len(layers)!=len(flat):
+            raise ValidationError('Template artwork did not decode completely with its groups.')
         self.count=len(layers)
         if self.header.type_value!=self.count:
             raise ValidationError("Template header and artwork placement counts do not match.")
@@ -46,7 +56,9 @@ class ExportService:
                 self.layout_error="This save has raster decals or an unsupported section; its artwork cannot be opened exactly."
                 break
             shapes,warnings=layers_to_kfps_json_layers(items,game="fh6")
-            if warnings:
+            flat_shapes,flat_warnings=layers_to_kfps_json_layers([item for item in flat if item['section']==name],game='fh6')
+            without_groups=[{key:value for key,value in shape.items() if not key.startswith('editor_group_')} for shape in shapes]
+            if warnings or flat_warnings or without_groups!=flat_shapes:
                 self.layout_error="The template contains ambiguous shape identities."
                 break
             source_id=f"save-{name}"
@@ -57,10 +69,17 @@ class ExportService:
 
     @staticmethod
     def _read_local(path,maximum):
-        if path.stat().st_size>maximum:raise ValidationError("Template file is too large.")
+        from .package_handoff import _check_source, _stamp
+        _check_source(path)
         with path.open("rb") as stream:
+            before=os.fstat(stream.fileno())
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or not 0<before.st_size<=maximum:
+                raise ValidationError('Choose a regular template package within its size limit.')
             body=stream.read(maximum+1)
-        if not 0<len(body)<=maximum:raise ValidationError("Template file is empty or grew beyond its size limit.")
+            _check_source(path)
+            if (_stamp(before)!=_stamp(os.fstat(stream.fileno()))
+                    or _stamp(before)!=_stamp(path.stat()) or len(body)!=before.st_size):
+                raise ValidationError('The template package changed while reading. Retry with a saved copy.')
         return body
 
     @staticmethod
@@ -79,18 +98,49 @@ class ExportService:
 
     def template_layout(self):
         if self.layout_error:raise ValidationError(self.layout_error)
-        return self.layout
+        return copy.deepcopy(self.layout)
 
-    def export(self,project):
+    def _candidate(self, project, title):
         sections=compile_layout(project,self.vehicle["car_id"],self.sections)
         raw,report=encode_experiment(self.template,sections)
         from tools.livery.fh6_save_installer import build_destination_header,parse_fh6_header
-        header=build_destination_header(title="KFPS Experimental Layout",creator_tag=self.header.creator_tag,
+        header=build_destination_header(title=title,creator_tag=self.header.creator_tag,
                                         creator_name=self.header.creator_name,car_id=self.vehicle["car_id"],
                                         placement_count=report["shape_count"],now=datetime.now(timezone.utc))
         checked=parse_fh6_header(header)
         if checked.type_value!=report["shape_count"] or checked.record_kind!="saved":
             raise ValidationError("Experimental header failed independent verification.")
+        return sections, raw, header, report
+
+    def export_package(self, project, title, *, game_folder=None, vehicle_index_cache=None):
+        from tools.livery.package import FullLiveryPackageError, create_full_livery_package
+        if not isinstance(title, str) or any(not c.isprintable() for c in title):
+            raise ValidationError("Enter a livery name of up to 64 characters.")
+        title = " ".join(title.split())
+        if not title or len(title.encode("utf-16le")) > 128:
+            raise ValidationError("Enter a livery name of up to 64 characters.")
+        _, raw, header, _ = self._candidate(project, title)
+        # Only the native candidate pair is input to the regular Garage packager.
+        with tempfile.TemporaryDirectory(prefix="kfps-studio-export-") as folder:
+            root = Path(folder)
+            source = root / "C_livery"
+            source.write_bytes(raw)
+            (root / "header").write_bytes(header)
+            output = root / "design.kfpslivery"
+            try:
+                manifest = create_full_livery_package(
+                    source, output, title_override=title, model_code_override=self.vehicle["model_code"],
+                    game_folder=game_folder, vehicle_index_cache=vehicle_index_cache)
+            except FullLiveryPackageError as exc:
+                raise ValidationError(str(exc)) from exc
+            vehicle = manifest["vehicle"]
+            if (vehicle["car_id"] != self.vehicle["car_id"] or
+                    vehicle["model_code"].casefold() != self.vehicle["model_code"].casefold()):
+                raise ValidationError("The package does not match the current car.")
+            return output.read_bytes()
+
+    def export(self,project):
+        sections, raw, header, report = self._candidate(project, "KFPS Experimental Layout")
         report.update({"template_sha256":self.template_hash,"source_sha256":hashlib.sha256(raw).hexdigest(),
                        "header_sha256":hashlib.sha256(header).hexdigest(),"installed":False,
                        "limits":{"masks":True,"cross_placement_masks":True,

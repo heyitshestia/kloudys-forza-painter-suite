@@ -154,6 +154,7 @@ import {validateGarageBuild} from './garage-build.mjs';
 import { createSurfaceEditor } from './surface-edit.mjs';
 import { initializeStudioTools } from './studio-tools.mjs';
 import { initializeWorkspacePanels } from './workspace-panels.mjs';
+import {initializeStudioTour} from './studio-tour.mjs';
 import * as authoring from './authoring-model.mjs';
 import * as mirror from './mirror-links.mjs';
 import { initRecovery } from './recovery-ui.mjs';
@@ -196,7 +197,7 @@ let externalPicker=null;
 let previewError='';
 let saveWorking=false;
 let activeWebOperation='';
-let selectedIds=[],tools=null,recovery=null,inspection=null,sourceEdit=null,confirmations=null,projectStorage=null,workspacePanels=null;
+let selectedIds=[],tools=null,recovery=null,inspection=null,sourceEdit=null,confirmations=null,projectStorage=null,workspacePanels=null,studioTour=null;
 const sourceMonitor=createSourceEditMonitor({
   read:job=>api('source-editor/'+job.id,undefined,5000),
   update:(job,value)=>{
@@ -210,10 +211,13 @@ const sourceMonitor=createSourceEditMonitor({
   onError:job=>{if(!disposed&&sourceEdit===job)sourceEditMessage('Automatic checks paused. Use Check changes to retry.');},
 });
 let sourceDocumentId=crypto.randomUUID();
+// A local project can replace all artwork and still use the same car's template.
+// This binding belongs to the current car page, never the serialized project.
+let packageTemplateId=null;
 let commandRevision=0;
 let snapGuide=null;
 let carCatalogue=[],carCurrent=null,carPicked=null,carJob=null,carWorking=false,carCommitting=false,carCancelRequested=false,navigationAuthorized=false;
-function interactionBusy() { return busy || saveWorking || sessionLoading || sessionRestore?.state==='pending' || !!drag || !!transform || externalPicker!==null || projectStorage?.isOpen()===true; }
+function interactionBusy() { return busy || saveWorking || sessionLoading || sessionRestore?.state==='pending' || !!drag || !!transform || externalPicker!==null || projectStorage?.isOpen()===true || studioTour?.isOpen()===true; }
 function canPreview() { return !previewError&&isSceneReady(); }
 function editBlocked() { return interactionBusy()||!canPreview(); }
 function requirePreview() { if(!canPreview())throw Error('The preview is unavailable. Save the current layout, then reload the preview.'); }
@@ -570,8 +574,8 @@ function initializeCommandSearch() {
     entries:[
       ['saveProject','Save project'],['openProject','Open project'],['importVinyl','Add vinyl'],
       ['editSource','Edit vinyl'],['exportSource','Export source artwork'],['exportSection','Export section artwork'],
-      ['exportExperiment','Export experimental ZIP'],['chooseCar','Choose car'],['undo','Undo'],['redo','Redo'],
-      ['reset','Reset view'],['modeOrbit','Orbit'],['showTheme','Appearance'],['showShortcuts','Keyboard shortcuts'],
+      ['exportPackage','Export livery package'],['exportExperiment','Export experimental ZIP'],['chooseCar','Choose car'],['undo','Undo'],['redo','Redo'],
+      ['reset','Reset view'],['modeOrbit','Orbit'],['showTheme','Appearance'],['showShortcuts','Keyboard shortcuts'],['showStudioTour','Livery Studio tour'],['openStudioManual','Manual'],
     ].map(([key,label])=>({key,label,shortcut:()=>$(key)?.dataset.commandShortcut||'',
       reason:()=>key==='exportSection'&&config.section_vinyl_export===true&&!project.placements.some(p=>p.section===$('section').value&&p.visible&&p.opacity>0)
         ?t('No visible placements on this section.'):key==='editSource'&&(!selectedIds.length||config.source_editor_roundtrip!==true)
@@ -648,7 +652,7 @@ function refreshOutputSummary() {
     :window.__kfpsStudioNativeDownloads===true?t('Chosen save location'):t('Browser downloads');
   const download=window.__kfpsStudioNativeDownloads===true?t('Chosen save location'):t('Browser downloads');
   $('saveProject').title=t('Save project: {0}. Car: {1} / {2}. Keeps all sections, sources, placement groups and parts; nothing installed.',destination,config.vehicle.model_code,config.vehicle.car_id);
-  $('outputSummary').textContent=t('Project: {0}. Artwork and experimental ZIP: {1}. Car: {2} / {3}. Section artwork: {4}. Experimental ZIP game acceptance is unverified; nothing installed.',destination,download,config.vehicle.model_code,config.vehicle.car_id,sectionLabel($('section').value));
+  $('outputSummary').textContent=t('Project: {0}. Exports: {1}. Car: {2} / {3}. Current section: {4}. Nothing is installed here.',destination,download,config.vehicle.model_code,config.vehicle.car_id,sectionLabel($('section').value));
   $('exportSource').title=t('Export original source artwork to {0}. Placement transforms and other sections are not included; nothing installed.',download);
   const sections=[...new Set(project.placements.filter(p=>p.visible&&p.opacity>0).map(p=>sectionLabel(p.section)))].join(', ')||t('No visible placements.');
   $('experimentDestination').textContent=t('FH6 template ZIP. Destination: {0}. Car: {1} / {2}. Visible artwork sections: {3}. Nothing is installed.',download,config.vehicle.model_code,config.vehicle.car_id,sections);
@@ -824,13 +828,21 @@ function paintSection(section,quality=activeQuality,cache=sectionCanvases,raster
   const atlas=target,atlasContext=atlas.getContext('2d'),padding=8*previewQuality(quality).scale;
   if(!atlasContext)throw Error('The graphics device could not allocate this preview quality.');
   const [x,y,w,h] = [region[0]*atlas.width,region[1]*atlas.height,(region[2]-region[0])*atlas.width,(region[3]-region[1])*atlas.height];
-  atlasContext.save(); atlasContext.setTransform(1,0,0,1,0,0); atlasContext.clearRect(x-padding,y-padding,w+padding*2,h+padding*2);
+  // Reduced-resolution tiles can meet at half pixels. Give each gutter whole pixels
+  // so repainting doesn't accumulate edge alpha or clear part of a neighboring tile.
+  const left=Math.round(x-padding),top=Math.round(y-padding);
+  const width=Math.round(x+w+padding)-left,height=Math.round(y+h+padding)-top;
+  atlasContext.save(); atlasContext.setTransform(1,0,0,1,0,0);
+  atlasContext.beginPath(); atlasContext.rect(left,top,width,height); atlasContext.clip();
+  atlasContext.clearRect(left,top,width,height);
   if(!surface){atlasContext.restore();return;}
+  atlasContext.save();
   atlasContext.beginPath(); atlasContext.rect(x,y,w,h); atlasContext.clip();
   atlasContext.setTransform(...sectionToPaint(section, [atlas.width,atlas.height])); atlasContext.drawImage(surface,0,0,2048,1024); atlasContext.restore();
   // Replicate the boundary gutter used by the existing packed-paint contract.
   for (const [sx,sy,sw,sh,dx,dy,dw,dh] of [[x,y,1,h,x-padding,y,padding,h],[x+w-1,y,1,h,x+w,y,padding,h],[x,y,w,1,x,y-padding,w,padding],[x,y+h-1,w,1,x,y+h,w,padding],
     [x,y,1,1,x-padding,y-padding,padding,padding],[x+w-1,y,1,1,x+w,y-padding,padding,padding],[x,y+h-1,1,1,x-padding,y+h,padding,padding],[x+w-1,y+h-1,1,1,x+w,y+h,padding,padding]]) atlasContext.drawImage(atlas,sx,sy,sw,sh,dx,dy,dw,dh);
+  atlasContext.restore();
 }
 function drawSelection() {
   if(document.hidden)return;
@@ -998,17 +1010,21 @@ function refresh() {
   document.querySelectorAll('#parts select').forEach(select=>{select.disabled=editingBlocked;});
   $('undo').disabled=editingBlocked||!history.canUndo; $('redo').disabled=editingBlocked||!history.canRedo;
   $('importVinyl').disabled=editingBlocked; $('openProject').disabled=editingBlocked; $('saveProject').disabled=saveWorking||blocked&&!previewError;
-  const experiment=config.experimental_export;
+  const experiment=config.experimental_export, canExport=!!packageTemplateId||experiment?.enabled===true;
   $('openSaveArtwork').disabled=editingBlocked||experiment?.template_layout_available!==true;
   const componentBlocked=nonstockPreview();
   $('resetParts').disabled=editingBlocked||!componentBlocked;
-  $('exportExperiment').disabled=blocked||componentBlocked||experiment?.enabled!==true||!project.placements.length;
+  $('exportExperiment').disabled=blocked||componentBlocked||!canExport||!project.placements.length;
+  $('exportPackage').hidden=config.livery_package_export!==true;
+  $('exportPackage').disabled=$('exportPackage').hidden||$('exportExperiment').disabled;
   const reason=errorText(typeof experiment?.reason==='string'?experiment.reason:'No save template supplied.');
   const templateReason=typeof experiment?.template_layout_reason==='string'&&experiment.template_layout_reason.trim()?errorText(experiment.template_layout_reason):reason||t('Save artwork is unavailable.');
   $('openSaveArtwork').title=experiment?.template_layout_available===true?t('Open artwork from the read-only save template'):templateReason;
-  $('exportExperiment').title=componentBlocked?t(componentExportReason):experiment?.enabled!==true?reason||t('Experimental export is unavailable.'):t(!project.placements.length?'Add at least one placement before exporting':'Download an experimental ZIP for isolated testing');
+  $('exportExperiment').title=componentBlocked?t(componentExportReason):!canExport?reason||t('Experimental export is unavailable.'):t(!project.placements.length?'Add at least one placement before exporting':'Download an experimental ZIP for isolated testing');
+  $('exportPackage').title=!canExport?t('Open your own same-car package from Garage first.'):componentBlocked||!project.placements.length?$('exportExperiment').title:t('Save a .kfpslivery for Garage. Nothing is installed or uploaded.');
   const count=Number.isInteger(experiment?.template_shape_count)&&experiment.template_shape_count>=0?experiment.template_shape_count:null;
   $('experimentStatus').textContent=experimentNotice||(experiment?.template_layout_available!==true?templateReason:experiment?.enabled===true?t`Save template${count===null?'':t`: ${count} shapes`}. Game acceptance is unverified.`:reason||t('Experimental export is unavailable.'));
+  if(packageTemplateId&&!experimentNotice)$('experimentStatus').textContent=t('Garage package template active for this car in this window.');
   if(componentBlocked)$('experimentStatus').textContent+=' '+t(componentExportReason);
   $('experimentStatus').classList.toggle('error',experimentError);
   $('section').disabled=blocked;
@@ -1151,6 +1167,7 @@ async function openFile(file,options={}) {
   }
   const adjusted=quality!==activeQuality,oldImages=images,oldSections=sectionCanvases,oldAtlas=atlas;
   project=next;images=nextImages;sectionCanvases=nextSections;atlas=nextAtlas;atlasContext=atlas.getContext('2d');
+  experimentNotice='';experimentError=false;
   activeQuality=quality;previewAllocationBlocked=false;
   [sectionCanvas.width,sectionCanvas.height]=previewQuality(quality).size;
   $('previewQuality').value=quality;
@@ -1450,7 +1467,10 @@ async function importHostVinyl() {
     }
     if(!value||typeof value.name!=='string'||!value.name.trim()||value.name.trim().length>120||/[\x00-\x1f]/.test(value.name))throw Error('The incoming artwork data is invalid.');
     if(!isCurrent())throw Error('The current layout changed. Nothing was opened.');
-    if(layoutTransfer){if(!await openPackageArtwork(value,isCurrent))return;}
+    if(layoutTransfer){
+      if(!await openPackageArtwork(value,isCurrent))return;
+      packageTemplateId=kind==='layout'&&value.package_template===true&&config.host_package_template===true?id:null;
+    }
     else{
       if(!Array.isArray(value.shapes)||!value.shapes.length||value.shapes.length>3000)throw Error('The incoming vinyl data is invalid.');
       if(!await importFile(new File([JSON.stringify({shapes:value.shapes})],`${value.name.trim()}.json`,{type:'application/json'}),{isCurrent}))return;
@@ -1498,23 +1518,37 @@ async function openSaveArtwork() {
     experimentMessage('Save artwork opened. The source template was not changed.');
   } catch(error) {if(!disposed)experimentMessage(error.message,true);throw error;}
 }
-async function exportExperiment() {
-  if(config.experimental_export?.enabled!==true||!project.placements.length)return;
+async function exportArtworkFile(asPackage) {
+  if((!packageTemplateId&&config.experimental_export?.enabled!==true)||!project.placements.length)return;
   if(nonstockPreview()){experimentMessage(componentExportReason,true);return;}
-  if(!await confirmExperiment())return;
+  let title='';
+  if(asPackage){
+    if(config.livery_package_export!==true)return;
+    const dialog=$('packageDialog'),input=$('packageTitle');
+    input.value=config.vehicle.model_code;dialog.returnValue='cancel';dialog.showModal();input.select();
+    const accepted=await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='export'),{once:true}));
+    if(!accepted||disposed)return;
+    title=input.value.trim();
+    if(!title)throw Error('Enter a livery name of up to 64 characters.');
+  }else if(!await confirmExperiment())return;
   if(nonstockPreview()){experimentMessage(componentExportReason,true);return;}
-  experimentMessage('Preparing experimental ZIP...');
+  experimentMessage(asPackage?'Preparing livery package...':'Preparing experimental ZIP...');
   try {
     const value=validateProject(project,config.vehicle,config.sections.map(s=>s.section));
-    const response=await fetch('./api/export-experiment',{method:'POST',headers:{'Content-Type':'application/json'},body:serializeProject(value),signal:stop.signal});
+    const headers={'Content-Type':'application/json'};
+    if(packageTemplateId)headers['X-KFPS-Package-Handoff']=packageTemplateId;
+    const response=await fetch(asPackage?'./api/export-package':'./api/export-experiment',{method:'POST',headers,
+      body:serializeProject(asPackage?{project:value,title}:value),signal:stop.signal});
     if(!response.ok)throw await responseError(response);
-    if(response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/zip')throw Error('The server did not return an experimental ZIP. Nothing was downloaded.');
+    if(response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!==(asPackage?'application/vnd.kfps.livery+zip':'application/zip'))throw Error(asPackage?'No valid livery package was returned.':'The server did not return an experimental ZIP. Nothing was downloaded.');
     const blob=await response.blob();
-    if(!blob.size)throw Error('The experimental ZIP was empty. Nothing was downloaded.');
+    if(!blob.size)throw Error(asPackage?'No valid livery package was returned.':'The experimental ZIP was empty. Nothing was downloaded.');
     if(disposed)return;
-    if(!await downloadBlob(blob,`${config.vehicle.model_code}.livery-experiment.zip`)){if(!disposed)experimentMessage('Experimental ZIP export cancelled.');return;}
+    const filename=asPackage?'KFPS-'+title.replace(/[<>:"/\\|?*]/g,'_')+'.kfpslivery':`${config.vehicle.model_code}.livery-experiment.zip`;
+    if(!await downloadBlob(blob,filename)){if(!disposed)experimentMessage(asPackage?'Package export cancelled.':'Experimental ZIP export cancelled.');return;}
     if(disposed)return;
-    experimentMessage('Experimental ZIP downloaded. Game acceptance is unverified; nothing was installed.');
+    if(asPackage)experimentMessage(window.__kfpsStudioNativeDownloads===true?'Package ready. In Garage, choose Packages, then Add Package.':'Download started. Once it finishes, choose Add Package in Garage.');
+    else experimentMessage('Experimental ZIP downloaded. Game acceptance is unverified; nothing was installed.');
   } catch(error) {if(!disposed)experimentMessage(error.message,true);throw error;}
 }
 function edit(callback) { if(editBlocked()||disposed||!flushNumeric())return; const before=snapshot(); callback(); commit(before); markAll(); }
@@ -1619,11 +1653,12 @@ async function initialize() {
   $('saveRecovery').addEventListener('click',saveProject);
   $('reloadPreview').addEventListener('click',()=>{if(disposed||interactionBusy())return;if(changed()){message('Save the layout before reloading the preview.',true);return;}window.location.reload();});
   $('openSaveArtwork').addEventListener('click',run(openSaveArtwork));
-  $('exportExperiment').addEventListener('click',run(exportExperiment,'Preparing experimental ZIP...'));
+  $('exportPackage').addEventListener('click',run(()=>exportArtworkFile(true),'Preparing livery package...'));
+  $('exportExperiment').addEventListener('click',run(()=>exportArtworkFile(false),'Preparing experimental ZIP...'));
   $('resetParts').addEventListener('click',()=>{
     if(editBlocked()||disposed||!flushNumeric())return;
     const before=snapshot();retainParts(setVehicleParts({}));commit(before);
-    message('Initial component configuration restored. Template tuning/body-kit data remain unchanged.');
+    message('Initial component configuration restored. Game save files were not changed.');
   });
   $('undo').addEventListener('click',()=>{if(!editBlocked()&&flushNumeric())restoreHistory('undo');});$('redo').addEventListener('click',()=>{if(!editBlocked()&&flushNumeric())restoreHistory('redo');});
   for(const id of Object.keys(numeric))$(id).addEventListener('input',()=>{if(editBlocked()||disposed||!current())return;numericEdited.add(id);$('documentState').textContent=t('Unsaved layout');});
@@ -1736,6 +1771,8 @@ async function initialize() {
   initializeWorkspaceSession();
   workspacePanels=initializeWorkspacePanels({icon,canLeave:()=>!interactionBusy()&&flushNumeric()});
   markAll();refresh();message('Ready.');await importHostVinyl();if(disposed)return;
+  studioTour=initializeStudioTour({panels:workspacePanels,icon,message,onClose:()=>{if(!disposed)refresh();},
+    canStart:()=>!disposed&&!interactionBusy()&&!handoffWorking&&!carWorking&&!sliderPointer&&numericEdited.size===0});
   window.__liveryLab={getProject:()=>structuredClone(project),getSelection:()=>[...selectedIds],getMetrics:()=>({...metrics,cachedSources:images.size,
     previewQuality:activeQuality,qualityDimensions:[...previewQuality(activeQuality).size],paintDimensions:[atlas.width,atlas.height],
     sectionCanvases:sectionCanvases.size,previewCachesReleased,sectionCanvasSize:[sectionCanvas.width,sectionCanvas.height],previewBytes:previewMemory()}),getScene:sceneState,getAtlas:()=>atlas.toDataURL(),ready:true};
@@ -1749,6 +1786,7 @@ function componentSelectionChanged(){
 }
 function viewerFailed(event) {
   if(disposed||previewError)return;
+  studioTour?.close();
   previewError=typeof event.detail?.message==='string'?event.detail.message.slice(0,1024):'The car preview is unavailable.';
   if(!previewError.trim())previewError='The car preview is unavailable.';
   // Generic renderer failures arrive before scene disposal; stop pending work now.
@@ -1756,7 +1794,7 @@ function viewerFailed(event) {
   surface?.dispose();surface=null;
   if(project){finishDrag(true);finishTransform(true);}
   dirtySections.clear();
-  for(const id of ['confirmOpen','confirmExperiment','confirmCarSwitch','shortcuts','sourceMenu','confirmDeleteSource'])if($(id).open)$(id).close('cancel');
+  for(const id of ['confirmOpen','confirmExperiment','packageDialog','confirmCarSwitch','shortcuts','sourceMenu','confirmDeleteSource'])if($(id).open)$(id).close('cancel');
   $('previewRecovery').hidden=false;
   $('previewRecoveryMessage').textContent=t`${errorText(previewError)} Your layout is retained. Save it, reload the preview, then reopen the saved layout.`;
   refresh();message('Preview stopped. Save the retained layout before reloading.',true);

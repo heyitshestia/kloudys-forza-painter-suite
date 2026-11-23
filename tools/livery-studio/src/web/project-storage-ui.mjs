@@ -86,7 +86,14 @@ export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.
   name.addEventListener('input',()=>{conflict=null;replace.hidden=true;feedback(saveStatus,'');});
   name.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!working){event.preventDefault();void submitSave();}});
   cancelSave.addEventListener('click',()=>finishSave(null));
-  saveDialog.addEventListener('close',()=>{generation++;if(resolveSave){const resolve=resolveSave;resolveSave=null;resolve(null);}});
+  saveDialog.addEventListener('close',()=>{
+    // Dialog close events are queued. A cancelled dialog may already have been
+    // reopened for another save before its previous close event is delivered.
+    // start() advances the generation; a late close must not invalidate a
+    // different dialog or restore request that started after it.
+    if(saveDialog.open)return;
+    if(resolveSave){const resolve=resolveSave;resolveSave=null;resolve(null);}
+  });
 
   async function listProjects(offset=0){await request(openDialog,openStatus,async isCurrent=>{
     feedback(openStatus,'Loading projects...');const response=await api(`projects?offset=${offset}`);if(!isCurrent())return;
@@ -151,7 +158,6 @@ export function initProjectStorage({api,getProject,getDocumentRevision=()=>JSON.
   for(const node of dialogs){
     node.addEventListener('cancel',event=>{if(working)event.preventDefault();});
     node.addEventListener('close',()=>{if(!disposed)onModalChange();});
-    if(node!==saveDialog)node.addEventListener('close',()=>{generation++;});
   }
   // A disabled field may briefly focus body; modal shortcuts must still not edit the car.
   const modalKeys=event=>{

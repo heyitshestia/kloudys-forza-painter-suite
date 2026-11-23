@@ -1,6 +1,8 @@
 // Same bounded, no-free-text records as the installed Studio collector.
 export const ENUMS = {
-  event: 'host readiness render counts action error request closed'.split(' '),
+  event: 'host readiness render counts action error request closed lifetime'.split(' '),
+  owner_state: ['native', 'chrome', 'none', 'unknown'],
+  shutdown_reason: ['unclaimed', 'owner_closed'],
   host: ['backend', 'native', 'chrome', 'unknown'],
   gpu_policy: ['auto', 'opengl', 'd3d11', 'browser-default', 'unknown'],
   action: 'launch import edit undo redo save reopen source_edit source_return cancel car_switch export checkpoint theme language component reset render library recovery selection'.split(' '),

@@ -13,6 +13,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import struct
 import uuid
 import zipfile
@@ -432,6 +433,84 @@ def select_destination_identity(
         raise FullLiveryInstallError(f"FH6 creator name could not be verified: {exc}") from exc
 
 
+_DESTINATION_SCHEMA = "kfps-fh6-destination-v1"
+_DESTINATION_FIELDS = {"schema", "directory", "containers", "user_id", "manifest_sha256",
+                       "directory_id", "version_id", "containers_id"}
+
+
+def validate_destination_snapshot(value: object) -> dict[str, Any]:
+    """Validate/copy an IPC snapshot without resolving its expected path strings."""
+    try:
+        if type(value) is not dict or set(value) != _DESTINATION_FIELDS or value["schema"] != _DESTINATION_SCHEMA:
+            raise ValueError
+        for key in ("directory", "containers"):
+            text = value[key]
+            if type(text) is not str or not 1 <= len(text) <= 32768 or any(ord(c) < 32 for c in text):
+                raise ValueError
+            path = Path(text)
+            if not path.is_absolute() or ".." in path.parts:
+                raise ValueError
+        directory, containers = Path(value["directory"]), Path(value["containers"])
+        user = value["user_id"]
+        match = ACCOUNT_NAME.fullmatch(directory.name)
+        if (type(user) is not str or not 1 <= len(user) <= 20 or not user.isascii() or not user.isdecimal()
+                or not 0 < int(user) < 2**64 or str(int(user)) != user or not match or match[1] != user
+                or containers.name != "ContainersRoot" or not containers.parent.name.isdecimal()
+                or containers.parent.parent != directory):
+            raise ValueError
+        digest = value["manifest_sha256"]
+        if type(digest) is not str or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError
+        result = dict(value)
+        for key in ("directory_id", "version_id", "containers_id"):
+            identity = value[key]
+            if (type(identity) is not list or len(identity) != 2
+                    or any(type(n) is not int or not 0 <= n < 2**128 for n in identity)
+                    or identity[1] == 0):
+                raise ValueError
+            result[key] = list(identity)
+        return result
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise FullLiveryInstallError("Invalid confirmed FH6 destination. Check the destination again.") from None
+
+
+def _destination_directory_id(path: Path) -> list[int]:
+    if path.resolve(strict=True) != path:
+        raise FH6IdentityError("The FH6 destination directory is redirected.")
+    info = path.stat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_ino == 0:
+        raise FH6IdentityError("The FH6 destination directory identity is unavailable.")
+    return [info.st_dev, info.st_ino]
+
+
+def destination_snapshot(account: SaveAccount) -> dict[str, Any]:
+    """Bind SaveAccount facts and stable directory IDs, never mutable directory times."""
+    try:
+        account.revalidate()
+        paths = {"directory_id": account.directory, "version_id": account.containers.parent,
+                 "containers_id": account.containers}
+        identities = {key: _destination_directory_id(path) for key, path in paths.items()}
+        account.revalidate()
+        if identities != {key: _destination_directory_id(path) for key, path in paths.items()}:
+            raise FH6IdentityError("The FH6 destination directories changed while checking.")
+        return validate_destination_snapshot({
+            "schema": _DESTINATION_SCHEMA, "directory": str(account.directory),
+            "containers": str(account.containers), "user_id": str(account.user_id),
+            "manifest_sha256": _sha256(account.manifest), **identities,
+        })
+    except (OSError, FH6IdentityError):
+        raise FullLiveryConcurrentChangeError(
+            "The confirmed FH6 destination changed or could not be verified. Check the destination again."
+        ) from None
+
+
+def _check_expected_destination(account: SaveAccount, expected: dict[str, Any]) -> None:
+    if destination_snapshot(account) != expected:
+        raise FullLiveryConcurrentChangeError(
+            "The confirmed FH6 destination changed. Check the account and current save folder again."
+        )
+
+
 def _snapshot(root: Path, *, exclude: Path | None = None) -> tuple[tuple[str, int, str], ...]:
     rows: list[tuple[str, int, str]] = []
     excluded = exclude.resolve() if exclude is not None else None
@@ -506,11 +585,13 @@ def install_full_livery_package(
     backup_root: Path | str,
     expected_model_code: str,
     destination: Path | str | None = None,
+    expected_destination: dict[str, Any] | None = None,
     local_app_data: Path | None = None,
     now: datetime | None = None,
     cancel_event=None,
 ) -> FullLiveryInstallResult:
     _check_cancelled(cancel_event)
+    expected = validate_destination_snapshot(expected_destination) if expected_destination is not None else None
     package = Path(package_path).resolve()
     manifest = validate_full_livery_package(package)
     sharing = manifest.get("sharing") or {}
@@ -532,6 +613,8 @@ def install_full_livery_package(
     identity = select_destination_identity(
         scan_roots, destination=destination, local_app_data=local_app_data
     )
+    if expected is not None:
+        _check_expected_destination(identity.creator.account, expected)
 
     def revalidate_destination() -> None:
         identity.revalidate()
@@ -541,6 +624,8 @@ def install_full_livery_package(
             )
             if current != identity.creator.account:
                 raise FullLiveryInstallError("FH6 destination selection changed.")
+            if expected is not None:
+                _check_expected_destination(current, expected)
         except FullLiveryInstallError as exc:
             raise FullLiveryConcurrentChangeError(
                 "The active FH6 save selection changed during installation. "
@@ -566,6 +651,8 @@ def install_full_livery_package(
     if not privacy["source_owned"] or privacy["contains_foreign_groups"]:
         raise FullLiveryInstallError("The source livery is not eligible for identity rewriting.")
     source_layers, source_report = clivery_to_layers(source_payload)
+    if expected is not None:
+        revalidate_destination()
     rewritten_payload = rewrite_destination_identity(source_payload, identity.creator_tag)
     _, counts, _ = extract_livery_payload(rewritten_payload)
     if sum(counts) != placement_count:
@@ -594,6 +681,8 @@ def install_full_livery_package(
     revalidate_destination()
     original_snapshot = _snapshot(root)
     _check_cancelled(cancel_event)
+    if expected is not None:
+        revalidate_destination()
     stamp = moment.strftime("%Y%m%d%H%M%S")
     final_folder = _unique_path(root, f"Livery_{car_id:04d}_{stamp}")
     staging = root / f".{final_folder.name}.kfps-{uuid.uuid4().hex}.tmp"

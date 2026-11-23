@@ -141,6 +141,30 @@ def run(app, engine, shutdown):
                 assert js(find("garageRescanAccounts"), "enabled")
                 assert js(find("garageChooseSource"), "enabled")
                 assert js(find("garageRefreshButton"), "enabled")
+                manual = find("garageManualButton")
+                assert js(manual, "visible && enabled")
+                from PySide6.QtTest import QTest
+                from PySide6.QtCore import Qt
+                point = manual.mapToScene(QPointF(manual.width()/2, manual.height()/2)).toPoint()
+                assert window.contentItem().contains(QPointF(point)), "Manual is clipped"
+                opener = "os.startfile" if os.name == "nt" else "webbrowser.open"
+                desktop = context.contextProperty("desktop")
+                real_root = Path.cwd()
+                with patch.object(desktop, "paths", replace(paths, app_root=real_root)), patch(opener) as opened:
+                    QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, point)
+                    entry = real_root / "docs/garage-studio-guide/garage.html"
+                    if os.name == "nt":
+                        opened.assert_called_once_with(str(entry), "open")
+                    else:
+                        opened.assert_called_once_with(entry.as_uri(), new=2)
+                assert page.property("libraryTab") == 2
+                # The disposable app root deliberately has no manual. Do not ask the OS to open it.
+                with patch(opener) as opened:
+                    QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, point)
+                    error = window.findChild(QObject, "garageManualError")
+                    assert error.property("visible")
+                    js(error, "accept()")
+                    opened.assert_not_called()
                 assert js(find("garageEmptyTitle"), "text") == "Choose an FH6 account"
                 assert js(find("garageEmptyStatus"), "text") == "No account selected"
                 assert window.grabWindow().save(str(profile / "discovery-failure.png"))

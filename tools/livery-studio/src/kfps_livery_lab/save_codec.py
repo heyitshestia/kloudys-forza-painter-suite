@@ -4,6 +4,7 @@ Opaque envelope/material bytes are preserved from an owned, same-car export.
 This is decoder-verified research output, not a claim of game acceptance.
 """
 from dataclasses import dataclass
+import hashlib
 import math
 from pathlib import Path
 import struct
@@ -150,44 +151,48 @@ def _source_fits(shapes):
                 raise ValidationError("The source vinyl extends outside the preview canvas. Center or resize its shapes in the vinyl editor before exporting.")
 
 
-def _encode_masked_section(placements):
-    """FH6 counted artwork groups inside a markerless section, not C_group closes."""
-    def header(count,bitmap,marker=b""):
-        return marker+struct.pack("<HH",count,len(bitmap))+b"\0\0"+bytes(bitmap)
-
-    def group(shapes,mask=False):
-        bitmap=bytearray((len(shapes)+7)//8)
-        for index,shape in enumerate(shapes):
-            if shape["mask"] and not mask:
-                bitmap[index//8]|=1<<(index%8)
-        output=bytearray(b"\0"+struct.pack("<4f",0,0,1,0))
-        output.extend(header(len(shapes),bitmap,b"\x60" if mask else b"\x20"))
-        previous=False
-        for index,shape in enumerate(shapes):
-            if shape["mask"] and not mask:
-                child=bytearray(group([shape],True))
-                child[0]=int(previous)
-                output.extend(child)
+def _encode_counted_section(root, *, spoiler=False):
+    """FH6 counted artwork groups; standalone C_group closing bytes do not apply."""
+    from tools.cgroup.vinyl_document import _Group
+    def group(node, inherited=False, depth=0):
+        if depth > 64:
+            raise ValidationError("Native mask/group nesting exceeds the 64-level limit.")
+        count = len(node.children)
+        bitmap = bytearray((count+7)//8)
+        for index, child in enumerate(node.children):
+            if isinstance(child, _Group):
+                bitmap[index//8] |= 1 << (index%8)
+        output = bytearray()
+        if depth:
+            output.extend(struct.pack('<4f',0,0,1,0))
+            output.append(0x60 if node.mask else 0x20)
+        output.extend(struct.pack('<HH',count,len(bitmap)) + bytes(2) + bitmap)
+        masked = inherited or node.mask
+        previous = False
+        for index, child in enumerate(node.children):
+            # The section envelope has no preceding child state. Nested groups
+            # and subsequent siblings retain their inter-record state byte.
+            has_state = bool(depth or index)
+            if isinstance(child, _Group):
+                if has_state:
+                    output.append(int(previous))
+                body, previous = group(child, masked, depth+1)
+                output.extend(body)
             else:
-                x,y,sx,sy,angle,skew,_=shape["data"]
-                r,g,b,a=shape["color"]
-                output.extend(struct.pack("<BBH6f4B",int(index==0 or previous or mask),2,
-                                          shape["type_word"],angle%360,x,y,sx,sy,skew,b,g,r,a))
-            previous=shape["mask"]
-        return bytes(output)
-
-    bitmap=bytearray((len(placements)+7)//8)
-    for index in range(len(placements)):
-        bitmap[index//8]|=1<<(index%8)
-    result=bytearray(header(len(placements),bitmap))
-    previous=False
-    for shapes in placements:
-        child=bytearray(group(shapes))
-        child[0]=int(previous)
-        result.extend(child)
-        previous=shapes[-1]["mask"]
-    result.append(int(previous))
-    return bytes(result)
+                x,y,angle = child.x,child.y,child.rotation
+                if spoiler:
+                    x,y,angle = -x,-y,angle-180
+                r,g,b,a = child.color_rgba
+                if has_state:
+                    output.append(int(index==0 or previous or masked))
+                output.extend(struct.pack('<BH6f4B',2,
+                    child.shape_id,angle%360,x,y,child.sx,child.sy,child.skew,b,g,r,a))
+                previous = masked or child.mask
+        return output, previous
+    body, last_mask = group(root)
+    if root.children:
+        body.append(int(last_mask))
+    return bytes(body)
 
 
 def compile_layout(project,car_id,sections):
@@ -220,12 +225,18 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
     sources=project.get("vinyls");placements=project.get("placements")
     if not isinstance(sources,list) or not isinstance(placements,list) or len(sources)>16 or len(placements)>200:
         raise ValidationError("Layout exceeds the authoring limits.")
-    lookup={}; ids=set(); checked_sources=set()
+    from tools.cgroup.vinyl_document import group_paths
+    lookup={}; source_paths={}; ids=set(); checked_sources=set()
     for source in sources:
         if not isinstance(source,dict) or not isinstance(source.get("id"),str) or not source["id"] or len(source["id"])>100 or source["id"] in lookup:
             raise ValidationError("Invalid or duplicate vinyl ID.")
         lookup[source["id"]]=validate_shapes({"shapes":source.get("shapes")},_resolve)
+        try:
+            source_paths[source['id']] = group_paths(source['shapes'])
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
     output={name:[] for name in NAMES}
+    section_placements = {name:sum(isinstance(p,dict) and p.get('section')==name for p in placements) for name in NAMES}
     for p in placements:
         if (not isinstance(p,dict) or not isinstance(p.get("id"),str) or not p["id"] or len(p["id"])>100
                 or p["id"] in ids or not isinstance(p.get("vinylId"),str) or p["vinylId"] not in lookup
@@ -250,7 +261,9 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
         m00=c*sx;m01=(c*placement_skew-s)*sy
         m10=s*sx;m11=(s*placement_skew+c)*sy
         target=output[p["section"]]
-        for shape in native:
+        # Longer than any bounded placement ID, so the two namespaces cannot collide.
+        source_group_prefix='studio-source-'+hashlib.sha256(p['id'].encode('utf-8')).hexdigest()+'-'
+        for shape, path in zip(native, source_paths[p['vinylId']]):
             px,py,psx,psy,pr,skew,_=shape["data"]
             alpha=math.floor(shape["color"][3]*opacity+.5)
             if not alpha and not shape["mask"]:continue
@@ -269,8 +282,20 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
             data=[x+m00*px+m01*py,y+m10*px+m11*py,ax,ay,math.degrees(angle)%360,shear,0]
             data[6]=int(shape["mask"])
             transformed={"type":shape["type"],"data":data,"color":[*shape["color"][:3],alpha],"mask":shape["mask"]}
-            transformed["editor_group_id"]="studio-"+p["id"]
-            transformed["editor_group_name"]=str(p.get("name") or p["vinylId"])[:1024]
+            # Canonical save imports represent an entire section, not a new
+            # vinyl group. Do not accumulate a wrapper on every save round trip.
+            whole_section = (target_section is None and section_placements[p['section']]==1
+                and p['id']=='placement-'+p['section'] and p['vinylId']=='save-'+p['section']
+                and (x,y,sx,sy,rotation,placement_skew,opacity)==(0,0,1,1,0,0,1))
+            groups = [] if whole_section else [{'id':'studio-'+p['id'], 'name':str(p.get('name') or p['vinylId'])[:1024]}]
+            groups.extend({'id':source_group_prefix+hashlib.sha256(key.encode('utf-8')).hexdigest(),
+                           'name':name} for key,name in path)
+            if len(groups)>64:
+                raise ValidationError('Placement plus source groups exceeds the 64-level nesting limit.')
+            if groups:
+                transformed['editor_group_path'] = groups
+                transformed['editor_group_id'] = groups[-1]['id']
+                transformed['editor_group_name'] = groups[-1]['name']
             target.append(transformed)
             cap=3000 if target_section is not None else CAPS[p["section"]]
             if len(target)>cap:
@@ -278,18 +303,17 @@ def _compile_layout(project,car_id,sections,*,target_section=None):
     if not any(output.values()):raise ValidationError("At least one visible shape is required for export.")
     for shapes in output.values():
         if shapes:validate_shapes({"shapes":shapes},_resolve)
-        if target_section is None and not any(shape["mask"] for shape in shapes):
-            for shape in shapes:
-                shape.pop("editor_group_id",None)
-                shape.pop("editor_group_name",None)
     return output
 
 
 def encode_experiment(template,sections):
     from tools.cgroup import forza_source_decoder as decoder
+    from tools.cgroup.cgroup_codec import CGroupLayer
+    from tools.cgroup.vinyl_document import (_Group, _build_group_tree, _materialize_masks,
+        group_paths, _group_spans, _decoded_group_spans)
     if not isinstance(sections,dict) or set(sections)-set(NAMES):
         raise ValidationError("Unknown export section.")
-    body=bytearray(); counts=[]; expected=[]
+    body=bytearray(); counts=[]; expected=[]; trees={}; group_warnings=[]
     for index,name in enumerate(NAMES):
         shapes=sections.get(name,[])
         if not isinstance(shapes,list) or len(shapes)>CAPS[name]:
@@ -297,31 +321,22 @@ def encode_experiment(template,sections):
         original=shapes
         shapes=validate_shapes({"shapes":shapes},_resolve) if shapes else []
         count=len(shapes);counts.append(count)
-        if any(shape["mask"] for shape in shapes):
-            placements=[];previous=None
-            for source,shape in zip(original,shapes):
-                key=source.get("editor_group_id")
-                if not placements or key!=previous:
-                    placements.append([])
-                placements[-1].append(shape)
-                previous=key
-            expected.extend((name,shape) for shape in shapes)
-            if name=="Spoiler":
-                placements=[[{**shape,"data":[-shape["data"][0],-shape["data"][1],
-                    *shape["data"][2:4],(shape["data"][4]-180)%360,*shape["data"][5:]]}
-                    for shape in group] for group in placements]
-            body.extend(_encode_masked_section(placements))
-            if index<10:body.extend(template.transitions[index])
-            continue
-        blocks=(count+7)//8
-        body.extend(struct.pack("<HH",count,blocks)+bytes(2+blocks))
-        for i,shape in enumerate(shapes):
-            x,y,sx,sy,angle,skew,_=shape["data"]
-            if name=="Spoiler":x,y,angle=-x,-y,(angle-180)%360
-            r,g,b,a=shape["color"]
-            # First leaf is unframed; each preceding leaf contributes its mask byte.
-            body.extend(struct.pack("<BH6f4BB",2,shape["type_word"],angle%360,x,y,sx,sy,skew,b,g,r,a,0))
-            expected.append((name,shape))
+        try:
+            paths = group_paths(original)
+            records = [(CGroupLayer(shape_id=shape['type_word'], x=shape['data'][0], y=shape['data'][1],
+                sx=shape['data'][2],sy=shape['data'][3],rotation=shape['data'][4],skew=shape['data'][5],
+                color_rgba=tuple(shape['color']),mask=shape['mask'],source_index=i),path)
+                for i,(shape,path) in enumerate(zip(shapes,paths))]
+            root, warnings = _build_group_tree(records)
+            _materialize_masks(root)
+            if root.mask:
+                root = _Group([root])
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
+        trees[name] = root
+        group_warnings.extend(f'{name}: {message}' for message in warnings)
+        expected.extend((name,shape) for shape in shapes)
+        body.extend(_encode_counted_section(root,spoiler=name=='Spoiler'))
         if index<10:body.extend(template.transitions[index])
     if not expected:raise ValidationError("At least one visible shape is required for export.")
     if b"yrvl" in body:
@@ -331,9 +346,16 @@ def encode_experiment(template,sections):
     tail=bytearray(template.payload[template.body_end:])
     struct.pack_into("<11I",tail,4,*counts)
     payload=bytes(prefix)+bytes(body)+bytes(tail)
-    decoded,report=decoder.clivery_to_layers(payload)
+    if (payload[:template.gyvl-4]!=template.payload[:template.gyvl-4]
+            or bytes(prefix[template.gyvl:])!=template.payload[template.gyvl:template.body_start]
+            or bytes(tail[48:])!=template.payload[template.body_end+48:]):
+        raise ValidationError('Template envelope or finish data changed outside the artwork fields.')
+    decoded,report=decoder.clivery_to_layers(payload,preserve_groups=True)
     if report["warnings"] or len(decoded)!=len(expected):
         raise ValidationError("Edited save failed independent structural decoding.")
+    for name, root in trees.items():
+        if _decoded_group_spans([layer for layer in decoded if layer['section']==name]) != _group_spans(root):
+            raise ValidationError('Edited save failed nested group membership verification.')
     for actual,(section,shape) in zip(decoded,expected):
         if actual["section"]!=section or actual["shape_id"]!=shape["type_word"] or actual["color_rgba"]!=shape["color"] or actual["mask"]!=shape["mask"]:
             raise ValidationError("Edited save failed shape/color/order verification.")
@@ -354,6 +376,7 @@ def encode_experiment(template,sections):
     if unwrap_bounded(result)!=payload:raise ValidationError("Compressed output failed verification.")
     return result,{"format":"kfps-livery-experiment-v1","experimental":True,"game_acceptance_verified":False,
                    "independent_decode_verified":True,"car_id":template.car_id,"shape_count":len(expected),
+                   "nested_groups_verified":True,"warnings":group_warnings,
                    "mask_count":sum(shape["mask"] for _,shape in expected),
                    "mask_scope_policy":"ordered-section-destination-out-v1",
                    "section_limit_policy":section_limit_policy(),

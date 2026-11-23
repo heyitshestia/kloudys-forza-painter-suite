@@ -65,6 +65,7 @@ const diagnosticKeys=new Set([
   'Invalid {0}.','{0} must be between {1} and {2}.','Invalid {0}: {1}.',
   'Texture load failed ({0}).','Car mesh load failed ({0}).','Request failed (HTTP {0}).',
   'Unknown component type: {0}','Unavailable component option: {0}',
+  'Unavailable component selection: {0}.',
   'UV3: {0}/{1} paint/glass meshes present; {2} missing, {3} invalid. {4} visible surfaces remain neutral/unmapped.',
   '{0} native parameter applications across {1} mesh instances. {2} texture references remain unresolved. Physical shading and parameter colour encoding are approximations, not native shader parity.',
   '{0} body/glass surface(s) retained without supported vinyl mapping in this preview. In-game paintability is unverified.',

@@ -43,7 +43,8 @@ def acquire_native_owner(url):
     directory = native_owner_directory(url)
     directory.mkdir(parents=True, exist_ok=True)
     lock = EditorInstanceLock(directory)
-    if not lock.tryLock(0):
+    # Allow the backend's brief ownership probe to release its admission lease.
+    if not lock.tryLock(100):
         raise NativeOwnerError(NATIVE_OWNER_MESSAGE)
     return lock
 

@@ -1,6 +1,5 @@
 import QtQuick 6.7
 import QtQuick.Controls 6.7
-import QtQuick.Dialogs 6.7
 import QtQuick.Layouts 6.7
 import QtWebEngine
 import Kfps.Theme 1.0
@@ -218,6 +217,13 @@ Item {
         }
     }
     Connections {
+        target: fullLiveryService
+        function onInstallConfirmationReady() {
+            if (root.pageActive && fullLiveryService.installConfirmationCurrent)
+                installConfirm.open()
+        }
+    }
+    Connections {
         target: root
         function onPageActiveChanged() {
             if (!root.pageActive) {
@@ -355,6 +361,20 @@ Item {
             }
             Item { Layout.fillWidth: true }
 
+            GhostButton {
+                objectName: "garageManualButton"
+                dense: true
+                text: "Manual"
+                iconName: "help"
+                toolTipText: "Open the illustrated Garage manual in your browser."
+                onClicked: {
+                    const error = desktop.openGarageManual()
+                    if (error) {
+                        manualErrorMessage.text = error
+                        manualError.open()
+                    }
+                }
+            }
             GhostButton {
                 objectName: "launchLiveryStudioButton"
                 dense: true
@@ -1000,7 +1020,7 @@ Item {
             detailsPopup.close()
             editorService.launchPackageInLiveryStudio(fullLiveryService.browsedPackage, root.studioThemeContext())
         }
-        onInstallRequested: installConfirm.open()
+        onInstallRequested: fullLiveryService.prepareInstallSelectedPackage()
     }
 
     Popup {
@@ -1140,11 +1160,89 @@ Item {
         }
     }
 
-    MessageDialog {
+    Dialog {
+        id: manualError
+        objectName: "garageManualError"
+        anchors.centerIn: parent
+        title: "Garage Manual"
+        width: Math.min(root.width - Theme.px(24), Theme.px(420))
+        contentItem: Label {
+            id: manualErrorMessage
+            wrapMode: Text.Wrap
+        }
+        modal: true
+        standardButtons: Dialog.Ok
+    }
+
+    Dialog {
         id: installConfirm
+        objectName: "LiveryInstallConfirmation"
+        parent: Overlay.overlay
+        // Native message dialogs cannot be hosted by the integrated workspace.
+        Component.onCompleted: {
+            if ("popupType" in installConfirm)
+                installConfirm["popupType"] = Popup.Item
+        }
+        anchors.centerIn: parent
+        width: Math.min(Theme.px(540), parent.width - Theme.px(32))
+        padding: Theme.px(18)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
         title: "Install this FH6 livery?"
-        text: "KFPS will verify the package against the exact car, create a recovery record, and add a new livery without replacing existing save entries. Different-car installation is blocked. FH6 may need to reload its save before the new livery appears."
-        buttons: MessageDialog.Ok | MessageDialog.Cancel
+        onOpened: cancelInstall.forceActiveFocus()
         onAccepted: fullLiveryService.installSelectedPackage()
+        onRejected: fullLiveryService.cancelInstallConfirmation()
+
+        background: Rectangle {
+            color: Theme.backgroundA
+            border.color: Theme.border
+            radius: Theme.corner(6)
+        }
+        header: Label {
+            text: installConfirm.title
+            padding: Theme.px(18)
+            bottomPadding: 0
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(18)
+            font.weight: Font.DemiBold
+            wrapMode: Text.WordWrap
+        }
+        contentItem: Label {
+            objectName: "LiveryInstallConfirmationText"
+            text: fullLiveryService.installDestinationDescription + "\n\nKFPS will verify the package against the exact car, create a recovery record, and add a new livery without replacing existing save entries. Different-car installation is blocked. FH6 may need to reload its save before the new livery appears."
+            textFormat: Text.PlainText
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.px(13)
+            wrapMode: Text.Wrap
+        }
+        footer: Item {
+            implicitHeight: installButtons.implicitHeight + Theme.px(18)
+            RowLayout {
+                id: installButtons
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.px(18)
+                spacing: Theme.px(10)
+                Item { Layout.fillWidth: true }
+                GhostButton {
+                    id: cancelInstall
+                    objectName: "CancelLiveryInstall"
+                    text: "Cancel"
+                    toolTipText: "Close this confirmation without adding anything to your FH6 save."
+                    onClicked: installConfirm.reject()
+                }
+                PrimaryButton {
+                    objectName: "ConfirmLiveryInstall"
+                    text: "Install"
+                    iconName: "transfer"
+                    toolTipText: "Add this design as a new livery in the confirmed FH6 save folder."
+                    enabled: fullLiveryService.installConfirmationCurrent
+                    onClicked: installConfirm.accept()
+                }
+            }
+        }
     }
 }

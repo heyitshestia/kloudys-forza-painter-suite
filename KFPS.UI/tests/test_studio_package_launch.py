@@ -267,6 +267,7 @@ class PackageLaunchTests(unittest.TestCase):
         capabilities.update({key: {"enabled": True, "version": 1} for key in ("recovery", "project_storage", "vinyl_library")})
         capabilities["vehicle"] = {"archive_name": "DEFAULT.zip"}
         capabilities["chrome_exposed"] = False
+        capabilities["backend_lifetime"] = 1
         for version in (None, True, 1):
             with self.subTest(version=version):
                 response = io.BytesIO(json.dumps(dict(capabilities, package_startup=version)).encode())

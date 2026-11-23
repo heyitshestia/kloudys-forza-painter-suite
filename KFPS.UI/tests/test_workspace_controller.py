@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+ROOT = Path(__file__).resolve().parents[2]
+LAB = ROOT / 'tools/livery-studio'
+sys.path[:0] = [str(ROOT / 'KFPS.UI/src'), str(ROOT / 'KFPS.Editor/src'), str(LAB / 'src')]
+
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QWindow
 from PySide6.QtWidgets import QApplication, QWidget
@@ -15,9 +19,6 @@ from shiboken6 import delete
 from kfps_ui.workspace_host import WorkspaceWindow
 from kfps_ui.workspace_controller import WorkspaceController
 
-ROOT = Path(__file__).resolve().parents[2]
-LAB = ROOT / 'tools/livery-studio'
-sys.path.insert(0, str(LAB / 'src'))
 from kfps_livery_lab.source_editor import SourceEditor, PROJECT_ID, DESCRIPTOR
 
 APP = QApplication.instance() or QApplication([])

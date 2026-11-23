@@ -35,6 +35,8 @@ try{
   const prepared=JSON.parse(fs.readFileSync(path.join(workspace,'prepared.json'),'utf8'));
   const shapes=Array.from({length:36},(_,i)=>({type:1048677,data:[(i%6-2.5)*38,(Math.floor(i/6)-2.5)*38,.3,.3,i*5,0,0],
     color:i%2?[255,30,125,255]:[40,220,170,255],mask:false}));
+  // Translucent artwork reaching the tile gutters makes cumulative edge alpha observable.
+  shapes[0]={type:1048677,data:[0,0,15,7,0,0,0],color:[24,40,88,128],mask:false};
   const layout={format:'kfps-livery-layout-v1',vehicle,
     vinyls:prepared.editor_config.sections.map(s=>({id:'save-'+s.section,name:'Alignment '+s.section,shapes})),
     placements:prepared.editor_config.sections.map(s=>({
@@ -101,6 +103,17 @@ try{
   await page.waitForFunction(()=>window.__liveryLab.getMetrics().previewQuality==='fast'&&!document.querySelector('#previewQuality').disabled);
   assert.equal(await page.locator('[data-quality-choice=fast]').getAttribute('aria-pressed'),'true');
   assert.deepEqual(await page.evaluate(()=>window.__liveryLab.getProject()),layout,'Quality changed document data.');
+  await page.locator('#placementList button').first().click();
+  await page.click('[data-inspector-tab=placement]');
+  const atlasFrame=()=>page.evaluate(async()=>{
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    return window.__liveryLab.getAtlas();
+  });
+  const originalAtlas=await atlasFrame();
+  await page.uncheck('#visible');
+  assert.ok((await atlasFrame())!==originalAtlas,'Hiding the placement did not change the texture.');
+  await page.check('#visible');
+  assert.ok((await atlasFrame())===originalAtlas,'Restoring the placement changed the texture borders.');
   await page.click('[data-quality-choice=balanced]');
   await page.waitForFunction(()=>window.__liveryLab.getMetrics().previewQuality==='balanced'&&!document.querySelector('#previewQuality').disabled);
   const canvas=page.locator('#canvas'),box=await canvas.boundingBox();

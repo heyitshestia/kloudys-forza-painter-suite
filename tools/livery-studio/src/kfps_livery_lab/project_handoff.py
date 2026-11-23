@@ -94,24 +94,42 @@ def validate_prepared_project(value, prepared, assets):
     chosen = {}
     for part, ident in parts.items():
         rows = [row for row in options if row.get('part_type') == part]
-        matches = [row for row in rows if row.get('id') == ident and row.get('supported') is True]
-        if not rows or (ident is not None and len(matches) != 1):
+        matches = [row for row in rows if type(row.get('id')) is int and row['id'] == ident]
+        if not rows or (ident is not None and (len(matches) != 1 or matches[0].get('supported') is not True)):
             raise ValueError('The project has an unavailable component. The current car is unchanged.')
         if matches:
             chosen[part] = matches[0]
     parents = {}
-    for row in fidelity.get('body_compatibility', {}).get('parent_map', []):
+    fitment = fidelity.get('body_compatibility') or {}
+    if not isinstance(fitment, dict):
+        raise ValueError('The project body compatibility is invalid. The current car is unchanged.')
+    rows, unresolved = fitment.get('parent_map', []), fitment.get('unresolved_parent_ids', [])
+    if (not isinstance(rows, list) or len(rows) > 4096
+            or not isinstance(unresolved, list) or len(unresolved) > 4096
+            or any(type(parent) is not int or not 0 < parent < 2**31 for parent in unresolved)):
+        raise ValueError('The project body compatibility is invalid. The current car is unchanged.')
+    unresolved = set(unresolved)
+    for row in rows:
+        if (not isinstance(row, dict) or any(type(row.get(key)) is not int
+                or not 0 < row[key] < 2**31 for key in ('parent_upgrade_id', 'body_option_id'))):
+            raise ValueError('The project body compatibility is invalid. The current car is unchanged.')
         parent, body = row.get('parent_upgrade_id'), row.get('body_option_id')
         if parent in parents and parents[parent] != body:
             raise ValueError('The project body compatibility is ambiguous. The current car is unchanged.')
         parents[parent] = body
     body = parts.get('CarBody')
     if 'CarBody' not in parts:
-        defaults = [row for row in options if row.get('part_type') == 'CarBody' and row.get('baseline') is True and row.get('supported') is True]
-        if not defaults:
-            defaults = [row for row in options if row.get('part_type') == 'CarBody' and row.get('stock') is True and row.get('supported') is True]
+        bodies = [row for row in options if row.get('part_type') == 'CarBody']
+        candidates = [row for row in bodies if row.get('supported') is True
+                      and type(row.get('id')) is int
+                      and sum(type(other.get('id')) is int and other['id'] == row['id'] for other in bodies) == 1]
+        defaults = [row for row in candidates if row.get('baseline') is True]
+        if len(defaults) != 1:
+            defaults = [row for row in candidates if row.get('stock') is True]
         body = defaults[0]['id'] if len(defaults) == 1 else None
     for part, row in chosen.items():
+        if part != 'CarBody' and row.get('car_body_id') in unresolved:
+            raise ValueError('The project body compatibility is unresolved. The current car is unchanged.')
         required = parents.get(row.get('car_body_id'))
         if part != 'CarBody' and required is not None and required != body:
             raise ValueError('The project component does not fit its body. The current car is unchanged.')

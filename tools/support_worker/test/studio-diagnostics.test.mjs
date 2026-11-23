@@ -40,6 +40,18 @@ test('Studio records reject unknown content, wrong types and invalid bounds', ()
     {pixel_ratio: 8.1}, {http_status: 600}]) assert(!validStudioRecord({...record(), ...change}), JSON.stringify(change));
 });
 
+test('lifetime diagnostics retain only bounded owner and shutdown classifications', async () => {
+  const value={...record(),event:'lifetime',host:'backend',owner_state:'none',shutdown_reason:'owner_closed'};
+  assert(validStudioRecord(value));
+  for(const invalid of [{owner_state:'private-profile-path'}, {shutdown_reason:'private error'},
+    {owner_state:true}, {shutdown_reason:null}, {pid:1234}, {url:'http://localhost/private'}]) {
+    assert(!validStudioRecord({...value,...invalid}));
+  }
+  const logs=archive();logs.files[0].text=JSON.stringify(value)+'\n';
+  const decoded=await describePrivateLogs(compressed(logs),{redact});
+  assert.equal(decoded.metadata.files,1);
+});
+
 test('only three bounded Studio log files are accepted, under the application schema', async () => {
   const value = archive();
   value.files = [0,1,2].map(i => ({...value.files[0], name: `studio-performance-000${i}.log`}));

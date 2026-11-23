@@ -130,7 +130,14 @@ class NativeVinylRenderer:
             with Image.open(io.BytesIO(png)) as image:
                 if image.format != "PNG" or image.size != size:
                     raise ValidationError("Renderer returned an invalid section texture.")
-                bounds = image.convert("RGBA").getchannel("A").getbbox()
+                # Only the canonical texture supplies picking bounds. Still decode
+                # display textures so a truncated render cannot pass validation.
+                if size == SECTION_SIZE:
+                    alpha_source = image if image.mode == "RGBA" else image.convert("RGBA")
+                    bounds = alpha_source.getchannel("A").getbbox()
+                else:
+                    image.load()
+                    bounds = None
         except (ValueError, OSError) as exc:
             raise ValidationError("Native vinyl could not be rendered exactly.") from exc
         return png, bounds

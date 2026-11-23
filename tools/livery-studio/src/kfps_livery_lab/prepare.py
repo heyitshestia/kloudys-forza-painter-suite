@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import json
@@ -20,6 +21,101 @@ LAB_ROOT = Path(__file__).resolve().parents[2]
 PREPARE_FORMAT = "kfps-livery-lab-prepared-v1"
 RECEIPT_FORMAT = "kfps-livery-lab-preparation-receipt-v1"
 MAX_PREPARED_BYTES = 8 * 1024 * 1024
+
+
+def select_body_compatibility(reference, names, options=None):
+    """Keep current exact joins authoritative without filling gaps from old data."""
+    def identifier(value):
+        return type(value) is int and 0 < value < 2**31
+
+    bodies = {}
+    for option in options or []:
+        if option.get('part_type') == 'CarBody' and type(option.get('id')) is int:
+            bodies.setdefault(option['id'], []).append(option)
+
+    def inspect(value):
+        if value is None:
+            return [], set(), False
+        if not isinstance(value, dict):
+            return [], set(), True
+        rows, unresolved = value.get('parent_map'), value.get('unresolved_parent_ids', [])
+        bad = not isinstance(value.get('source'), str) or not value['source'].strip()
+        if not isinstance(rows, list) or len(rows) > 4096:
+            return [], set(), True
+        if not isinstance(unresolved, list) or len(unresolved) > 4096 or not all(map(identifier, unresolved)):
+            unresolved, bad = [], True
+        parents, targets, result = set(unresolved), set(), []
+        seen = set()
+        for row in rows:
+            parent = row.get('parent_upgrade_id') if isinstance(row, dict) else None
+            body = row.get('body_option_id') if isinstance(row, dict) else None
+            if identifier(parent):
+                parents.add(parent)
+            if not identifier(parent) or not identifier(body):
+                bad = True
+                continue
+            if parent in seen or body in targets:
+                bad = True
+            seen.add(parent)
+            targets.add(body)
+            result.append({'parent_upgrade_id': parent, 'body_option_id': body})
+            if options is not None:
+                matches = bodies.get(body, [])
+                if len(matches) != 1 or matches[0].get('supported') is not True:
+                    bad = True
+        return result, parents, bad
+
+    names = names if isinstance(names, dict) else {}
+    installed = names.get('body_compatibility')
+    old_rows, old_parents, old_bad = inspect(reference)
+    new_rows, new_parents, new_bad = inspect(installed)
+    declared_parents = {row['car_body_id'] for row in options or []
+                        if row.get('part_type') != 'CarBody' and identifier(row.get('car_body_id'))}
+    provenance = names.get('provenance')
+    provenance = provenance if isinstance(provenance, dict) else {}
+    digest = provenance.get('database_sha256')
+    claims_current = names.get('same_build_verified') is True or provenance.get('current') is True
+    qualified = (claims_current and names.get('same_build_verified') is True
+                 and names.get('reference_only') is False and provenance.get('current') is True
+                 and isinstance(digest, str) and len(digest) == 64
+                 and all(char in '0123456789abcdefABCDEF' for char in digest)
+                 and isinstance(installed, dict) and installed.get('same_build_verified') is True
+                 and installed.get('reference_only') is False and not new_bad
+                 and not installed.get('unresolved_parent_ids'))
+    warnings = []
+    if qualified:
+        result = copy.deepcopy(installed)
+        known = {row['parent_upgrade_id']: row['body_option_id'] for row in new_rows}
+        unresolved = (old_parents | declared_parents) - set(known)
+        if old_bad or any(row['parent_upgrade_id'] in known
+                          and known[row['parent_upgrade_id']] != row['body_option_id'] for row in old_rows):
+            warnings.append('Current exact installed body joins supersede conflicting optional reference evidence.')
+    else:
+        result = copy.deepcopy(reference if isinstance(reference, dict) else installed)
+        if not isinstance(result, dict):
+            if not claims_current and not old_bad and not new_bad:
+                return None, []
+            result = {'source': 'Unresolved body compatibility evidence', 'parent_map': []}
+        result.update(reference_only=True, same_build_verified=False)
+        result['parent_map'] = old_rows if reference is not None else new_rows
+        unresolved = set(result.get('unresolved_parent_ids') or []) if not (old_bad or new_bad) else set()
+        if claims_current or old_bad or new_bad:
+            unresolved |= old_parents | new_parents | declared_parents
+            warnings.append('Body evidence is not qualified for current fitted configuration; affected parts remain unavailable.')
+        elif reference is not None and installed is not None:
+            known = {row['parent_upgrade_id']: row['body_option_id'] for row in old_rows}
+            # Retain real contradictory joins so existing strict consumers reject
+            # them. Never convert a conflict into absent (unknown) evidence.
+            conflicts = [row for row in new_rows if row['parent_upgrade_id'] in known
+                         and known[row['parent_upgrade_id']] != row['body_option_id']]
+            result['parent_map'].extend(conflicts)
+            unresolved |= new_parents - set(known)
+            if conflicts:
+                warnings.append('Optional body references conflict; affected fitted parts remain unavailable.')
+    if unresolved:
+        result['unresolved_parent_ids'] = sorted(unresolved)
+        warnings.append('Some body relationships remain unresolved; no substitute body or part was chosen.')
+    return result, warnings
 
 
 def within(path: Path, root: Path) -> Path:
@@ -198,7 +294,7 @@ def _receipt_code(baseline: Path) -> dict:
     # blank authoring path uses neither vector rendering nor external shapes.
     lab = ("prepare.py", "component_coverage.py", "converter_process.py", "converter_provenance.py",
            "file_io.py", "render_adapter.py", "material_preview.py", "material_assets.py",
-           "wheel_fitment.py", "part_fitment.py", "part_names.py", "catalogue_cache.py")
+           "wheel_fitment.py", "part_fitment.py", "part_names.py", "catalogue_cache.py", "garage_build.py")
     native = ("render_contract.py", "portable_mesh_converter.py", "vehicle_assets.py",
               "projection_alignment.py", "derived_cache.py")
     files = {"lab/" + name: file_hash(Path(__file__).with_name(name)) for name in lab}
@@ -469,12 +565,14 @@ def prepare_car(kfps_root: Path, game_root: Path, archive: str, workspace: Path,
     if reference_issue:
         coverage["limitations"] = [*coverage.get("limitations", []),
                                   "Optional wheel/body reference is unavailable (" + reference_issue + ")."]
-    body_compatibility = reference_body_compatibility(wheel_document, fitment_reference)
-    names_compatibility = part_names.get('body_compatibility')
-    if body_compatibility is None:
-        body_compatibility = names_compatibility
-    elif names_compatibility is not None and body_compatibility['parent_map'] != names_compatibility['parent_map']:
-        raise ValueError('The body reference catalogues disagree. No fitted configuration was applied.')
+    from .garage_build import effective_options
+    try:
+        reference_compatibility = reference_body_compatibility(wheel_document, fitment_reference)
+    except ValueError:
+        reference_compatibility = {'source': 'Invalid optional body reference', 'parent_map': None}
+    body_compatibility, compatibility_warnings = select_body_compatibility(
+        reference_compatibility, part_names, effective_options(part_options, part_names))
+    coverage['limitations'] = [*coverage.get('limitations', []), *compatibility_warnings]
     if body_compatibility is not None:
         coverage["body_compatibility"] = body_compatibility
     if coverage["summary"]["uv_integrity_errors"]:

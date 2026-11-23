@@ -388,9 +388,19 @@ def _resolve(db, vehicle, options, strings, result, cancel_event=None, *, fixed_
     fixed = _fixed_stock_options(db, options, car_id, bodies, fixed_body, result['same_build_verified'])
     result['fixed_stock_options'] = fixed
     options = options + fixed
-    manufacturers = _unique(_rows(db, "List_PartManufacturer"), "id")
-    types = _rows(db, "UpgradeTypes")
-    products = _rows(db, "Upgrades")
+    # Labels are optional; their schema or localization must not qualify geometry.
+    def label_rows(table, *, unique=False):
+        try:
+            rows = _rows(db, table)
+            return _unique(rows, 'id') if unique else rows
+        except (_InvalidData, sqlite3.Error):
+            _cancel(cancel_event)
+            result['warnings'].append('optional-label-table-unavailable:' + table)
+            return {} if unique else []
+
+    manufacturers = label_rows('List_PartManufacturer', unique=True)
+    types = label_rows('UpgradeTypes')
+    products = label_rows('Upgrades')
     declared_bodies = set()
     for option in options:
         _cancel(cancel_event)
@@ -438,12 +448,13 @@ def _resolve(db, vehicle, options, strings, result, cancel_event=None, *, fixed_
             continue
         manufacturer_id = row.get("manufacturerid")
         if (type(row.get("level")) is not int or not 0 <= row["level"] <= 255
-                or type(row.get("isstock")) is not int or row["isstock"] not in (0, 1)
-                or type(manufacturer_id) is not int or not 0 <= manufacturer_id < 2**31):
+                or type(row.get("isstock")) is not int or row["isstock"] not in (0, 1)):
             output["issues"].append("part-row-invalid")
             continue
         if family == "CarBody":
             valid_bodies.append(row)
+        if type(manufacturer_id) is not int or not 0 <= manufacturer_id < 2**31:
+            manufacturer_id = None
         output.update(level=row["level"], is_stock=bool(row["isstock"]),
                       manufacturer_id=manufacturer_id, data_car_body_id=row.get("carbodyid"))
         manufacturer = manufacturers.get(manufacturer_id, {})
@@ -569,12 +580,21 @@ def load_part_names(game_root, vehicle, options, *, reference_config=None,
         if len(database) > MAX_DATABASE_BYTES or not database.startswith(SQLITE_MAGIC):
             raise _InvalidData("database-format-unsupported")
         result["provenance"]["database_sha256"] = database_sha256
-        archive = _read(media / ("stripped/StringTables/" + language + ".zip"), MAX_ARCHIVE_BYTES)
-        result["provenance"].update(language=language, strings_sha256=_digest(archive))
-        strings = _localization(archive, result["warnings"])
+        strings = {}
+        result['provenance']['language'] = language
+        try:
+            archive = _read(media / ("stripped/StringTables/" + language + ".zip"), MAX_ARCHIVE_BYTES)
+            result['provenance']['strings_sha256'] = _digest(archive)
+            strings = _localization(archive, result["warnings"])
+        except InterruptedError:
+            raise
+        except (OSError, ValueError, zipfile.BadZipFile, NotImplementedError,
+                RuntimeError, struct.error, UnicodeError):
+            _cancel(cancel_event)
+            result['warnings'].append('optional-part-strings-unavailable-or-invalid')
         _cancel(cancel_event)
         if not strings:
-            return result
+            result['warnings'].append('optional-part-strings-empty')
         db = sqlite3.connect(":memory:")
         db.deserialize(database)
         db.row_factory = sqlite3.Row
@@ -598,8 +618,11 @@ def load_part_names(game_root, vehicle, options, *, reference_config=None,
             raise _InvalidData("reference-version-mismatch")
         result["provenance"]["database_version"] = version
         kind = ('Previous installed' if stale else 'Installed cached') if installed else 'Hash-pinned reference'
-        result["source"] = f"{kind} database (version {version}) with {language} game strings"
+        labels = f'with {language} game strings' if strings else 'with labels unavailable'
+        result["source"] = f"{kind} database (version {version}) {labels}"
         _resolve(db, vehicle, options, strings, result, cancel_event, fixed_body=fixed_body)
+        if not strings:
+            result['names'] = []
         if names_only:
             # Cache loss must not turn a failed installed source into geometry approval.
             result['non_visual_options'] = []

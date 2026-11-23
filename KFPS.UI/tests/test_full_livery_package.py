@@ -1677,6 +1677,7 @@ class FullLiveryPackageTests(unittest.TestCase):
             root = Path(temp)
             package = root / "fixture.kfpslivery"
             manifest = build_package(package)
+            containers = build_install_destination(root / "saves")
             paths = AppPaths(
                 app_root=root,
                 ui_root=UI,
@@ -1688,15 +1689,40 @@ class FullLiveryPackageTests(unittest.TestCase):
             with patch("kfps_ui.full_livery_service.discover_fh6_game_folder", return_value=None):
                 service = FullLiveryService(paths, LogService(), supporter=None, demo=False)
             try:
+                service._active = True
                 service._selected_package = str(package)
                 service._current_manifest = manifest
                 service._game_folder = str(root)
+                service._save_root = str(containers)
+                ready = []
+                service.installConfirmationReady.connect(lambda: ready.append(True))
                 with patch.object(service._tasks, "start", return_value=True) as start:
+                    service.prepareInstallSelectedPackage()
+                    start.assert_called_once()
+                    preflight = start.call_args
+                    self.assertEqual("resolve-install-destination", preflight.args[0])
+                    self.assertEqual("install-destination", preflight.kwargs["kind"])
+                    self.assertFalse(service.installConfirmationCurrent)
+                    destination = full_livery_jobs.resolve_install_destination(
+                        full_livery_job_paths(paths), preflight.args[1], threading.Event()
+                    )
+                    service._tasks.stateChanged.emit()
+                    service._tasks.completed.emit({
+                        "ok": True, "value": destination,
+                        "operation": preflight.args[0], "kind": preflight.kwargs["kind"],
+                        **preflight.kwargs["metadata"],
+                    })
+                    self.assertEqual([True], ready)
+                    self.assertTrue(service.installConfirmationCurrent)
+                    start.reset_mock()
                     service.installSelectedPackage()
                 start.assert_called_once()
                 self.assertEqual("install-package", start.call_args.args[0])
                 self.assertEqual(str(package.resolve()), start.call_args.args[1]["package"])
+                self.assertEqual(destination["containers"], start.call_args.args[1]["save_root"])
+                self.assertEqual(destination["expected_destination"], start.call_args.args[1]["expected_destination"])
                 self.assertEqual("install", start.call_args.kwargs["kind"])
+                self.assertFalse(service.installConfirmationCurrent)
                 self.assertNotIn("_fh6_running", FullLiveryService.__dict__)
                 self.assertNotIn("_executor", FullLiveryService.__dict__)
             finally:

@@ -570,6 +570,19 @@ class StudioHostTests(unittest.TestCase):
         pump_until(lambda: self.host.stopped)
         self.assertEqual([event for event in self.events if event["kind"] == "confirm"], confirms)
 
+    def test_standalone_programmatic_edits_require_close_confirmation(self):
+        self.host.hosted = False
+        self.js("window.dirty=true")
+        self.controls["confirm"] = False
+        self.host._standalone_close()
+        pump_until(lambda: any(event["kind"] == "confirm" for event in self.events))
+        self.assertFalse(self.host.stopped)
+        self.assertTrue(self.host._native_owner.isLocked())
+        self.controls["confirm"] = True
+        self.host._standalone_close()
+        pump_until(lambda: self.host.stopped)
+        self.assertEqual([False, True], [event["accepted"] for event in self.events if event["kind"] == "confirm"])
+
     def test_open_document_dialog_vetoes_prepare_without_disposal(self):
         self.js("(() => {const d=document.createElement('dialog');document.body.append(d);d.showModal();return true;})()")
         self.assertEqual(self.prepare(), [False])

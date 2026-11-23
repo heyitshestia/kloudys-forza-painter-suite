@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -90,6 +90,27 @@ class PreviewQualityModelTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(ValidationError):
                 self.renderer(payload)
         self.render.assert_not_called()
+
+    def test_display_texture_skips_alpha_scan_but_still_decodes_pixels(self):
+        original = Image.Image.getchannel
+        scans = []
+
+        def channel(image, band):
+            scans.append((image.size, band))
+            return original(image, band)
+
+        with patch.object(Image.Image, "getchannel", channel):
+            result = self.renderer({"shapes": [shape()], "preview_quality": "sharp"})
+        self.assertEqual(scans, [(SECTION_SIZE, "A")])
+        self.assertIsNotNone(result["bounds"])
+
+        def truncated(shapes, **kwargs):
+            png = self.canvas(shapes, **kwargs)
+            return png[:len(png) // 2] if kwargs["width"] == SIZES["fast"][0] else png
+
+        self.render.side_effect = truncated
+        with self.assertRaises(ValidationError):
+            self.renderer({"shapes": [shape()], "preview_quality": "fast"})
 
     def test_non_preview_shape_validation_still_rejects_quality(self):
         with self.assertRaises(ValidationError):

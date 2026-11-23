@@ -4,6 +4,9 @@ Garage brings the installed FH6 car catalogue, owned copies, saved liveries and
 local packages together. It reads local information; browsing Garage does not
 change your game saves.
 
+[Open the illustrated Garage and Livery Studio manual](garage-studio-guide/index.html)
+for step-by-step workflows, screenshots, troubleshooting and an A-Z button index.
+
 ## First Visit
 
 Open **Garage > My Cars**. KFPS loads stock catalogue thumbnails from the selected

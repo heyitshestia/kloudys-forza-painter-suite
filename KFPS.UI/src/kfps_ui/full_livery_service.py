@@ -19,6 +19,7 @@ from tools.livery import (
 from tools.livery.vehicle_assets import (
     discover_fh6_game_folder,
 )
+from tools.livery.fh6_save_installer import FullLiveryInstallError, validate_destination_snapshot
 
 from .app_paths import AppPaths
 from .experimental.full_livery.catalog import FullLiveryCatalog
@@ -45,6 +46,7 @@ class FullLiveryService(QObject):
     changed = Signal()
     sourceSearchChanged = Signal()
     packageSearchChanged = Signal()
+    installConfirmationReady = Signal()
     _resultReady = Signal(object)
     _meshResultReady = Signal(object)
 
@@ -92,6 +94,9 @@ class FullLiveryService(QObject):
         self._status = "Experimental · " + self._gate.stage.title()
         self._summary = self._gate.describe()
         self._package_add_error = ""
+        self._install_confirmation = None
+        self._install_confirmation_serial = 0
+        self._install_task_destination = None
         self._selected_source = ""
         self._active_source_preview = ""
         self._active_source_fingerprint = ""
@@ -159,7 +164,22 @@ class FullLiveryService(QObject):
 
     @Property(str, notify=changed)
     def summary(self):
+        destination = self._install_task_destination
+        if destination and self._install_notice_current(destination["notice"]):
+            return self._summary + "\n" + destination["label"]
         return self._summary
+
+    @Property(str, notify=changed)
+    def installDestinationDescription(self):
+        return (self._install_confirmation or {}).get("description", "")
+
+    @Property(bool, notify=changed)
+    def installConfirmationCurrent(self):
+        pending = self._install_confirmation
+        return bool(pending and self._active and not self._running
+                    and pending["context"] == self._install_context()
+                    and Path(self._selected_package).is_file()
+                    and self.selectedPackageInstallable)
 
     @Property(str, notify=changed)
     def packageAddError(self):
@@ -913,6 +933,9 @@ class FullLiveryService(QObject):
 
     @Slot()
     def scanSaves(self):
+        self._scan_saves()
+
+    def _scan_saves(self, *, install_notice: dict[str, Any] | None = None) -> None:
         if self._closed or self._running or not self._gate.can_preview:
             return
         if not self._game_folder:
@@ -922,11 +945,13 @@ class FullLiveryService(QObject):
                 self._settings["fh6_game_folder"] = self._game_folder
                 self._save_settings()
         self._running = True
-        self._status = "Scanning FH6 liveries"
-        self._summary = "Reading local full-car livery records without changing save data."
+        if install_notice is None:
+            self._status = "Scanning FH6 liveries"
+            self._summary = "Reading local full-car livery records without changing save data."
         self.changed.emit()
-        if not self._tasks.start("scan-saves", self._worker_payload(), kind="scan"):
-            self._running = False
+        if not self._tasks.start("scan-saves", self._worker_payload(), kind="scan",
+                                 metadata={"install_notice": install_notice} if install_notice else None):
+            self._running = self._tasks.running
             self._status = "Livery worker busy"
             self._summary = "Finish or cancel the current full-livery task before scanning saves."
             self.changed.emit()
@@ -1279,8 +1304,8 @@ class FullLiveryService(QObject):
         )
 
     @Slot()
-    def installSelectedPackage(self):
-        if self._running:
+    def prepareInstallSelectedPackage(self):
+        if self._closed or not self._active or self._running:
             return
         package = Path(self._selected_package)
         if not package.is_file() or not self.selectedPackageInstallable:
@@ -1294,18 +1319,104 @@ class FullLiveryService(QObject):
             self.changed.emit()
             return
         self._cancel_mesh_preparation()
+        self._install_confirmation = None
+        self._install_confirmation_serial += 1
+        self._install_task_destination = None
+        self._running = True
+        self._status = "Checking FH6 install destination"
+        self._summary = "Verifying the account and current save folder before confirmation. No files are being installed."
+        self.changed.emit()
+        if not self._tasks.start(
+                "resolve-install-destination", self._worker_payload(), kind="install-destination",
+                metadata={"install_context": self._install_context(), "install_notice": self._install_notice()}):
+            self._running = self._tasks.running
+            self._status = "Install destination check unavailable"
+            self._summary = "Another full-livery task is still running. Wait for it to finish and retry."
+            self.changed.emit()
+
+    def _install_context(self):
+        return {"serial": self._install_confirmation_serial, "selection": self._selection_serial,
+                "source": self._source_preview_serial, "package": self._selected_package,
+                "save_root": self._save_root, "game_folder": self._game_folder}
+
+    @Slot()
+    def cancelInstallConfirmation(self):
+        owns_status = (
+            self._install_confirmation is not None
+            and self._install_confirmation["context"] == self._install_context()
+            and self._active and not self._closed
+            and not (self._running or self._tasks.running)
+            and self._status == "Confirm FH6 install destination"
+            and self._summary == "Review the verified account and current save folder before installing."
+        )
+        self._install_confirmation = None
+        self._install_confirmation_serial += 1
+        if owns_status:
+            self._status = "Installation cancelled"
+            self._summary = "No installation was started."
+        self.changed.emit()
+
+    @Slot()
+    def installSelectedPackage(self):
+        if self._running:
+            return
+        if not self.installConfirmationCurrent:
+            self.cancelInstallConfirmation()
+            self._status = "Install confirmation required"
+            self._summary = "Check the package and FH6 save destination again before installing."
+            self.changed.emit()
+            return
+        expected = self._install_confirmation["expected_destination"]
+        destination = expected["containers"]
+        self._install_confirmation = None
+        self._install_confirmation_serial += 1
+        package = Path(self._selected_package)
         self._running = True
         self._status = "Installing exact-car FH6 livery"
         self._summary = "Verifying the package, creating a recovery record, and staging a new local livery."
+        # Local-only decoration: worker metadata and support reports use the
+        # undecorated status/summary, never this account label.
+        self._install_task_destination = {
+            "notice": self._install_notice(),
+            "label": f"Destination: FH6 account {expected['user_id']}, current save {Path(destination).parent.name}.",
+        }
         self.changed.emit()
-        self._tasks.start(
+        if not self._tasks.start(
             "install-package",
-            self._worker_payload(package=str(package.resolve())),
+            self._worker_payload(package=str(package.resolve()), save_root=destination,
+                                 expected_destination=expected),
             kind="install",
+            metadata={"install_notice": self._install_notice()},
+        ):
+            self._running = self._tasks.running
+            self._status = "Installation not started"
+            self._summary = "Another full-livery task is still running. Check the destination again before retrying."
+            self.changed.emit()
+
+    def _install_notice(self) -> dict[str, Any]:
+        return {
+            "status": self._status, "summary": self._summary,
+            "selection_serial": self._selection_serial,
+            "source_preview_serial": self._source_preview_serial,
+            "package_path": self._selected_package, "save_root": self._save_root,
+        }
+
+    def _install_notice_current(self, notice: dict[str, Any], *, check_status: bool = True) -> bool:
+        current = self._install_notice()
+        return self._active and all(
+            notice.get(key) == value for key, value in current.items()
+            if check_status or key not in ("status", "summary")
         )
+
+    def _retain_install_task_destination(self, notice) -> None:
+        if self._install_task_destination and self._install_task_destination["notice"] == notice:
+            self._install_task_destination["notice"] = self._install_notice()
 
     @Slot()
     def refreshPackages(self):
+        self._refresh_packages()
+
+    def _refresh_packages(self, *, install_notice: dict[str, Any] | None = None) -> None:
         if self._closed:
             return
         self._replace_package_rows(self._cached_package_rows())
@@ -1313,9 +1424,15 @@ class FullLiveryService(QObject):
             self.changed.emit()
             return
         self._running = True
-        self._status = "Indexing saved livery packages"
+        if install_notice is None:
+            self._status = "Indexing saved livery packages"
         self.changed.emit()
-        self._tasks.start("refresh-packages", self._worker_payload(), kind="refresh-packages")
+        if not self._tasks.start("refresh-packages", self._worker_payload(), kind="refresh-packages",
+                                 metadata={"install_notice": install_notice} if install_notice else None):
+            self._running = self._tasks.running
+            self._status = "Package index busy"
+            self._summary = "Finish or cancel the current full-livery task before refreshing saved packages."
+            self.changed.emit()
 
     def _refresh_packages_then_open(self, package: str) -> None:
         self._running = True
@@ -1490,6 +1607,22 @@ class FullLiveryService(QObject):
         if self._closed:
             return
         kind = result.get("kind")
+        if kind == "install-destination" and result.get("install_context") != self._install_context():
+            return
+        if kind == "install" and result.get("ok"):
+            payload = result.get("payload") or {}
+            self.log.append(
+                f"Installed same-car FH6 full livery at {payload.get('installed_folder')}; "
+                f"recovery record: {payload.get('backup_path')}"
+            )
+        install_notice = result.get("install_notice")
+        # Only this install's refresh chain owns its notice. New selections,
+        # page changes and newer status messages must not be overwritten.
+        if install_notice and not self._install_notice_current(
+                install_notice, check_status=bool(result.get("ok"))):
+            if not result.get("ok") and not result.get("cancelled"):
+                self.log.append(f"Full-livery task failed: {result.get('error') or 'Unknown error'}", "error")
+            return
         if kind == "open-package" and str(result.get("package_path") or "") != self._selected_package:
             return
         if kind == "open-package" and result.get("selection_serial", self._selection_serial) != self._selection_serial:
@@ -1512,6 +1645,7 @@ class FullLiveryService(QObject):
             if self._active and not self._tasks.running:
                 self._status = "Full-livery task cancelled"
                 self._summary = str(result.get("error") or "The isolated task stopped safely.")
+                self._retain_install_task_destination(install_notice)
             self.changed.emit()
             return
         if not result.get("ok"):
@@ -1523,6 +1657,7 @@ class FullLiveryService(QObject):
                 self._status = "Package add failed"
                 self._package_add_error = self._summary
             self.log.append(f"Full-livery task failed: {self._summary}", "error")
+            self._retain_install_task_destination(install_notice)
             self.changed.emit()
             return
         payload = result.get("payload") or {}
@@ -1530,6 +1665,33 @@ class FullLiveryService(QObject):
                 and result.get("selection_serial", self._selection_serial) != self._selection_serial):
             # Preserve completed imports, but do not reopen them over a newer browse.
             self.refreshPackages()
+            return
+        if kind == "install-destination":
+            containers = str(payload.get("containers") or "")
+            account = str(payload.get("account") or "")
+            user_id = str(payload.get("user_id") or "")
+            try:
+                expected = validate_destination_snapshot(payload.get("expected_destination"))
+                if (containers, account, user_id) != (expected["containers"], expected["directory"], expected["user_id"]):
+                    raise FullLiveryInstallError("Destination description does not match its confirmation.")
+            except FullLiveryInstallError:
+                self._status = "Install destination check failed"
+                self._summary = "The current FH6 account and save folder could not be verified. Choose FH6 Save Folder and retry."
+                self.changed.emit()
+                return
+            mode = ("Resolved from your selected FH6 Save Folder."
+                    if self._save_root.strip() else
+                    "Automatically selected from FH6's verified last-save location or the only verified account.")
+            self._install_confirmation = {
+                "context": self._install_context(), "expected_destination": expected,
+                "description": (f"{mode}\nAccount: {Path(account).name} (ID {user_id})\n"
+                                f"Current save folder:\n{containers}\n\n"
+                                "My Cars does not select this destination. Cancel and choose FH6 Save Folder to change it."),
+            }
+            self._status = "Confirm FH6 install destination"
+            self._summary = "Review the verified account and current save folder before installing."
+            self.changed.emit()
+            self.installConfirmationReady.emit()
             return
         if kind == "scan":
             rows = payload.get("rows") or []
@@ -1577,19 +1739,30 @@ class FullLiveryService(QObject):
                 self._summary = f"No owned full-car liveries found. Excluded {locked:,} liveries owned by other players."
             else:
                 self._summary = str(payload.get("warning") or "No shareable FH6 full-car livery records were found.")
+            if install_notice:
+                if not (stale_index or payload.get("warning") or (rows and not game_assets_ready)):
+                    self._status = install_notice["status"]
+                    self._summary = install_notice["summary"]
+                # A scan warning takes precedence and survives package indexing too.
+                self._retain_install_task_destination(install_notice)
+                install_notice = self._install_notice()
             if self._refresh_active_source_after_scan(rows, fingerprints):
                 return
             self.changed.emit()
-            self.refreshPackages()
+            if install_notice:
+                self._refresh_packages(install_notice=install_notice)
+            else:
+                self.refreshPackages()
             return
         elif kind == "refresh-packages":
             self._replace_package_rows(payload.get("rows"))
             cache_hits = int(payload.get("cache_hits") or 0)
             record(self.log, "cache.catalog", "completed", cache_hits=payload.get("cache_hits"), row_count=self.packageCount)
-            self._status = "Full-livery index ready"
-            self._summary = (
-                f"Indexed {self.packageCount:,} saved packages; reused {cache_hits:,} unchanged catalog entries."
-            )
+            if not install_notice:
+                self._status = "Full-livery index ready"
+                self._summary = (
+                    f"Indexed {self.packageCount:,} saved packages; reused {cache_hits:,} unchanged catalog entries."
+                )
             open_package = str(result.get("open_package") or "")
             if (open_package and result.get("selection_serial", self._selection_serial) == self._selection_serial
                     and Path(open_package).is_file()):
@@ -1626,12 +1799,9 @@ class FullLiveryService(QObject):
                 f"Added {payload.get('title') or 'the livery'} as a new same-car FH6 save entry. "
                 "The package was reopened and verified after installation."
             )
-            self.log.append(
-                f"Installed same-car FH6 full livery at {payload.get('installed_folder')}; "
-                f"recovery record: {payload.get('backup_path')}"
-            )
+            self._retain_install_task_destination(install_notice)
             self.changed.emit()
-            self.scanSaves()
+            self._scan_saves(install_notice=self._install_notice())
             return
         elif kind == "preview":
             preview_path = str(payload.get("path") or "")

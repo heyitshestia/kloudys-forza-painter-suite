@@ -13,7 +13,7 @@ const project={format:'kfps-livery-layout-v1',vehicle:car,vinyls:[],placements:[
   vehicle_parts:{RearWing:7},authoring:{version:1,groups:[],locked:[],links:[]}};
 const json=value=>JSON.parse(JSON.stringify(value));
 function fixture({different=false,choice='discard',save=true,native=true,stale=false}={}){
-  const nodes=new Map(),calls=[],opened=[],navigation=[];
+  const nodes=new Map(),calls=[],opened=[],navigation=[],messages=[];
   const location=new URL('http://127.0.0.1:4567/'+'a'.repeat(43)+'/#project='+id);
   const startup_session=location.href.split('#')[0];
   location.assign=url=>navigation.push(url);
@@ -26,6 +26,7 @@ function fixture({different=false,choice='discard',save=true,native=true,stale=f
     stop:{signal:{addEventListener(){},removeEventListener(){}}},
     $:key=>{if(!nodes.has(key))nodes.set(key,{value:'',textContent:'',hidden:false,classList:{toggle(){}},showModal(){},close(){}});return nodes.get(key);},
     t:x=>x,errorText:error=>error?.message||String(error),canPreview:()=>true,flushNumeric:()=>true,fingerprint:()=> 'revision-1',
+    message:(text,error)=>messages.push({text,error}),
     setBusy(value){context.busy=value;},interactionBusy:()=>context.busy,
     renderCars(){},refreshCars(){},carMessage(){},changed:()=>true,
     async confirmCarReplacement(){calls.push('confirm');return choice;},
@@ -41,7 +42,7 @@ function fixture({different=false,choice='discard',save=true,native=true,stale=f
     }
   });
   vm.runInContext(code,context);
-  return {context,calls,opened,navigation,nodes,run:()=>context.importHostVinyl()};
+  return {context,calls,opened,navigation,nodes,messages,run:()=>context.importHostVinyl()};
 }
 for(const native of [true,false])test(`full project retains parts and authoring in ${native?'native':'Chrome'} same-car path`,async()=>{
   const h=fixture({native});await h.run();assert.equal(h.opened.length,1);assert.deepEqual(h.opened[0].value,project);
@@ -58,7 +59,9 @@ test('save completes before project car preparation and opaque fragment survives
 test('Chrome never switches a shared project car',async()=>{
   const h=fixture({different:true,native:false});await h.run();assert.equal(h.opened.length,0);
   assert.equal(h.navigation.length,0);assert(!h.calls.includes('confirm'));
+  assert.equal(h.messages.length,1);assert.equal(h.messages[0].error,true);
 });
 test('late linked handoff never replaces a different document',async()=>{
   const h=fixture({stale:true});await h.run();assert.equal(h.opened.length,0);assert.equal(h.context.completedHandoffs.size,0);
+  assert.equal(h.messages.length,1);assert.equal(h.messages[0].error,true);
 });

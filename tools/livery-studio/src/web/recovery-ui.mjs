@@ -32,6 +32,7 @@ export function createRecoveryController({api,getProject,loadProject,isBusy=()=>
   async function automatic() {
     if(disposed||!pending||phase)return;
     if(isBusy()){schedule();return;}
+    clear();
     const g=generation,r=revision,id=documentId;
     phase='saving';notify();
     let succeeded=false;
@@ -52,7 +53,9 @@ export function createRecoveryController({api,getProject,loadProject,isBusy=()=>
   async function list() {
     const g=generation;
     const value=await api('recovery');
-    if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>128
+    // Managed and preserved legacy stores each retain up to 128 entries.
+    if(value?.version!==1||!Array.isArray(value.entries)||value.entries.length>256
+      ||new Set(value.entries.map(entry=>entry?.id)).size!==value.entries.length
       ||value.entries.some(e=>!identifier(e?.id)||!identifier(e?.document_id)||!['auto','checkpoint','before-restore'].includes(e.kind)
         ||typeof e.name!=='string'||e.name.length>80||typeof e.created_at!=='string'))throw Error('Invalid recovery list response.');
     if(alive(g)){entries=value.entries;notify();}
@@ -81,8 +84,8 @@ export function createRecoveryController({api,getProject,loadProject,isBusy=()=>
     clear();phase='restoring';lastError='';notify();
     try {
       const result=await api(`recovery/${entryId}/restore`,{document_id:documentId,current_project:current});
-      if(!identifier(result?.entry?.document_id)||!identifier(result?.retained?.id)||!result.project)throw Error('Invalid recovery response. The current layout was not replaced.');
-      const isCurrent=()=>alive(g,r)&&JSON.stringify(capture())===before;
+      if(result?.entry?.id!==entryId||!identifier(result?.entry?.document_id)||!identifier(result?.retained?.id)||!result.project)throw Error('Invalid recovery response. The current layout was not replaced.');
+      const isCurrent=()=>!isBusy()&&alive(g,r)&&JSON.stringify(capture())===before;
       if(isBusy()||!isCurrent())throw Error('The layout changed while recovery was preparing. Nothing was replaced; choose the entry again.');
       // The loader is responsible for atomic resource preparation. The guard
       // also prevents a late response from replacing a different/new document.

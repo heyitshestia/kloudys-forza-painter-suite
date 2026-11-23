@@ -26,6 +26,7 @@ _TIMEOUT_SECONDS = {
     "migrate-package": 300.0,
     "export-package": 480.0,
     "install-package": 300.0,
+    "resolve-install-destination": 60.0,
     "prepare-mesh": 600.0,
     "prepare-garage": 600.0,
     "clear-cache": 120.0,

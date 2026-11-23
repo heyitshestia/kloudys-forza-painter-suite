@@ -16,8 +16,7 @@ class SectionExportTests(unittest.TestCase):
         expected=compile_layout(value,4267,NAMES)["Left"]
         value["vehicle_parts"]={"CarBody":3761100}
         result=compile_section_vinyl(value,4267,NAMES,"Left")
-        self.assertEqual([{key:item for key,item in s.items() if not key.startswith("editor_group_")}
-                          for s in result["shapes"]],expected)
+        self.assertEqual(result['shapes'], expected)
         self.assertTrue(all(s["editor_group_id"]=="studio-p" for s in result["shapes"]))
         with self.assertRaises(ValidationError):compile_layout(value,4267,NAMES)
 

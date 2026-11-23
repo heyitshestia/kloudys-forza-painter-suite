@@ -10,6 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+import zipfile
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,6 +144,8 @@ class ProjectHandoffTests(unittest.TestCase):
         raw = make_package(package)
         file = self.root / 'C_livery'
         file.write_bytes(raw)
+        with zipfile.ZipFile(package) as archive:
+            file.with_name('header').write_bytes(archive.read('source/fh6/header'))
         before = file.read_bytes()
         result = bridge.request_for_garage_artwork(VEHICLE, build(), file, 'save')
         self.assertEqual(build(), result['layout']['garage_build'])
@@ -173,6 +176,8 @@ class ProjectHandoffTests(unittest.TestCase):
         raw = make_package(package)
         save = self.root / 'C_livery'
         save.write_bytes(raw)
+        with zipfile.ZipFile(package) as archive:
+            save.with_name('header').write_bytes(archive.read('source/fh6/header'))
         for kind, path in (('package', package), ('save', save)):
             with self.subTest(kind=kind):
                 expected = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -186,6 +191,8 @@ class ProjectHandoffTests(unittest.TestCase):
         raw = make_package(package)
         save = self.root / 'C_livery'
         save.write_bytes(raw)
+        with zipfile.ZipFile(package) as archive:
+            save.with_name('header').write_bytes(archive.read('source/fh6/header'))
         for kind, path, decoder in (
                 ('package', package, 'kfps_livery_lab.package_handoff.unwrap_bounded'),
                 ('save', save, 'kfps_livery_lab.save_codec.SaveTemplate.read')):

@@ -22,6 +22,7 @@ REQUIRED = {
     "src/launch_studio.py", "src/run_livery.py", "src/kfps_livery_lab/launcher.py",
     "src/kfps_livery_lab/install_config.py", "src/kfps_livery_lab/package_paths.py",
     "src/kfps_livery_lab/host_bridge.py", "src/kfps_livery_lab/server.py",
+    "src/kfps_livery_lab/backend_lifetime.py",
     "src/kfps_livery_lab/native_host.py", "src/kfps_livery_lab/studio_window.py",
     "src/kfps_livery_lab/readonly_preview.py", "src/kfps_livery_lab/readonly_server.py",
     "src/kfps_livery_lab/readonly_prepare.py", "src/kfps_livery_lab/readonly_cache.py",
@@ -31,6 +32,7 @@ REQUIRED = {
     "src/kfps_livery_lab/converter_provenance.py", "src/chassis-converter/baseline-prerequisites.json",
     "src/chassis-converter/LICENSE.ForzaTechStudio", "src/launcher/KFPSLiverySudio.cs",
     "src/web/index.html", "src/web/livery-editor.mjs", "src/web/project-storage-ui.mjs",
+    "src/web/studio-tour.mjs", "src/web/studio-tour.css",
     "src/web/readonly.html", "src/web/readonly.mjs", "src/web/readonly.css", "src/web/LICENSE.lucide",
     "src/web/locales/en.mjs", "src/web/locales/ko.mjs", "src/web/locales/ja.mjs", "src/web/locales/messages.json",
 } | {str(path) for path in CONVERTER_FILES | BUILD_FILES | LICENSE_FILES}
@@ -38,6 +40,7 @@ BASELINE_REQUIRED = (
     "json_preview_renderer.py", "geometry_json.py", "KFPS.Editor/manifest.json",
     "KFPS.Editor/src/kfps_editor/baseline.py", "KFPS.Editor/src/kfps_editor/graphics.py",
     "KFPS.Editor/src/kfps_editor/graphics_probe.py", "KFPS.Editor/src/kfps_editor/server.py",
+    "KFPS.Editor/src/kfps_editor/windows_lock.py",
     "KFPS.Editor/web/release-announcement.js", "KFPS.Editor/web/release-announcement.css",
     "KFPS.Editor/web/activity-client.js", "KFPS.UI/content/release-announcement.json",
     "tools/kfps_release_announcement.py", "tools/kfps_display_language.py",

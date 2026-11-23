@@ -60,18 +60,40 @@ export function componentCatalog(values, fitment, names) {
   for (const options of groups.values()) {
     options.sort((a, b) => Number(b.stock) - Number(a.stock) || (a.level ?? 0) - (b.level ?? 0) || a.id - b.id);
   }
-  const bodyParents=new Map();
-  if(typeof fitment?.source==='string'&&fitment.source.trim()&&Array.isArray(fitment.parent_map)) {
-    const ambiguous=new Set();
+  const bodyParents=new Map(),bodyConflicts=new Set(),unresolvedParents=new Set();
+  let invalidFitment=fitment!=null&&(typeof fitment.source!=='string'||!fitment.source.trim()||
+    !Array.isArray(fitment.parent_map)||fitment.parent_map.length>4096);
+  if(fitment!=null&&!invalidFitment) {
+    const unresolved=fitment.unresolved_parent_ids??[];
+    if(!Array.isArray(unresolved)||unresolved.length>4096)invalidFitment=true;
+    else for(const parent of unresolved) {
+      if(integer(parent)!==null&&parent>0&&parent<2147483648)unresolvedParents.add(parent);
+      else invalidFitment=true;
+    }
     for(const row of fitment.parent_map) {
       const parent=integer(row?.parent_upgrade_id),body=integer(row?.body_option_id);
-      if(parent===null||body===null||!groups.get('CarBody')?.some(option=>option.id===body))continue;
-      if(bodyParents.has(parent)&&bodyParents.get(parent)!==body)ambiguous.add(parent);
+      if(parent===null||parent<=0||parent>=2147483648){invalidFitment=true;continue;}
+      if(body===null||body<=0||body>=2147483648){unresolvedParents.add(parent);continue;}
+      if(bodyParents.has(parent)&&bodyParents.get(parent)!==body)bodyConflicts.add(parent);
       bodyParents.set(parent,body);
     }
-    for(const parent of ambiguous)bodyParents.delete(parent);
+    for(const [parent,body] of bodyParents) {
+      if(!groups.get('CarBody')?.some(option=>option.id===body&&option.available!==false)
+        ||duplicates.some(row=>row.part_type==='CarBody'&&row.id===body))unresolvedParents.add(parent);
+    }
+    for(const parent of bodyConflicts)bodyParents.delete(parent);
   }
-  return {groups, duplicates, bodyParents, fitmentSource:fitment?.source||''};
+  if(invalidFitment)for(const options of groups.values())for(const option of options) {
+    if(option.part_type!=='CarBody'&&option.car_body_id>0)unresolvedParents.add(option.car_body_id);
+  }
+  for(const options of groups.values())for(const option of options) {
+    const reason=duplicates.some(row=>row.part_type===option.part_type&&row.id===option.id)
+      ? 'Ambiguous duplicate component ID.' : option.part_type==='CarBody' ? ''
+      : bodyConflicts.has(option.car_body_id) ? 'Conflicting body compatibility evidence.'
+      : unresolvedParents.has(option.car_body_id) ? 'Body compatibility evidence is unresolved.' : '';
+    if(reason){option.available=false;option.reason=[option.reason,reason].filter(Boolean).join(' ');}
+  }
+  return {groups, duplicates, bodyParents, bodyConflicts, unresolvedParents, fitmentSource:fitment?.source||''};
 }
 
 export function initialComponentSelection(catalog) {
@@ -123,6 +145,7 @@ export function parentEvidence(option, catalog) {
     }
   }
   return {id, parent_is_stock: option.parent_is_stock, matching_part_types: matches, verified: false,
+    mapping_status:catalog.bodyConflicts?.has(id)?'conflict':catalog.unresolvedParents?.has(id)?'unresolved':catalog.bodyParents.has(id)?'mapped':'unknown',
     mapped_body_option:catalog.bodyParents.get(id)??null,mapping_source:catalog.bodyParents.has(id)?catalog.fitmentSource:''};
 }
 
@@ -131,6 +154,7 @@ export function parentEvidence(option, catalog) {
 // cannot establish that relationship.
 export function componentCompatibility(option, catalog, selection) {
   if (option.part_type === 'CarBody') return true;
+  if(catalog.bodyConflicts?.has(option.car_body_id)||catalog.unresolvedParents?.has(option.car_body_id))return false;
   const required=catalog.bodyParents.get(option.car_body_id);
   if(required===undefined)return null;
   const body=selection.get('CarBody');
@@ -144,7 +168,7 @@ function reconcileBodySelection(catalog,selection) {
     if(current && componentCompatibility(current,catalog,selection)!==false)continue;
     const candidates=options.filter(option=>option.available!==false&&componentCompatibility(option,catalog,selection)===true);
     const baseline=candidates.filter(option=>option.baseline),stock=candidates.filter(option=>option.stock);
-    const chosen=(baseline.length===1?baseline:stock.length===1?stock:candidates)[0];
+    const chosen=(baseline.length===1?baseline:stock.length===1?stock:[])[0];
     if(chosen)selection.set(partType,chosen.id);
     else if(current && componentCompatibility(current,catalog,selection)===false)selection.set(partType,null);
   }

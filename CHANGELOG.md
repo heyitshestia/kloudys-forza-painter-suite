@@ -1,5 +1,12 @@
 # Kloudy's FH6 Painter Changelog
 
+## 3.2.8
+
+- Export a supported full-car Studio design as a single `.kfpslivery` package using an owned same-car template. Garage checks the package and destination account before installing it as a separate private FH6 design. Close FH6 for installation, then select the new entry under My Designs and choose Load Design.
+- Improved how Studio handles section artwork, nested groups and masks during export. Previewing a design does not guarantee that it can be exported. Body kits must still be fitted in game; this workflow does not install custom paint materials.
+- Improved package and project handoffs, saved-project recovery, and how Studio closes its background process. Added clearer information about fitted parts and preview limitations.
+- Added a guided Studio tour and an illustrated, searchable offline manual accessible directly from Garage and Studio. Expanded installation confirmations, diagnostics and regression coverage.
+
 ## 3.2.7
 
 - Fixed the Vinyl Editor repeatedly offering to recover unsaved work in Chrome mode after a successful project save. Both desktop modes now resume the previous session automatically while retaining recovery backups.

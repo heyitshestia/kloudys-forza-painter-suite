@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 const web=path.join(root,'tools/livery-studio/src/web');
-const output=path.join(root,'runtime/studio-package-workspace-20261102/panels');
+const output=process.env.KFPS_TEST_EVIDENCE_ROOT?path.join(process.env.KFPS_TEST_EVIDENCE_ROOT,'panels'):path.join(root,'runtime/studio-package-workspace-20261102/panels');
 fs.mkdirSync(output,{recursive:true});
 const require=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/package.json'));
 const {chromium}=require('playwright');
@@ -22,7 +22,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try {
   browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    args:['--disable-gpu'],env:{...process.env}});
+    args:['--disable-gpu','--disable-software-rasterizer'],env:{...process.env,TEMP:output,TMP:output}});
   const results=[];
   for(const [language,width,height] of [['en',1440,900],['ko',1024,768],['ja',390,844]]){
     const page=await browser.newPage({viewport:{width,height}}),errors=[];

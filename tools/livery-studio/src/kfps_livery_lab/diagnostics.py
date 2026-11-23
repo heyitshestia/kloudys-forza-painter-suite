@@ -22,7 +22,9 @@ MAX_EVENT_BYTES = 1024
 MAX_BATCH = 16
 MAX_SNAPSHOT_BYTES = 48 * 1024
 ENUMS = {
-    "event": {"host", "readiness", "render", "counts", "action", "error", "request", "closed"},
+    "event": {"host", "readiness", "render", "counts", "action", "error", "request", "closed", "lifetime"},
+    "owner_state": {"native", "chrome", "none", "unknown"},
+    "shutdown_reason": {"unclaimed", "owner_closed"},
     "host": {"backend", "native", "chrome", "unknown"},
     "gpu_policy": {"auto", "opengl", "d3d11", "browser-default", "unknown"},
     "action": {"launch", "import", "edit", "undo", "redo", "save", "reopen", "source_edit",
@@ -160,7 +162,7 @@ def request_action(method, relative):
             return "cancel" if path.endswith("/cancel") else "car_switch"
         if path.startswith("api/recovery"):
             return "recovery"
-        return {"api/import-vinyl": "import", "api/render-vinyl": "render", "api/export-experiment": "export", "api/export-section": "export",
+        return {"api/import-vinyl": "import", "api/render-vinyl": "render", "api/export-experiment": "export", "api/export-section": "export", "api/export-package": "export",
                 "api/ui-theme": "theme", "api/host-theme": "theme", "api/language": "language"}.get(path)
     if method == "GET":
         if path.startswith("api/projects/"):

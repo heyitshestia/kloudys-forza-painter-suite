@@ -177,7 +177,10 @@ class QmlRefinementTests(unittest.TestCase):
         self.assertNotIn("wipNoticeAcknowledged", livery)
         self.assertNotIn('text: "WIP"', livery)
         details = self.read("components/LiveryPreviewDetails.qml")
-        self.assertIn("onInstallRequested: installConfirm.open()", livery)
+        self.assertIn("onInstallRequested: fullLiveryService.prepareInstallSelectedPackage()", livery)
+        self.assertRegex(livery, r"function onInstallConfirmationReady\(\)\s*\{\s*"
+                         r"if \(root\.pageActive && fullLiveryService\.installConfirmationCurrent\)\s*"
+                         r"installConfirm\.open\(\)")
         self.assertIn("onClicked: root.installRequested()", details)
         self.assertIn('title: "Install this FH6 livery?"', livery)
         self.assertIn("onAccepted: fullLiveryService.installSelectedPackage()", livery)

@@ -225,6 +225,8 @@ def _probe(url, archive):
     if (type(config.get("package_startup")) is not int or config["package_startup"] != 1
             or type(config.get("chrome_exposed")) is not bool):
         raise IncompatibleStudio("This Studio predates package startup. Save your work, then stop and restart Studio. It has not been stopped automatically.")
+    if type(config.get('backend_lifetime')) is not int or config['backend_lifetime'] != 1:
+        raise IncompatibleStudio("This Studio predates automatic backend shutdown. Save your work, then close and restart Studio. It has not been stopped automatically.")
     recovery = config.get("recovery")
     if (not isinstance(recovery, dict) or recovery.get("enabled") is not True
             or type(recovery.get("version")) is not int or recovery["version"] != 1):
@@ -354,7 +356,7 @@ def _spawn(config):
     cache.mkdir(exist_ok=True)
     args = [config["pythonExe"], "-B", str(LAB_ROOT / "src/run_livery.py"),
             "--kfps-root", config["kfpsRoot"], "--game-root", config["gameRoot"],
-            "--archive", config["archive"], "--workspace", str(workspace), "--port", "0"]
+            "--archive", config["archive"], "--workspace", str(workspace), "--port", "0", "--managed-lifetime"]
     if config.get("template"):
         args.extend(["--template", config["template"]])
     env = dict(os.environ, TEMP=str(temporary), TMP=str(temporary), TMPDIR=str(temporary),

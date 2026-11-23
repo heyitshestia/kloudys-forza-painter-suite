@@ -18,6 +18,7 @@ from urllib.request import Request
 
 LAB_ROOT = Path(__file__).resolve().parents[2]
 HANDOFF_ROOT = LAB_ROOT / "runs/host-handoffs"
+PACKAGE_LIBRARY = LAB_ROOT.parents[1] / "imgs/exported/full-liveries"
 MAX_BYTES = 8 * 1024 * 1024
 MAX_LAYOUT_BYTES = 32 * 1024 * 1024
 MAX_HANDOFFS = 64
@@ -63,7 +64,24 @@ def _package_handoff():
 
 
 def request_for_package(path, expected=""):
-    return validate_request(_package_handoff().request_for_package(path, _handoff_root(), expected=expected))
+    path = Path(path).absolute()
+    options = {"bind_template": True} if path.parent == PACKAGE_LIBRARY else {}
+    return validate_request(_package_handoff().request_for_package(path, _handoff_root(), expected=expected, **options))
+
+
+def exporter_for_handoff(identifier, vehicle, sections):
+    request = _read_handoff(identifier, layout=True, private=True)
+    ref = request.get("package_ref")
+    if not ref or request["layout"]["vehicle"] != {k:vehicle.get(k) for k in ("car_id","model_code")}:
+        raise HandoffError(409, "This transfer has no template for the current car. Open its Garage package again.")
+    package = _package_handoff()
+    try:
+        matches = [p for p in PACKAGE_LIBRARY.glob("*.kfpslivery") if package.package_name_id(p) == ref[:64]]
+        if len(matches) != 1:
+            raise ValueError("Package unavailable.")
+        return package.request_for_package(matches[0], _handoff_root(), expected=ref[64:], export_vehicle=vehicle, sections=sections)
+    except (OSError, ValueError):
+        raise HandoffError(409, "The Garage package changed or is no longer available. Open it from Garage again.") from None
 
 
 def _project_handoff():
@@ -100,13 +118,18 @@ def _handoff_root():
 
 
 def validate_request(value):
-    if not isinstance(value, dict) or set(value) - {"name", "vinyl", "layout", "project", "ui_theme"}:
+    if not isinstance(value, dict) or set(value) - {"name", "vinyl", "layout", "project", "ui_theme", "package_ref"}:
         raise ValueError("Studio launch accepts artwork, a display name and a resolved theme only.")
     name = value.get("name", "Editor vinyl")
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or any(ord(char) < 32 for char in name):
         raise ValueError("Vinyl name must contain 1 to 120 printable characters.")
     vinyl = value.get("vinyl")
     context = {"ui_theme": themes.validate_theme(value["ui_theme"])} if "ui_theme" in value else {}
+    if "package_ref" in value:
+        ref = value["package_ref"]
+        if "layout" not in value or not isinstance(ref,str) or not re.fullmatch("[a-f0-9]{128}", ref):
+            raise ValueError("Invalid Garage package reference.")
+        context["package_ref"] = ref
     if len(set(value) & {'vinyl', 'layout', 'project'}) > 1:
         raise ValueError('Send one vinyl, package artwork or full Studio project, not a mixture.')
     if "project" in value:
@@ -157,6 +180,8 @@ def _stage_validated_handoff(request, *, startup_session=None):
                 **({kind: request[kind]} if layout else {"shapes": request["vinyl"]["shapes"]})}
     if startup_session is not None:
         envelope["startup_session"] = startup_session
+    if "package_ref" in request:
+        envelope["package_ref"] = request["package_ref"]
     body = json.dumps(envelope, allow_nan=False, separators=(",", ":")).encode("utf-8")
     if len(body) > (MAX_LAYOUT_BYTES if layout else MAX_BYTES):
         raise ValueError("Artwork transfer exceeds its size limit.")
@@ -178,7 +203,7 @@ def read_project_handoff(identifier, *, resolve_resource=None):
     return _read_handoff(identifier, layout=True, project=True, resolve_resource=resolve_resource)
 
 
-def _read_handoff(identifier, *, layout=False, project=False, resolve_resource=None):
+def _read_handoff(identifier, *, layout=False, project=False, resolve_resource=None, private=False):
     maximum = MAX_LAYOUT_BYTES if layout else MAX_BYTES
     label = "Studio project" if project else "Package artwork" if layout else "Vinyl"
     resend = "Open it from Liveries again." if layout else "Send it from the editor again."
@@ -205,6 +230,10 @@ def _read_handoff(identifier, *, layout=False, project=False, resolve_resource=N
         key = "project" if project else "layout" if layout else "shapes"
         format_name = "kfps-studio-host-project-v1" if project else "kfps-studio-host-layout-v1" if layout else "kfps-studio-host-vinyl-v1"
         expected_keys = {"format", "created", "name", key}
+        binding = {}
+        if layout and not project and isinstance(envelope, dict) and "package_ref" in envelope:
+            expected_keys.add("package_ref")
+            binding["package_ref"] = envelope["package_ref"]
         if layout and isinstance(envelope, dict) and "startup_session" in envelope:
             expected_keys.add("startup_session")
             launcher.validate_url(envelope["startup_session"])
@@ -220,7 +249,10 @@ def _read_handoff(identifier, *, layout=False, project=False, resolve_resource=N
         if age > HANDOFF_LIFETIME:
             raise HandoffError(410, f"{label} transfer has expired. {resend}")
         if layout:
-            request = validate_request({"name": envelope["name"], key: envelope[key]})
+            request = validate_request({"name": envelope["name"], key: envelope[key], **binding})
+            if binding and not private:
+                del request["package_ref"]
+                request["package_template"] = True
             if resolve_resource is not None:
                 validator = _project_handoff().validate_project if project else _package_handoff().validate_layout
                 request[key] = validator(request[key], lru_cache(maxsize=model.MAX_SHAPES)(resolve_resource))

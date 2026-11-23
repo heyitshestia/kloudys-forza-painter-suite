@@ -18,6 +18,7 @@ OPERATIONS = {
     "migrate-package",
     "export-package",
     "install-package",
+    "resolve-install-destination",
     "prepare-mesh",
     "prepare-garage",
     "clear-cache",

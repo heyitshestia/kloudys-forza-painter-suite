@@ -19,7 +19,7 @@ import threading
 import time
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from .host_bridge import HANDOFF_ID, HandoffError, read_handoff, read_layout_handoff, read_project_handoff
+from .host_bridge import HANDOFF_ID, HandoffError, exporter_for_handoff, read_handoff, read_layout_handoff, read_project_handoff
 from .car_workspace import CarError, CarWorkspace, ID as CAR_JOB_ID, prepared_assets
 from .model import MAX_BODY_BYTES, NativeVinylRenderer, ValidationError, decode_json
 from .prepare import LAB_ROOT, atomic_json, prepare_car, within, workspace_lock, load_baseline
@@ -45,7 +45,8 @@ VENDOR_FILES = ("three/build/three.module.min.js", "three/build/three.core.min.j
 OPTIONAL_WEB_FILES = ("authoring-model.mjs", "studio-tools.mjs", "mirror-links.mjs",
                       "recovery-ui.mjs", "inspection-tools.mjs", "action-confirmations.mjs", "confirmation-policy.mjs",
                       "i18n.mjs", "locales/en.mjs", "locales/ko.mjs", "locales/ja.mjs", "project-storage-ui.mjs", "diagnostics.mjs",
-                      "preview-quality.mjs", "vinyl-compositing.mjs", "source-edit-monitor.mjs", "workspace-panels.mjs")
+                      "preview-quality.mjs", "vinyl-compositing.mjs", "source-edit-monitor.mjs", "workspace-panels.mjs",
+                      "studio-tour.mjs", "studio-tour.css")
 MAX_PROJECT_BYTES = 32 * 1024 * 1024
 MAX_NATIVE_TEXTURE_BYTES = 80 * 1024 * 1024
 # The qualified Studio client consumes validated #vinyl handoffs on startup/hashchange.
@@ -74,15 +75,25 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, *args, **kwargs):
         self.slots = threading.BoundedSemaphore(8)
+        self.request_lock = threading.Lock()
+        self.active_requests = 0
+        self.stopping = False
+        self.last_request = time.monotonic()
         super().__init__(*args, **kwargs)
 
     def process_request(self, request, client_address):
-        if not self.slots.acquire(blocking=False):
-            request.close()
-            return
+        with self.request_lock:
+            if self.stopping or not self.slots.acquire(blocking=False):
+                request.close()
+                return
+            self.active_requests += 1
+            self.last_request = time.monotonic()
         try:
             super().process_request(request, client_address)
         except BaseException:
+            with self.request_lock:
+                self.active_requests -= 1
+                self.last_request = time.monotonic()
             self.slots.release()
             raise
 
@@ -90,7 +101,18 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
         try:
             super().process_request_thread(request, client_address)
         finally:
+            with self.request_lock:
+                self.active_requests -= 1
+                self.last_request = time.monotonic()
             self.slots.release()
+
+    def stop_if_idle(self, *, min_idle=0):
+        """Seal admission atomically, never interrupting a save/export response."""
+        with self.request_lock:
+            if self.active_requests or time.monotonic() - self.last_request < min_idle:
+                return False
+            self.stopping = True
+            return True
 
 
 class LiveryLabServer:
@@ -99,6 +121,7 @@ class LiveryLabServer:
                  session_data_root=None, project_root=None, library_root=None, legacy_recovery_root=None,
                  release_announcement=None, activity_counter=None):
         self.prepared = prepared
+        self.kfps_root = Path(kfps_root).resolve()
         self.workspace = Path(workspace).resolve()
         self.token = secrets.token_urlsafe(32)
         self.chrome_exposed = False
@@ -720,6 +743,20 @@ class LiveryLabServer:
             relative = unquote(target.path[len(token) + 2:])
             request.diagnostic_started = time.monotonic()
             request.diagnostic_action = request_action(request.command, relative)
+            if relative == "api/open-manual":
+                if request.path != f"/{token}/api/open-manual" or origins != [self.origin]:
+                    return self.reply(request, 403, {"error": "Invalid manual request."})
+                if request.command != "POST":
+                    return self.reply(request, 405, {"error": "Method not allowed."})
+                if (request.headers.get_all("Content-Length") != ["0"] or
+                        request.headers.get("Transfer-Encoding") or request.headers.get("Content-Encoding")):
+                    return self.reply(request, 400, {"error": "Manual request must have an empty body."})
+                from tools.kfps_user_manual import open_manual
+                try:
+                    open_manual(self.kfps_root, "studio")
+                except OSError:
+                    return self.reply(request, 503, {"error": "Could not open the manual. See docs/garage-studio-guide/index.html in your KFPS folder."})
+                return self.reply(request, 200, {"opened": True})
             if relative == "api/chrome-session":
                 return self._chrome_session_request(request, target, token)
             if relative == "api/activity-ready":
@@ -833,7 +870,7 @@ class LiveryLabServer:
                     self.render_lock.release()
                 return self.reply(request, status, result)
             if request.command == "POST":
-                if relative not in ("api/render-vinyl", "api/import-vinyl", "api/export-experiment", "api/export-section"):
+                if relative not in ("api/render-vinyl", "api/import-vinyl", "api/export-experiment", "api/export-section", "api/export-package"):
                     return self.reply(request, 404, {"error": "Unknown API."})
                 if request.headers.get("Transfer-Encoding") or request.headers.get("Content-Encoding"):
                     return self.reply(request, 400, {"error": "Encoded request bodies are not supported."})
@@ -841,7 +878,7 @@ class LiveryLabServer:
                 if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit():
                     return self.reply(request, 411, {"error": "One Content-Length is required."})
                 length = int(lengths[0])
-                maximum = MAX_PROJECT_BYTES if relative in ("api/export-experiment", "api/export-section") else MAX_BODY_BYTES
+                maximum = MAX_PROJECT_BYTES if relative in ("api/export-experiment", "api/export-section", "api/export-package") else MAX_BODY_BYTES
                 if length > maximum:
                     return self.reply(request, 413, {"error": "Request exceeds the API size limit."})
                 if request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -866,9 +903,25 @@ class LiveryLabServer:
                         result = compile_section_vinyl(value["project"], config["vehicle"]["car_id"],
                                                        [row["section"] for row in config["sections"]], value["section"])
                         return self.reply(request, 200, result)
-                    if relative == "api/export-experiment":
+                    if relative in ("api/export-experiment", "api/export-package"):
+                        refs = request.headers.get_all("X-KFPS-Package-Handoff", [])
+                        if refs:
+                            if len(refs) != 1 or not HANDOFF_ID.fullmatch(refs[0]):
+                                return self.reply(request, 400, {"error":"Invalid package transfer identifier."})
+                            config = prepared["editor_config"]
+                            try:
+                                exporter = exporter_for_handoff(refs[0], config["vehicle"], [s["section"] for s in config["sections"]])
+                            except HandoffError as exc:
+                                return self.reply(request, exc.status, {"error":str(exc)})
                         if exporter is None:
                             return self.reply(request, 409, {"error": "Launch with an owned, same-car save export template first."})
+                        if relative == "api/export-package":
+                            if not isinstance(value, dict) or set(value) != {"project", "title"}:
+                                raise ValidationError("Expected a project and a livery name.")
+                            game = self.car_workspace.game_root if self.car_workspace else None
+                            result = exporter.export_package(value["project"], value["title"], game_folder=game,
+                                vehicle_index_cache=self.session_data_root / "package-vehicle-index.json" if game else None)
+                            return self.reply(request, 200, result, "application/vnd.kfps.livery+zip")
                         result = exporter.export(value)
                         return self.reply(request, 200, result, "application/zip")
                     result = self.renderer(value)
@@ -885,14 +938,17 @@ class LiveryLabServer:
                                                  **self.language.configuration(),
                                                  "host_vinyl_handoff": HOST_VINYL_HANDOFF_READY,
                                                  "host_layout_handoff": True,
+                                                 "host_package_template": True,
                                                  "host_project_handoff": True,
                                                  "host_garage_build": True,
                                                  "host_theme_handoff": True, "ui_theme_persistence": True,
                                                  "ui_theme": self.theme_context.effective(),
                                                  "host_ui_theme": self.theme_context.get(),
                                                  "section_vinyl_export": True, "car_switch": self.car_workspace is not None,
+                                                 "livery_package_export": True,
                                                  "source_editor_roundtrip": True,
                                                  "package_startup": 1,
+                                                 "backend_lifetime": 1,
                                                  "handoff_car_validation": True,
                                                  "chrome_exposed": self.chrome_exposed,
                                                  "action_confirmations": {"version": 1, "enabled": True},
@@ -938,6 +994,8 @@ def main():
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--managed-lifetime", action="store_true",
+                        help="Exit after the last native or dedicated Chrome owner closes.")
     parser.add_argument("--template", type=Path, help="Read-only same-car C_livery export or .kfpslivery template")
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
@@ -969,7 +1027,23 @@ def run(args):
         url = server.start()
         atomic_json(info_path, {"status": "running", "url": url, "pid": os.getpid(), "vehicle": prepared["editor_config"]["vehicle"]})
         print(json.dumps({"status": "running", "url": url}), flush=True)
-        stop.wait()
+        if getattr(args, 'managed_lifetime', False):
+            from .backend_lifetime import BackendOwnership, LifetimePolicy
+            ownership = BackendOwnership(args.kfps_root, LAB_ROOT)
+            lifetime = LifetimePolicy()
+            previous = None
+            while not stop.wait(1):
+                with ownership.observe(server.url, chrome_exposed=server.chrome_exposed) as state:
+                    if state != previous:
+                        server.diagnostics.record('lifetime', host='backend', owner_state=state)
+                        previous = state
+                    reason = lifetime.observe(state)
+                    if reason and server.httpd.stop_if_idle(min_idle=lifetime.disconnect_grace):
+                        server.diagnostics.record('lifetime', host='backend', owner_state=state,
+                                                  shutdown_reason=reason)
+                        break
+        else:
+            stop.wait()
     finally:
         server.close()
         atomic_json(info_path, {"status": "stopped", "url": None, "pid": os.getpid()})

@@ -50,7 +50,8 @@ export function validateAuthoring(value, placements) {
     {version:1,groups:normalizedGroups,locked:normalizedLocked,links}:undefined;
 }
 export function serializeProject(value, maximumBytes = MAX_PROJECT_BYTES) {
-  const json=JSON.stringify(value,null,2);
+  let json=JSON.stringify(value,null,2);
+  if(new TextEncoder().encode(json).byteLength>maximumBytes)json=JSON.stringify(value);
   if(new TextEncoder().encode(json).byteLength>maximumBytes)throw Error('The layout exceeds the 32 MiB project limit. Remove unused artwork before saving.');
   return json;
 }

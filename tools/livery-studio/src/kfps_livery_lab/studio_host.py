@@ -314,15 +314,16 @@ class StudioHost(QObject):
         self._close_decided(accepted, attempt)
 
     def _standalone_close(self):
-        if self._native_request or self.stopped:
+        if self._native_request or self._flight or self.stopped:
             return
         if self.pending_downloads:
             self.window.statusBar().showMessage(self.presentation.text(
                 "A file is still being saved. Close again after it finishes."), 5000)
             self.test_event("close_waits_for_downloads")
             return
-        self._native_request = True
-        self.page.triggerAction(QWebEnginePage.WebAction.RequestClose)
+        # Browser beforeunload prompts depend on prior user activation. Imported
+        # documents also need the explicit dirty-state check used by the shell.
+        self.prepare_close(lambda accepted: self.commit_close() if accepted else None)
 
     def _native_close_accepted(self):
         if self.stopped or not self._native_request:

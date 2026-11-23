@@ -1,0 +1,16 @@
+/* Keep theme dialog animations from moving the modal coordinate system. */
+#studioTour,:root[data-editor-theme-base] #studioTour{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--text,#f4f4f4);overflow:hidden;animation:none!important;transform:none!important;clip-path:none!important;filter:none!important;backdrop-filter:none!important}
+#studioTour[open]{display:block}
+#studioTour::backdrop{background:transparent;backdrop-filter:none}
+#studioTour.without-target,:root[data-editor-theme-base] #studioTour.without-target{background:rgb(0 0 0 / .62)}
+#studioTour .studio-tour-spotlight{position:fixed;box-sizing:border-box;pointer-events:none;border:2px solid var(--accent,#ff73b8);border-radius:6px;box-shadow:0 0 0 100vmax rgb(0 0 0 / .62)}
+#studioTour .studio-tour-card{position:fixed;box-sizing:border-box;z-index:1;width:380px;max-width:calc(100% - 24px);padding:18px;overflow:auto;background:var(--panel,#202027);color:var(--text,#f4f4f4);border:1px solid var(--accent,#ff73b8);border-radius:6px;box-shadow:0 6px 24px rgb(0 0 0 / .4);font-family:inherit;letter-spacing:0;text-align:left}
+#studioTour h2{margin:6px 0 12px;padding:0;border:0;background:none;font-size:18px;line-height:1.35;font-weight:600;overflow-wrap:anywhere;color:var(--text,#f4f4f4)}
+#studioTour p{margin:0;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+#studioTour #studioTourProgress{font-size:12px;color:var(--muted,#c5c5ce)}
+#studioTour .studio-tour-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:18px}
+#studioTour .studio-tour-navigation{display:flex;gap:8px;margin-left:auto}
+#studioTour button{min-height:34px;padding:6px 10px;font-size:13px;line-height:1.35;letter-spacing:0;white-space:normal}
+#studioTour button:focus-visible{outline:2px solid var(--accent,#ff73b8);outline-offset:3px}
+#studioTour [data-tour-next]{background:var(--panel2,#303038);color:var(--text,#f4f4f4);border-color:var(--accent,#ff73b8);font-weight:600}
+#studioTour *,#studioTour *::before,#studioTour *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

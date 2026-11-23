@@ -57,12 +57,12 @@ def strict_sections(raw):
         pos+=n
         return result
 
-    def group(nested=False,depth=0):
+    def group(nested=False,depth=0,has_state=False):
         if depth>64:
             raise ValueError('Excessive depth')
         marker=None
         if nested:
-            if take(1)[0] not in (0,1):
+            if has_state and take(1)[0] not in (0,1):
                 raise ValueError('Missing group placement state')
             if struct.unpack('<4f',take(16))!=(0,0,1,0):
                 raise ValueError('Nonidentity group frame')
@@ -76,10 +76,10 @@ def strict_sections(raw):
         children=[]
         for i in range(count):
             if bitmap[i//8]&(1<<(i%8)):
-                children.append(group(True,depth+1))
+                children.append(group(True,depth+1, bool(depth or i)))
             else:
                 lead=take(1)[0]
-                if lead in (0,1):
+                if (depth or i) and lead in (0,1):
                     lead=take(1)[0]
                 if lead!=2:
                     raise ValueError('Missing shape record')
@@ -228,9 +228,13 @@ class StudioMaskApiTests(unittest.TestCase):
                         return response.status,response.read()
                     finally:connection.close()
                 value=overlap_project()
+                for source in value['vinyls']:
+                    for shape in source['shapes']:
+                        shape['editor_group_path']=[{'id':'outer','name':'Outer'}, {'id':'inner','name':'Inner'}]
                 status,body=post('export-section',{'project':value,'section':'Left'})
                 self.assertEqual(200,status,body)
                 self.assertEqual(3,len(json.loads(body)['shapes']))
+                self.assertTrue(all(len(s['editor_group_path'])==3 for s in json.loads(body)['shapes']))
                 status,body=post('export-experiment',value)
                 self.assertEqual(200,status,body)
                 with zipfile.ZipFile(io.BytesIO(body)) as archive:
@@ -238,11 +242,15 @@ class StudioMaskApiTests(unittest.TestCase):
                     self.assertEqual(value,json.loads(archive.read('layout.kfps-layout.json')))
                     report=json.loads(archive.read('experiment.json'))
                     self.assertTrue(report['limits']['cross_placement_masks'])
+                    self.assertTrue(report['nested_groups_verified'])
                     self.assertFalse(report['installed'])
                     candidate=archive.read('candidate/C_livery')
                     strict_sections(candidate)
                     self.assertEqual(3,parse_fh6_header(archive.read('candidate/header')).type_value)
                     self.assertEqual(candidate,SaveTemplate.read(candidate,4267).original)
+                    layers,decoded=decoder.clivery_to_layers(SaveTemplate.read(candidate,4267).payload,preserve_groups=True)
+                    self.assertFalse(decoded['warnings'])
+                    self.assertTrue(all(len(s['editor_group_path'])>=3 for s in layers))
                 for quality in ('fast','balanced','sharp'):
                     status,body=post('render-vinyl',{'shapes':value['vinyls'][1]['shapes'],'preview_quality':quality})
                     self.assertEqual(200,status,body[:1000])

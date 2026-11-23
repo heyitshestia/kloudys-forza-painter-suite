@@ -145,7 +145,20 @@ def export_diagnostic_bundle(
                         size = source.stat().st_size
                         if size > 2 * 1024 * 1024:
                             handle.seek(size - 2 * 1024 * 1024)
-                        text = scrub_text(handle.read().decode("utf-8", errors="replace"))
+                        text = handle.read().decode("utf-8", errors="replace")
+                    if source.name in {"request.json", "result.json"}:
+                        # IPC files are local execution state, not report payloads.
+                        # Keep operation outcomes, never destination identities.
+                        try:
+                            value = json.loads(text)
+                        except (ValueError, TypeError):
+                            continue
+                        if isinstance(value, dict) and value.get("operation") in {
+                                "resolve-install-destination", "install-package"}:
+                            text = json.dumps({key: value[key] for key in (
+                                "protocol", "request_id", "operation", "kind", "ok", "cancelled",
+                                "elapsed_seconds", "error_type") if key in value}, indent=2)
+                    text = scrub_text(text)
                 except OSError:
                     continue
                 archive.writestr(f"{root_name}/{source.relative_to(root).as_posix()}", text)

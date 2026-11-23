@@ -388,10 +388,13 @@ class FH6LiveryIdentityTests(unittest.TestCase):
             root = Path(tmp)
             account = save_account(root)
             paths = SimpleNamespace(vehicle_index=root / "vehicle-index.json", recovery=root / "recovery")
+            confirmed = jobs.resolve_install_destination(
+                paths, {"save_root": str(account.containers)}, threading.Event())
             with patch.object(jobs, "load_or_build_vehicle_asset_index",
                               return_value={3304: SimpleNamespace(model_code="TEST_CAR")}):
                 result = jobs.install_package(paths, {
                     "package": str(self.package), "save_root": str(account.containers),
+                    "expected_destination": confirmed["expected_destination"],
                 }, threading.Event())
             self.assertEqual(1200, result["placement_count"])
             self.assertEqual(account.containers, Path(result["installed_folder"]).parent)

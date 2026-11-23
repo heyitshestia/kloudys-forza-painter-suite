@@ -102,14 +102,32 @@ def resolve_build(value, options, fitment=None):
         selection[part] = ident
         chosen.append(matches[0])
     parents = {}
-    if isinstance(fitment, dict) and fitment.get("source"):
-        for row in fitment.get("parent_map", []):
-            parent, body = row.get("parent_upgrade_id"), row.get("body_option_id")
-            if parent in parents and parents[parent] != body:
-                raise ValueError("Ambiguous body compatibility catalogue.")
-            parents[parent] = body
+    if fitment is None:
+        fitment = {}
+    if not isinstance(fitment, dict):
+        raise ValueError('The Garage body compatibility catalogue is invalid.')
+    rows, unresolved = fitment.get('parent_map', []), fitment.get('unresolved_parent_ids', [])
+    if (fitment and (not isinstance(fitment.get('source'), str) or not fitment['source'].strip())
+            or not isinstance(rows, list) or len(rows) > 4096
+            or not isinstance(unresolved, list) or len(unresolved) > 4096
+            or any(type(parent) is not int or not 0 < parent < 2**31 for parent in unresolved)):
+        raise ValueError('The Garage body compatibility catalogue is invalid.')
+    unresolved = set(unresolved)
+    for row in rows:
+        if (not isinstance(row, dict) or any(type(row.get(key)) is not int
+                or not 0 < row[key] < 2**31 for key in ('parent_upgrade_id', 'body_option_id'))):
+            raise ValueError('The Garage body compatibility catalogue is invalid.')
+        parent, body = row['parent_upgrade_id'], row['body_option_id']
+        if parent in parents and parents[parent] != body:
+            raise ValueError("Ambiguous body compatibility catalogue.")
+        parents[parent] = body
     for row in chosen:
-        required = parents.get(row.get("car_body_id"))
+        parent = row.get('car_body_id')
+        if parent is not None and (type(parent) is not int or not -1 <= parent < 2**31):
+            raise ValueError('The selected Garage component has invalid body compatibility metadata.')
+        if row['part_type'] != 'CarBody' and parent in unresolved:
+            raise ValueError(f"Garage component {row['part_type']} has unresolved body compatibility. No substitute was applied.")
+        required = parents.get(parent)
         if row["part_type"] != "CarBody" and required is not None and required != selection.get("CarBody"):
             raise ValueError(f"Garage component {row['part_type']} is incompatible with the selected body.")
     return selection
